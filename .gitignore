@@ -1,0 +1,6 @@
+/target
+**/target
+*.png
+.DS_Store
+.vscode
+.idea
