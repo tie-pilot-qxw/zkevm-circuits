@@ -1,6 +1,7 @@
 mod opcode;
 
 use crate::table::{BytecodeTable, StackTable};
+use core::panicking::panic;
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Selector};
@@ -11,6 +12,7 @@ const OPERAND_NUM: usize = 3;
 
 pub struct CoreCircuitConfig<F> {
     q_step_first: Selector,
+    //todo selectors: is_add, is_pop, etc...
     program_counter: Column<Advice>,
     opcode: Column<Advice>,
     is_push: Column<Advice>,
@@ -32,7 +34,7 @@ impl<F: Field> CoreCircuitConfig<F> {
         bytecode_table: BytecodeTable,
     ) -> Self {
         // init columns
-        let q_step_first = meta.complex_selector();
+        let q_step_first = meta.selector();
         let program_counter = meta.advice_column();
         let opcode = meta.advice_column();
         let is_push = meta.advice_column();
@@ -94,8 +96,9 @@ impl<F: Field> CoreCircuitConfig<F> {
             let program_counter = meta.query_advice(program_counter, Rotation::cur());
             let program_counter_in_table =
                 meta.query_advice(bytecode_table.program_counter, Rotation::cur());
-            vec![(program_counter, program_counter_in_table)] // todo add opcode, is_push in lookup
+            vec![(program_counter, program_counter_in_table)] // todo add opcode, is_push in lookup; todo pair.0 and pair.1 order?
         });
+        //todo opcode gadagets configure, don't forget opcode selectors
         Self {
             q_step_first,
             program_counter,
@@ -128,14 +131,12 @@ impl<F: Field> Circuit<F> for CoreCircuit<F> {
 
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         let stack_table = StackTable::construct(meta);
-        let bytecode_table = BytecodeTable::construct(meta);
-        Self::Config {
-            stack_table,
-            bytecode_table,
-        }
+        let bytecode_table = BytecodeTable::construct(meta); //should share with bytecode circuit
+        Self::Config::configure(meta, stack_table, bytecode_table)
     }
 
     fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+        // config.stack_table.assign()
         todo!()
     }
 }

@@ -4,5 +4,5 @@ use crate::core_circuit::CoreCircuitConfig;
 
 pub struct ComposerCircuitConfig<F> {
     coreCircuit: CoreCircuitConfig<F>,
-    stackCircuit: C
+    // stackCircuit: C
 }

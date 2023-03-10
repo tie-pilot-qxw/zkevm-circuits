@@ -1,4 +1,5 @@
 extern crate core;
+extern crate core;
 
 pub mod bytecode_circuit;
 pub mod composer_circuit;

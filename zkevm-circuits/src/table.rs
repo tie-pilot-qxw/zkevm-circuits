@@ -9,7 +9,6 @@ pub struct StackTable {
     pub value: Column<Advice>,
     pub is_write: Column<Advice>,
     pub address: Column<Advice>,
-    // pub first_access: Column<Advice>,
 }
 
 impl StackTable {
