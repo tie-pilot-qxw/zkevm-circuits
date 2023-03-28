@@ -1,7 +1,8 @@
 mod opcode;
 
 use crate::table::{BytecodeTable, StackTable};
-use core::panicking::panic;
+use crate::util::Expr;
+use crate::util::{SubCircuit, SubCircuitConfig};
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Selector};
@@ -10,6 +11,7 @@ use std::marker::PhantomData;
 
 const OPERAND_NUM: usize = 3;
 
+#[derive(Copy, Clone)]
 pub struct CoreCircuitConfig<F> {
     q_step_first: Selector,
     //todo selectors: is_add, is_pop, etc...
@@ -25,40 +27,50 @@ pub struct CoreCircuitConfig<F> {
     // External tables
     stack_table: StackTable,
     bytecode_table: BytecodeTable,
+    phantom: PhantomData<F>,
 }
 
-impl<F: Field> CoreCircuitConfig<F> {
-    pub fn configure(
+pub struct CoreCircuitConfigArgs {
+    pub(crate) stack_table: StackTable,
+    pub(crate) bytecode_table: BytecodeTable,
+}
+
+impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
+    type ConfigArgs = CoreCircuitConfigArgs;
+
+    fn new(
         meta: &mut ConstraintSystem<F>,
-        stack_table: StackTable,
-        bytecode_table: BytecodeTable,
+        Self::ConfigArgs {
+            stack_table,
+            bytecode_table,
+        }: Self::ConfigArgs,
     ) -> Self {
         // init columns
-        let q_step_first = meta.selector();
+        let q_step_first = meta.complex_selector();
         let program_counter = meta.advice_column();
         let opcode = meta.advice_column();
         let is_push = meta.advice_column();
         let operand = [(); OPERAND_NUM]
             .iter()
-            .map(|| meta.advice_column())
+            .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
         let operand_stack_stamp = [(); OPERAND_NUM]
             .iter()
-            .map(|| meta.advice_column())
+            .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
         let operand_stack_pointer = [(); OPERAND_NUM]
             .iter()
-            .map(|| meta.advice_column())
+            .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
         let operand_stack_is_write = [(); OPERAND_NUM]
             .iter()
-            .map(|| meta.advice_column())
+            .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -79,17 +91,17 @@ impl<F: Field> CoreCircuitConfig<F> {
                 ),
                 (
                     "second row program counter = 1",
-                    q_step_first * (1.expr() - program_counter),
+                    q_step_first * (1u8.expr() - program_counter),
                 ),
             ]
         });
         meta.create_gate("Cur-Prev stack_stamp constraints", |meta| {
-            let q_step_first_not = 1.expr() - meta.query_selector(q_step_first);
+            let q_step_first_not = 1u8.expr() - meta.query_selector(q_step_first);
             let stack_stamp_prev = meta.query_advice(stack_stamp, Rotation::prev());
             let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
             vec![(
                 "stack_stamp increment",
-                q_step_first_not.clone() * (stack_stamp - stack_stamp_prev - 1.expr()), //todo should do it based on OPCODE
+                q_step_first_not.clone() * (stack_stamp - stack_stamp_prev - 1u8.expr()), //todo should do it based on OPCODE
             )]
         });
         meta.lookup_any("opcode lookup in bytecode table", |meta| {
@@ -99,6 +111,7 @@ impl<F: Field> CoreCircuitConfig<F> {
             vec![(program_counter, program_counter_in_table)] // todo add opcode, is_push in lookup; todo pair.0 and pair.1 order?
         });
         //todo opcode gadagets configure, don't forget opcode selectors
+
         Self {
             q_step_first,
             program_counter,
@@ -112,13 +125,50 @@ impl<F: Field> CoreCircuitConfig<F> {
             stack_pointer,
             stack_table,
             bytecode_table,
+            phantom: PhantomData,
         }
     }
 }
 
-#[derive(Default)]
-struct CoreCircuit<F: Field> {
+impl<F: Field> CoreCircuitConfig<F> {
+    pub fn configure(
+        meta: &mut ConstraintSystem<F>,
+        stack_table: StackTable,
+        bytecode_table: BytecodeTable,
+    ) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct CoreCircuit<F: Field> {
     _marker: PhantomData<F>,
+}
+
+impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
+    type Config = CoreCircuitConfig<F>;
+
+    fn new_from_block() -> Self {
+        CoreCircuit {
+            _marker: PhantomData,
+        }
+    }
+
+    fn instance(&self) -> Vec<Vec<F>> {
+        todo!()
+    }
+
+    fn synthesize_sub(
+        &self,
+        config: &Self::Config,
+        layouter: &mut impl Layouter<F>,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn min_num_rows_block() -> (usize, usize) {
+        todo!()
+    }
 }
 
 impl<F: Field> Circuit<F> for CoreCircuit<F> {
