@@ -78,6 +78,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let stack_pointer = meta.advice_column();
 
         // add gates here
+        /*
         meta.create_gate("Init constraints", |meta| {
             let q_step_first = meta.query_selector(q_step_first);
             let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
@@ -110,6 +111,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                 meta.query_advice(bytecode_table.program_counter, Rotation::cur());
             vec![(program_counter, program_counter_in_table)] // todo add opcode, is_push in lookup; todo pair.0 and pair.1 order?
         });
+        */
         //todo opcode gadagets configure, don't forget opcode selectors
 
         Self {

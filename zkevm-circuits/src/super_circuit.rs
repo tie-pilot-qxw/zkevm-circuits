@@ -88,17 +88,36 @@ mod tests {
     use super::*;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
-    use log::error;
+    use plotters::prelude::*;
 
     #[test]
     fn empty_test() {
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
-        let k = 4; //todo fill in
+        let k = 6; //todo fill in
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
         if let Err(err) = res {
             panic!("Verification failures: {:#?}", err);
         }
+    }
+
+    #[test]
+    #[cfg(feature = "plot")]
+    fn test_draw() {
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
+        let k = 6; //todo fill in
+                   // draw picture
+        let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Example Circuit Layout", ("sans-serif", 60))
+            .unwrap();
+
+        halo2_proofs::dev::CircuitLayout::default()
+            // Render the circuit onto your area!
+            // The first argument is the size parameter for the circuit.
+            .render(k, &circuit, &root)
+            .unwrap();
     }
 }
