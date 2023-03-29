@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 
 const OPERAND_NUM: usize = 3;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct CoreCircuitConfig<F> {
     q_step_first: Selector,
     //todo selectors: is_add, is_pop, etc...
@@ -172,23 +172,23 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
         todo!()
     }
 }
-
-impl<F: Field> Circuit<F> for CoreCircuit<F> {
-    type Config = CoreCircuitConfig<F>;
-    type FloorPlanner = SimpleFloorPlanner;
-
-    fn without_witnesses(&self) -> Self {
-        Self::default()
-    }
-
-    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        let stack_table = StackTable::construct(meta);
-        let bytecode_table = BytecodeTable::construct(meta); //should share with bytecode circuit
-        Self::Config::configure(meta, stack_table, bytecode_table)
-    }
-
-    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
-        // config.stack_table.assign()
-        todo!()
-    }
-}
+// We don't need circuit impl, we need sub circuit impl
+// impl<F: Field> Circuit<F> for CoreCircuit<F> {
+//     type Config = CoreCircuitConfig<F>;
+//     type FloorPlanner = SimpleFloorPlanner;
+//
+//     fn without_witnesses(&self) -> Self {
+//         Self::default()
+//     }
+//
+//     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+//         let stack_table = StackTable::construct(meta);
+//         let bytecode_table = BytecodeTable::construct(meta); //should share with bytecode circuit
+//         Self::Config::configure(meta, stack_table, bytecode_table)
+//     }
+//
+//     fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+//         // config.stack_table.assign()
+//         todo!()
+//     }
+// }

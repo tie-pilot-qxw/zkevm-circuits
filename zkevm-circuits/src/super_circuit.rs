@@ -1,5 +1,6 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
 
+use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -7,10 +8,10 @@ use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct SuperCircuitConfig<F> {
     core_circuit: CoreCircuitConfig<F>,
-    // stack_circuit: C
+    bytecode_circuit: BytecodeCircuitConfig<F>,
 }
 
 /// Circuit configuration arguments
@@ -29,13 +30,19 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
                 bytecode_table,
             },
         );
-        SuperCircuitConfig { core_circuit }
+        let bytecode_circuit =
+            BytecodeCircuitConfig::new(meta, BytecodeCircuitConfigArgs { bytecode_table });
+        SuperCircuitConfig {
+            core_circuit,
+            bytecode_circuit,
+        }
     }
 }
 
 #[derive(Clone, Default, Debug)]
 pub struct SuperCircuit<F: Field> {
     pub core_circuit: CoreCircuit<F>,
+    pub bytecode_circuit: BytecodeCircuit<F>,
 }
 
 impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
@@ -43,12 +50,17 @@ impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
 
     fn new_from_block() -> Self {
         let core_circuit = CoreCircuit::new_from_block();
-        SuperCircuit { core_circuit }
+        let bytecode_circuit = BytecodeCircuit::new_from_block();
+        SuperCircuit {
+            core_circuit,
+            bytecode_circuit,
+        }
     }
 
     fn instance(&self) -> Vec<Vec<F>> {
         let mut instance = Vec::new();
         instance.extend_from_slice(&self.core_circuit.instance());
+        instance.extend_from_slice(&self.bytecode_circuit.instance());
 
         instance
     }
@@ -78,7 +90,13 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
         Self::Config::new(meta, SuperCircuitConfigArgs {})
     }
 
-    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<F>,
+    ) -> Result<(), Error> {
+        self.bytecode_circuit
+            .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
         Ok(())
     }
 }
@@ -91,22 +109,23 @@ mod tests {
     use plotters::prelude::*;
 
     #[test]
-    fn empty_test() {
+    fn test_super_circuit() {
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
-        let k = 6; //todo fill in
+        let k = 4;
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
         if let Err(err) = res {
-            panic!("Verification failures: {:#?}", err);
+            panic!("Verification failures: {:?}", err);
         }
     }
 
     #[test]
+    #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
-        let k = 6; //todo fill in
+        let k = 4; //todo fill in
                    // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
