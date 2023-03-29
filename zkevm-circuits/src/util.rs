@@ -3,7 +3,6 @@ use halo2_proofs::circuit::{Layouter, Value};
 use halo2_proofs::plonk::{ConstraintSystem, Error};
 
 pub use gadgets::util::Expr;
-
 /// SubCircuit configuration
 pub trait SubCircuitConfig<F: Field> {
     /// Config constructor arguments
@@ -43,4 +42,38 @@ pub trait SubCircuit<F: Field> {
     /// Return the minimum number of rows required to prove the block.
     /// Row numbers without/with padding are both returned.
     fn min_num_rows_block(/*block: &witness::Block<F> todo block not defined yet*/) -> (usize, usize);
+}
+
+#[macro_export]
+macro_rules! assign_column_value {
+    ($region:expr,$func:ident,$config:expr,$column:ident,$offset:expr,$value:expr) => {
+        $region.$func(
+            || {
+                format!(
+                    "{} at offset={}, value={}",
+                    stringify!($column),
+                    $offset,
+                    $value
+                )
+            },
+            $config.$column,
+            $offset,
+            || Value::known(F::from($value as u64)),
+        )?;
+    };
+    ($region:expr,$func:ident,$column:expr,$offset:expr,$value:expr) => {
+        $region.$func(
+            || {
+                format!(
+                    "{} at offset={}, value={}",
+                    stringify!($column),
+                    $offset,
+                    $value
+                )
+            },
+            $column,
+            $offset,
+            || Value::known(F::from($value as u64)),
+        )?;
+    };
 }

@@ -95,6 +95,8 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
+        self.core_circuit
+            .synthesize_sub(&config.core_circuit, &mut layouter)?;
         self.bytecode_circuit
             .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
         Ok(())

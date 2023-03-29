@@ -1,10 +1,11 @@
 mod opcode;
 
+use crate::assign_column_value;
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::Expr;
 use crate::util::{SubCircuit, SubCircuitConfig};
 use eth_types::Field;
-use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
+use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -27,7 +28,7 @@ pub struct CoreCircuitConfig<F> {
     // External tables
     stack_table: StackTable,
     bytecode_table: BytecodeTable,
-    phantom: PhantomData<F>,
+    _marker: PhantomData<F>,
 }
 
 pub struct CoreCircuitConfigArgs {
@@ -50,7 +51,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let program_counter = meta.advice_column();
         let opcode = meta.advice_column();
         let is_push = meta.advice_column();
-        let operand = [(); OPERAND_NUM]
+        let operand: [Column<Advice>; OPERAND_NUM] = [(); OPERAND_NUM]
             .iter()
             .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
@@ -78,16 +79,15 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let stack_pointer = meta.advice_column();
 
         // add gates here
-        /*
         meta.create_gate("Init constraints", |meta| {
             let q_step_first = meta.query_selector(q_step_first);
             let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
             let stack_pointer = meta.query_advice(stack_pointer, Rotation::cur());
             let program_counter = meta.query_advice(program_counter, Rotation::next());
             vec![
-                ("init stack_stamp = 0", q_step_first.clone() * stack_stamp),
+                ("init stack stamp = 0", q_step_first.clone() * stack_stamp),
                 (
-                    "init stack_pointer = 0",
+                    "init stack pointer = 0",
                     q_step_first.clone() * stack_pointer,
                 ),
                 (
@@ -96,7 +96,8 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                 ),
             ]
         });
-        meta.create_gate("Cur-Prev stack_stamp constraints", |meta| {
+        /*
+        meta.create_gate("Cur-Prev stack stamp constraints", |meta| {
             let q_step_first_not = 1u8.expr() - meta.query_selector(q_step_first);
             let stack_stamp_prev = meta.query_advice(stack_stamp, Rotation::prev());
             let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
@@ -105,13 +106,26 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                 q_step_first_not.clone() * (stack_stamp - stack_stamp_prev - 1u8.expr()), //todo should do it based on OPCODE
             )]
         });
+         */
         meta.lookup_any("opcode lookup in bytecode table", |meta| {
             let program_counter = meta.query_advice(program_counter, Rotation::cur());
-            let program_counter_in_table =
+            let is_push = meta.query_advice(is_push, Rotation::cur());
+            let opcode = meta.query_advice(opcode, Rotation::cur());
+            // first operand * is_push means only used for push opcode as value_pushed
+            let operand = meta.query_advice(operand[0], Rotation::cur());
+            let program_counter_table =
                 meta.query_advice(bytecode_table.program_counter, Rotation::cur());
-            vec![(program_counter, program_counter_in_table)] // todo add opcode, is_push in lookup; todo pair.0 and pair.1 order?
+            let is_push_table = meta.query_advice(bytecode_table.is_push, Rotation::cur());
+            let byte_table = meta.query_advice(bytecode_table.byte, Rotation::cur());
+            let value_pushed_table =
+                meta.query_advice(bytecode_table.value_pushed, Rotation::cur());
+            vec![
+                (program_counter, program_counter_table),
+                (is_push.clone(), is_push_table),
+                (opcode, byte_table),
+                (operand * is_push, value_pushed_table),
+            ]
         });
-        */
         //todo opcode gadagets configure, don't forget opcode selectors
 
         Self {
@@ -127,20 +141,20 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             stack_pointer,
             stack_table,
             bytecode_table,
-            phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<F: Field> CoreCircuitConfig<F> {
-    pub fn configure(
-        meta: &mut ConstraintSystem<F>,
-        stack_table: StackTable,
-        bytecode_table: BytecodeTable,
-    ) -> Self {
-        todo!()
-    }
-}
+// impl<F: Field> CoreCircuitConfig<F> {
+//     pub fn configure(
+//         meta: &mut ConstraintSystem<F>,
+//         stack_table: StackTable,
+//         bytecode_table: BytecodeTable,
+//     ) -> Self {
+//         todo!()
+//     }
+// }
 
 #[derive(Clone, Default, Debug)]
 pub struct CoreCircuit<F: Field> {
@@ -165,7 +179,33 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
-        todo!()
+        layouter.assign_region(
+            || "core circuit",
+            |mut region| {
+                // annotate col
+                region.name_column(|| "program counter", config.program_counter);
+                region.name_column(|| "is push", config.is_push);
+                region.name_column(|| "opcode", config.opcode);
+                region.name_column(|| "stack stamp", config.stack_stamp);
+                region.name_column(|| "stack pointer", config.stack_pointer);
+
+                // assign first row
+                config.q_step_first.enable(&mut region, 0)?;
+                assign_column_value!(region, assign_advice, config, program_counter, 0, 0);
+                assign_column_value!(region, assign_advice, config, is_push, 0, 0);
+                assign_column_value!(region, assign_advice, config, opcode, 0, 0);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 0, 0);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 0, 0);
+                // assaign second row
+                assign_column_value!(region, assign_advice, config, program_counter, 1, 1);
+                assign_column_value!(region, assign_advice, config, is_push, 1, 1);
+                assign_column_value!(region, assign_advice, config, opcode, 1, 0x60);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 1, 1);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 1, 1);
+                assign_column_value!(region, assign_advice, config.operand[0], 1, 0xff);
+                Ok(())
+            },
+        )
     }
 
     fn min_num_rows_block() -> (usize, usize) {

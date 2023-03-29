@@ -1,3 +1,4 @@
+use crate::assign_column_value;
 use crate::table::BytecodeTable;
 use crate::util::SubCircuitConfig;
 use crate::util::{Expr, SubCircuit};
@@ -13,7 +14,7 @@ use std::marker::PhantomData;
 pub struct BytecodeCircuitConfig<F> {
     bytecode_table: BytecodeTable,
     q_enable: Selector,
-    phantom: PhantomData<F>,
+    _marker: PhantomData<F>,
 }
 
 pub struct BytecodeCircuitConfigArgs {
@@ -27,6 +28,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         meta: &mut ConstraintSystem<F>,
         Self::ConfigArgs { bytecode_table }: Self::ConfigArgs,
     ) -> Self {
+        // init columns
         let q_enable = meta.selector();
 
         meta.create_gate("Cur-Prev program counter", |meta| {
@@ -60,7 +62,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         Self {
             bytecode_table,
             q_enable,
-            phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -97,65 +99,47 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                 region.name_column(|| "byte", config.bytecode_table.byte);
                 region.name_column(|| "value pushed", config.bytecode_table.value_pushed);
 
-                region.assign_advice(
-                    || "program counter",
-                    config.bytecode_table.program_counter,
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.bytecode_table,
+                    program_counter,
                     0,
-                    || Value::known(F::from(1)),
-                )?;
+                    0
+                );
                 for offset in 1..3 {
                     config.q_enable.enable(&mut region, offset)?;
-                    let v = Value::known(F::from(offset as u64 + 1));
-                    region.assign_advice(
-                        || "program counter",
-                        config.bytecode_table.program_counter,
+                    assign_column_value!(
+                        region,
+                        assign_advice,
+                        config.bytecode_table,
+                        program_counter,
                         offset,
-                        || v,
-                    )?;
+                        offset
+                    );
                 }
-                region.assign_advice(
-                    || "byte",
-                    config.bytecode_table.byte,
-                    1,
-                    || Value::known(F::from(0x60)),
-                )?;
-                region.assign_advice(
-                    || "byte",
-                    config.bytecode_table.byte,
-                    2,
-                    || Value::known(F::from(0xff)),
-                )?;
-                region.assign_advice(
-                    || "is push",
-                    config.bytecode_table.is_push,
-                    1,
-                    || Value::known(F::one()),
-                )?;
-                region.assign_advice(
-                    || "is push",
-                    config.bytecode_table.is_push,
-                    2,
-                    || Value::known(F::zero()),
-                )?;
-                region.assign_advice(
-                    || "value pushed",
-                    config.bytecode_table.value_pushed,
-                    1,
-                    || Value::known(F::from(0xff)),
-                )?;
-                region.assign_advice(
-                    || "value pushed",
-                    config.bytecode_table.value_pushed,
-                    2,
-                    || Value::known(F::zero()),
-                )?;
+                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 1, 0x60);
+                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 2, 0xff);
                 // padding is necessary for byte at last row +1
-                region.assign_advice(
-                    || "byte",
-                    config.bytecode_table.byte,
-                    3,
-                    || Value::known(F::zero()),
-                )?;
+                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 3, 0);
+                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 1, 1);
+                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 2, 0);
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.bytecode_table,
+                    value_pushed,
+                    1,
+                    0xff
+                );
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.bytecode_table,
+                    value_pushed,
+                    2,
+                    0
+                );
                 Ok(())
             },
         )
