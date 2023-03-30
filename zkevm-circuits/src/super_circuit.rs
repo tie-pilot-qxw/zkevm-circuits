@@ -112,8 +112,8 @@ mod tests {
 
     #[test]
     fn test_super_circuit() {
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
         let k = 4;
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
@@ -126,9 +126,9 @@ mod tests {
     #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
+        let k = 4;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
-        let k = 4; //todo fill in
-                   // draw picture
+        // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root

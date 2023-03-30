@@ -1,6 +1,8 @@
+mod execution;
 mod opcode;
 
 use crate::assign_column_value;
+use crate::core_circuit::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::Expr;
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -15,6 +17,7 @@ const OPERAND_NUM: usize = 3;
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F> {
     q_step_first: Selector,
+    q_enable: Selector, // to avoid apply gate to unuseable rows
     //todo selectors: is_add, is_pop, etc...
     program_counter: Column<Advice>,
     opcode: Column<Advice>,
@@ -48,6 +51,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
     ) -> Self {
         // init columns
         let q_step_first = meta.complex_selector();
+        let q_enable = meta.selector();
         let program_counter = meta.advice_column();
         let opcode = meta.advice_column();
         let is_push = meta.advice_column();
@@ -79,7 +83,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let stack_pointer = meta.advice_column();
 
         // add gates here
-        meta.create_gate("Init constraints", |meta| {
+        meta.create_gate("init constraints", |meta| {
             let q_step_first = meta.query_selector(q_step_first);
             let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
             let stack_pointer = meta.query_advice(stack_pointer, Rotation::cur());
@@ -97,7 +101,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             ]
         });
         /*
-        meta.create_gate("Cur-Prev stack stamp constraints", |meta| {
+        meta.create_gate("cur-prev stack stamp constraints", |meta| {
             let q_step_first_not = 1u8.expr() - meta.query_selector(q_step_first);
             let stack_stamp_prev = meta.query_advice(stack_stamp, Rotation::prev());
             let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
@@ -128,8 +132,9 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         });
         //todo opcode gadagets configure, don't forget opcode selectors
 
-        Self {
+        let config = Self {
             q_step_first,
+            q_enable,
             program_counter,
             opcode,
             is_push,
@@ -142,7 +147,11 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             stack_table,
             bytecode_table,
             _marker: PhantomData,
-        }
+        };
+        // execution gadgets configure, e.g. opcodes
+        ExecutionGadgets::configure(&config, meta);
+
+        config
     }
 }
 
@@ -188,6 +197,18 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                 region.name_column(|| "opcode", config.opcode);
                 region.name_column(|| "stack stamp", config.stack_stamp);
                 region.name_column(|| "stack pointer", config.stack_pointer);
+                region.name_column(|| "operand 0", config.operand[0]);
+                region.name_column(|| "operand 1", config.operand[1]);
+                region.name_column(|| "operand 2", config.operand[2]);
+                region.name_column(|| "stack is write 0", config.operand_stack_is_write[0]);
+                region.name_column(|| "stack is write 1", config.operand_stack_is_write[1]);
+                region.name_column(|| "stack is write 2", config.operand_stack_is_write[2]);
+                region.name_column(|| "stack stamp 0", config.operand_stack_stamp[0]);
+                region.name_column(|| "stack stamp 1", config.operand_stack_stamp[1]);
+                region.name_column(|| "stack stamp 2", config.operand_stack_stamp[2]);
+                region.name_column(|| "stack pointer 0", config.operand_stack_pointer[0]);
+                region.name_column(|| "stack pointer 1", config.operand_stack_pointer[1]);
+                region.name_column(|| "stack pointer 2", config.operand_stack_pointer[2]);
 
                 // assign first row
                 config.q_step_first.enable(&mut region, 0)?;
@@ -197,12 +218,49 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                 assign_column_value!(region, assign_advice, config, stack_stamp, 0, 0);
                 assign_column_value!(region, assign_advice, config, stack_pointer, 0, 0);
                 // assaign second row
+                config.q_enable.enable(&mut region, 1)?;
                 assign_column_value!(region, assign_advice, config, program_counter, 1, 1);
                 assign_column_value!(region, assign_advice, config, is_push, 1, 1);
                 assign_column_value!(region, assign_advice, config, opcode, 1, 0x60);
                 assign_column_value!(region, assign_advice, config, stack_stamp, 1, 1);
                 assign_column_value!(region, assign_advice, config, stack_pointer, 1, 1);
                 assign_column_value!(region, assign_advice, config.operand[0], 1, 0xff);
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.operand_stack_is_write[0],
+                    1,
+                    1
+                );
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 1, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 1, 1);
+                assign_column_value!(region, assign_advice, config.operand[1], 1, 0);
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.operand_stack_is_write[1],
+                    1,
+                    0
+                );
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand[2], 1, 0);
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.operand_stack_is_write[2],
+                    1,
+                    0
+                );
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 1, 0);
+                // assaign second row
+                assign_column_value!(region, assign_advice, config, program_counter, 2, 3);
+                assign_column_value!(region, assign_advice, config, is_push, 2, 0);
+                assign_column_value!(region, assign_advice, config, opcode, 2, 0x00);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 2, 0);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 2, 0);
+
                 Ok(())
             },
         )

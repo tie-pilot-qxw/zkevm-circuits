@@ -31,7 +31,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         // init columns
         let q_enable = meta.selector();
 
-        meta.create_gate("Cur-Prev program counter", |meta| {
+        meta.create_gate("cur-prev program counter", |meta| {
             let q_enable = meta.query_selector(q_enable);
             let program_counter =
                 meta.query_advice(bytecode_table.program_counter, Rotation::cur());
@@ -120,8 +120,6 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                 }
                 assign_column_value!(region, assign_advice, config.bytecode_table, byte, 1, 0x60);
                 assign_column_value!(region, assign_advice, config.bytecode_table, byte, 2, 0xff);
-                // padding is necessary for byte at last row +1
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 3, 0);
                 assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 1, 1);
                 assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 2, 0);
                 assign_column_value!(
@@ -139,6 +137,16 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                     value_pushed,
                     2,
                     0
+                );
+                // padding is necessary for byte at last row +1
+                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 3, 0);
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.bytecode_table,
+                    program_counter,
+                    3,
+                    3
                 );
                 Ok(())
             },

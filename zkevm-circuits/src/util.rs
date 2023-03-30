@@ -77,3 +77,12 @@ macro_rules! assign_column_value {
         )?;
     };
 }
+
+#[macro_export]
+macro_rules! add_expression_to_constraints {
+    ($v:expr,$e:expr) => {
+        $v.into_iter()
+            .map(|(name, expression)| (name, $e * expression))
+            .collect::<Vec<(&str, Expression<F>)>>()
+    };
+}
