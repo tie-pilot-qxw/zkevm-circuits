@@ -204,6 +204,7 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
         todo!()
     }
 
+    #[rustfmt::skip]
     fn synthesize_sub(
         &self,
         config: &Self::Config,
@@ -240,114 +241,95 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                     );
                 }
 
-                // assign first row
                 config.q_step_first.enable(&mut region, 0)?;
-                assign_column_value!(region, assign_advice, config, program_counter, 0, 0);
-                assign_column_value!(region, assign_advice, config, is_push, 0, 0);
-                assign_column_value!(region, assign_advice, config, opcode, 0, 0);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 0, 0);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 0, 0);
-                // assaign second row
                 config.q_enable.enable(&mut region, 1)?;
-                assign_column_value!(region, assign_advice, config, program_counter, 1, 1);
-                assign_column_value!(region, assign_advice, config, is_push, 1, 1);
-                assign_column_value!(region, assign_advice, config, opcode, 1, 0x60);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 1, 1);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 1, 1);
-                assign_column_value!(region, assign_advice, config.operand[0], 1, 0xff);
-                assign_column_value!(
-                    region,
-                    assign_advice,
-                    config.operand_stack_is_write[0],
-                    1,
-                    1
-                );
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 1, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 1, 1);
-                assign_column_value!(region, assign_advice, config.operand[1], 1, 0);
-                assign_column_value!(
-                    region,
-                    assign_advice,
-                    config.operand_stack_is_write[1],
-                    1,
-                    0
-                );
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand[2], 1, 0);
-                assign_column_value!(
-                    region,
-                    assign_advice,
-                    config.operand_stack_is_write[2],
-                    1,
-                    0
-                );
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 1, 0);
-                for idx in 0..EXECUTION_STATE_NUM {
-                    assign_column_value!(
-                        region,
-                        assign_advice,
-                        config.execution_state_selector[idx],
-                        1,
-                        0
-                    );
-                }
-                assign_column_value!(
-                    region,
-                    assign_advice,
-                    config.execution_state_selector[0x60],
-                    1,
-                    1
-                ); //PUSH should be 1
-                   // assaign second row
                 config.q_enable.enable(&mut region, 2)?;
+                config.q_enable.enable(&mut region, 3)?;
+                assign_column_value!(region, assign_advice, config, program_counter, 0, 0);
+                assign_column_value!(region, assign_advice, config, program_counter, 1, 1);
                 assign_column_value!(region, assign_advice, config, program_counter, 2, 3);
-                assign_column_value!(region, assign_advice, config, is_push, 2, 0);
-                assign_column_value!(region, assign_advice, config, opcode, 2, 0x00);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 2, 0);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 2, 0);
-                for idx in 0..OPERAND_NUM {
-                    assign_column_value!(region, assign_advice, config.operand[idx], 2, 0);
-                    assign_column_value!(
-                        region,
-                        assign_advice,
-                        config.operand_stack_is_write[idx],
-                        2,
-                        0
-                    );
-                    assign_column_value!(
-                        region,
-                        assign_advice,
-                        config.operand_stack_stamp[idx],
-                        2,
-                        0
-                    );
-                    assign_column_value!(
-                        region,
-                        assign_advice,
-                        config.operand_stack_pointer[idx],
-                        2,
-                        0
-                    );
-                }
+                assign_column_value!(region, assign_advice, config, program_counter, 3, 5);
+                assign_column_value!(region, assign_advice, config, program_counter, 4, 6);
+                assign_column_value!(region, assign_advice, config, program_counter, 5, 0);// pad 0 means it ends
+                assign_column_value!(region, assign_advice, config, is_push, 0, 0);
+                assign_column_value!(region, assign_advice, config, is_push, 1, 1);
+                assign_column_value!(region, assign_advice, config, is_push, 2, 1);
+                assign_column_value!(region, assign_advice, config, is_push, 3, 0);
+                assign_column_value!(region, assign_advice, config, is_push, 4, 0);
+                assign_column_value!(region, assign_advice, config, opcode, 0, 0);
+                assign_column_value!(region, assign_advice, config, opcode, 1, 0x60);
+                assign_column_value!(region, assign_advice, config, opcode, 2, 0x60);
+                assign_column_value!(region, assign_advice, config, opcode, 3, 0x01);
+                assign_column_value!(region, assign_advice, config, opcode, 4, 0x00);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 0, 0);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 1, 1);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 2, 2);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 3, 5);
+                assign_column_value!(region, assign_advice, config, stack_stamp, 4, 0);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 0, 0);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 1, 1);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 2, 2);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 3, 1);
+                assign_column_value!(region, assign_advice, config, stack_pointer, 4, 0);
+                assign_column_value!(region, assign_advice, config.operand[0], 1, 0x0a);
+                assign_column_value!(region, assign_advice, config.operand[0], 2, 0x0b);
+                assign_column_value!(region, assign_advice, config.operand[0], 3, 0x0b);
+                assign_column_value!(region, assign_advice, config.operand[0], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 1, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 2, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 3, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 1, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 2, 2);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 3, 3);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 1, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 2, 2);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 3, 2);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand[1], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand[1], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand[1], 3, 0x0a);
+                assign_column_value!(region, assign_advice, config.operand[1], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 3, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 3, 4);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 3, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand[2], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand[2], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand[2], 3, 0x15);
+                assign_column_value!(region, assign_advice, config.operand[2], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 3, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 3, 5);
+                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 4, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 1, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 2, 0);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 3, 1);
+                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 4, 0);
+                // opcode selectors
                 for idx in 0..EXECUTION_STATE_NUM {
-                    assign_column_value!(
-                        region,
-                        assign_advice,
-                        config.execution_state_selector[idx],
-                        2,
-                        0
-                    );
+                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 1, 0);
+                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 2, 0);
+                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 3, 0);
+                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 4, 0);
                 }
-                assign_column_value!(
-                    region,
-                    assign_advice,
-                    config.execution_state_selector[0x00],
-                    2,
-                    1
-                ); //STOP should be 1
-                assign_column_value!(region, assign_advice, config, program_counter, 3, 0);
+                assign_column_value!(region, assign_advice, config.execution_state_selector[0x60], 1, 1); //PUSH should be 1
+                assign_column_value!(region, assign_advice, config.execution_state_selector[0x60], 2, 1); //PUSH should be 1
+                assign_column_value!(region, assign_advice, config.execution_state_selector[0x01], 3, 1); //ADD should be 1
+                assign_column_value!(region, assign_advice, config.execution_state_selector[0x00], 4, 1); //STOP should be 1
 
                 Ok(())
             },

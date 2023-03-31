@@ -23,7 +23,7 @@ impl<F: Field> ExecutionGadget<F> for StopGadget<F> {
             let is_write_0 = meta.query_advice(config.operand_stack_is_write[0], Rotation::cur());
             let is_write_1 = meta.query_advice(config.operand_stack_is_write[1], Rotation::cur());
             let is_write_2 = meta.query_advice(config.operand_stack_is_write[2], Rotation::cur());
-            let operand_0 = meta.query_advice(config.operand[0], Rotation::cur()); // handled by lookup in core
+            let operand_0 = meta.query_advice(config.operand[0], Rotation::cur());
             let operand_1 = meta.query_advice(config.operand[1], Rotation::cur());
             let operand_2 = meta.query_advice(config.operand[2], Rotation::cur());
             let stack_stamp_0 = meta.query_advice(config.operand_stack_stamp[0], Rotation::cur());
