@@ -4,6 +4,7 @@ use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCi
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::witness::Block;
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
@@ -48,9 +49,9 @@ pub struct SuperCircuit<F: Field> {
 impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
     type Config = SuperCircuitConfig<F>;
 
-    fn new_from_block() -> Self {
-        let core_circuit = CoreCircuit::new_from_block();
-        let bytecode_circuit = BytecodeCircuit::new_from_block();
+    fn new_from_block(block: &Block<F>) -> Self {
+        let core_circuit = CoreCircuit::new_from_block(block);
+        let bytecode_circuit = BytecodeCircuit::new_from_block(block);
         SuperCircuit {
             core_circuit,
             bytecode_circuit,
@@ -113,7 +114,7 @@ mod tests {
     #[test]
     fn test_super_circuit() {
         let k = 4;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&Default::default());
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
@@ -127,7 +128,7 @@ mod tests {
     #[cfg(feature = "plot")]
     fn test_draw() {
         let k = 4;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block();
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&Default::default());
         // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();

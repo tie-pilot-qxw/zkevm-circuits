@@ -2,6 +2,7 @@ use crate::assign_column_value;
 use crate::table::BytecodeTable;
 use crate::util::SubCircuitConfig;
 use crate::util::{Expr, SubCircuit};
+use crate::witness::Block;
 use eth_types::evm_types::OpcodeId::PUSH1;
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, Value};
@@ -69,14 +70,16 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
 
 #[derive(Clone, Default, Debug)]
 pub struct BytecodeCircuit<F: Field> {
+    block: Block<F>,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
     type Config = BytecodeCircuitConfig<F>;
 
-    fn new_from_block() -> Self {
+    fn new_from_block(block: &Block<F>) -> Self {
         BytecodeCircuit {
+            block: block.clone(),
             _marker: PhantomData,
         }
     }
@@ -107,7 +110,7 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                     0,
                     0
                 );
-                for offset in 1..3 {
+                for offset in 1..=3 {
                     config.q_enable.enable(&mut region, offset)?;
                     assign_column_value!(
                         region,
@@ -138,16 +141,18 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                     2,
                     0
                 );
-                // padding is necessary for byte at last row +1
                 assign_column_value!(region, assign_advice, config.bytecode_table, byte, 3, 0);
+                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 3, 0);
                 assign_column_value!(
                     region,
                     assign_advice,
                     config.bytecode_table,
-                    program_counter,
+                    value_pushed,
                     3,
-                    3
+                    0
                 );
+                // padding is necessary for byte at last row +1
+                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 4, 0);
                 Ok(())
             },
         )

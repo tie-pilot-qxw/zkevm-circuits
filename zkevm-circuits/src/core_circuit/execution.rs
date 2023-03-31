@@ -1,5 +1,7 @@
 use crate::core_circuit::opcode::push::Push1Gadget;
+use crate::core_circuit::opcode::stop::StopGadget;
 use crate::core_circuit::CoreCircuitConfig;
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::plonk::{ConstraintSystem, Error};
@@ -18,12 +20,14 @@ pub(crate) trait ExecutionGadget<F: FieldExt> {
 
 pub(crate) struct ExecutionGadgets<F> {
     push1_gadget: Push1Gadget<F>,
+    stop_gadget: StopGadget<F>,
 }
 
 impl<F: Field> ExecutionGadgets<F> {
     pub(crate) fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
         ExecutionGadgets {
             push1_gadget: Push1Gadget::configure(config, meta),
+            stop_gadget: StopGadget::configure(config, meta),
         }
     }
 }

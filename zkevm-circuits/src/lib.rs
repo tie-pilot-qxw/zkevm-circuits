@@ -4,3 +4,4 @@ pub mod stack_circuit;
 pub mod super_circuit;
 pub mod table;
 pub mod util;
+pub mod witness;

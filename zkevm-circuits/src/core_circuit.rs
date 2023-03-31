@@ -1,27 +1,30 @@
 mod execution;
 mod opcode;
 
-use crate::assign_column_value;
 use crate::core_circuit::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::Expr;
 use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::{assign_column_value, witness::Block};
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
-use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Selector};
+use halo2_proofs::plonk::{
+    Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Selector,
+};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const OPERAND_NUM: usize = 3;
+const EXECUTION_STATE_NUM: usize = 256;
 
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F> {
     q_step_first: Selector,
-    q_enable: Selector, // to avoid apply gate to unuseable rows
-    //todo selectors: is_add, is_pop, etc...
+    q_enable: Selector, // to avoid apply gate to unusable rows
     program_counter: Column<Advice>,
     opcode: Column<Advice>,
     is_push: Column<Advice>,
+    execution_state_selector: [Column<Advice>; EXECUTION_STATE_NUM],
     operand: [Column<Advice>; OPERAND_NUM],
     operand_stack_stamp: [Column<Advice>; OPERAND_NUM],
     operand_stack_pointer: [Column<Advice>; OPERAND_NUM],
@@ -55,6 +58,13 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let program_counter = meta.advice_column();
         let opcode = meta.advice_column();
         let is_push = meta.advice_column();
+        let execution_state_selector: [Column<Advice>; EXECUTION_STATE_NUM] = [();
+            EXECUTION_STATE_NUM]
+            .iter()
+            .map(|_| meta.advice_column())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
         let operand: [Column<Advice>; OPERAND_NUM] = [(); OPERAND_NUM]
             .iter()
             .map(|_| meta.advice_column())
@@ -100,17 +110,25 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                 ),
             ]
         });
-        /*
-        meta.create_gate("cur-prev stack stamp constraints", |meta| {
-            let q_step_first_not = 1u8.expr() - meta.query_selector(q_step_first);
-            let stack_stamp_prev = meta.query_advice(stack_stamp, Rotation::prev());
-            let stack_stamp = meta.query_advice(stack_stamp, Rotation::cur());
-            vec![(
-                "stack_stamp increment",
-                q_step_first_not.clone() * (stack_stamp - stack_stamp_prev - 1u8.expr()), //todo should do it based on OPCODE
-            )]
+        meta.create_gate("execution state selector", |meta| {
+            let q_enable = meta.query_selector(q_enable);
+            let sum = (0..EXECUTION_STATE_NUM)
+                .map(|idx| meta.query_advice(execution_state_selector[idx], Rotation::cur()))
+                .reduce(|acc, expr| acc + expr)
+                .unwrap();
+            let mut bool_checks: Vec<(&str, Expression<F>)> = (0..EXECUTION_STATE_NUM)
+                .map(|idx| {
+                    let x = meta.query_advice(execution_state_selector[idx], Rotation::cur());
+                    (
+                        "execution state selector should be bool",
+                        q_enable.clone() * x.clone() * (1u8.expr() - x),
+                    )
+                })
+                .collect(); //.chain()
+            bool_checks.push(("sum 1", q_enable * (sum - 1u8.expr())));
+            bool_checks
+            // vec![("sum 1", q_step_first_not * (sum - 1u8.expr()))]
         });
-         */
         meta.lookup_any("opcode lookup in bytecode table", |meta| {
             let program_counter = meta.query_advice(program_counter, Rotation::cur());
             let is_push = meta.query_advice(is_push, Rotation::cur());
@@ -138,6 +156,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             program_counter,
             opcode,
             is_push,
+            execution_state_selector,
             operand,
             operand_stack_stamp,
             operand_stack_pointer,
@@ -167,14 +186,16 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
 
 #[derive(Clone, Default, Debug)]
 pub struct CoreCircuit<F: Field> {
+    block: Block<F>,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
     type Config = CoreCircuitConfig<F>;
 
-    fn new_from_block() -> Self {
+    fn new_from_block(block: &Block<F>) -> Self {
         CoreCircuit {
+            block: block.clone(),
             _marker: PhantomData,
         }
     }
@@ -197,18 +218,27 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                 region.name_column(|| "opcode", config.opcode);
                 region.name_column(|| "stack stamp", config.stack_stamp);
                 region.name_column(|| "stack pointer", config.stack_pointer);
-                region.name_column(|| "operand 0", config.operand[0]);
-                region.name_column(|| "operand 1", config.operand[1]);
-                region.name_column(|| "operand 2", config.operand[2]);
-                region.name_column(|| "stack is write 0", config.operand_stack_is_write[0]);
-                region.name_column(|| "stack is write 1", config.operand_stack_is_write[1]);
-                region.name_column(|| "stack is write 2", config.operand_stack_is_write[2]);
-                region.name_column(|| "stack stamp 0", config.operand_stack_stamp[0]);
-                region.name_column(|| "stack stamp 1", config.operand_stack_stamp[1]);
-                region.name_column(|| "stack stamp 2", config.operand_stack_stamp[2]);
-                region.name_column(|| "stack pointer 0", config.operand_stack_pointer[0]);
-                region.name_column(|| "stack pointer 1", config.operand_stack_pointer[1]);
-                region.name_column(|| "stack pointer 2", config.operand_stack_pointer[2]);
+                for idx in 0..OPERAND_NUM {
+                    region.name_column(|| format!("operand {}", idx), config.operand[idx]);
+                    region.name_column(
+                        || format!("stack is write {}", idx),
+                        config.operand_stack_is_write[idx],
+                    );
+                    region.name_column(
+                        || format!("stack stamp {}", idx),
+                        config.operand_stack_stamp[idx],
+                    );
+                    region.name_column(
+                        || format!("stack pointer {}", idx),
+                        config.operand_stack_pointer[idx],
+                    );
+                }
+                for idx in 0..EXECUTION_STATE_NUM {
+                    region.name_column(
+                        || format!("execution state selector {}", idx),
+                        config.execution_state_selector[idx],
+                    );
+                }
 
                 // assign first row
                 config.q_step_first.enable(&mut region, 0)?;
@@ -254,12 +284,70 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                 );
                 assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 1, 0);
                 assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 1, 0);
-                // assaign second row
+                for idx in 0..EXECUTION_STATE_NUM {
+                    assign_column_value!(
+                        region,
+                        assign_advice,
+                        config.execution_state_selector[idx],
+                        1,
+                        0
+                    );
+                }
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.execution_state_selector[0x60],
+                    1,
+                    1
+                ); //PUSH should be 1
+                   // assaign second row
+                config.q_enable.enable(&mut region, 2)?;
                 assign_column_value!(region, assign_advice, config, program_counter, 2, 3);
                 assign_column_value!(region, assign_advice, config, is_push, 2, 0);
                 assign_column_value!(region, assign_advice, config, opcode, 2, 0x00);
                 assign_column_value!(region, assign_advice, config, stack_stamp, 2, 0);
                 assign_column_value!(region, assign_advice, config, stack_pointer, 2, 0);
+                for idx in 0..OPERAND_NUM {
+                    assign_column_value!(region, assign_advice, config.operand[idx], 2, 0);
+                    assign_column_value!(
+                        region,
+                        assign_advice,
+                        config.operand_stack_is_write[idx],
+                        2,
+                        0
+                    );
+                    assign_column_value!(
+                        region,
+                        assign_advice,
+                        config.operand_stack_stamp[idx],
+                        2,
+                        0
+                    );
+                    assign_column_value!(
+                        region,
+                        assign_advice,
+                        config.operand_stack_pointer[idx],
+                        2,
+                        0
+                    );
+                }
+                for idx in 0..EXECUTION_STATE_NUM {
+                    assign_column_value!(
+                        region,
+                        assign_advice,
+                        config.execution_state_selector[idx],
+                        2,
+                        0
+                    );
+                }
+                assign_column_value!(
+                    region,
+                    assign_advice,
+                    config.execution_state_selector[0x00],
+                    2,
+                    1
+                ); //STOP should be 1
+                assign_column_value!(region, assign_advice, config, program_counter, 3, 0);
 
                 Ok(())
             },

@@ -2,7 +2,9 @@ use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, Value};
 use halo2_proofs::plonk::{ConstraintSystem, Error};
 
+use crate::witness;
 pub use gadgets::util::Expr;
+
 /// SubCircuit configuration
 pub trait SubCircuitConfig<F: Field> {
     /// Config constructor arguments
@@ -22,7 +24,7 @@ pub trait SubCircuit<F: Field> {
     type Config: SubCircuitConfig<F>;
 
     /// Create a new SubCircuit from a witness Block
-    fn new_from_block(/*block: &witness::Block<F> todo block not defined yet*/) -> Self;
+    fn new_from_block(block: &witness::Block<F>) -> Self;
 
     /// Returns the instance columns required for this circuit.
     fn instance(&self) -> Vec<Vec<F>> {
@@ -82,7 +84,6 @@ macro_rules! assign_column_value {
 macro_rules! add_expression_to_constraints {
     ($v:expr,$e:expr) => {
         $v.into_iter()
-            .map(|(name, expression)| (name, $e * expression))
-            .collect::<Vec<(&str, Expression<F>)>>()
+            .map(move |(name, constraint)| (name, $e * constraint))
     };
 }
