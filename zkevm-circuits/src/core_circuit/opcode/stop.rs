@@ -2,7 +2,7 @@ use crate::add_expression_to_constraints;
 use crate::core_circuit::execution::{ExecutionConfig, ExecutionGadget};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
-use gadgets::util::Expr;
+
 use halo2_proofs::plonk::ConstraintSystem;
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;

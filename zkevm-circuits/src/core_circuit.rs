@@ -3,19 +3,17 @@ mod opcode;
 
 use crate::core_circuit::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
-use crate::util::Expr;
+use crate::util::{assign_row, Expr};
 use crate::util::{SubCircuit, SubCircuitConfig};
-use crate::{assign_column_value, witness::Block};
+use crate::witness::Block;
+use crate::witness::{EXECUTION_STATE_NUM, OPERAND_NUM};
 use eth_types::Field;
-use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
+use halo2_proofs::circuit::Layouter;
 use halo2_proofs::plonk::{
-    Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Selector,
+    Advice, Any, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
 };
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
-const OPERAND_NUM: usize = 3;
-const EXECUTION_STATE_NUM: usize = 256;
 
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F> {
@@ -174,15 +172,47 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
     }
 }
 
-// impl<F: Field> CoreCircuitConfig<F> {
-//     pub fn configure(
-//         meta: &mut ConstraintSystem<F>,
-//         stack_table: StackTable,
-//         bytecode_table: BytecodeTable,
-//     ) -> Self {
-//         todo!()
-//     }
-// }
+impl<F: Field> CoreCircuitConfig<F> {
+    fn columns(&self) -> Vec<Column<Any>> {
+        let mut v = vec![
+            self.program_counter.into(),
+            self.opcode.into(),
+            self.is_push.into(),
+            self.stack_stamp.into(),
+            self.stack_pointer.into(),
+        ];
+        v.append(&mut self.operand.iter().map(|x| x.clone().into()).collect());
+        v.append(
+            &mut self
+                .operand_stack_stamp
+                .iter()
+                .map(|x| x.clone().into())
+                .collect(),
+        );
+        v.append(
+            &mut self
+                .operand_stack_pointer
+                .iter()
+                .map(|x| x.clone().into())
+                .collect(),
+        );
+        v.append(
+            &mut self
+                .operand_stack_is_write
+                .iter()
+                .map(|x| x.clone().into())
+                .collect(),
+        );
+        v.append(
+            &mut self
+                .execution_state_selector
+                .iter()
+                .map(|x| x.clone().into())
+                .collect(),
+        );
+        v
+    }
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct CoreCircuit<F: Field> {
@@ -204,7 +234,6 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
         todo!()
     }
 
-    #[rustfmt::skip]
     fn synthesize_sub(
         &self,
         config: &Self::Config,
@@ -241,96 +270,28 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                     );
                 }
 
-                config.q_step_first.enable(&mut region, 0)?;
-                config.q_enable.enable(&mut region, 1)?;
-                config.q_enable.enable(&mut region, 2)?;
-                config.q_enable.enable(&mut region, 3)?;
-                assign_column_value!(region, assign_advice, config, program_counter, 0, 0);
-                assign_column_value!(region, assign_advice, config, program_counter, 1, 1);
-                assign_column_value!(region, assign_advice, config, program_counter, 2, 3);
-                assign_column_value!(region, assign_advice, config, program_counter, 3, 5);
-                assign_column_value!(region, assign_advice, config, program_counter, 4, 6);
-                assign_column_value!(region, assign_advice, config, program_counter, 5, 0);// pad 0 means it ends
-                assign_column_value!(region, assign_advice, config, is_push, 0, 0);
-                assign_column_value!(region, assign_advice, config, is_push, 1, 1);
-                assign_column_value!(region, assign_advice, config, is_push, 2, 1);
-                assign_column_value!(region, assign_advice, config, is_push, 3, 0);
-                assign_column_value!(region, assign_advice, config, is_push, 4, 0);
-                assign_column_value!(region, assign_advice, config, opcode, 0, 0);
-                assign_column_value!(region, assign_advice, config, opcode, 1, 0x60);
-                assign_column_value!(region, assign_advice, config, opcode, 2, 0x60);
-                assign_column_value!(region, assign_advice, config, opcode, 3, 0x01);
-                assign_column_value!(region, assign_advice, config, opcode, 4, 0x00);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 0, 0);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 1, 1);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 2, 2);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 3, 5);
-                assign_column_value!(region, assign_advice, config, stack_stamp, 4, 0);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 0, 0);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 1, 1);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 2, 2);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 3, 1);
-                assign_column_value!(region, assign_advice, config, stack_pointer, 4, 0);
-                assign_column_value!(region, assign_advice, config.operand[0], 1, 0x0a);
-                assign_column_value!(region, assign_advice, config.operand[0], 2, 0x0b);
-                assign_column_value!(region, assign_advice, config.operand[0], 3, 0x0b);
-                assign_column_value!(region, assign_advice, config.operand[0], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 1, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 2, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 3, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[0], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 1, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 2, 2);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 3, 3);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[0], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 1, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 2, 2);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 3, 2);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[0], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand[1], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand[1], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand[1], 3, 0x0a);
-                assign_column_value!(region, assign_advice, config.operand[1], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 3, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[1], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 3, 4);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[1], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 3, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[1], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand[2], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand[2], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand[2], 3, 0x15);
-                assign_column_value!(region, assign_advice, config.operand[2], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 3, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_is_write[2], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 3, 5);
-                assign_column_value!(region, assign_advice, config.operand_stack_stamp[2], 4, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 1, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 2, 0);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 3, 1);
-                assign_column_value!(region, assign_advice, config.operand_stack_pointer[2], 4, 0);
-                // opcode selectors
-                for idx in 0..EXECUTION_STATE_NUM {
-                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 1, 0);
-                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 2, 0);
-                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 3, 0);
-                    assign_column_value!(region, assign_advice, config.execution_state_selector[idx], 4, 0);
-                }
-                assign_column_value!(region, assign_advice, config.execution_state_selector[0x60], 1, 1); //PUSH should be 1
-                assign_column_value!(region, assign_advice, config.execution_state_selector[0x60], 2, 1); //PUSH should be 1
-                assign_column_value!(region, assign_advice, config.execution_state_selector[0x01], 3, 1); //ADD should be 1
-                assign_column_value!(region, assign_advice, config.execution_state_selector[0x00], 4, 1); //STOP should be 1
+                for (offset, (witness, selector)) in self
+                    .block
+                    .witness_table
+                    .core_circuit()
+                    .into_iter()
+                    .enumerate()
+                {
+                    if 2 != selector.len() {
+                        return Err(Error::Synthesis);
+                    }
+                    let mut idx = 0;
+                    if selector[idx] {
+                        config.q_step_first.enable(&mut region, offset)?;
+                    }
+                    idx += 1;
+                    if selector[idx] {
+                        config.q_enable.enable(&mut region, offset)?;
+                    }
+                    let columns = config.columns();
 
+                    assign_row(&mut region, offset, witness, columns)?;
+                }
                 Ok(())
             },
         )
@@ -340,23 +301,3 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
         todo!()
     }
 }
-// We don't need circuit impl, we need sub circuit impl
-// impl<F: Field> Circuit<F> for CoreCircuit<F> {
-//     type Config = CoreCircuitConfig<F>;
-//     type FloorPlanner = SimpleFloorPlanner;
-//
-//     fn without_witnesses(&self) -> Self {
-//         Self::default()
-//     }
-//
-//     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-//         let stack_table = StackTable::construct(meta);
-//         let bytecode_table = BytecodeTable::construct(meta); //should share with bytecode circuit
-//         Self::Config::configure(meta, stack_table, bytecode_table)
-//     }
-//
-//     fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
-//         // config.stack_table.assign()
-//         todo!()
-//     }
-// }

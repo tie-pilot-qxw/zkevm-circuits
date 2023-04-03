@@ -21,7 +21,7 @@ pub struct SuperCircuitConfigArgs {}
 impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
     type ConfigArgs = SuperCircuitConfigArgs;
 
-    fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+    fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
         let stack_table = StackTable::construct(meta);
         let bytecode_table = BytecodeTable::construct(meta); //should share with bytecode circuit
         let core_circuit = CoreCircuitConfig::new(
@@ -68,8 +68,8 @@ impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
 
     fn synthesize_sub(
         &self,
-        config: &Self::Config,
-        layouter: &mut impl Layouter<F>,
+        _config: &Self::Config,
+        _layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
         todo!()
     }
@@ -107,6 +107,7 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::witness::INPUT_BLOCK;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
     use plotters::prelude::*;
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn test_super_circuit() {
         let k = 4;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&Default::default());
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
@@ -128,7 +129,7 @@ mod tests {
     #[cfg(feature = "plot")]
     fn test_draw() {
         let k = 4;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&Default::default());
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
         // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();

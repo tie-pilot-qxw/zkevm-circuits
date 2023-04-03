@@ -1,14 +1,13 @@
-use crate::assign_column_value;
 use crate::table::BytecodeTable;
-use crate::util::SubCircuitConfig;
+use crate::util::{assign_row, SubCircuitConfig};
 use crate::util::{Expr, SubCircuit};
 use crate::witness::Block;
 use eth_types::evm_types::OpcodeId::PUSH1;
 use eth_types::Field;
-use halo2_proofs::circuit::{Layouter, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Fixed, Selector};
+use halo2_proofs::circuit::Layouter;
+use halo2_proofs::plonk::{Any, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
-use halo2curves::bn256::Fr;
+
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -68,6 +67,18 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
     }
 }
 
+impl<F: Field> BytecodeCircuitConfig<F> {
+    fn columns(&self) -> Vec<Column<Any>> {
+        let v = vec![
+            self.bytecode_table.program_counter.into(),
+            self.bytecode_table.byte.into(),
+            self.bytecode_table.is_push.into(),
+            self.bytecode_table.value_pushed.into(),
+        ];
+        v
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct BytecodeCircuit<F: Field> {
     block: Block<F>,
@@ -88,7 +99,6 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
         todo!()
     }
 
-    #[rustfmt::skip]
     fn synthesize_sub(
         &self,
         config: &Self::Config,
@@ -103,31 +113,24 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                 region.name_column(|| "byte", config.bytecode_table.byte);
                 region.name_column(|| "value pushed", config.bytecode_table.value_pushed);
 
-                assign_column_value!(region, assign_advice, config.bytecode_table, program_counter, 0, 0);
-                for offset in 1..=6 {
-                    config.q_enable.enable(&mut region, offset)?;
-                    assign_column_value!(region, assign_advice, config.bytecode_table, program_counter, offset, offset);
+                for (offset, (witness, selector)) in self
+                    .block
+                    .witness_table
+                    .bytecode_circuit()
+                    .into_iter()
+                    .enumerate()
+                {
+                    if 1 != selector.len() {
+                        return Err(Error::Synthesis);
+                    }
+                    let idx = 0;
+                    if selector[idx] {
+                        config.q_enable.enable(&mut region, offset)?;
+                    }
+                    let columns = config.columns();
+
+                    assign_row(&mut region, offset, witness, columns)?;
                 }
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 1, 0x60);
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 2, 0x0a);
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 3, 0x60);
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 4, 0x0b);
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 5, 0x01);
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 6, 0x00);
-                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 1, 1);
-                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 2, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 3, 1);
-                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 4, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 5, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, is_push, 6, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, value_pushed, 1, 0x0a);
-                assign_column_value!(region, assign_advice, config.bytecode_table, value_pushed, 2, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, value_pushed, 3, 0x0b);
-                assign_column_value!(region, assign_advice, config.bytecode_table, value_pushed, 4, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, value_pushed, 5, 0);
-                assign_column_value!(region, assign_advice, config.bytecode_table, value_pushed, 6, 0);
-                // padding is necessary for byte at last row +1
-                assign_column_value!(region, assign_advice, config.bytecode_table, byte, 7, 0);
                 Ok(())
             },
         )

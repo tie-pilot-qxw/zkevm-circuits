@@ -23,9 +23,9 @@ impl StackTable {
 
     pub fn assign<F: Field>(
         &self,
-        region: &mut Region<'_, F>,
-        offset: usize,
-        the_values: Value<F>,
+        _region: &mut Region<'_, F>,
+        _offset: usize,
+        _the_values: Value<F>,
     ) -> Result<(), Error> {
         todo!();
         panic!("see region.assign_advice")

@@ -1,9 +1,8 @@
-use eth_types::Field;
-use halo2_proofs::circuit::{Layouter, Value};
-use halo2_proofs::plonk::{ConstraintSystem, Error};
-
 use crate::witness;
+use eth_types::Field;
 pub use gadgets::util::Expr;
+use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Fixed};
 
 /// SubCircuit configuration
 pub trait SubCircuitConfig<F: Field> {
@@ -47,43 +46,56 @@ pub trait SubCircuit<F: Field> {
 }
 
 #[macro_export]
-macro_rules! assign_column_value {
-    ($region:expr,$func:ident,$config:expr,$column:ident,$offset:expr,$value:expr) => {
-        $region.$func(
-            || {
-                format!(
-                    "{} at offset={}, value={}",
-                    stringify!($column),
-                    $offset,
-                    $value
-                )
-            },
-            $config.$column,
-            $offset,
-            || Value::known(F::from($value as u64)),
-        )?;
-    };
-    ($region:expr,$func:ident,$column:expr,$offset:expr,$value:expr) => {
-        $region.$func(
-            || {
-                format!(
-                    "{} at offset={}, value={}",
-                    stringify!($column),
-                    $offset,
-                    $value
-                )
-            },
-            $column,
-            $offset,
-            || Value::known(F::from($value as u64)),
-        )?;
-    };
-}
-
-#[macro_export]
 macro_rules! add_expression_to_constraints {
     ($v:expr,$e:expr) => {
         $v.into_iter()
             .map(move |(name, constraint)| (name, $e * constraint))
     };
+}
+
+pub fn assign_row<F: Field>(
+    region: &mut Region<'_, F>,
+    offset: usize,
+    witness: Vec<Option<u64>>,
+    columns: Vec<Column<Any>>,
+) -> Result<(), Error> {
+    if columns.len() != witness.len() {
+        return Err(Error::Synthesis);
+    }
+    for (idx, value) in witness.into_iter().enumerate() {
+        if let Some(x) = value {
+            match columns[idx].column_type() {
+                Any::Advice(_) => {
+                    region.assign_advice(
+                        || {
+                            format!(
+                                "Column {:?} at offset={}, value={} ",
+                                columns[idx], offset, x
+                            )
+                        },
+                        Column::<Advice>::try_from(columns[idx]).unwrap(),
+                        offset,
+                        || Value::known(F::from(x as u64)),
+                    )?;
+                }
+                Any::Fixed => {
+                    region.assign_fixed(
+                        || {
+                            format!(
+                                "Column {:?} at offset={}, value={} ",
+                                columns[idx], offset, x
+                            )
+                        },
+                        Column::<Fixed>::try_from(columns[idx]).unwrap(),
+                        offset,
+                        || Value::known(F::from(x as u64)),
+                    )?;
+                }
+                Any::Instance => {
+                    todo!()
+                }
+            }
+        }
+    }
+    Ok(())
 }

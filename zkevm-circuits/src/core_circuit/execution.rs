@@ -2,7 +2,7 @@ use crate::core_circuit::opcode::add::AddGadget;
 use crate::core_circuit::opcode::push::Push1Gadget;
 use crate::core_circuit::opcode::stop::StopGadget;
 use crate::core_circuit::CoreCircuitConfig;
-use eth_types::evm_types::OpcodeId;
+
 use eth_types::Field;
 use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::plonk::{ConstraintSystem, Error};
