@@ -1,3 +1,9 @@
+# How to run test
+
+```
+cargo test super_circuit::tests::test_super_circuit
+```
+
 # Resources
 
 Ding Excel:
