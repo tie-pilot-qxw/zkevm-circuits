@@ -110,6 +110,7 @@ mod tests {
     use crate::witness::INPUT_BLOCK;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
+    #[cfg(feature = "plot")]
     use plotters::prelude::*;
 
     #[test]
