@@ -32,7 +32,6 @@ pub struct WitnessColumn {
     stack_table_value: Option<u64>,
     stack_table_address: Option<u64>,
     stack_table_is_write: Option<u64>,
-    first_access: Option<u64>,
     bytecode_table_program_counter: Option<u64>,
     bytecode_table_byte: Option<u64>,
     bytecode_table_is_push: Option<u64>,
@@ -70,7 +69,6 @@ impl Default for WitnessColumn {
             stack_table_value: Default::default(),
             stack_table_address: Default::default(),
             stack_table_is_write: Default::default(),
-            first_access: Default::default(),
             bytecode_table_program_counter: Default::default(),
             bytecode_table_byte: Default::default(),
             bytecode_table_is_push: Default::default(),
@@ -122,7 +120,6 @@ impl WitnessColumn {
         v.push(&mut self.stack_table_value);
         v.push(&mut self.stack_table_address);
         v.push(&mut self.stack_table_is_write);
-        v.push(&mut self.first_access);
         v.push(&mut self.bytecode_table_program_counter);
         v.push(&mut self.bytecode_table_byte);
         v.push(&mut self.bytecode_table_is_push);
@@ -156,7 +153,6 @@ impl WitnessColumn {
         v.push(self.stack_table_value);
         v.push(self.stack_table_address);
         v.push(self.stack_table_is_write);
-        v.push(self.first_access);
         v.push(self.bytecode_table_program_counter);
         v.push(self.bytecode_table_byte);
         v.push(self.bytecode_table_is_push);
@@ -227,7 +223,7 @@ impl WitnessTable {
             .map(|(witness, selector)| {
                 let mut witness = witness.columns();
                 let mut witness = witness.split_off(273);
-                witness.truncate(5);
+                witness.truncate(4);
                 let mut selector = selector.columns();
                 let mut selector = selector.split_off(2);
                 selector.truncate(1);
@@ -243,7 +239,7 @@ impl WitnessTable {
             .map(|(witness, selector)| {
                 let mut witness = witness.columns();
                 let mut selector = selector.columns();
-                (witness.split_off(278), selector.split_off(3))
+                (witness.split_off(277), selector.split_off(3))
             })
             .collect()
     }
@@ -254,14 +250,14 @@ lazy_static! {
     pub static ref INPUT_WITNESS_TABLE: WitnessTable = {
         let selectors = vec![0; EXECUTION_STATE_NUM];
 
-        let columns = vec![0; 282];
+        let columns = vec![0; 281];
         let mut table = vec![columns];
 
         let mut columns = vec![1, 0x60, 1, 1, 1, 0x0a, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
         let mut selectors_clone = selectors.clone();
         selectors_clone[0x60] = 1;
         columns.append(&mut selectors_clone);
-        columns.append(&mut vec![1, 0x0a, 1, 1, 1]);
+        columns.append(&mut vec![1, 0x0a, 1, 1]);
         columns.append(&mut vec![1, 0x60, 1, 0x0a]);
         table.push(columns);
 
@@ -269,7 +265,7 @@ lazy_static! {
         let mut selectors_clone = selectors.clone();
         selectors_clone[0x60] = 1;
         columns.append(&mut selectors_clone);
-        columns.append(&mut vec![4, 0x0a, 1, 0, 0]);
+        columns.append(&mut vec![4, 0x0a, 1, 0]);
         columns.append(&mut vec![2, 0x0a, 0, 0]);
         table.push(columns);
 
@@ -279,7 +275,7 @@ lazy_static! {
         let mut selectors_clone = selectors.clone();
         selectors_clone[0x01] = 1;
         columns.append(&mut selectors_clone);
-        columns.append(&mut vec![5, 0x15, 1, 1, 0]);
+        columns.append(&mut vec![5, 0x15, 1, 1]);
         columns.append(&mut vec![3, 0x60, 1, 0x0b]);
         table.push(columns);
 
@@ -287,26 +283,26 @@ lazy_static! {
         let mut selectors_clone = selectors.clone();
         selectors_clone[0x00] = 1;
         columns.append(&mut selectors_clone);
-        columns.append(&mut vec![2, 0x0b, 2, 1, 1]);
+        columns.append(&mut vec![2, 0x0b, 2, 1]);
         columns.append(&mut vec![4, 0x0b, 0, 0]);
         table.push(columns);
 
         let mut columns = vec![0; 17];
         let mut selectors_clone = selectors.clone();
         columns.append(&mut selectors_clone);
-        columns.append(&mut vec![3, 0x0b, 2, 0, 0]);
+        columns.append(&mut vec![3, 0x0b, 2, 0]);
         columns.append(&mut vec![5, 0x01, 0, 0]);
         table.push(columns);
 
         let mut columns = vec![0; 17];
         let mut selectors_clone = selectors.clone();
         columns.append(&mut selectors_clone);
-        columns.append(&mut vec![0;5]);
+        columns.append(&mut vec![0;4]);
         columns.append(&mut vec![6, 0x00, 0, 0]);
         table.push(columns);
 
         // padding row
-        let columns = vec![0; 282];
+        let columns = vec![0; 281];
         table.push(columns);
 
         let mut witness_table = WitnessTable::new(&table).expect("input format has error");
@@ -321,7 +317,12 @@ lazy_static! {
         witness_table.enable(3, 2);
         witness_table.enable(4, 2);
         witness_table.enable(5, 2);
-        witness_table.enable(6, 2);
+        witness_table.enable(1, 3);
+        witness_table.enable(2, 3);
+        witness_table.enable(3, 3);
+        witness_table.enable(4, 3);
+        witness_table.enable(5, 3);
+        witness_table.enable(6, 3);
 
         witness_table
     };

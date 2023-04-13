@@ -2,7 +2,8 @@
 
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-use crate::table::{BytecodeTable, StackTable};
+use crate::stack_circuit::{StackCircuit, StackCircuitConfig, StackCircuitConfigArgs};
+use crate::table::{BytecodeTable, FixedTable, StackTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Block;
 use eth_types::Field;
@@ -12,6 +13,7 @@ use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
 #[derive(Clone)]
 pub struct SuperCircuitConfig<F> {
     core_circuit: CoreCircuitConfig<F>,
+    stack_circuit: StackCircuitConfig<F>,
     bytecode_circuit: BytecodeCircuitConfig<F>,
 }
 
@@ -23,7 +25,8 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
 
     fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
         let stack_table = StackTable::construct(meta);
-        let bytecode_table = BytecodeTable::construct(meta); //should share with bytecode circuit
+        let bytecode_table = BytecodeTable::construct(meta);
+        let fixed_table = FixedTable::construct(meta);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
@@ -31,10 +34,18 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
                 bytecode_table,
             },
         );
+        let stack_circuit = StackCircuitConfig::new(
+            meta,
+            StackCircuitConfigArgs {
+                stack_table,
+                fixed_table,
+            },
+        );
         let bytecode_circuit =
             BytecodeCircuitConfig::new(meta, BytecodeCircuitConfigArgs { bytecode_table });
         SuperCircuitConfig {
             core_circuit,
+            stack_circuit,
             bytecode_circuit,
         }
     }
@@ -43,6 +54,7 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
 #[derive(Clone, Default, Debug)]
 pub struct SuperCircuit<F: Field> {
     pub core_circuit: CoreCircuit<F>,
+    pub stack_circuit: StackCircuit<F>,
     pub bytecode_circuit: BytecodeCircuit<F>,
 }
 
@@ -51,9 +63,11 @@ impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
 
     fn new_from_block(block: &Block<F>) -> Self {
         let core_circuit = CoreCircuit::new_from_block(block);
+        let stack_circuit = StackCircuit::new_from_block(block);
         let bytecode_circuit = BytecodeCircuit::new_from_block(block);
         SuperCircuit {
             core_circuit,
+            stack_circuit,
             bytecode_circuit,
         }
     }
@@ -98,6 +112,8 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
     ) -> Result<(), Error> {
         self.core_circuit
             .synthesize_sub(&config.core_circuit, &mut layouter)?;
+        self.stack_circuit
+            .synthesize_sub(&config.stack_circuit, &mut layouter)?;
         self.bytecode_circuit
             .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
         Ok(())
@@ -115,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_super_circuit() {
-        let k = 4;
+        let k = 9;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
@@ -129,7 +145,7 @@ mod tests {
     #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
-        let k = 4;
+        let k = 9;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
         // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();

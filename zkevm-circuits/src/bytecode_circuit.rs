@@ -117,7 +117,7 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                     .block
                     .witness_table
                     .bytecode_circuit()
-                    .into_iter()
+                    .iter()
                     .enumerate()
                 {
                     if 1 != selector.len() {

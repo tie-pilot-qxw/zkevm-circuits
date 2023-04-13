@@ -56,7 +56,7 @@ macro_rules! add_expression_to_constraints {
 pub fn assign_row<F: Field>(
     region: &mut Region<'_, F>,
     offset: usize,
-    witness: Vec<Option<u64>>,
+    witness: &Vec<Option<u64>>,
     columns: Vec<Column<Any>>,
 ) -> Result<(), Error> {
     if columns.len() != witness.len() {
@@ -75,7 +75,7 @@ pub fn assign_row<F: Field>(
                         },
                         Column::<Advice>::try_from(columns[idx]).unwrap(),
                         offset,
-                        || Value::known(F::from(x as u64)),
+                        || Value::known(F::from(*x as u64)),
                     )?;
                 }
                 Any::Fixed => {
@@ -88,7 +88,7 @@ pub fn assign_row<F: Field>(
                         },
                         Column::<Fixed>::try_from(columns[idx]).unwrap(),
                         offset,
-                        || Value::known(F::from(x as u64)),
+                        || Value::known(F::from(*x as u64)),
                     )?;
                 }
                 Any::Instance => {

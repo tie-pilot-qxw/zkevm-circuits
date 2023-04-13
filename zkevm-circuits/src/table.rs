@@ -1,6 +1,6 @@
-use halo2_proofs::circuit::{Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error};
-use halo2curves::group::ff::Field;
+use eth_types::Field;
+use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Fixed};
 
 /// The table shared between Core Circuit and Stack Circuit
 #[derive(Clone, Copy, Debug)]
@@ -52,5 +52,49 @@ impl BytecodeTable {
 
     pub fn assign() {
         todo!()
+    }
+}
+
+/// The table used to do range check lookup
+#[derive(Clone, Copy, Debug)]
+pub struct FixedTable {
+    pub u8: Column<Fixed>,
+    pub u10: Column<Fixed>,
+    pub u16: Column<Fixed>,
+}
+
+impl FixedTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        let table = Self {
+            u8: meta.fixed_column(),
+            u10: meta.fixed_column(),
+            u16: meta.fixed_column(),
+        };
+        meta.annotate_lookup_any_column(table.u8, || "LOOKUP_u8");
+        meta.annotate_lookup_any_column(table.u10, || "LOOKUP_u10");
+        meta.annotate_lookup_any_column(table.u16, || "LOOKUP_u16");
+        table
+    }
+
+    pub fn load<F: Field>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        // for (column, exponent) in [(self.u8, 8), (self.u10, 10), (self.u16, 16)] {
+        // to reduce running time, we only load u8 for now
+        for (column, exponent) in [(self.u8, 8)] {
+            layouter.assign_region(
+                || format!("assign u{} fixed column", exponent),
+                |mut region| {
+                    for i in 0..(1 << exponent) {
+                        region.assign_fixed(
+                            || format!("assign {} in u{} fixed column", i, exponent),
+                            column,
+                            i,
+                            || Value::known(F::from(i as u64)),
+                        )?;
+                    }
+                    Ok(())
+                },
+            )?;
+        }
+        Ok(())
     }
 }

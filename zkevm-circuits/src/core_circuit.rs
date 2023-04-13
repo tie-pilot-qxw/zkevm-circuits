@@ -125,7 +125,6 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                 .collect(); //.chain()
             bool_checks.push(("sum 1", q_enable * (sum - 1u8.expr())));
             bool_checks
-            // vec![("sum 1", q_step_first_not * (sum - 1u8.expr()))]
         });
         meta.lookup_any("opcode lookup in bytecode table", |meta| {
             let program_counter = meta.query_advice(program_counter, Rotation::cur());
@@ -270,12 +269,8 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                     );
                 }
 
-                for (offset, (witness, selector)) in self
-                    .block
-                    .witness_table
-                    .core_circuit()
-                    .into_iter()
-                    .enumerate()
+                for (offset, (witness, selector)) in
+                    self.block.witness_table.core_circuit().iter().enumerate()
                 {
                     if 2 != selector.len() {
                         return Err(Error::Synthesis);
