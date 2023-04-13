@@ -123,7 +123,7 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness::{INPUT_BLOCK,INPUT_BLOCK_SUB,INPUT_BLOCK_MUL};
+    use crate::witness::{INPUT_BLOCK, INPUT_BLOCK_MUL, INPUT_BLOCK_SUB};
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::plonk::Instance;
@@ -143,11 +143,11 @@ mod tests {
     }
 
     #[test]
-    fn test_SUB(){
+    fn test_SUB() {
         //k=4, panic NotEnoughRowsAvailable
-        let k:u32=8;
-        let circuit:SuperCircuit<Fr>=SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
-        let instance=vec![];
+        let k: u32 = 8;
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
+        let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
         if let Err(err) = res {
@@ -156,11 +156,11 @@ mod tests {
     }
 
     #[test]
-    fn test_MUL(){
+    fn test_MUL() {
         //k=4, panic NotEnoughRowsAvailable
-        let k:u32=8;
-        let circuit:SuperCircuit<Fr>=SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
-        let instance=vec![];
+        let k: u32 = 8;
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
+        let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
         if let Err(err) = res {

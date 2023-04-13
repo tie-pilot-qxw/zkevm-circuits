@@ -8,24 +8,24 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
-pub struct SubGadget<F>{
-    _marker:PhantomData<F>,
+pub struct SubGadget<F> {
+    _marker: PhantomData<F>,
 }
 
-impl<F:Field> ExecutionGadget<F> for SubGadget<F>{
-    const NAME: &'static str ="SUB";
+impl<F: Field> ExecutionGadget<F> for SubGadget<F> {
+    const NAME: &'static str = "SUB";
 
-    fn configure(config: &ExecutionConfig<F>,meta:&mut ConstraintSystem<F>) -> Self{
-        meta.create_gate(Self::NAME,|meta|{
+    fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
+        meta.create_gate(Self::NAME, |meta| {
             //get PC of next row
-            let program_counter_next=meta.query_advice(config.program_counter,Rotation::next());
+            let program_counter_next = meta.query_advice(config.program_counter, Rotation::next());
             //get stack_stamp/stack_pointer of previous row
-            let stack_stamp_prev=meta.query_advice(config.stack_stamp,Rotation::prev());
-            let stack_pointer_prev=meta.query_advice(config.stack_pointer,Rotation::prev());
+            let stack_stamp_prev = meta.query_advice(config.stack_stamp, Rotation::prev());
+            let stack_pointer_prev = meta.query_advice(config.stack_pointer, Rotation::prev());
 
-            let program_counter=meta.query_advice(config.program_counter,Rotation::cur());
-            let stack_stamp=meta.query_advice(config.stack_stamp,Rotation::cur());
-            let stack_pointer=meta.query_advice(config.stack_pointer,Rotation::cur());
+            let program_counter = meta.query_advice(config.program_counter, Rotation::cur());
+            let stack_stamp = meta.query_advice(config.stack_stamp, Rotation::cur());
+            let stack_pointer = meta.query_advice(config.stack_pointer, Rotation::cur());
             let is_write_0 = meta.query_advice(config.operand_stack_is_write[0], Rotation::cur());
             let is_write_1 = meta.query_advice(config.operand_stack_is_write[1], Rotation::cur());
             let is_write_2 = meta.query_advice(config.operand_stack_is_write[2], Rotation::cur());
@@ -35,23 +35,26 @@ impl<F:Field> ExecutionGadget<F> for SubGadget<F>{
             let stack_stamp_0 = meta.query_advice(config.operand_stack_stamp[0], Rotation::cur());
             let stack_stamp_1 = meta.query_advice(config.operand_stack_stamp[1], Rotation::cur());
             let stack_stamp_2 = meta.query_advice(config.operand_stack_stamp[2], Rotation::cur());
-            let stack_pointer_0 = meta.query_advice(config.operand_stack_pointer[0], Rotation::cur());
-            let stack_pointer_1 = meta.query_advice(config.operand_stack_pointer[1], Rotation::cur());
-            let stack_pointer_2 = meta.query_advice(config.operand_stack_pointer[2], Rotation::cur());
-            
+            let stack_pointer_0 =
+                meta.query_advice(config.operand_stack_pointer[0], Rotation::cur());
+            let stack_pointer_1 =
+                meta.query_advice(config.operand_stack_pointer[1], Rotation::cur());
+            let stack_pointer_2 =
+                meta.query_advice(config.operand_stack_pointer[2], Rotation::cur());
+
             let opcode_id = OpcodeId::from_str(Self::NAME)
-            .expect(&format!("gadget name {} is wrong", Self::NAME));
+                .expect(&format!("gadget name {} is wrong", Self::NAME));
             let is_opcode = meta.query_advice(
                 config.execution_state_selector[opcode_id.as_u8() as usize],
                 Rotation::cur(),
             );
-            
-            let q_enable=meta.query_selector(config.q_enable);
-            let v=vec![
-                ("a-b=c",(operand_0-operand_1-operand_2)),
+
+            let q_enable = meta.query_selector(config.q_enable);
+            let v = vec![
+                ("a-b=c", (operand_0 - operand_1 - operand_2)),
                 (
                     "program counter increment",
-                    (program_counter_next-program_counter-1u8.expr()),
+                    (program_counter_next - program_counter - 1u8.expr()),
                 ),
                 (
                     "stack stamp increment",
@@ -79,7 +82,7 @@ impl<F:Field> ExecutionGadget<F> for SubGadget<F>{
                 //why stack pointer 0 =last pointer + is write 0 here? (stack pointer=last pointer)
                 (
                     "stack pointer 0 = last pointer + is_write",
-                    stack_pointer_0.clone() - stack_pointer_prev- is_write_0,
+                    stack_pointer_0.clone() - stack_pointer_prev - is_write_0,
                 ),
                 (
                     "stack pointer 0 - 1 = stack pointer 1",
@@ -96,4 +99,4 @@ impl<F:Field> ExecutionGadget<F> for SubGadget<F>{
             _marker: PhantomData,
         }
     }
-} 
+}

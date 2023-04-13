@@ -382,7 +382,7 @@ lazy_static! {
         columns.append(&mut vec![2, 0x02, 2, 1, 1]);
         columns.append(&mut vec![5, 0x01, 0, 0]);
         table.push(columns);
-        
+
         let mut columns = vec![9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut selectors_clone = selectors.clone();
         selectors_clone[0x00] = 1;
@@ -497,7 +497,7 @@ lazy_static! {
         columns.append(&mut vec![2, 0x02, 2, 1, 1]);
         columns.append(&mut vec![5, 0x01, 0, 0]);
         table.push(columns);
-        
+
         let mut columns = vec![9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut selectors_clone = selectors.clone();
         selectors_clone[0x00] = 1;
@@ -564,12 +564,14 @@ lazy_static! {
             _marker: PhantomData::<Fr>,
         }
     };
-    
+
 }
 
 #[cfg(test)]
 mod test {
-    use crate::witness::block::{INPUT_WITNESS_TABLE, INPUT_WITNESS_TABLE_SUB, INPUT_WITNESS_TABLE_MUL};
+    use crate::witness::block::{
+        INPUT_WITNESS_TABLE, INPUT_WITNESS_TABLE_MUL, INPUT_WITNESS_TABLE_SUB,
+    };
 
     #[test]
     fn test_lazy_static() {
@@ -579,14 +581,14 @@ mod test {
     }
 
     #[test]
-    fn test_lazy_static_SUB(){
+    fn test_lazy_static_SUB() {
         println!("{:?}", *INPUT_WITNESS_TABLE_SUB);
         println!("{:?}", INPUT_WITNESS_TABLE_SUB.core_circuit());
         println!("{:?}", INPUT_WITNESS_TABLE_SUB.bytecode_circuit());
     }
 
     #[test]
-    fn test_lazy_static_MUL(){
+    fn test_lazy_static_MUL() {
         println!("{:?}", *INPUT_WITNESS_TABLE_MUL);
         println!("{:?}", INPUT_WITNESS_TABLE_MUL.core_circuit());
         println!("{:?}", INPUT_WITNESS_TABLE_MUL.bytecode_circuit());
