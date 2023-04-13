@@ -123,6 +123,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                     )
                 })
                 .collect(); //.chain()
+            //only 1 selector actived at one time
             bool_checks.push(("sum 1", q_enable * (sum - 1u8.expr())));
             bool_checks
         });
@@ -132,15 +133,14 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             let opcode = meta.query_advice(opcode, Rotation::cur());
             // first operand * is_push means only used for push opcode as value_pushed
             let operand = meta.query_advice(operand[0], Rotation::cur());
-            let program_counter_table =
-                meta.query_advice(bytecode_table.program_counter, Rotation::cur());
+            let program_counter_table =meta.query_advice(bytecode_table.program_counter, Rotation::cur());
             let is_push_table = meta.query_advice(bytecode_table.is_push, Rotation::cur());
             let byte_table = meta.query_advice(bytecode_table.byte, Rotation::cur());
-            let value_pushed_table =
-                meta.query_advice(bytecode_table.value_pushed, Rotation::cur());
+            let value_pushed_table =meta.query_advice(bytecode_table.value_pushed, Rotation::cur());
             vec![
                 (program_counter, program_counter_table),
                 (is_push.clone(), is_push_table),
+                //Error here when testing SUB, how byte_table initialized/generated
                 (opcode, byte_table),
                 (operand * is_push, value_pushed_table),
             ]

@@ -123,9 +123,10 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness::INPUT_BLOCK;
+    use crate::witness::{INPUT_BLOCK,INPUT_BLOCK_SUB,INPUT_BLOCK_MUL};
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
+    use halo2_proofs::plonk::Instance;
     #[cfg(feature = "plot")]
     use plotters::prelude::*;
 
@@ -142,11 +143,37 @@ mod tests {
     }
 
     #[test]
+    fn test_SUB(){
+        //k=4, panic NotEnoughRowsAvailable
+        let k:u32=8;
+        let circuit:SuperCircuit<Fr>=SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
+        let instance=vec![];
+        let prover = MockProver::run(k, &circuit, instance).unwrap();
+        let res = prover.verify_par();
+        if let Err(err) = res {
+            panic!("Verification failures: {:?}", err);
+        }
+    }
+
+    #[test]
+    fn test_MUL(){
+        //k=4, panic NotEnoughRowsAvailable
+        let k:u32=8;
+        let circuit:SuperCircuit<Fr>=SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
+        let instance=vec![];
+        let prover = MockProver::run(k, &circuit, instance).unwrap();
+        let res = prover.verify_par();
+        if let Err(err) = res {
+            panic!("Verification failures: {:?}", err);
+        }
+    }
+
+    #[test]
     #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
-        let k = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
+        let k = 8;
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
         // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
         root.fill(&WHITE).unwrap();

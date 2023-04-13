@@ -47,6 +47,7 @@ pub struct SelectorColumn {
 }
 
 /// WitnessTable contains all inputs in number format in rows
+/// WitnessTable = WitnessColumn + SelectorColumn
 #[derive(Debug, Clone, Default)]
 pub struct WitnessTable {
     rows: Vec<(WitnessColumn, SelectorColumn)>,
@@ -77,6 +78,7 @@ impl Default for WitnessColumn {
     }
 }
 
+//why define a mutable columns function?
 impl WitnessColumn {
     pub fn new(v: &Vec<u64>) -> anyhow::Result<Self> {
         let mut column = Self::default();
@@ -268,7 +270,7 @@ lazy_static! {
         columns.append(&mut vec![4, 0x0a, 1, 0]);
         columns.append(&mut vec![2, 0x0a, 0, 0]);
         table.push(columns);
-
+        //modify 0x15 to 0x16 in columns[7] for test
         let mut columns = vec![
             5, 0x01, 0, 5, 1, 0x0b, 0x0a, 0x15, 3, 4, 5, 2, 1, 1, 0, 0, 1,
         ];
@@ -332,16 +334,261 @@ lazy_static! {
             _marker: PhantomData::<Fr>,
         }
     };
+
+    pub static ref INPUT_WITNESS_TABLE_SUB: WitnessTable = {
+        let selectors = vec![0; EXECUTION_STATE_NUM];
+
+        let columns = vec![0; 282];
+        let mut table = vec![columns];
+
+        let mut columns = vec![1, 0x60, 1, 1, 1, 0x01, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x60] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![1, 0x01, 1, 1, 1]);
+        columns.append(&mut vec![1, 0x60, 1, 0x01]);
+        table.push(columns);
+
+        let mut columns = vec![3, 0x60, 1, 2, 2, 0x02, 0, 0, 2, 0, 0, 2, 0, 0, 1, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x60] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![4, 0x01, 1, 0, 0]);
+        columns.append(&mut vec![2, 0x01, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![
+            5, 0x01, 0, 5, 1, 0x02, 0x01, 0x03, 3, 4, 5, 2, 1, 1, 0, 0, 1,
+        ];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x01] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![5, 0x03, 1, 1, 0]);
+        columns.append(&mut vec![3, 0x60, 1, 0x02]);
+        table.push(columns);
+
+        let mut columns = vec![6, 0x60, 1, 6, 2, 0x04, 0, 0, 6, 0, 0, 2, 0, 0, 1, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x60] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![7, 0x01, 1, 1, 0]);
+        columns.append(&mut vec![4, 0x02, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![8, 0x03, 0, 9, 1, 0x4, 0x03, 0x01, 7, 8, 9, 2, 1, 1, 0, 0, 1];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x03] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![2, 0x02, 2, 1, 1]);
+        columns.append(&mut vec![5, 0x01, 0, 0]);
+        table.push(columns);
+        
+        let mut columns = vec![9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![3, 0x02, 2, 0, 0]);
+        columns.append(&mut vec![6, 0x60, 1, 0x04]);
+        table.push(columns);
+
+        let mut columns = vec![0; 17];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![6, 0x04, 2, 1, 0]);
+        columns.append(&mut vec![7, 0x04, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![0; 17];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        //padding 0 here
+        columns.append(&mut vec![0;5]);
+        columns.append(&mut vec![8, 0x03, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![0; 17];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        //padding 0 here
+        columns.append(&mut vec![0;5]);
+        columns.append(&mut vec![9, 0x00, 0, 0]);
+        table.push(columns);
+
+        let columns = vec![0; 282];
+        table.push(columns);
+
+        let mut witness_table = WitnessTable::new(&table).expect("input format has error");
+
+        //witness table should update
+        witness_table.enable(0, 0);
+        witness_table.enable(1, 1);
+        witness_table.enable(2, 1);
+        witness_table.enable(3, 1);
+        witness_table.enable(4, 1);
+        witness_table.enable(5, 1);
+        witness_table.enable(6, 1);
+        witness_table.enable(1, 2);
+        witness_table.enable(2, 2);
+        witness_table.enable(3, 2);
+        witness_table.enable(4, 2);
+        witness_table.enable(5, 2);
+        witness_table.enable(6, 2);
+        witness_table.enable(7, 2);
+        witness_table.enable(8, 2);
+        witness_table.enable(9, 2);
+
+        witness_table
+    };
+
+    pub static ref INPUT_BLOCK_SUB: Block<Fr> = {
+        Block {
+            witness_table: INPUT_WITNESS_TABLE_SUB.clone(),
+            _marker: PhantomData::<Fr>,
+        }
+    };
+
+    pub static ref INPUT_WITNESS_TABLE_MUL: WitnessTable = {
+        let selectors = vec![0; EXECUTION_STATE_NUM];
+
+        let columns = vec![0; 282];
+        let mut table = vec![columns];
+
+        let mut columns = vec![1, 0x60, 1, 1, 1, 0x01, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x60] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![1, 0x01, 1, 1, 1]);
+        columns.append(&mut vec![1, 0x60, 1, 0x01]);
+        table.push(columns);
+
+        let mut columns = vec![3, 0x60, 1, 2, 2, 0x02, 0, 0, 2, 0, 0, 2, 0, 0, 1, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x60] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![4, 0x01, 1, 0, 0]);
+        columns.append(&mut vec![2, 0x01, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![
+            5, 0x01, 0, 5, 1, 0x02, 0x01, 0x03, 3, 4, 5, 2, 1, 1, 0, 0, 1,
+        ];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x01] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![5, 0x03, 1, 1, 0]);
+        columns.append(&mut vec![3, 0x60, 1, 0x02]);
+        table.push(columns);
+
+        let mut columns = vec![6, 0x60, 1, 6, 2, 0x04, 0, 0, 6, 0, 0, 2, 0, 0, 1, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x60] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![7, 0x0c, 1, 1, 0]);
+        columns.append(&mut vec![4, 0x02, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![8, 0x02, 0, 9, 1, 0x4, 0x03, 0x0c, 7, 8, 9, 2, 1, 1, 0, 0, 1];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x02] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![2, 0x02, 2, 1, 1]);
+        columns.append(&mut vec![5, 0x01, 0, 0]);
+        table.push(columns);
+        
+        let mut columns = vec![9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![3, 0x02, 2, 0, 0]);
+        columns.append(&mut vec![6, 0x60, 1, 0x04]);
+        table.push(columns);
+
+        let mut columns = vec![0; 17];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        columns.append(&mut vec![6, 0x04, 2, 1, 0]);
+        columns.append(&mut vec![7, 0x04, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![0; 17];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        //padding 0 here
+        columns.append(&mut vec![0;5]);
+        columns.append(&mut vec![8, 0x02, 0, 0]);
+        table.push(columns);
+
+        let mut columns = vec![0; 17];
+        let mut selectors_clone = selectors.clone();
+        selectors_clone[0x00] = 1;
+        columns.append(&mut selectors_clone);
+        //padding 0 here
+        columns.append(&mut vec![0;5]);
+        columns.append(&mut vec![9, 0x00, 0, 0]);
+        table.push(columns);
+
+        let columns = vec![0; 282];
+        table.push(columns);
+
+        let mut witness_table = WitnessTable::new(&table).expect("input format has error");
+
+        //witness table should update
+        witness_table.enable(0, 0);
+        witness_table.enable(1, 1);
+        witness_table.enable(2, 1);
+        witness_table.enable(3, 1);
+        witness_table.enable(4, 1);
+        witness_table.enable(5, 1);
+        witness_table.enable(6, 1);
+        witness_table.enable(1, 2);
+        witness_table.enable(2, 2);
+        witness_table.enable(3, 2);
+        witness_table.enable(4, 2);
+        witness_table.enable(5, 2);
+        witness_table.enable(6, 2);
+        witness_table.enable(7, 2);
+        witness_table.enable(8, 2);
+        witness_table.enable(9, 2);
+
+        witness_table
+    };
+
+    pub static ref INPUT_BLOCK_MUL: Block<Fr> = {
+        Block {
+            witness_table: INPUT_WITNESS_TABLE_MUL.clone(),
+            _marker: PhantomData::<Fr>,
+        }
+    };
+    
 }
 
 #[cfg(test)]
 mod test {
-    use crate::witness::block::INPUT_WITNESS_TABLE;
+    use crate::witness::block::{INPUT_WITNESS_TABLE, INPUT_WITNESS_TABLE_SUB, INPUT_WITNESS_TABLE_MUL};
 
     #[test]
     fn test_lazy_static() {
         println!("{:?}", *INPUT_WITNESS_TABLE);
         println!("{:?}", INPUT_WITNESS_TABLE.core_circuit());
         println!("{:?}", INPUT_WITNESS_TABLE.bytecode_circuit());
+    }
+
+    #[test]
+    fn test_lazy_static_SUB(){
+        println!("{:?}", *INPUT_WITNESS_TABLE_SUB);
+        println!("{:?}", INPUT_WITNESS_TABLE_SUB.core_circuit());
+        println!("{:?}", INPUT_WITNESS_TABLE_SUB.bytecode_circuit());
+    }
+
+    #[test]
+    fn test_lazy_static_MUL(){
+        println!("{:?}", *INPUT_WITNESS_TABLE_MUL);
+        println!("{:?}", INPUT_WITNESS_TABLE_MUL.core_circuit());
+        println!("{:?}", INPUT_WITNESS_TABLE_MUL.bytecode_circuit());
     }
 }
