@@ -131,7 +131,7 @@ mod tests {
     use plotters::prelude::*;
 
     #[test]
-    fn test_super_circuit() {
+    fn test_ADD() {
         let k = 9;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
         let instance = vec![];
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn test_SUB() {
         //k=4, panic NotEnoughRowsAvailable
-        let k: u32 = 8;
+        let k: u32 = 9;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_MUL() {
         //k=4, panic NotEnoughRowsAvailable
-        let k: u32 = 8;
+        let k: u32 = 9;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
@@ -172,7 +172,7 @@ mod tests {
     #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
-        let k = 8;
+        let k = 9;
         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
         // draw picture
         let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
