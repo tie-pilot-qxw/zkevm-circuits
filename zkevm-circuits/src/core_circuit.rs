@@ -278,9 +278,6 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                         return Err(Error::Synthesis);
                     }
                     let mut idx = 0;
-                    if selector[idx] {
-                        config.q_step_first.enable(&mut region, offset)?;
-                    }
                     idx += 1;
                     if selector[idx] {
                         config.q_enable.enable(&mut region, offset)?;
@@ -289,6 +286,8 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
 
                     assign_row(&mut region, offset, witness, columns)?;
                 }
+                // enable step first
+                config.q_step_first.enable(&mut region, 0)?;
                 Ok(())
             },
         )

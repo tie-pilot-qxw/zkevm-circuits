@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 pub struct StackCircuitConfig<F> {
     stack_table: StackTable,
     fixed_table: FixedTable,
+    q_step_first: Selector,
     q_enable: Selector,
     address_diff_inv: Column<Advice>, //used for first_access
     first_access: IsZeroConfig<F>,
@@ -35,6 +36,7 @@ impl<F: Field> SubCircuitConfig<F> for StackCircuitConfig<F> {
         }: Self::ConfigArgs,
     ) -> Self {
         // init columns
+        let q_step_first = meta.selector();
         let q_enable = meta.complex_selector();
         let address_diff_inv = meta.advice_column();
         let not_first_access = IsZeroChip::configure(
@@ -47,6 +49,19 @@ impl<F: Field> SubCircuitConfig<F> for StackCircuitConfig<F> {
             },
             address_diff_inv,
         );
+        meta.create_gate("init constraints", |meta| {
+            let q_step_first = meta.query_selector(q_step_first);
+            let stamp = meta.query_advice(stack_table.stack_stamp, Rotation::cur());
+            let value = meta.query_advice(stack_table.value, Rotation::cur());
+            let address = meta.query_advice(stack_table.address, Rotation::cur());
+            let is_write = meta.query_advice(stack_table.is_write, Rotation::cur());
+            vec![
+                ("init stamp = 0", q_step_first.clone() * stamp),
+                ("init pointer = 0", q_step_first.clone() * value),
+                ("init address = 0", q_step_first.clone() * address),
+                ("init is write = 0", q_step_first.clone() * is_write),
+            ]
+        });
         meta.create_gate("is write", |meta| {
             let q_enable = meta.query_selector(q_enable);
             let first_access = 1u8.expr() - not_first_access.expr();
@@ -80,7 +95,7 @@ impl<F: Field> SubCircuitConfig<F> for StackCircuitConfig<F> {
         });
         /*
         meta.lookup_any(
-            "address is zero or one", //todo use u10 since stack address <=1024
+            "address is increasing", //todo use u10 since stack address <=1024
             |meta| {
                 let q_enable = meta.query_selector(q_enable);
                 let address_prev = meta.query_advice(stack_table.address, Rotation::prev());
@@ -110,6 +125,7 @@ impl<F: Field> SubCircuitConfig<F> for StackCircuitConfig<F> {
             stack_table,
             fixed_table,
             q_enable,
+            q_step_first,
             address_diff_inv,
             first_access: not_first_access,
             _marker: PhantomData,
@@ -195,6 +211,8 @@ impl<F: Field> SubCircuit<F> for StackCircuit<F> {
                         Value::known(F::from(next_address) - F::from(cur_address)),
                     )?;
                 }
+                // enable step first
+                config.q_step_first.enable(&mut region, 0)?;
                 Ok(())
             },
         )
