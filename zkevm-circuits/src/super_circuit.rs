@@ -123,10 +123,10 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness::{INPUT_BLOCK, INPUT_BLOCK_MUL, INPUT_BLOCK_SUB};
+    use crate::witness::{INPUT_BLOCK, INPUT_BLOCK_MUL, INPUT_BLOCK_POP, INPUT_BLOCK_SUB};
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
-    use halo2_proofs::plonk::Instance;
+
     #[cfg(feature = "plot")]
     use plotters::prelude::*;
 
@@ -169,19 +169,36 @@ mod tests {
     }
 
     #[test]
+    fn test_POP() {
+        //k=4, panic NotEnoughRowsAvailable
+        let k: u32 = 9;
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_POP);
+        let instance = vec![];
+        let prover = MockProver::run(k, &circuit, instance).unwrap();
+        let res = prover.verify_par();
+        if let Err(err) = res {
+            panic!("Verification failures: {:?}", err);
+        }
+    }
+
+    #[test]
     #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
         let k = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
         // draw picture
-        let root = BitMapBackend::new("layout.png", (1024, 768)).into_drawing_area();
+        let root = BitMapBackend::new("layout_100x340.png", (1600, 900)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
             .titled("Example Circuit Layout", ("sans-serif", 60))
             .unwrap();
 
         halo2_proofs::dev::CircuitLayout::default()
+            .view_width(0..340)
+            .view_height(0..100)
+            // You can hide labels, which can be useful with smaller areas.
+            .show_labels(true)
             // Render the circuit onto your area!
             // The first argument is the size parameter for the circuit.
             .render(k, &circuit, &root)

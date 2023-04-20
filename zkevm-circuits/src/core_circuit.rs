@@ -69,19 +69,19 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let operand_stack_stamp = [(); OPERAND_NUM]
+        let operand_stack_stamp: [Column<Advice>; OPERAND_NUM] = [(); OPERAND_NUM]
             .iter()
             .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let operand_stack_pointer = [(); OPERAND_NUM]
+        let operand_stack_pointer: [Column<Advice>; OPERAND_NUM] = [(); OPERAND_NUM]
             .iter()
             .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let operand_stack_is_write = [(); OPERAND_NUM]
+        let operand_stack_is_write: [Column<Advice>; OPERAND_NUM] = [(); OPERAND_NUM]
             .iter()
             .map(|_| meta.advice_column())
             .collect::<Vec<_>>()
@@ -142,12 +142,83 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             vec![
                 (program_counter, program_counter_table),
                 (is_push.clone(), is_push_table),
-                //Error here when testing SUB, how byte_table initialized/generated
                 (opcode, byte_table),
                 (operand * is_push, value_pushed_table),
             ]
         });
         //todo opcode gadagets configure, don't forget opcode selectors
+        meta.lookup_any(
+            "(operand 0, operand stack stamp 0, stack pointer 0, is write 0) in stack table",
+            |meta| {
+                let operand_0 = meta.query_advice(operand[0], Rotation::cur());
+                let operand_stack_stamp_0 =
+                    meta.query_advice(operand_stack_stamp[0], Rotation::cur());
+                let operand_stack_pointer_0 =
+                    meta.query_advice(operand_stack_pointer[0], Rotation::cur());
+                let operand_is_write_0 =
+                    meta.query_advice(operand_stack_is_write[0], Rotation::cur());
+
+                let stack_value_table = meta.query_advice(stack_table.value, Rotation::cur());
+                let stack_stamp_table = meta.query_advice(stack_table.stack_stamp, Rotation::cur());
+                let stack_pointer_table = meta.query_advice(stack_table.address, Rotation::cur());
+                let is_write_table = meta.query_advice(stack_table.is_write, Rotation::cur());
+
+                vec![
+                    (operand_0, stack_value_table),
+                    (operand_stack_stamp_0, stack_stamp_table),
+                    (operand_stack_pointer_0, stack_pointer_table),
+                    (operand_is_write_0, is_write_table),
+                ]
+            },
+        );
+        meta.lookup_any(
+            "(operand 1, operand stack stamp 1, stack pointer 1, is write 1) in stack table",
+            |meta| {
+                let operand_1 = meta.query_advice(operand[1], Rotation::cur());
+                let operand_stack_stamp_1 =
+                    meta.query_advice(operand_stack_stamp[1], Rotation::cur());
+                let operand_stack_pointer_1 =
+                    meta.query_advice(operand_stack_pointer[1], Rotation::cur());
+                let operand_is_write_1 =
+                    meta.query_advice(operand_stack_is_write[1], Rotation::cur());
+
+                let stack_value_table = meta.query_advice(stack_table.value, Rotation::cur());
+                let stack_stamp_table = meta.query_advice(stack_table.stack_stamp, Rotation::cur());
+                let stack_pointer_table = meta.query_advice(stack_table.address, Rotation::cur());
+                let is_write_table = meta.query_advice(stack_table.is_write, Rotation::cur());
+
+                vec![
+                    (operand_1, stack_value_table),
+                    (operand_stack_stamp_1, stack_stamp_table),
+                    (operand_stack_pointer_1, stack_pointer_table),
+                    (operand_is_write_1, is_write_table),
+                ]
+            },
+        );
+        meta.lookup_any(
+            "(operand 2, operand stack stamp 2, stack pointer 2, is write 2) in stack table",
+            |meta| {
+                let operand_2 = meta.query_advice(operand[2], Rotation::cur());
+                let operand_stack_stamp_2 =
+                    meta.query_advice(operand_stack_stamp[2], Rotation::cur());
+                let operand_stack_pointer_2 =
+                    meta.query_advice(operand_stack_pointer[2], Rotation::cur());
+                let operand_is_write_2 =
+                    meta.query_advice(operand_stack_is_write[2], Rotation::cur());
+
+                let stack_value_table = meta.query_advice(stack_table.value, Rotation::cur());
+                let stack_stamp_table = meta.query_advice(stack_table.stack_stamp, Rotation::cur());
+                let stack_pointer_table = meta.query_advice(stack_table.address, Rotation::cur());
+                let is_write_table = meta.query_advice(stack_table.is_write, Rotation::cur());
+
+                vec![
+                    (operand_2, stack_value_table),
+                    (operand_stack_stamp_2, stack_stamp_table),
+                    (operand_stack_pointer_2, stack_pointer_table),
+                    (operand_is_write_2, is_write_table),
+                ]
+            },
+        );
 
         let config = Self {
             q_step_first,

@@ -17,12 +17,9 @@ impl<F: Field> ExecutionGadget<F> for SubGadget<F> {
 
     fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
         meta.create_gate(Self::NAME, |meta| {
-            //get PC of next row
             let program_counter_next = meta.query_advice(config.program_counter, Rotation::next());
-            //get stack_stamp/stack_pointer of previous row
             let stack_stamp_prev = meta.query_advice(config.stack_stamp, Rotation::prev());
             let stack_pointer_prev = meta.query_advice(config.stack_pointer, Rotation::prev());
-
             let program_counter = meta.query_advice(config.program_counter, Rotation::cur());
             let stack_stamp = meta.query_advice(config.stack_stamp, Rotation::cur());
             let stack_pointer = meta.query_advice(config.stack_pointer, Rotation::cur());
@@ -41,17 +38,16 @@ impl<F: Field> ExecutionGadget<F> for SubGadget<F> {
                 meta.query_advice(config.operand_stack_pointer[1], Rotation::cur());
             let stack_pointer_2 =
                 meta.query_advice(config.operand_stack_pointer[2], Rotation::cur());
-
+            // don't forget about the switch
             let opcode_id = OpcodeId::from_str(Self::NAME)
                 .expect(&format!("gadget name {} is wrong", Self::NAME));
             let is_opcode = meta.query_advice(
                 config.execution_state_selector[opcode_id.as_u8() as usize],
                 Rotation::cur(),
             );
-
             let q_enable = meta.query_selector(config.q_enable);
             let v = vec![
-                ("a-b=c", (operand_0 - operand_1 - operand_2)),
+                ("a-b=c", (operand_0.clone() - operand_1.clone() - operand_2)),
                 (
                     "program counter increment",
                     (program_counter_next - program_counter - 1u8.expr()),
@@ -79,7 +75,6 @@ impl<F: Field> ExecutionGadget<F> for SubGadget<F> {
                     "stack stamp 1 + 1 = stack stamp 2",
                     stack_stamp_2 - stack_stamp_1 - 1u8.expr(),
                 ),
-                //why stack pointer 0 =last pointer + is write 0 here? (stack pointer=last pointer)
                 (
                     "stack pointer 0 = last pointer + is_write",
                     stack_pointer_0.clone() - stack_pointer_prev - is_write_0,
@@ -93,6 +88,7 @@ impl<F: Field> ExecutionGadget<F> for SubGadget<F> {
                     stack_pointer_2 - stack_pointer_1,
                 ),
             ];
+            // multiply enable and is_opcode to all constraints
             add_expression_to_constraints!(v, q_enable.clone() * is_opcode.clone())
         });
         SubGadget {

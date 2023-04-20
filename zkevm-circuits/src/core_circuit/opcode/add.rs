@@ -5,6 +5,7 @@ use eth_types::Field;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::ConstraintSystem;
 use halo2_proofs::poly::Rotation;
+
 use std::marker::PhantomData;
 use std::str::FromStr;
 
@@ -91,6 +92,7 @@ impl<F: Field> ExecutionGadget<F> for AddGadget<F> {
             // multiply enable and is_opcode to all constraints
             add_expression_to_constraints!(v, q_enable.clone() * is_opcode.clone())
         });
+
         AddGadget {
             _marker: PhantomData,
         }

@@ -1,7 +1,6 @@
-use std::ops::Add;
-
 use crate::core_circuit::opcode::add::AddGadget;
 use crate::core_circuit::opcode::mul::MulGadget;
+use crate::core_circuit::opcode::pop::PopGadget;
 use crate::core_circuit::opcode::push::Push1Gadget;
 use crate::core_circuit::opcode::stop::StopGadget;
 use crate::core_circuit::opcode::sub::SubGadget;
@@ -29,6 +28,7 @@ pub(crate) struct ExecutionGadgets<F> {
     mul_gadget: MulGadget<F>,
     sub_gadget: SubGadget<F>,
     push1_gadget: Push1Gadget<F>,
+    pop_gadget: PopGadget<F>,
 }
 
 impl<F: Field> ExecutionGadgets<F> {
@@ -39,6 +39,7 @@ impl<F: Field> ExecutionGadgets<F> {
             mul_gadget: MulGadget::configure(config, meta),
             sub_gadget: SubGadget::configure(config, meta),
             push1_gadget: Push1Gadget::configure(config, meta),
+            pop_gadget: PopGadget::configure(config, meta),
         }
     }
 }

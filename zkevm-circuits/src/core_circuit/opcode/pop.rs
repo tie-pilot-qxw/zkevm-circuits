@@ -8,12 +8,12 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
-pub struct Push1Gadget<F> {
+pub struct PopGadget<F> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field> ExecutionGadget<F> for Push1Gadget<F> {
-    const NAME: &'static str = "PUSH1";
+impl<F: Field> ExecutionGadget<F> for PopGadget<F> {
+    const NAME: &'static str = "POP";
 
     fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
         meta.create_gate(Self::NAME, |meta| {
@@ -21,11 +21,12 @@ impl<F: Field> ExecutionGadget<F> for Push1Gadget<F> {
             let stack_stamp_prev = meta.query_advice(config.stack_stamp, Rotation::prev());
             let stack_pointer_prev = meta.query_advice(config.stack_pointer, Rotation::prev());
             let program_counter = meta.query_advice(config.program_counter, Rotation::cur());
-            let stack_stamp = meta.query_advice(config.stack_stamp, Rotation::cur());
+            let _stack_stamp = meta.query_advice(config.stack_stamp, Rotation::cur());
             let stack_pointer = meta.query_advice(config.stack_pointer, Rotation::cur());
             let is_write_0 = meta.query_advice(config.operand_stack_is_write[0], Rotation::cur());
             let is_write_1 = meta.query_advice(config.operand_stack_is_write[1], Rotation::cur());
             let is_write_2 = meta.query_advice(config.operand_stack_is_write[2], Rotation::cur());
+            let _operand_0 = meta.query_advice(config.operand[0], Rotation::cur()); // handled by lookup in core
             let operand_1 = meta.query_advice(config.operand[1], Rotation::cur());
             let operand_2 = meta.query_advice(config.operand[2], Rotation::cur());
             let stack_stamp_0 = meta.query_advice(config.operand_stack_stamp[0], Rotation::cur());
@@ -48,27 +49,23 @@ impl<F: Field> ExecutionGadget<F> for Push1Gadget<F> {
             let v = vec![
                 (
                     "program counter increment",
-                    (program_counter_next - program_counter - 2u8.expr()),
+                    (program_counter_next - program_counter - 1u8.expr()),
                 ),
                 (
-                    "stack stamp increment",
-                    (stack_stamp - stack_stamp_prev.clone() - 1u8.expr()),
+                    "stack pointer decrement",
+                    (stack_pointer - stack_pointer_prev.clone() + 1u8.expr()),
                 ),
-                (
-                    "stack pointer increment",
-                    (stack_pointer - stack_pointer_prev.clone() - 1u8.expr()),
-                ),
-                ("stack is write 0 = 1", is_write_0.clone() - 1u8.expr()),
                 (
                     "stack stamp 0 = last stamp + 1",
                     stack_stamp_0 - stack_stamp_prev - 1u8.expr(),
                 ),
                 (
-                    "stack pointer 0 = last pointer + is_write",
-                    stack_pointer_0 - stack_pointer_prev - is_write_0,
+                    "stack pointer 0 = last pointer",
+                    stack_pointer_0 - stack_pointer_prev,
                 ),
-                ("other stack is write = 0", is_write_1),
-                ("other stack is write = 0", is_write_2),
+                ("stack is write = 0", is_write_0),
+                ("stack is write = 0", is_write_1),
+                ("stack is write = 0", is_write_2),
                 ("other operand = 0", operand_1),
                 ("other operand = 0", operand_2),
                 ("other stack stamp = 0", stack_stamp_1),
@@ -79,7 +76,8 @@ impl<F: Field> ExecutionGadget<F> for Push1Gadget<F> {
             // multiply enable and is_opcode to all constraints
             add_expression_to_constraints!(v, q_enable.clone() * is_opcode.clone())
         });
-        Push1Gadget {
+
+        PopGadget {
             _marker: PhantomData,
         }
     }
