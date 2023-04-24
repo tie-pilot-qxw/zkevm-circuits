@@ -3,15 +3,14 @@ mod opcode;
 
 use crate::core_circuit::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
-use crate::util::{assign_row, Expr};
+use crate::util::{self, Expr};
 use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::witness::block::{CoreCircuitWitness, SelectorColumn};
 use crate::witness::Block;
 use crate::witness::{EXECUTION_STATE_NUM, OPERAND_NUM};
 use eth_types::Field;
-use halo2_proofs::circuit::Layouter;
-use halo2_proofs::plonk::{
-    Advice, Any, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
-};
+use halo2_proofs::circuit::{Layouter, Region};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
@@ -103,8 +102,8 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                     q_step_first.clone() * stack_pointer,
                 ),
                 (
-                    "second row program counter = 1",
-                    q_step_first * (1u8.expr() - program_counter),
+                    "second row program counter = 0",
+                    q_step_first * program_counter,
                 ),
             ]
         });
@@ -245,44 +244,69 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
 }
 
 impl<F: Field> CoreCircuitConfig<F> {
-    fn columns(&self) -> Vec<Column<Any>> {
-        let mut v = vec![
+    fn assign_row(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &CoreCircuitWitness,
+        offset: usize,
+    ) -> Result<(), Error> {
+        util::assign_cell(
+            region,
+            offset,
+            witness.program_counter,
             self.program_counter.into(),
-            self.opcode.into(),
-            self.is_push.into(),
-            self.stack_stamp.into(),
+        )?;
+        util::assign_cell(region, offset, witness.opcode, self.opcode.into())?;
+        util::assign_cell(region, offset, witness.is_push, self.is_push.into())?;
+        util::assign_cell(region, offset, witness.stack_stamp, self.stack_stamp.into())?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.stack_pointer,
             self.stack_pointer.into(),
-        ];
-        v.append(&mut self.operand.iter().map(|x| x.clone().into()).collect());
-        v.append(
-            &mut self
-                .operand_stack_stamp
-                .iter()
-                .map(|x| x.clone().into())
-                .collect(),
-        );
-        v.append(
-            &mut self
-                .operand_stack_pointer
-                .iter()
-                .map(|x| x.clone().into())
-                .collect(),
-        );
-        v.append(
-            &mut self
-                .operand_stack_is_write
-                .iter()
-                .map(|x| x.clone().into())
-                .collect(),
-        );
-        v.append(
-            &mut self
-                .execution_state_selector
-                .iter()
-                .map(|x| x.clone().into())
-                .collect(),
-        );
-        v
+        )?;
+        for i in 0..OPERAND_NUM {
+            util::assign_cell(region, offset, witness.operand[i], self.operand[i].into())?;
+            util::assign_cell(
+                region,
+                offset,
+                witness.operand_stack_stamp[i],
+                self.operand_stack_stamp[i].into(),
+            )?;
+            util::assign_cell(
+                region,
+                offset,
+                witness.operand_stack_pointer[i],
+                self.operand_stack_pointer[i].into(),
+            )?;
+            util::assign_cell(
+                region,
+                offset,
+                witness.operand_stack_is_write[i],
+                self.operand_stack_is_write[i].into(),
+            )?;
+        }
+        for i in 0..EXECUTION_STATE_NUM {
+            util::assign_cell(
+                region,
+                offset,
+                witness.execution_state_selector[i],
+                self.execution_state_selector[i].into(),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn assign_selector(
+        &self,
+        region: &mut Region<'_, F>,
+        selector: &SelectorColumn,
+        offset: usize,
+    ) -> Result<(), Error> {
+        if selector.core_q_enable {
+            self.q_enable.enable(region, offset)?;
+        }
+        Ok(())
     }
 }
 
@@ -342,21 +366,13 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                     );
                 }
 
-                for (offset, (witness, selector)) in
-                    self.block.witness_table.core_circuit().iter().enumerate()
-                {
-                    if 2 != selector.len() {
-                        return Err(Error::Synthesis);
-                    }
-                    let mut idx = 0;
-                    idx += 1;
-                    if selector[idx] {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
-                    let columns = config.columns();
-
-                    assign_row(&mut region, offset, witness, columns)?;
+                for (offset, witness) in self.block.witness_table.core.iter().enumerate() {
+                    config.assign_row(&mut region, witness, offset)?;
                 }
+                for (offset, selector) in self.block.witness_table.selector.iter().enumerate() {
+                    config.assign_selector(&mut region, selector, offset)?;
+                }
+
                 // enable step first
                 config.q_step_first.enable(&mut region, 0)?;
                 Ok(())

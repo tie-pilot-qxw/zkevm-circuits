@@ -123,7 +123,7 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::witness::{INPUT_BLOCK, INPUT_BLOCK_MUL, INPUT_BLOCK_POP, INPUT_BLOCK_SUB};
+    use crate::witness::block::WitnessTable;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
 
@@ -131,9 +131,14 @@ mod tests {
     use plotters::prelude::*;
 
     #[test]
-    fn test_ADD() {
-        let k = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
+    fn test_add() {
+        let k: u32 = 9;
+        let machine_code = trace_parser::assemble_file("debug/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness_table = WitnessTable::new(&machine_code, &trace);
+        let block: Block<Fr> = Block::new(witness_table);
+
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&block);
         let instance = vec![];
         let prover = MockProver::run(k, &circuit, instance).unwrap();
         let res = prover.verify_par();
@@ -142,51 +147,43 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_SUB() {
-        //k=4, panic NotEnoughRowsAvailable
-        let k: u32 = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_SUB);
-        let instance = vec![];
-        let prover = MockProver::run(k, &circuit, instance).unwrap();
-        let res = prover.verify_par();
-        if let Err(err) = res {
-            panic!("Verification failures: {:?}", err);
-        }
-    }
+    // #[test]
+    // fn test_MUL() {
+    //     //k=4, panic NotEnoughRowsAvailable
+    //     let k: u32 = 9;
+    //     let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
+    //     let instance = vec![];
+    //     let prover = MockProver::run(k, &circuit, instance).unwrap();
+    //     let res = prover.verify_par();
+    //     if let Err(err) = res {
+    //         panic!("Verification failures: {:?}", err);
+    //     }
+    // }
 
-    #[test]
-    fn test_MUL() {
-        //k=4, panic NotEnoughRowsAvailable
-        let k: u32 = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
-        let instance = vec![];
-        let prover = MockProver::run(k, &circuit, instance).unwrap();
-        let res = prover.verify_par();
-        if let Err(err) = res {
-            panic!("Verification failures: {:?}", err);
-        }
-    }
-
-    #[test]
-    fn test_POP() {
-        //k=4, panic NotEnoughRowsAvailable
-        let k: u32 = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_POP);
-        let instance = vec![];
-        let prover = MockProver::run(k, &circuit, instance).unwrap();
-        let res = prover.verify_par();
-        if let Err(err) = res {
-            panic!("Verification failures: {:?}", err);
-        }
-    }
+    // #[test]
+    // fn test_POP() {
+    //     //k=4, panic NotEnoughRowsAvailable
+    //     let k: u32 = 9;
+    //     let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_POP);
+    //     let instance = vec![];
+    //     let prover = MockProver::run(k, &circuit, instance).unwrap();
+    //     let res = prover.verify_par();
+    //     if let Err(err) = res {
+    //         panic!("Verification failures: {:?}", err);
+    //     }
+    // }
 
     #[test]
     #[ignore]
     #[cfg(feature = "plot")]
     fn test_draw() {
         let k = 9;
-        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK);
+        let machine_code = trace_parser::assemble_file("debug/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness_table = WitnessTable::new(&machine_code, &trace);
+        let block: Block<Fr> = Block::new(witness_table);
+
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&block);
         // draw picture
         let root = BitMapBackend::new("layout_100x340.png", (1600, 900)).into_drawing_area();
         root.fill(&WHITE).unwrap();

@@ -53,47 +53,32 @@ macro_rules! add_expression_to_constraints {
     };
 }
 
-pub fn assign_row<F: Field>(
+pub fn assign_cell<F: Field>(
     region: &mut Region<'_, F>,
     offset: usize,
-    witness: &Vec<Option<u64>>,
-    columns: Vec<Column<Any>>,
+    value: Option<u64>,
+    column: Column<Any>,
 ) -> Result<(), Error> {
-    if columns.len() != witness.len() {
-        return Err(Error::Synthesis);
-    }
-    for (idx, value) in witness.into_iter().enumerate() {
-        if let Some(x) = value {
-            match columns[idx].column_type() {
-                Any::Advice(_) => {
-                    region.assign_advice(
-                        || {
-                            format!(
-                                "Column {:?} at offset={}, value={} ",
-                                columns[idx], offset, x
-                            )
-                        },
-                        Column::<Advice>::try_from(columns[idx]).unwrap(),
-                        offset,
-                        || Value::known(F::from(*x as u64)),
-                    )?;
-                }
-                Any::Fixed => {
-                    region.assign_fixed(
-                        || {
-                            format!(
-                                "Column {:?} at offset={}, value={} ",
-                                columns[idx], offset, x
-                            )
-                        },
-                        Column::<Fixed>::try_from(columns[idx]).unwrap(),
-                        offset,
-                        || Value::known(F::from(*x as u64)),
-                    )?;
-                }
-                Any::Instance => {
-                    todo!()
-                }
+    if let Some(x) = value {
+        match column.column_type() {
+            Any::Advice(_) => {
+                region.assign_advice(
+                    || format!("Column {:?} at offset={}, value={} ", column, offset, x),
+                    Column::<Advice>::try_from(column).unwrap(),
+                    offset,
+                    || Value::known(F::from(x)),
+                )?;
+            }
+            Any::Fixed => {
+                region.assign_fixed(
+                    || format!("Column {:?} at offset={}, value={} ", column, offset, x),
+                    Column::<Fixed>::try_from(column).unwrap(),
+                    offset,
+                    || Value::known(F::from(x)),
+                )?;
+            }
+            Any::Instance => {
+                todo!();
             }
         }
     }

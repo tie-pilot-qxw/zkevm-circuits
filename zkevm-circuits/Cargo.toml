@@ -18,6 +18,7 @@ gadgets = { path = "../gadgets"}
 plotters = { version="0.3.4" , optional = true}
 anyhow = "1.0.68"
 lazy_static = "1.4.0"
+trace-parser = { path = "../trace-parser" }
 
 [features]
 default = ["plot"]

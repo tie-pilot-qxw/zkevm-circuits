@@ -1,11 +1,12 @@
 use crate::table::{FixedTable, StackTable};
-use crate::util::{assign_row, SubCircuit, SubCircuitConfig};
+use crate::util::{self, SubCircuit, SubCircuitConfig};
+use crate::witness::block::{SelectorColumn, StackCircuitWitness};
 use crate::witness::Block;
 use eth_types::Field;
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Value};
-use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
@@ -134,15 +135,49 @@ impl<F: Field> SubCircuitConfig<F> for StackCircuitConfig<F> {
 }
 
 impl<F: Field> StackCircuitConfig<F> {
-    fn columns(&self) -> Vec<Column<Any>> {
-        let v = vec![
+    fn assign_row(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &StackCircuitWitness,
+        offset: usize,
+    ) -> Result<(), Error> {
+        util::assign_cell(
+            region,
+            offset,
+            witness.stack_table_stamp,
             self.stack_table.stack_stamp.into(),
-            self.stack_table.value.into(),
+        )?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.stack_table_address,
             self.stack_table.address.into(),
+        )?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.stack_table_value,
+            self.stack_table.value.into(),
+        )?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.stack_table_is_write,
             self.stack_table.is_write.into(),
-            // self.address_diff_inv.into(), this col should be assigned automatically
-        ];
-        v
+        )?;
+        Ok(())
+    }
+
+    fn assign_selector(
+        &self,
+        region: &mut Region<'_, F>,
+        selector: &SelectorColumn,
+        offset: usize,
+    ) -> Result<(), Error> {
+        if selector.stack_q_enable {
+            self.q_enable.enable(region, offset)?;
+        }
+        Ok(())
     }
 }
 
@@ -184,33 +219,25 @@ impl<F: Field> SubCircuit<F> for StackCircuit<F> {
 
                 let first_access = IsZeroChip::construct(config.first_access.clone());
 
-                let stack_circuit = self.block.witness_table.stack_circuit();
-                for (offset, (witness, selector)) in stack_circuit.iter().enumerate() {
-                    if 1 != selector.len() {
-                        return Err(Error::Synthesis);
-                    }
-                    let idx = 0;
-                    if selector[idx] {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
-                    let columns = config.columns();
-
-                    assign_row(&mut region, offset, witness, columns)?;
+                for (offset, witness) in self.block.witness_table.stack.iter().enumerate() {
+                    config.assign_row(&mut region, witness, offset)?;
+                    // let columns = config.columns();
+                    // assign_row(&mut region, i, witness, columns)?;
                 }
-                for (offset, (cur, next)) in stack_circuit
-                    .iter()
-                    .zip(stack_circuit.iter().skip(1))
-                    .enumerate()
-                {
-                    // calc address diff
-                    let cur_address = cur.0[2].unwrap();
-                    let next_address = next.0[2].unwrap();
+                for (offset, selector) in self.block.witness_table.selector.iter().enumerate() {
+                    config.assign_selector(&mut region, selector, offset)?;
+                }
+                let stack = &self.block.witness_table.stack;
+                for offset in 0..(stack.len() - 1) {
+                    let cur_addr = stack[offset].stack_table_address.unwrap();
+                    let next_addr = stack[offset + 1].stack_table_address.unwrap();
                     first_access.assign(
                         &mut region,
                         offset + 1,
-                        Value::known(F::from(next_address) - F::from(cur_address)),
+                        Value::known(F::from(next_addr) - F::from(cur_addr)),
                     )?;
                 }
+
                 // enable step first
                 config.q_step_first.enable(&mut region, 0)?;
                 Ok(())

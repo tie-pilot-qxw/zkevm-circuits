@@ -1,11 +1,12 @@
 use crate::table::BytecodeTable;
-use crate::util::{assign_row, SubCircuitConfig};
+use crate::util::{self, SubCircuitConfig};
 use crate::util::{Expr, SubCircuit};
+use crate::witness::block::{BytecodeWitness, SelectorColumn};
 use crate::witness::Block;
 use eth_types::evm_types::OpcodeId::PUSH1;
 use eth_types::Field;
-use halo2_proofs::circuit::Layouter;
-use halo2_proofs::plonk::{Any, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::circuit::{Layouter, Region};
+use halo2_proofs::plonk::{ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 
 use std::marker::PhantomData;
@@ -68,14 +69,49 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
 }
 
 impl<F: Field> BytecodeCircuitConfig<F> {
-    fn columns(&self) -> Vec<Column<Any>> {
-        let v = vec![
+    fn assign_row(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &BytecodeWitness,
+        offset: usize,
+    ) -> Result<(), Error> {
+        util::assign_cell(
+            region,
+            offset,
+            witness.bytecode_table_program_counter,
             self.bytecode_table.program_counter.into(),
+        )?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.bytecode_table_byte,
             self.bytecode_table.byte.into(),
+        )?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.bytecode_table_is_push,
             self.bytecode_table.is_push.into(),
+        )?;
+        util::assign_cell(
+            region,
+            offset,
+            witness.bytecode_table_value_pushed,
             self.bytecode_table.value_pushed.into(),
-        ];
-        v
+        )?;
+        Ok(())
+    }
+
+    fn assign_selector(
+        &self,
+        region: &mut Region<'_, F>,
+        selector: &SelectorColumn,
+        offset: usize,
+    ) -> Result<(), Error> {
+        if selector.bytecode_q_enable {
+            self.q_enable.enable(region, offset)?;
+        }
+        Ok(())
     }
 }
 
@@ -113,24 +149,13 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
                 region.name_column(|| "byte", config.bytecode_table.byte);
                 region.name_column(|| "value pushed", config.bytecode_table.value_pushed);
 
-                for (offset, (witness, selector)) in self
-                    .block
-                    .witness_table
-                    .bytecode_circuit()
-                    .iter()
-                    .enumerate()
-                {
-                    if 1 != selector.len() {
-                        return Err(Error::Synthesis);
-                    }
-                    let idx = 0;
-                    if selector[idx] {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
-                    let columns = config.columns();
-
-                    assign_row(&mut region, offset, witness, columns)?;
+                for (offset, witness) in self.block.witness_table.bytecode.iter().enumerate() {
+                    config.assign_row(&mut region, witness, offset)?;
                 }
+                for (offset, selector) in self.block.witness_table.selector.iter().enumerate() {
+                    config.assign_selector(&mut region, selector, offset)?;
+                }
+
                 Ok(())
             },
         )
