@@ -20,6 +20,24 @@ anyhow = "1.0.68"
 lazy_static = "1.4.0"
 trace-parser = { path = "../trace-parser" }
 
+[dev-dependencies]
+criterion = "0.4.0"
+
 [features]
 default = ["plot"]
 plot = ["dep:plotters", "halo2_proofs/dev-graph"]
+
+[[bench]]
+name = "super_circuit"
+harness = false
+
+# Definition of benchmarks profile to use.
+[profile.bench]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+rpath = false
+lto = "thin"
+incremental = false
+codegen-units = 1

@@ -21,6 +21,14 @@ impl<F> Block<F> {
             _marker: PhantomData::<F>,
         }
     }
+
+    pub fn new_from_code_trace(machine_code: &Vec<u8>, trace: &Vec<Trace>) -> Block<F> {
+        let witness_table = WitnessTable::new(machine_code, trace);
+        Block {
+            witness_table,
+            _marker: PhantomData::<F>,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
