@@ -41,10 +41,9 @@ impl<F: Field> ExecutionGadget<F> for PopGadget<F> {
             // don't forget about the switch
             let opcode_id = OpcodeId::from_str(Self::NAME)
                 .expect(&format!("gadget name {} is wrong", Self::NAME));
-            let is_opcode = meta.query_advice(
-                config.execution_state_selector[opcode_id.as_u8() as usize],
-                Rotation::cur(),
-            );
+            let is_opcode = config
+                .execution_state_selector
+                .selector(meta, opcode_id.as_u8() as usize);
             let q_enable = meta.query_selector(config.q_enable);
             let v = vec![
                 (

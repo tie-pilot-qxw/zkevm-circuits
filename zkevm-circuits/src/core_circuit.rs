@@ -3,14 +3,15 @@ mod opcode;
 
 use crate::core_circuit::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
-use crate::util::{self, Expr};
+use crate::util::{self};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::block::{CoreCircuitWitness, SelectorColumn};
 use crate::witness::Block;
 use crate::witness::{EXECUTION_STATE_NUM, OPERAND_NUM};
 use eth_types::Field;
+use gadgets::dynamic_selector::{DynamicSelectorChip, DynamicSelectorConfig};
 use halo2_proofs::circuit::{Layouter, Region};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
@@ -21,7 +22,7 @@ pub struct CoreCircuitConfig<F> {
     program_counter: Column<Advice>,
     opcode: Column<Advice>,
     is_push: Column<Advice>,
-    execution_state_selector: [Column<Advice>; EXECUTION_STATE_NUM],
+    execution_state_selector: DynamicSelectorConfig<F>,
     operand: [Column<Advice>; OPERAND_NUM],
     operand_stack_stamp: [Column<Advice>; OPERAND_NUM],
     operand_stack_pointer: [Column<Advice>; OPERAND_NUM],
@@ -55,13 +56,19 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let program_counter = meta.advice_column();
         let opcode = meta.advice_column();
         let is_push = meta.advice_column();
-        let execution_state_selector: [Column<Advice>; EXECUTION_STATE_NUM] = [();
-            EXECUTION_STATE_NUM]
-            .iter()
-            .map(|_| meta.advice_column())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let execution_state_selector = {
+            let high_len = (EXECUTION_STATE_NUM as f64).sqrt().round() as usize;
+            let low_len = (EXECUTION_STATE_NUM + high_len - 1) / high_len; // round up
+            let target_high = (0..low_len).map(|_| meta.advice_column()).collect();
+            let target_low = (0..low_len).map(|_| meta.advice_column()).collect();
+            DynamicSelectorChip::configure(
+                meta,
+                |meta| meta.query_selector(q_enable),
+                EXECUTION_STATE_NUM,
+                target_high,
+                target_low,
+            )
+        };
         let operand: [Column<Advice>; OPERAND_NUM] = [(); OPERAND_NUM]
             .iter()
             .map(|_| meta.advice_column())
@@ -106,25 +113,6 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
                     q_step_first * program_counter,
                 ),
             ]
-        });
-        meta.create_gate("execution state selector", |meta| {
-            let q_enable = meta.query_selector(q_enable);
-            let sum = (0..EXECUTION_STATE_NUM)
-                .map(|idx| meta.query_advice(execution_state_selector[idx], Rotation::cur()))
-                .reduce(|acc, expr| acc + expr)
-                .unwrap();
-            let mut bool_checks: Vec<(&str, Expression<F>)> = (0..EXECUTION_STATE_NUM)
-                .map(|idx| {
-                    let x = meta.query_advice(execution_state_selector[idx], Rotation::cur());
-                    (
-                        "execution state selector should be bool",
-                        q_enable.clone() * x.clone() * (1u8.expr() - x),
-                    )
-                })
-                .collect(); //.chain()
-                            //only 1 selector actived at one time
-            bool_checks.push(("sum 1", q_enable * (sum - 1u8.expr())));
-            bool_checks
         });
         meta.lookup_any("opcode lookup in bytecode table", |meta| {
             let program_counter = meta.query_advice(program_counter, Rotation::cur());
@@ -286,13 +274,14 @@ impl<F: Field> CoreCircuitConfig<F> {
                 self.operand_stack_is_write[i].into(),
             )?;
         }
-        for i in 0..EXECUTION_STATE_NUM {
-            util::assign_cell(
+        if let Some(x) = witness.opcode {
+            let config = self.execution_state_selector.clone();
+            config.annotate_columns_in_region(
                 region,
-                offset,
-                witness.execution_state_selector[i],
-                self.execution_state_selector[i].into(),
-            )?;
+                format!("line_{}_execution_selector", offset).as_str(),
+            );
+            let execution_state_selector = DynamicSelectorChip::construct(config);
+            execution_state_selector.assign(region, offset, x as usize)?;
         }
         Ok(())
     }
@@ -359,12 +348,12 @@ impl<F: Field> SubCircuit<F> for CoreCircuit<F> {
                         config.operand_stack_pointer[idx],
                     );
                 }
-                for idx in 0..EXECUTION_STATE_NUM {
-                    region.name_column(
-                        || format!("execution state selector {}", idx),
-                        config.execution_state_selector[idx],
-                    );
-                }
+                // for idx in 0..EXECUTION_STATE_NUM {
+                //     region.name_column(
+                //         || format!("execution state selector {}", idx),
+                //         config.execution_state_selector[idx],
+                //     );
+                // } todo name them!
 
                 for (offset, witness) in self.block.witness_table.core.iter().enumerate() {
                     config.assign_row(&mut region, witness, offset)?;
