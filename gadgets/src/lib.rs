@@ -16,6 +16,7 @@ pub mod binary_number;
 pub mod dynamic_selector;
 pub mod evm_word;
 pub mod is_zero;
+pub mod is_zero_with_rotation;
 pub mod less_than;
 pub mod monotone;
 pub mod mul_add;
