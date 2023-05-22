@@ -124,8 +124,9 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
 mod tests {
     use super::*;
     use crate::witness::block::WitnessTable;
-    use halo2_proofs::dev::MockProver;
+    use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::Fr;
+    use halo2curves::bn256::G1;
 
     #[cfg(feature = "plot")]
     use plotters::prelude::*;
@@ -200,5 +201,49 @@ mod tests {
             // The first argument is the size parameter for the circuit.
             .render(k, &circuit, &root)
             .unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn print_circuit_metrics() {
+        // gates
+        println!(
+            "{} gates {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let gates = CircuitGates::collect::<Fr, SuperCircuit<Fr>>();
+        let str = gates.queries_to_csv();
+        for line in str.lines() {
+            let last_csv = line.rsplitn(2, ',').next().unwrap();
+            println!("{}", last_csv);
+        }
+
+        println!(
+            "{} costs {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let k = 9;
+        let machine_code = trace_parser::assemble_file("debug/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness_table = WitnessTable::new(&machine_code, &trace);
+        let block: Block<Fr> = Block::new(witness_table);
+
+        let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&block);
+        let circuit_cost: CircuitCost<G1, SuperCircuit<Fr>> = CircuitCost::measure(9, &circuit);
+        // let proof_size: usize = circuit_cost.proof_size(1).into();
+        println!("Proof cost {:#?}", circuit_cost);
+
+        println!(
+            "{} lookups {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let mut cs = ConstraintSystem::default();
+        let config = SuperCircuit::<Fr>::configure(&mut cs);
+        // for lookup in cs.lookups() {
+        //     println!("{:#?}", lookup);
+        // }
     }
 }
