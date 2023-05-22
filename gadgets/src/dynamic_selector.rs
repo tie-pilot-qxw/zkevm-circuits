@@ -15,7 +15,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// Dynamic selector that generates expressions of degree 2 to select from N
-/// possible targets using abount 2 sqrt(N) cells..
+/// possible targets using about 2 sqrt(N) cells..
 #[derive(Clone, Debug)]
 pub struct DynamicSelectorConfig<F> {
     #[allow(dead_code)]
@@ -170,7 +170,7 @@ mod test {
         q_enable: Selector,
         /// covert target values to 0/1 table by brutal force, for test check
         zero_one_values: Vec<Column<Fixed>>,
-        dynamic_selector_half: DynamicSelectorConfig<F>,
+        dynamic_selector: DynamicSelectorConfig<F>,
     }
 
     #[derive(Default)]
@@ -189,10 +189,12 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let q_enable = meta.complex_selector();
-            let target_low = (0..2).map(|_| meta.advice_column()).collect();
+            let lo_cnt = (COUNT as f64).sqrt().floor();
+            let hi_cnt = ((COUNT as f64) / lo_cnt).floor();
+            let target_low = (0..lo_cnt as usize).map(|_| meta.advice_column()).collect();
             let target_high: Vec<Column<Advice>> =
-                (0..(COUNT + 1) / 2).map(|_| meta.advice_column()).collect();
-            let dynamic_selector_half = DynamicSelectorChip::configure(
+                (0..hi_cnt as usize).map(|_| meta.advice_column()).collect();
+            let dynamic_selector = DynamicSelectorChip::configure(
                 meta,
                 |meta| meta.query_selector(q_enable),
                 COUNT,
@@ -207,7 +209,7 @@ mod test {
                 let q_enable = meta.query_selector(q_enable);
                 let mut constraints: Vec<(&str, Expression<F>)> = vec![];
                 for target in 0..COUNT {
-                    let expr = dynamic_selector_half.selector(meta, target);
+                    let expr = dynamic_selector.selector(meta, target);
                     let expr_should_be = meta.query_fixed(zero_one_values[target], Rotation::cur());
                     constraints.push((
                         "target constraint",
@@ -219,7 +221,7 @@ mod test {
 
             Self::Config {
                 q_enable,
-                dynamic_selector_half,
+                dynamic_selector,
                 zero_one_values,
             }
         }
@@ -229,14 +231,13 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            let dynamic_selector_half =
-                DynamicSelectorChip::construct(config.dynamic_selector_half);
+            let dynamic_selector = DynamicSelectorChip::construct(config.dynamic_selector);
             layouter.assign_region(
                 || "witness",
                 |mut region| {
                     for (offset, value) in self.values.iter().enumerate() {
                         config.q_enable.enable(&mut region, offset)?;
-                        dynamic_selector_half.assign(&mut region, offset, *value as usize)?;
+                        dynamic_selector.assign(&mut region, offset, *value as usize)?;
                         for target in 0..COUNT {
                             region.assign_fixed(
                                 || "zero_one_values",
