@@ -19,6 +19,8 @@ plotters = { version="0.3.4" , optional = true}
 anyhow = "1.0.68"
 lazy_static = "1.4.0"
 trace-parser = { path = "../trace-parser" }
+serde = "1.0.152"
+csv = "1.1.6"
 
 [dev-dependencies]
 criterion = "0.4.0"
