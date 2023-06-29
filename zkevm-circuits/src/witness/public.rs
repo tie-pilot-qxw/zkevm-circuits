@@ -7,16 +7,18 @@ pub struct Row {
     /// various public information tag, e.g. BlockNumber, TxFrom
     pub tag: Tag,
     /// tx_id (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
-    pub tx_idx_or_number_diff: U256,
-    pub value0: U256,
-    pub value1: U256,
-    pub value2: U256,
-    pub value3: U256,
+    pub tx_idx_or_number_diff: Option<U256>,
+    pub value0: Option<U256>,
+    pub value1: Option<U256>,
+    pub value2: Option<U256>,
+    pub value3: Option<U256>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub enum Tag {
+    // Nil=0, in case for padding zeros, we make meaningful tag > 0
     #[default]
+    Nil,
     BlockCoinbase,
     BlockTimestamp,
     BlockNumber,
@@ -38,10 +40,15 @@ pub enum Tag {
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum LogTag {
+    /// Tag for log source addr, also indicates 0 topic
     AddrWith0Topic,
+    /// Tag for log source addr, also indicates 1 topic
     AddrWith1Topic,
+    /// Tag for log source addr, also indicates 2 topic
     AddrWith2Topic,
+    /// Tag for log source addr, also indicates 3 topic
     AddrWith3Topic,
+    /// Tag for log source addr, also indicates 4 topic
     AddrWith4Topic,
     Topic1,
     Topic2,
@@ -57,47 +64,47 @@ impl Row {
         let block_constant: BlockConstants = (&geth_data.eth_block).try_into()?;
         result.push(Row {
             tag: Tag::BlockCoinbase,
-            value0: block_constant.coinbase.as_fixed_bytes()[..4].into(),
-            value1: block_constant.coinbase.as_fixed_bytes()[4..].into(),
+            value0: Some(block_constant.coinbase.as_fixed_bytes()[..4].into()),
+            value1: Some(block_constant.coinbase.as_fixed_bytes()[4..].into()),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockTimestamp,
-            value0: block_constant.timestamp.to_be_bytes()[..16].into(),
-            value1: block_constant.timestamp.to_be_bytes()[16..].into(),
+            value0: Some(block_constant.timestamp.to_be_bytes()[..16].into()),
+            value1: Some(block_constant.timestamp.to_be_bytes()[16..].into()),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockNumber,
-            value1: block_constant.number.as_u64().into(),
+            value1: Some(block_constant.number.as_u64().into()),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockDifficulty,
-            value0: block_constant.difficulty.to_be_bytes()[..16].into(),
-            value1: block_constant.difficulty.to_be_bytes()[16..].into(),
+            value0: Some(block_constant.difficulty.to_be_bytes()[..16].into()),
+            value1: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockGasLimit,
-            value0: block_constant.gas_limit.to_be_bytes()[..16].into(),
-            value1: block_constant.gas_limit.to_be_bytes()[16..].into(),
+            value0: Some(block_constant.gas_limit.to_be_bytes()[..16].into()),
+            value1: Some(block_constant.gas_limit.to_be_bytes()[16..].into()),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockBaseFee,
-            value0: block_constant.base_fee.to_be_bytes()[..16].into(),
-            value1: block_constant.base_fee.to_be_bytes()[16..].into(),
+            value0: Some(block_constant.base_fee.to_be_bytes()[..16].into()),
+            value1: Some(block_constant.base_fee.to_be_bytes()[16..].into()),
             ..Default::default()
         });
         for (tx_idx, tx) in geth_data.eth_block.transactions.iter().enumerate() {
             result.push(Row {
                 tag: Tag::TxFromValue,
-                tx_idx_or_number_diff: (tx_idx + 1).into(),
-                value0: tx.from.as_fixed_bytes()[..4].into(),
-                value1: tx.from.as_fixed_bytes()[4..].into(),
-                value2: tx.value.to_be_bytes()[..16].into(),
-                value3: tx.value.to_be_bytes()[16..].into(),
+                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                value0: Some(tx.from.as_fixed_bytes()[..4].into()),
+                value1: Some(tx.from.as_fixed_bytes()[4..].into()),
+                value2: Some(tx.value.to_be_bytes()[..16].into()),
+                value3: Some(tx.value.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
             // to is 0xffffffff00000000...idx if tx is create
@@ -115,42 +122,42 @@ impl Row {
             );
             result.push(Row {
                 tag: Tag::TxToCallDataSize,
-                tx_idx_or_number_diff: (tx_idx + 1).into(),
-                value0: to.as_fixed_bytes()[..4].into(),
-                value1: to.as_fixed_bytes()[4..].into(),
-                value2: 0.into(), //len won't > u128
-                value3: tx.input.len().into(),
+                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                value0: Some(to.as_fixed_bytes()[..4].into()),
+                value1: Some(to.as_fixed_bytes()[4..].into()),
+                value2: Some(0.into()), //len won't > u128
+                value3: Some(tx.input.len().into()),
                 ..Default::default()
             });
             result.push(Row {
                 tag: Tag::TxIsCreate,
-                tx_idx_or_number_diff: (tx_idx + 1).into(),
-                value0: 0.into(),
-                value1: (tx.to.is_none() as u8).into(),
+                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                value0: Some(0.into()),
+                value1: Some((tx.to.is_none() as u8).into()),
                 ..Default::default()
             });
             result.push(Row {
                 tag: Tag::TxGasLimit,
-                tx_idx_or_number_diff: (tx_idx + 1).into(),
-                value0: tx.gas.to_be_bytes()[..16].into(),
-                value1: tx.gas.to_be_bytes()[16..].into(),
+                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                value0: Some(tx.gas.to_be_bytes()[..16].into()),
+                value1: Some(tx.gas.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
             let gas_price = tx.gas_price.unwrap_or(0.into());
             result.push(Row {
                 tag: Tag::TxGasPrice,
-                tx_idx_or_number_diff: (tx_idx + 1).into(),
-                value0: gas_price.to_be_bytes()[..16].into(),
-                value1: gas_price.to_be_bytes()[16..].into(),
+                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                value0: Some(gas_price.to_be_bytes()[..16].into()),
+                value1: Some(gas_price.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
             for (idx, byte) in tx.input.iter().enumerate() {
                 result.push(Row {
                     tag: Tag::TxCallData,
-                    tx_idx_or_number_diff: (tx_idx + 1).into(),
-                    value0: idx.into(),
-                    value1: tx.input.len().into(),
-                    value2: (*byte).into(),
+                    tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                    value0: Some(idx.into()),
+                    value1: Some(tx.input.len().into()),
+                    value2: Some((*byte).into()),
                     ..Default::default()
                 });
             }
@@ -158,9 +165,9 @@ impl Row {
         for (diff, hash) in geth_data.history_hashes.iter().rev().enumerate() {
             result.push(Row {
                 tag: Tag::BlockHash,
-                tx_idx_or_number_diff: (diff + 1).into(),
-                value0: hash.to_be_bytes()[..16].into(),
-                value1: hash.to_be_bytes()[16..].into(),
+                tx_idx_or_number_diff: Some((diff + 1).into()),
+                value0: Some(hash.to_be_bytes()[..16].into()),
+                value1: Some(hash.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
         }
@@ -173,7 +180,6 @@ mod test {
     use eth_types::geth_types::GethData;
     use eth_types::{Block, Transaction, U256};
     use serde::Serialize;
-    use std::io;
 
     fn get_test_geth_data() -> GethData {
         let mut history_hashes = vec![];
@@ -214,7 +220,7 @@ mod test {
     fn from_geth_data() {
         let geth_data = get_test_geth_data();
         let rows = Row::from_geth_data(&geth_data).unwrap();
-        let mut wtr = csv::Writer::from_writer(io::stdout());
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
         for row in &rows {
             wtr.serialize(row).unwrap();
         }
@@ -225,11 +231,11 @@ mod test {
     fn print_public_csv() {
         let row0 = Row {
             tag: Tag::BlockCoinbase,
-            tx_idx_or_number_diff: U256::zero(),
-            value0: U256::from(1023),
-            value1: U256::max_value(),
-            value2: U256::zero(),
-            value3: U256::zero(),
+            tx_idx_or_number_diff: Some(U256::zero()),
+            value0: Some(U256::from(1023)),
+            value1: Some(U256::max_value()),
+            value2: Some(U256::zero()),
+            value3: Some(U256::zero()),
         };
         let row1 = Row {
             tag: Tag::BlockGasLimit,
@@ -237,16 +243,40 @@ mod test {
         };
         let row2 = Row {
             tag: Tag::TxLog,
-            tx_idx_or_number_diff: 1.into(),
-            value0: 2.into(),
-            value1: (LogTag::AddrWith3Topic as u8).into(),
-            value2: U256::from(1023),
-            value3: U256::max_value(),
+            tx_idx_or_number_diff: Some(1.into()),
+            value0: Some(2.into()),
+            value1: Some((LogTag::AddrWith3Topic as u8).into()),
+            value2: Some(U256::from(1023)),
+            value3: Some(U256::max_value()),
         };
-        let mut wtr = csv::Writer::from_writer(io::stdout());
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
         wtr.serialize(&row0).unwrap();
         wtr.serialize(&row1).unwrap();
         wtr.serialize(&row2).unwrap();
+        wtr.flush().unwrap();
+    }
+
+    #[test]
+    fn tmp() {
+        #[derive(Clone, Debug, Default, Serialize)]
+        struct T {
+            pub a: u8,
+            pub b: Option<u8>,
+            pub c: u8,
+        }
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+        wtr.serialize(&T {
+            a: 8,
+            b: None,
+            c: 8,
+        })
+        .unwrap();
+        wtr.serialize(&T {
+            a: 8,
+            b: Some(99),
+            c: 8,
+        })
+        .unwrap();
         wtr.flush().unwrap();
     }
 }
