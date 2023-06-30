@@ -13,6 +13,7 @@
 
 pub mod batched_is_zero;
 pub mod binary_number;
+pub mod binary_number_with_real_selector;
 pub mod dynamic_selector;
 pub mod evm_word;
 pub mod is_zero;

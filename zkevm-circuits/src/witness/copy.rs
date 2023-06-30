@@ -50,7 +50,7 @@ mod test {
     use crate::witness::copy::{Row, Type};
 
     #[test]
-    fn print_public_csv() {
+    fn print_csv() {
         let row0 = Row {
             byte: 42.into(),
             src_type: Type::PublicCalldata,

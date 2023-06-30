@@ -228,7 +228,7 @@ mod test {
     }
 
     #[test]
-    fn print_public_csv() {
+    fn print_csv() {
         let row0 = Row {
             tag: Tag::BlockCoinbase,
             tx_idx_or_number_diff: Some(U256::zero()),

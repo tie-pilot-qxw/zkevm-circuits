@@ -16,11 +16,13 @@ sha3 = "0.10"
 log = "0.4.17"
 gadgets = { path = "../gadgets"}
 plotters = { version="0.3.4" , optional = true}
-anyhow = "1.0.68"
-lazy_static = "1.4.0"
+anyhow = "1.0"
+lazy_static = "1.4"
 trace-parser = { path = "../trace-parser" }
-serde = "1.0.152"
-csv = "1.1.6"
+serde = "1.0"
+csv = "1.2"
+strum = "0.24"
+strum_macros = "0.24"
 
 [dev-dependencies]
 criterion = "0.4.0"

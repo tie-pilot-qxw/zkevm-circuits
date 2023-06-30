@@ -232,3 +232,30 @@ pub fn split_u256_limb64(value: &U256) -> [U256; 4] {
         U256([value.0[3], 0, 0, 0]),
     ]
 }
+
+/// Given a u16-representation of an expression, it computes and returns the
+/// single expression.
+pub fn expr_from_u16s<F: FieldExt, E: Expr<F>>(bytes: &[E]) -> Expression<F> {
+    let mut value = 0.expr();
+    let mut multiplier = F::one();
+    for byte in bytes.iter() {
+        value = value + byte.expr() * multiplier;
+        multiplier *= F::from(65536);
+    }
+    value
+}
+
+/// Constant 2^128
+pub const TWO_TO_128: U256 = U256([0, 0, 1, 0]);
+
+/// Convert U256 to Expr does not ensure no overflow. Use with caution.
+impl<F: FieldExt> Expr<F> for U256 {
+    #[inline]
+    fn expr(&self) -> Expression<F> {
+        let (lo, hi) = split_u256(&self);
+        let lo = F::from_u128(lo.as_u128());
+        let hi = F::from_u128(hi.as_u128());
+        let two_to_128 = F::from_u128(u128::MAX) + F::one();
+        Expression::Constant(hi * two_to_128 + lo)
+    }
+}

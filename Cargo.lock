@@ -3227,5 +3227,7 @@ dependencies = [
  "rand_xorshift",
  "serde",
  "sha3 0.10.6",
+ "strum",
+ "strum_macros",
  "trace-parser",
 ]
