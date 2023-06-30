@@ -1,6 +1,7 @@
 use eth_types::U256;
 use serde::Serialize;
 use strum::IntoEnumIterator;
+
 use strum_macros::{EnumIter, EnumString};
 
 #[derive(Clone, Debug, Default, Serialize)]

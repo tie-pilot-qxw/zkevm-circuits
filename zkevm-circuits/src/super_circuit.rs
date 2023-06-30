@@ -224,7 +224,7 @@ mod tests {
             vec!["#"; 20].join(""),
             vec!["#"; 20].join("")
         );
-        let k = 9;
+        let _k = 9;
         let machine_code = trace_parser::assemble_file("debug/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
         let witness_table = WitnessTable::new(&machine_code, &trace);
@@ -241,7 +241,7 @@ mod tests {
             vec!["#"; 20].join("")
         );
         let mut cs = ConstraintSystem::default();
-        let config = SuperCircuit::<Fr>::configure(&mut cs);
+        let _config = SuperCircuit::<Fr>::configure(&mut cs);
         // for lookup in cs.lookups() {
         //     println!("{:#?}", lookup);
         // }

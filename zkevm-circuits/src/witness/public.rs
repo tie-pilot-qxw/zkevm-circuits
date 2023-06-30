@@ -1,5 +1,5 @@
 use eth_types::geth_types::{BlockConstants, GethData};
-use eth_types::{Address, ToBigEndian, H256, U256};
+use eth_types::{ToBigEndian, U256};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]

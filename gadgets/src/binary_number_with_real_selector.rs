@@ -7,7 +7,7 @@ use eth_types::Field;
 use halo2_proofs::plonk::Selector;
 use halo2_proofs::{
     circuit::{Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells},
+    plonk::{Advice, Column, ConstraintSystem, Error, Expression, VirtualCells},
     poly::Rotation,
 };
 use std::collections::BTreeSet;

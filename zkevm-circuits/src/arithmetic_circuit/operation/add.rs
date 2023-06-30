@@ -1,6 +1,6 @@
 use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::Tag;
-use eth_types::U256;
+
 use gadgets::util::{expr_from_u16s, Expr, TWO_TO_128};
 use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::plonk::{Expression, VirtualCells};
