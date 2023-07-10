@@ -12,7 +12,7 @@ pub(crate) struct AddGadget<F>(PhantomData<F>);
 impl<F: FieldExt> OperationGadget<F> for AddGadget<F> {
     const NAME: &'static str = "Arithmetic Circuit Add";
     const TAG: Tag = Tag::Add;
-    const ROW_NUM: usize = 2;
+    const NUM_ROW: usize = 2;
 
     fn constraints(
         config: &OperationConfig<F>,

@@ -10,7 +10,7 @@ type OperationConfig<F> = ArithmeticCircuitConfig<F>;
 pub(crate) trait OperationGadget<F: FieldExt> {
     const NAME: &'static str;
     const TAG: Tag;
-    const ROW_NUM: usize;
+    const NUM_ROW: usize;
 
     fn constraints(
         config: &OperationConfig<F>,

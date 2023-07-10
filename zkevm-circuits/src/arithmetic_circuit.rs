@@ -116,18 +116,18 @@ impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
             ) * cnt_is_zero;
             let cnt_above = meta.query_advice(
                 config.cnt,
-                Rotation(1 - operation::add::AddGadget::<F>::ROW_NUM as i32),
+                Rotation(1 - operation::add::AddGadget::<F>::NUM_ROW as i32),
             );
             let cnt_above_above = meta.query_advice(
                 config.cnt,
-                Rotation(0 - operation::add::AddGadget::<F>::ROW_NUM as i32),
+                Rotation(0 - operation::add::AddGadget::<F>::NUM_ROW as i32),
             );
             let constraints = vec![
                 (
                     "rows of this operation",
                     q_enable.clone()
                         * condition.clone()
-                        * (cnt_above - (operation::add::AddGadget::<F>::ROW_NUM - 1).expr()),
+                        * (cnt_above - (operation::add::AddGadget::<F>::NUM_ROW - 1).expr()),
                 ),
                 (
                     "prev operation cnt = 0",
