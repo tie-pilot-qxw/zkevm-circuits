@@ -3,17 +3,19 @@ use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
-    // program counter
+    // the contract address of the bytecodes
+    pub addr: U256,
+    // the index that program counter points to
     pub pc: U256,
-    // machine code, operation code or pushed value
-    pub machine_code: U256,
+    // bytecode, operation code or pushed value
+    pub bytecode: U256,
     // pushed value
     pub value_hi: Option<U256>,
     pub value_lo: Option<U256>,
-    // accumulated value, increaced push size times
+    // accumulated value, accumulation will go X times for PUSHX
     pub acc_hi: Option<U256>,
     pub acc_lo: Option<U256>,
-    // count for accumulation
+    // count for accumulation, accumulation will go X times for PUSHX
     pub count: U256,
     // whether count is equal or larger than 16
     pub is_high: U256,
@@ -30,19 +32,19 @@ mod test {
     fn print_csv() {
         let row1 = Row {
             pc: U256::from(0x2),
-            machine_code: OpcodeId::ADD.as_u8().into(),
+            bytecode: OpcodeId::ADD.as_u8().into(),
             ..Default::default()
         };
         let row2 = Row {
             pc: 0x3.into(),
-            machine_code: OpcodeId::PUSH1.as_u8().into(),
+            bytecode: OpcodeId::PUSH1.as_u8().into(),
             count: 1.into(),
             value_lo: Some(3.into()),
             ..Default::default()
         };
         let row3 = Row {
             pc: 4.into(),
-            machine_code: 3.into(),
+            bytecode: 3.into(),
             value_hi: Some(0.into()),
             value_lo: Some(3.into()),
             acc_hi: Some(0.into()),
