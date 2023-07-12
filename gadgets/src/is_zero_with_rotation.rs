@@ -96,7 +96,7 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroWithRotationChip<F> {
         value: Value<F>,
     ) -> Result<(), Error> {
         let config = self.config();
-        let value_invert = value.map(|value| value.invert().unwrap_or(F::zero()));
+        let value_invert = value.map(|value| value.invert().unwrap_or(F::ZERO));
         region.assign_advice(
             || "witness inverse of value",
             config.value_inv,

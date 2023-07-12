@@ -24,31 +24,48 @@ pub mod sign_types;
 
 pub use bytecode::Bytecode;
 pub use error::Error;
-use halo2_proofs::{
-    arithmetic::{Field as Halo2Field, FieldExt},
-    halo2curves::{
-        bn256::{Fq, Fr},
-        group::ff::PrimeField,
+use halo2_proofs::halo2curves::{
+    bn256::{Fq, Fr},
+    ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
+};
+
+use crate::evm_types::{
+    memory::Memory, stack::Stack, storage::Storage, Gas, GasCost, OpcodeId, ProgramCounter,
+};
+use ethers_core::types;
+pub use ethers_core::{
+    abi::ethereum_types::{BigEndianHash, U512},
+    types::{
+        transaction::{eip2930::AccessList, response::Transaction},
+        Address, Block, Bytes, Signature, H160, H256, H64, U256, U64,
     },
 };
 
-use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage};
-use crate::evm_types::{Gas, GasCost, OpcodeId, ProgramCounter};
-pub use ethers_core::abi::ethereum_types::{BigEndianHash, U512};
-use ethers_core::types;
-pub use ethers_core::types::{
-    transaction::{eip2930::AccessList, response::Transaction},
-    Address, Block, Bytes, Signature, H160, H256, H64, U256, U64,
-};
-
 use serde::{de, Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
-use std::str::FromStr;
+use std::{collections::HashMap, fmt, str::FromStr};
 
-/// Trait used to reduce verbosity with the declaration of the [`FieldExt`]
+/// Trait used to reduce verbosity with the declaration of the [`PrimeField`]
 /// trait and its repr.
-pub trait Field: FieldExt + Halo2Field + PrimeField<Repr = [u8; 32]> {}
+pub trait Field: Halo2Field + PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord {
+    /// Gets the lower 128 bits of this field element when expressed
+    /// canonically.
+    fn get_lower_128(&self) -> u128 {
+        let bytes = self.to_repr();
+        bytes[..16]
+            .iter()
+            .rev()
+            .fold(0u128, |acc, value| acc * 256u128 + *value as u128)
+    }
+    /// Gets the lower 32 bits of this field element when expressed
+    /// canonically.
+    fn get_lower_32(&self) -> u32 {
+        let bytes = self.to_repr();
+        bytes[..4]
+            .iter()
+            .rev()
+            .fold(0u32, |acc, value| acc * 256u32 + *value as u32)
+    }
+}
 
 // Impl custom `Field` trait for BN256 Fr to be used and consistent with the
 // rest of the workspace.
@@ -201,11 +218,34 @@ impl ToWord for u64 {
     }
 }
 
+impl ToWord for u128 {
+    fn to_word(&self) -> Word {
+        Word::from(*self)
+    }
+}
+
 impl ToWord for usize {
     fn to_word(&self) -> Word {
         u64::try_from(*self)
             .expect("usize bigger than u64")
             .to_word()
+    }
+}
+
+impl ToWord for i32 {
+    fn to_word(&self) -> Word {
+        let value = Word::from(self.unsigned_abs() as u64);
+        if self.is_negative() {
+            value.overflowing_neg().0
+        } else {
+            value
+        }
+    }
+}
+
+impl ToWord for Word {
+    fn to_word(&self) -> Word {
+        *self
     }
 }
 
@@ -446,8 +486,7 @@ macro_rules! word_map {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evm_types::opcode_ids::OpcodeId;
-    use crate::evm_types::{memory::Memory, stack::Stack};
+    use crate::evm_types::{memory::Memory, opcode_ids::OpcodeId, stack::Stack};
 
     #[test]
     fn deserialize_geth_exec_trace2() {
@@ -588,8 +627,7 @@ mod tests {
 #[cfg(test)]
 mod eth_types_test {
     use super::*;
-    use crate::Error;
-    use crate::Word;
+    use crate::{Error, Word};
     use std::str::FromStr;
 
     #[test]

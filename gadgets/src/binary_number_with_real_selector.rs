@@ -10,8 +10,7 @@ use halo2_proofs::{
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, VirtualCells},
     poly::Rotation,
 };
-use std::collections::BTreeSet;
-use std::marker::PhantomData;
+use std::{collections::BTreeSet, marker::PhantomData};
 use strum::IntoEnumIterator;
 
 /// Helper trait that implements functionality to represent a generic type as
@@ -109,10 +108,9 @@ where
 
 /// This chip helps working with binary encoding of integers of length N bits
 /// by:
-///  - enforcing that the binary representation is in the valid range defined by
-///    T.
-///  - creating expressions (via the Config) that evaluate to 1 when the bits
-///    match a specific value and 0 otherwise.
+///  - enforcing that the binary representation is in the valid range defined by T.
+///  - creating expressions (via the Config) that evaluate to 1 when the bits match a specific value
+///    and 0 otherwise.
 #[derive(Clone, Debug)]
 pub struct BinaryNumberChip<F, T, const N: usize> {
     config: BinaryNumberConfig<T, N>,
@@ -193,7 +191,7 @@ where
                 || format!("binary number {:?}", column),
                 column,
                 offset,
-                || Value::known(F::from(bit)),
+                || Value::known(F::from(bit as u64)),
             )?;
         }
         Ok(())

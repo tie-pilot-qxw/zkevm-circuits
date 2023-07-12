@@ -17,8 +17,7 @@ use crate::util::Expr;
 /// implement `IsZero`.
 pub trait IsZeroInstruction<F: Field> {
     /// Given a `value` to be checked if it is zero:
-    ///   - witnesses `inv0(value)`, where `inv0(x)` is 0 when `x` = 0, and
-    ///     `1/x` otherwise
+    ///   - witnesses `inv0(value)`, where `inv0(x)` is 0 when `x` = 0, and `1/x` otherwise
     fn assign(
         &self,
         region: &mut Region<'_, F>,
@@ -116,7 +115,7 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroChip<F> {
         value: Value<F>,
     ) -> Result<(), Error> {
         let config = self.config();
-        let value_invert = value.map(|value| value.invert().unwrap_or(F::zero()));
+        let value_invert = value.map(|value| value.invert().unwrap_or(F::ZERO));
         region.assign_advice(
             || "witness inverse of value",
             config.value_inv,

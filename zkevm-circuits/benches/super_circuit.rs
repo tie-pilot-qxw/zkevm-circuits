@@ -3,6 +3,7 @@
 extern crate criterion;
 
 use criterion::Criterion;
+use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
 use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof};
 use halo2_proofs::poly::commitment::ParamsProver;
 use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG, ParamsVerifierKZG};
@@ -11,7 +12,6 @@ use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{
     Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
 };
-use halo2curves::bn256::{Bn256, Fr, G1Affine};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use zkevm_circuits::super_circuit::SuperCircuit;

@@ -9,6 +9,7 @@ use crate::witness::Block;
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
+use halo2_proofs::poly::Rotation;
 
 #[derive(Clone)]
 pub struct SuperCircuitConfig<F> {
@@ -125,8 +126,7 @@ mod tests {
     use super::*;
     use crate::witness::block::WitnessTable;
     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
-    use halo2_proofs::halo2curves::bn256::Fr;
-    use halo2curves::bn256::G1;
+    use halo2_proofs::halo2curves::bn256::{Fr, G1};
 
     #[cfg(feature = "plot")]
     use plotters::prelude::*;
@@ -147,32 +147,6 @@ mod tests {
             panic!("Verification failures: {:?}", err);
         }
     }
-
-    // #[test]
-    // fn test_MUL() {
-    //     //k=4, panic NotEnoughRowsAvailable
-    //     let k: u32 = 9;
-    //     let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_MUL);
-    //     let instance = vec![];
-    //     let prover = MockProver::run(k, &circuit, instance).unwrap();
-    //     let res = prover.verify_par();
-    //     if let Err(err) = res {
-    //         panic!("Verification failures: {:?}", err);
-    //     }
-    // }
-
-    // #[test]
-    // fn test_POP() {
-    //     //k=4, panic NotEnoughRowsAvailable
-    //     let k: u32 = 9;
-    //     let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&*INPUT_BLOCK_POP);
-    //     let instance = vec![];
-    //     let prover = MockProver::run(k, &circuit, instance).unwrap();
-    //     let res = prover.verify_par();
-    //     if let Err(err) = res {
-    //         panic!("Verification failures: {:?}", err);
-    //     }
-    // }
 
     #[test]
     #[ignore]
@@ -242,8 +216,8 @@ mod tests {
         );
         let mut cs = ConstraintSystem::default();
         let _config = SuperCircuit::<Fr>::configure(&mut cs);
-        // for lookup in cs.lookups() {
-        //     println!("{:#?}", lookup);
-        // }
+        for lookup in cs.lookups() {
+            println!("{}: {:?}", lookup, lookup);
+        }
     }
 }

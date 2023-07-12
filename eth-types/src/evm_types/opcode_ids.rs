@@ -4,12 +4,11 @@ use core::fmt::Debug;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{de, Deserialize, Serialize};
-use std::str::FromStr;
-use std::{fmt, matches};
+use std::{fmt, matches, str::FromStr};
 use strum_macros::EnumIter;
 
 /// Opcode enum. One-to-one corresponding to an `u8` value.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Hash, EnumIter,Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Hash, EnumIter, Default)]
 pub enum OpcodeId {
     #[default]
     /// `STOP`
@@ -689,7 +688,7 @@ impl OpcodeId {
             OpcodeId::SLT => (0, 1022),
             OpcodeId::SGT => (0, 1022),
             OpcodeId::EQ => (0, 1022),
-            OpcodeId::ISZERO => (0, 1022),
+            OpcodeId::ISZERO => (0, 1023),
             OpcodeId::AND => (0, 1022),
             OpcodeId::OR => (0, 1022),
             OpcodeId::XOR => (0, 1022),
@@ -714,10 +713,9 @@ impl OpcodeId {
             OpcodeId::EXTCODECOPY => (0, 1020),
             OpcodeId::RETURNDATASIZE => (1, 1024),
             OpcodeId::RETURNDATACOPY => (0, 1021),
-            OpcodeId::EXTCODEHASH => (1, 1024),
+            OpcodeId::EXTCODEHASH => (0, 1023),
             OpcodeId::BLOCKHASH => (0, 1023),
             OpcodeId::COINBASE => (1, 1024),
-
             OpcodeId::TIMESTAMP => (1, 1024),
             OpcodeId::NUMBER => (1, 1024),
             OpcodeId::DIFFICULTY => (1, 1024),

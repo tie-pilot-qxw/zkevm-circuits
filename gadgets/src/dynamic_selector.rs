@@ -119,7 +119,7 @@ impl<F: Field> DynamicSelectorChip<F> {
                 || format!("target_high {}", index),
                 col.clone(),
                 offset,
-                || Value::known(if index == high { F::one() } else { F::zero() }),
+                || Value::known(if index == high { F::ONE } else { F::ZERO }),
             )?;
         }
         for (index, col) in self.config.target_low.iter().enumerate() {
@@ -127,7 +127,7 @@ impl<F: Field> DynamicSelectorChip<F> {
                 || format!("target_low {}", index),
                 col.clone(),
                 offset,
-                || Value::known(if index == low { F::one() } else { F::zero() }),
+                || Value::known(if index == low { F::ONE } else { F::ZERO }),
             )?;
         }
         Ok(())
@@ -245,9 +245,9 @@ mod test {
                                 offset,
                                 || {
                                     Value::known(if target == *value as usize {
-                                        F::one()
+                                        F::ONE
                                     } else {
-                                        F::zero()
+                                        F::ZERO
                                     })
                                 },
                             )?;

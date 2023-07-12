@@ -1,15 +1,15 @@
 use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::Tag;
 
+use eth_types::Field;
 use gadgets::util::{expr_from_u16s, Expr, TWO_TO_128};
-use halo2_proofs::arithmetic::FieldExt;
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 pub(crate) struct AddGadget<F>(PhantomData<F>);
 
-impl<F: FieldExt> OperationGadget<F> for AddGadget<F> {
+impl<F: Field> OperationGadget<F> for AddGadget<F> {
     const NAME: &'static str = "Arithmetic Circuit Add";
     const TAG: Tag = Tag::Add;
     const NUM_ROW: usize = 2;

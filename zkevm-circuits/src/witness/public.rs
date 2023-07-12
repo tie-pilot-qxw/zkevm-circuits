@@ -255,28 +255,4 @@ mod test {
         wtr.serialize(&row2).unwrap();
         wtr.flush().unwrap();
     }
-
-    #[test]
-    fn tmp() {
-        #[derive(Clone, Debug, Default, Serialize)]
-        struct T {
-            pub a: u8,
-            pub b: Option<u8>,
-            pub c: u8,
-        }
-        let mut wtr = csv::Writer::from_writer(std::io::stdout());
-        wtr.serialize(&T {
-            a: 8,
-            b: None,
-            c: 8,
-        })
-        .unwrap();
-        wtr.serialize(&T {
-            a: 8,
-            b: Some(99),
-            c: 8,
-        })
-        .unwrap();
-        wtr.flush().unwrap();
-    }
 }

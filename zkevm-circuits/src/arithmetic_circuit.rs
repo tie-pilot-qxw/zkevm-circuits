@@ -3,20 +3,19 @@
 mod operation;
 
 use crate::arithmetic_circuit::operation::OperationGadget;
-use crate::util::{SubCircuitConfig};
+use crate::util::SubCircuitConfig;
 
-use crate::witness::{arithmetic};
+use crate::witness::arithmetic;
 use arithmetic::{Row, Tag};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
-use gadgets::is_zero::{IsZeroInstruction};
+use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
 
 #[derive(Clone)]
 pub struct ArithmeticCircuitConfig<F> {
@@ -345,17 +344,11 @@ impl<F: Field> ArithmeticCircuit<F> {
 
 #[cfg(test)]
 mod test {
-    
+
     use crate::arithmetic_circuit::ArithmeticCircuit;
     use crate::witness::arithmetic::{Row, Tag};
-    
-    
-    
-    use halo2_proofs::{
-        dev::MockProver,
-        halo2curves::bn256::Fr as Fp,
-    };
-    
+
+    use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
 
     fn test_add_two_number(row0: Row, row1: Row) {
         let k = 8;
