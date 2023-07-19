@@ -4,6 +4,7 @@ pub mod bytecode;
 pub mod copy;
 pub mod core;
 pub mod exp;
+pub mod fix;
 pub mod public;
 pub mod state;
 
