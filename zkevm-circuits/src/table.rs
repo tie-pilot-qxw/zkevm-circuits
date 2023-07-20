@@ -1,6 +1,6 @@
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Fixed};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Fixed, Instance};
 
 /// The table shared between Core Circuit and Stack Circuit
 #[derive(Clone, Copy, Debug)]
@@ -31,22 +31,30 @@ impl StackTable {
         panic!("see region.assign_advice")
     }
 }
+
 /// The table shared between Core Circuit and Bytecode Circuit
 #[derive(Clone, Copy, Debug)]
 pub struct BytecodeTable {
-    pub program_counter: Column<Advice>,
-    pub byte: Column<Advice>,
-    pub is_push: Column<Advice>,
-    pub value_pushed: Column<Advice>,
+    /// the contract address of the bytecodes
+    pub addr: Column<Advice>,
+    /// the index that program counter points to
+    pub pc: Column<Advice>,
+    /// bytecode, operation code or pushed value
+    pub bytecode: Column<Advice>,
+    /// pushed value, high 128 bits
+    pub value_hi: Column<Advice>,
+    /// pushed value, lo 128 bits
+    pub value_lo: Column<Advice>,
 }
 
 impl BytecodeTable {
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            program_counter: meta.advice_column(),
-            byte: meta.advice_column(),
-            is_push: meta.advice_column(),
-            value_pushed: meta.advice_column(),
+            addr: meta.advice_column(),
+            pc: meta.advice_column(),
+            bytecode: meta.advice_column(),
+            value_hi: meta.advice_column(),
+            value_lo: meta.advice_column(),
         }
     }
 
