@@ -3,19 +3,20 @@
 mod operation;
 
 use crate::arithmetic_circuit::operation::OperationGadget;
-use crate::util::SubCircuitConfig;
-
-use crate::witness::arithmetic;
+use crate::util::{self, SubCircuit, SubCircuitConfig};
+use crate::witness::block::{SelectorColumn, StackCircuitWitness};
+use crate::witness::{arithmetic, Block};
 use arithmetic::{Row, Tag};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
-use gadgets::is_zero::IsZeroInstruction;
+use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
+use halo2_proofs::circuit::{Layouter, Region, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct ArithmeticCircuitConfig<F> {
@@ -49,7 +50,7 @@ pub struct NilCircuitConfigArgs {} // todo change this
 impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
     type ConfigArgs = NilCircuitConfigArgs;
 
-    fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
+    fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
         // init columns
         let q_enable = meta.complex_selector();
         let cnt = meta.advice_column();
@@ -344,11 +345,20 @@ impl<F: Field> ArithmeticCircuit<F> {
 
 #[cfg(test)]
 mod test {
-
+    use super::{IsZeroInstruction, IsZeroWithRotationChip, IsZeroWithRotationConfig};
     use crate::arithmetic_circuit::ArithmeticCircuit;
     use crate::witness::arithmetic::{Row, Tag};
-
-    use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
+    use eth_types::Field;
+    use gadgets::util;
+    use gadgets::util::Expr;
+    use halo2_proofs::{
+        circuit::{Layouter, SimpleFloorPlanner, Value},
+        dev::MockProver,
+        halo2curves::bn256::Fr as Fp,
+        plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+        poly::Rotation,
+    };
+    use std::marker::PhantomData;
 
     fn test_add_two_number(row0: Row, row1: Row) {
         let k = 8;

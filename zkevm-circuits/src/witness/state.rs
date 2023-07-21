@@ -1,6 +1,8 @@
 use eth_types::U256;
 use serde::Serialize;
+use strum::IntoEnumIterator;
 
+use strum_macros::{EnumIter, EnumString};
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
     // Type of value, one of stack, memory, storage, call context, call data or return data
@@ -22,7 +24,7 @@ pub struct Row {
     pub is_write: Option<U256>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
 pub enum Tag {
     #[default]
     Stack,
@@ -31,6 +33,11 @@ pub enum Tag {
     CallContext,
     CallData,
     ReturnData,
+}
+impl From<Tag> for usize {
+    fn from(t: Tag) -> Self {
+        t as usize
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

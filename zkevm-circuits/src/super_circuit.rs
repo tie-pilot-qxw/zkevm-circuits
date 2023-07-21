@@ -2,7 +2,7 @@
 
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-use crate::stack_circuit::{StackCircuit, StackCircuitConfig, StackCircuitConfigArgs};
+use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{BytecodeTable, FixedTable, StackTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Block;
@@ -14,7 +14,7 @@ use halo2_proofs::poly::Rotation;
 #[derive(Clone)]
 pub struct SuperCircuitConfig<F> {
     core_circuit: CoreCircuitConfig<F>,
-    stack_circuit: StackCircuitConfig<F>,
+    state_circuit: StateCircuitConfig<F>,
     bytecode_circuit: BytecodeCircuitConfig<F>,
 }
 
@@ -35,9 +35,9 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
                 bytecode_table,
             },
         );
-        let stack_circuit = StackCircuitConfig::new(
+        let state_circuit = StateCircuitConfig::new(
             meta,
-            StackCircuitConfigArgs {
+            StateCircuitConfigArgs {
                 stack_table,
                 fixed_table,
             },
@@ -46,7 +46,7 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
             BytecodeCircuitConfig::new(meta, BytecodeCircuitConfigArgs { bytecode_table });
         SuperCircuitConfig {
             core_circuit,
-            stack_circuit,
+            state_circuit,
             bytecode_circuit,
         }
     }
@@ -55,7 +55,7 @@ impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
 #[derive(Clone, Default, Debug)]
 pub struct SuperCircuit<F: Field> {
     pub core_circuit: CoreCircuit<F>,
-    pub stack_circuit: StackCircuit<F>,
+    pub state_circuit: StateCircuit<F>,
     pub bytecode_circuit: BytecodeCircuit<F>,
 }
 
@@ -64,11 +64,11 @@ impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
 
     fn new_from_block(block: &Block<F>) -> Self {
         let core_circuit = CoreCircuit::new_from_block(block);
-        let stack_circuit = StackCircuit::new_from_block(block);
+        let state_circuit = StateCircuit::new_from_block(block);
         let bytecode_circuit = BytecodeCircuit::new_from_block(block);
         SuperCircuit {
             core_circuit,
-            stack_circuit,
+            state_circuit,
             bytecode_circuit,
         }
     }
@@ -113,8 +113,8 @@ impl<F: Field> Circuit<F> for SuperCircuit<F> {
     ) -> Result<(), Error> {
         self.core_circuit
             .synthesize_sub(&config.core_circuit, &mut layouter)?;
-        self.stack_circuit
-            .synthesize_sub(&config.stack_circuit, &mut layouter)?;
+        self.state_circuit
+            .synthesize_sub(&config.state_circuit, &mut layouter)?;
         self.bytecode_circuit
             .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
         Ok(())
