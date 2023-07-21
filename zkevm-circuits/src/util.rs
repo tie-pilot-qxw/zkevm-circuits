@@ -1,5 +1,5 @@
 use crate::witness;
-use eth_types::Field;
+use eth_types::{Field, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Fixed};
@@ -59,6 +59,7 @@ pub fn assign_cell<F: Field>(
     value: Option<u64>,
     column: Column<Any>,
 ) -> Result<(), Error> {
+    //u64
     if let Some(x) = value {
         match column.column_type() {
             Any::Advice(_) => {
@@ -83,4 +84,65 @@ pub fn assign_cell<F: Field>(
         }
     }
     Ok(())
+}
+
+pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
+    let mut bytes = [0u8; 64];
+    value.to_little_endian(&mut bytes[..32]);
+    bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::util::convert_u256_to_64_bytes;
+    use eth_types::{Field, U256};
+    use halo2_proofs::halo2curves::bn256::Fr;
+    use halo2_proofs::halo2curves::ff::FromUniformBytes;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_convert() {
+        let input_1: U256 = U256::from(1);
+        assert_eq!(
+            convert_u256_to_64_bytes(&input_1),
+            [
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0
+            ]
+        );
+
+        let input_16: U256 = U256::from_str("f").unwrap();
+        assert_eq!(
+            convert_u256_to_64_bytes(&input_16),
+            [
+                15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0
+            ]
+        );
+
+        let input_max: U256 =
+            U256::from_str("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                .unwrap();
+        assert_eq!(
+            convert_u256_to_64_bytes(&input_max),
+            [
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0
+            ]
+        );
+    }
+
+    #[test]
+    fn test_convert_64() {
+        let input_1 = U256::from(1);
+        let field_1 = Fr::one();
+        assert_eq!(
+            Fr::from_uniform_bytes(&convert_u256_to_64_bytes(&input_1)),
+            field_1
+        );
+    }
 }
