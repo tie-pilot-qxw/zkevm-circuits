@@ -140,7 +140,7 @@ impl Witness {
 
     pub fn new(trace: &Vec<Trace>, machine_code: &Vec<u8>) -> Self {
         let mut res = Witness {
-            bytecode: Self::gen_bytecode_witness(0.into(), machine_code),
+            bytecode: Self::gen_bytecode_witness(0xff.into(), machine_code),
             ..Default::default()
         }; // todo: padding zero in the front
         let mut current_state = CurrentState {
