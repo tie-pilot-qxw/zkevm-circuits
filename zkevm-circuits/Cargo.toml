@@ -27,7 +27,7 @@ strum_macros = "0.24"
 criterion = "0.4.0"
 
 [features]
-default = ["plot"]
+default = []
 plot = ["dep:plotters", "halo2_proofs/dev-graph"]
 
 [[bench]]

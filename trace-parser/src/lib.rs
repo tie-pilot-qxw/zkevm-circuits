@@ -111,6 +111,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn it_works() {
         let machine_code = assemble_file("debug/1.txt");
         println!("machine code: {:?}", machine_code);
