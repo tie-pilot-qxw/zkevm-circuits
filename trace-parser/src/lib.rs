@@ -9,6 +9,14 @@ use std::{
     str::FromStr,
 };
 
+fn parse_u256(s: &str) -> Result<U256, ()> {
+    if s.len() > 2 && s[..2].eq("0x") {
+        U256::from_str_radix(&s[2..], 16).map_err(|_| ())
+    } else {
+        U256::from_str_radix(s, 16).map_err(|_| ())
+    }
+}
+
 // parse assembly in file_path to machine code
 pub fn assemble_file(file_path: &str) -> Vec<u8> {
     let file = match File::open(file_path) {
@@ -28,11 +36,11 @@ pub fn assemble_file(file_path: &str) -> Vec<u8> {
         if opcode.is_push() {
             let mut push_length = opcode.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
             match it.next() {
-                Some(s) => match parse::<u64>(s) {
+                Some(s) => match parse_u256(s) {
                     Ok(mut n) => {
                         let mut v = vec![];
                         while push_length > 0 {
-                            v.push((n & 255) as u8);
+                            v.push(n.byte(0));
                             n >>= 8;
                             push_length -= 1;
                         }
