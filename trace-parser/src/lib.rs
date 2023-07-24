@@ -9,7 +9,7 @@ use std::{
 };
 use uint::FromStrRadixErr;
 
-/// Converts a string slice to U256. Supports radixes of 10 and 16 
+/// Converts a string slice to U256. Supports radixes of 10 and 16 (with '0x' prefix)
 fn parse_u256(s: &str) -> Result<U256, FromStrRadixErr> {
     if s.len() > 2 && s[..2].eq("0x") {
         U256::from_str_radix(&s[2..], 16)

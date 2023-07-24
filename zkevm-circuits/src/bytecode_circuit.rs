@@ -237,7 +237,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                &row_cur.cnt.unwrap()
+                &row_cur.cnt.unwrap_or_default(),
             ))),
         )?;
         cnt_is_16.assign(
@@ -254,7 +254,9 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             Value::known(
                 F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.addr.unwrap_or_default()))
                     - F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                        &row_prev.map(|x| x.addr.unwrap_or_default()).unwrap_or_default(),
+                        &row_prev
+                            .map(|x| x.addr.unwrap_or_default())
+                            .unwrap_or_default(),
                     )),
             ),
         )?;
@@ -262,7 +264,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                &row_cur.addr.unwrap_or_default()
+                &row_cur.addr.unwrap_or_default(),
             ))),
         )?;
         Ok(())
@@ -388,7 +390,9 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
             .bytecode
             .iter()
             .skip(self.witness.num_padding_begin)
-            .map(|row| F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default())))
+            .map(|row| {
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default()))
+            })
             .collect();
         let vec_bytecode: Vec<F> = self
             .witness
