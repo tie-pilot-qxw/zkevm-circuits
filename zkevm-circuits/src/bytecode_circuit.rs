@@ -201,7 +201,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
         let addr_is_zero = IsZeroWithRotationChip::construct(self.addr_is_zero.clone());
 
-        assign_advice_or_fixed(region, offset, row_cur.pc.as_ref().unwrap(), self.pc)?;
+        assign_advice_or_fixed(region, offset, &row_cur.pc.unwrap_or_default(), self.pc)?;
         assign_advice_or_fixed(
             region,
             offset,
@@ -226,25 +226,25 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             &row_cur.acc_lo.unwrap_or_default(),
             self.acc_lo,
         )?;
-        assign_advice_or_fixed(region, offset, row_cur.cnt.as_ref().unwrap(), self.cnt)?;
+        assign_advice_or_fixed(region, offset, &row_cur.cnt.unwrap_or_default(), self.cnt)?;
         assign_advice_or_fixed(
             region,
             offset,
-            row_cur.is_high.as_ref().unwrap(),
+            &row_cur.is_high.unwrap_or_default(),
             self.is_high,
         )?;
         cnt_is_zero.assign(
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                row_cur.cnt.as_ref().unwrap(),
+                &row_cur.cnt.unwrap()
             ))),
         )?;
         cnt_is_16.assign(
             region,
             offset,
             Value::known(
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(row_cur.cnt.as_ref().unwrap()))
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.cnt.unwrap_or_default()))
                     - F::from(16),
             ),
         )?;
@@ -252,9 +252,9 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             region,
             offset,
             Value::known(
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(row_cur.addr.as_ref().unwrap()))
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.addr.unwrap_or_default()))
                     - F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                        &row_prev.map(|x| x.addr.unwrap()).unwrap_or_default(),
+                        &row_prev.map(|x| x.addr.unwrap_or_default()).unwrap_or_default(),
                     )),
             ),
         )?;
@@ -262,7 +262,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                row_cur.addr.as_ref().unwrap(),
+                &row_cur.addr.unwrap_or_default()
             ))),
         )?;
         Ok(())
@@ -388,7 +388,7 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
             .bytecode
             .iter()
             .skip(self.witness.num_padding_begin)
-            .map(|row| F::from_uniform_bytes(&convert_u256_to_64_bytes(row.addr.as_ref().unwrap())))
+            .map(|row| F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default())))
             .collect();
         let vec_bytecode: Vec<F> = self
             .witness
@@ -396,7 +396,7 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
             .iter()
             .skip(self.witness.num_padding_begin)
             .map(|row| {
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(row.bytecode.as_ref().unwrap()))
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.bytecode.unwrap_or_default()))
             })
             .collect();
         vec![vec_addr, vec_bytecode]
@@ -564,12 +564,12 @@ mod test {
             let mut vec_addr: Vec<Fp> = witness
                 .bytecode
                 .iter()
-                .map(|row| Fp::from_u128(row.addr.unwrap().as_u128()))
+                .map(|row| Fp::from_u128(row.addr.unwrap_or_default().as_u128()))
                 .collect();
             let mut vec_bytecode: Vec<Fp> = witness
                 .bytecode
                 .iter()
-                .map(|row| Fp::from_u128(row.bytecode.unwrap().as_u128()))
+                .map(|row| Fp::from_u128(row.bytecode.unwrap_or_default().as_u128()))
                 .collect();
             // seems don't need to pad instance
             vec![vec_addr, vec_bytecode]

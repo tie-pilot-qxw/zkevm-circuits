@@ -1,6 +1,5 @@
 use eth_types::evm_types::OpcodeId;
 use eth_types::U256;
-use parse_int::parse;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::{
@@ -8,12 +7,14 @@ use std::{
     io::{BufRead, BufReader},
     str::FromStr,
 };
+use uint::FromStrRadixErr;
 
-fn parse_u256(s: &str) -> Result<U256, ()> {
+/// Converts a string slice to U256. Supports radixes of 10 and 16 
+fn parse_u256(s: &str) -> Result<U256, FromStrRadixErr> {
     if s.len() > 2 && s[..2].eq("0x") {
-        U256::from_str_radix(&s[2..], 16).map_err(|_| ())
+        U256::from_str_radix(&s[2..], 16)
     } else {
-        U256::from_str_radix(s, 10).map_err(|_| ())
+        U256::from_str_radix(s, 10)
     }
 }
 
