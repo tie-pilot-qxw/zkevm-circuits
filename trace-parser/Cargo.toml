@@ -10,4 +10,4 @@ eth-types = { path = "../eth-types" }
 hex = "0.4"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-parse_int = "0.6"
+uint = "0.9"

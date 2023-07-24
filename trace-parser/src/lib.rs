@@ -1,6 +1,5 @@
 use eth_types::evm_types::OpcodeId;
 use eth_types::U256;
-use parse_int::parse;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::{
@@ -8,6 +7,16 @@ use std::{
     io::{BufRead, BufReader},
     str::FromStr,
 };
+use uint::FromStrRadixErr;
+
+/// Converts a string slice to U256. Supports radixes of 10 and 16 (with '0x' prefix)
+fn parse_u256(s: &str) -> Result<U256, FromStrRadixErr> {
+    if s.len() > 2 && s[..2].eq("0x") {
+        U256::from_str_radix(&s[2..], 16)
+    } else {
+        U256::from_str_radix(s, 10)
+    }
+}
 
 // parse assembly in file_path to machine code
 pub fn assemble_file(file_path: &str) -> Vec<u8> {
@@ -28,11 +37,11 @@ pub fn assemble_file(file_path: &str) -> Vec<u8> {
         if opcode.is_push() {
             let mut push_length = opcode.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
             match it.next() {
-                Some(s) => match parse::<u64>(s) {
+                Some(s) => match parse_u256(s) {
                     Ok(mut n) => {
                         let mut v = vec![];
                         while push_length > 0 {
-                            v.push((n & 255) as u8);
+                            v.push(n.byte(0));
                             n >>= 8;
                             push_length -= 1;
                         }
