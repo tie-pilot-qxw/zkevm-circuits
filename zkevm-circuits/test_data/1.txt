@@ -1,0 +1,4 @@
+PUSH1 0xa
+PUSH1 0xb
+ADD
+STOP

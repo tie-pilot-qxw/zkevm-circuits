@@ -1,10 +1,14 @@
-mod execution;
-mod opcode;
-
-use crate::util::{convert_u256_to_64_bytes, SubCircuitConfig};
+// use crate::util::{, SubCircuitConfig};
 
 use crate::witness::core::Row;
 
+use crate::execution::ExecutionGadgets;
+use crate::table::{BytecodeTable, StackTable};
+use crate::util::{self};
+use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::witness::block::{CoreCircuitWitness, SelectorColumn};
+use crate::witness::Block;
+use crate::witness::{EXECUTION_STATE_NUM, OPERAND_NUM};
 use eth_types::Field;
 
 use gadgets::is_zero::IsZeroInstruction;

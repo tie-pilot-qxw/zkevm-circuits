@@ -6,9 +6,9 @@ use strum_macros::{EnumIter, EnumString};
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
     // Type of value, one of stack, memory, storage, call context, call data or return data
-    pub tag: Tag,
+    pub tag: Option<Tag>,
     // auto increment stamp, unique for each row
-    pub stamp: U256,
+    pub stamp: Option<U256>,
     // hi 128 bit value of each row
     pub value_hi: Option<U256>,
     // low 128 bit value of each row
@@ -24,9 +24,8 @@ pub struct Row {
     pub is_write: Option<U256>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
+#[derive(Clone, Copy, Debug, Serialize, EnumIter, EnumString)]
 pub enum Tag {
-    #[default]
     Stack,
     Memory,
     Storage,
@@ -61,8 +60,8 @@ mod test {
     #[test]
     fn print_csv() {
         let row1 = Row {
-            tag: Tag::Memory,
-            stamp: U256::from(2),
+            tag: Some(Tag::Memory),
+            stamp: Some(2.into()),
             value_hi: Some(u128::MAX.into()),
             value_lo: Some(0.into()),
             is_write: Some((true as usize).into()),
@@ -71,7 +70,7 @@ mod test {
             ..Default::default()
         };
         let row2 = Row {
-            tag: Tag::CallContext,
+            tag: Some(Tag::CallContext),
             value_lo: Some(10.into()),
             pointer_lo: Some((CallContextTag::ProgramCounter as u8).into()),
             call_id_contract_addr: Some(3.into()),

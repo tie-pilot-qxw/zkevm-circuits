@@ -184,7 +184,7 @@ impl<F: Field> Circuit<F> for ArithmeticCircuit<F> {
                         || "cnt",
                         config.cnt,
                         offset,
-                        || Value::known(F::from_u128(row.cnt.as_u128())),
+                        || Value::known(F::from_u128(row.cnt.unwrap().as_u128())),
                     )?;
                     region.assign_advice(
                         || "operand0_hi",
@@ -324,7 +324,7 @@ impl<F: Field> Circuit<F> for ArithmeticCircuit<F> {
                     cnt_is_zero.assign(
                         &mut region,
                         offset,
-                        Value::known(F::from_u128(row.cnt.as_u128())),
+                        Value::known(F::from_u128(row.cnt.unwrap().as_u128())),
                     )?;
                 }
 
@@ -372,7 +372,7 @@ mod test {
     #[test]
     fn add_0_0() {
         let row0 = Row {
-            cnt: 1.into(),
+            cnt: Some(1.into()),
             u16_0: Some(0.into()),
             u16_1: Some(0.into()),
             u16_2: Some(0.into()),
@@ -385,7 +385,7 @@ mod test {
         };
         let row1 = Row {
             tag: Some(Tag::Add),
-            cnt: 0.into(),
+            cnt: Some(0.into()),
             operand0_hi: Some(0.into()),
             operand0_lo: Some(0.into()),
             operand1_hi: Some(0.into()),
@@ -410,7 +410,7 @@ mod test {
     #[test]
     fn add_u128max_1() {
         let row0 = Row {
-            cnt: 1.into(),
+            cnt: Some(1.into()),
             u16_0: Some(0.into()),
             u16_1: Some(0.into()),
             u16_2: Some(0.into()),
@@ -423,7 +423,7 @@ mod test {
         };
         let row1 = Row {
             tag: Some(Tag::Add),
-            cnt: 0.into(),
+            cnt: Some(0.into()),
             operand0_hi: Some(u128::MAX.into()),
             operand0_lo: Some(u128::MAX.into()),
             operand1_hi: Some(0.into()),

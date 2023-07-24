@@ -1,8 +1,14 @@
-use crate::core_circuit::opcode::add::AddGadget;
+pub mod add;
+pub mod push;
+pub mod stop;
+
 use crate::core_circuit::CoreCircuitConfig;
+use crate::witness::Witness;
+use crate::{execution::add::AddGadget, witness::CurrentState};
 
 use eth_types::Field;
 use halo2_proofs::plonk::{ConstraintSystem, Error};
+use trace_parser::Trace;
 
 pub(crate) type ExecutionConfig<F> = CoreCircuitConfig<F>;
 
@@ -14,9 +20,11 @@ pub(crate) trait ExecutionGadget<F: Field> {
     fn assign_exec_step() -> Result<(), Error> {
         Ok(())
     }
+
+    fn gen_witness(trace: &Trace, current_state: &mut CurrentState) -> Witness;
 }
 
-pub(crate) struct ExecutionGadgets<F> {
+pub(crate) struct ExecutionGadgets<F: Field> {
     add_gadget: AddGadget<F>,
 }
 

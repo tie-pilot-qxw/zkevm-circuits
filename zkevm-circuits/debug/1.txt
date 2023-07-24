@@ -1,4 +1,0 @@
-PUSH1 0xa
-PUSH1 20
-ADD
-STOP

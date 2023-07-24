@@ -9,7 +9,7 @@ pub struct Row {
     /// Tag could be ADD, MUL, ...
     pub tag: Option<Tag>,
     /// Counter for multi-row arithmetic operation, starts with positive number and decrements to 0
-    pub cnt: U256,
+    pub cnt: Option<U256>,
     pub operand0_hi: Option<U256>,
     pub operand0_lo: Option<U256>,
     pub operand1_hi: Option<U256>,
@@ -52,7 +52,7 @@ mod test {
     #[test]
     fn print_csv() {
         let row0 = Row {
-            cnt: 1.into(),
+            cnt: Some(1.into()),
             u16_0: Some(0.into()),
             u16_1: Some(0.into()),
             u16_2: Some(0.into()),
@@ -65,7 +65,7 @@ mod test {
         };
         let row1 = Row {
             tag: Some(Tag::Add),
-            cnt: 0.into(),
+            cnt: Some(0.into()),
             operand0_hi: Some(0.into()),
             operand0_lo: Some(0.into()),
             operand1_hi: Some(0.into()),

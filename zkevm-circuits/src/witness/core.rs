@@ -51,6 +51,46 @@ pub struct Row {
     pub vers_31: Option<U256>,
 }
 
+pub enum ExecutionState {
+    PUSH,
+    ADD,
+    STOP,
+}
+
+impl ExecutionState {
+    pub fn to_core_row(self) -> Row {
+        let op = self as usize;
+        assert!(op < 100);
+        let mut selector_hi = [0; 10];
+        selector_hi[op / 10] = 1;
+        let mut selector_lo = [0; 10];
+        selector_lo[op % 10] = 1;
+        Row {
+            vers_0: Some(selector_hi[0].into()),
+            vers_1: Some(selector_hi[1].into()),
+            vers_2: Some(selector_hi[2].into()),
+            vers_3: Some(selector_hi[3].into()),
+            vers_4: Some(selector_hi[4].into()),
+            vers_5: Some(selector_hi[5].into()),
+            vers_6: Some(selector_hi[6].into()),
+            vers_7: Some(selector_hi[7].into()),
+            vers_8: Some(selector_hi[8].into()),
+            vers_9: Some(selector_hi[9].into()),
+            vers_10: Some(selector_lo[0].into()),
+            vers_11: Some(selector_lo[1].into()),
+            vers_12: Some(selector_lo[2].into()),
+            vers_13: Some(selector_lo[3].into()),
+            vers_14: Some(selector_lo[4].into()),
+            vers_15: Some(selector_lo[5].into()),
+            vers_16: Some(selector_lo[6].into()),
+            vers_17: Some(selector_lo[7].into()),
+            vers_18: Some(selector_lo[8].into()),
+            vers_19: Some(selector_lo[9].into()),
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::witness::core::Row;

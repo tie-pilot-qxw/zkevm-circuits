@@ -1,4 +1,5 @@
 use eth_types::evm_types::OpcodeId;
+use eth_types::U256;
 use parse_int::parse;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
@@ -61,8 +62,7 @@ struct JsonResult {
 pub struct Trace {
     pub pc: u64,
     pub op: OpcodeId,
-    pub stack_tail_before: [Option<u64>; 8],
-    pub stack_tail_after: [Option<u64>; 8],
+    pub push_value: Option<U256>,
 }
 
 pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
@@ -81,25 +81,27 @@ pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
     for line in s {
         let mut t: JsonResult = serde_json::from_str(line).unwrap();
 
-        let mut stack_tail_before = [None; 8];
-        for i in 0..8 {
-            let back = t.stack.pop();
-            if let Some(a) = back {
-                stack_tail_before[i] = Some(u64::from_str_radix(&a[2..], 16).unwrap());
-            }
+        let back = t.stack.pop();
+        let push_value = if let Some(a) = back {
+            Some(U256::from_str_radix(&a[2..], 16).unwrap())
+        } else {
+            None
+        };
+        if res
+            .last()
+            .map(|x: &Trace| x.op.is_push())
+            .unwrap_or_default()
+        {
+            res.last_mut().unwrap().push_value = push_value;
         }
         res.push(Trace {
             pc: t.pc,
             op: OpcodeId::from(t.op),
-            stack_tail_before,
-            stack_tail_after: [None; 8],
+            push_value: None,
         });
         if OpcodeId::from(t.op) == OpcodeId::STOP {
             break;
         }
-    }
-    for i in (0..res.len() - 1).rev() {
-        res[i].stack_tail_after = res[i + 1].stack_tail_before.clone();
     }
     res
 }
