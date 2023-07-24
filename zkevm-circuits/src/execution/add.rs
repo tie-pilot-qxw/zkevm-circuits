@@ -124,6 +124,7 @@ impl<F: Field> ExecutionGadget<F> for AddGadget<F> {
             public: vec![],
             state: vec![state_row2, state_row1, state_row0],
             arithmetic: vec![arithmetic_row],
+            ..Default::default()
         }
     }
 }

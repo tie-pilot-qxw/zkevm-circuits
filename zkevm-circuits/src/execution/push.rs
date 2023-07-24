@@ -67,6 +67,7 @@ impl<F: Field> ExecutionGadget<F> for PushGadget<F> {
             public: vec![],
             state: vec![state_row0],
             arithmetic: vec![],
+            ..Default::default()
         }
     }
 }

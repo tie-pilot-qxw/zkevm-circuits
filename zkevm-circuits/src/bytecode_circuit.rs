@@ -1,16 +1,15 @@
 use crate::table::BytecodeTable;
-use crate::util::{Expr, SubCircuit, SubCircuitConfig};
-use crate::witness::block::{BytecodeWitness, SelectorColumn};
-use crate::witness::{Block, Witness};
-use eth_types::evm_types::OpcodeId::PUSH1;
+use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::witness::bytecode::Row;
+use crate::witness::Witness;
 use eth_types::{Field, U256};
+use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
+use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
+use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance, Selector};
 use halo2_proofs::poly::Rotation;
 use std::iter::{once, zip};
-
-use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
-use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -40,10 +39,12 @@ pub struct BytecodeCircuitConfig<F> {
     is_high: Column<Advice>,
     /// for chip to determine whether cnt is 0
     cnt_is_zero: IsZeroWithRotationConfig<F>,
-    /// for chip to determine whether cnt is 15
-    cnt_is_15: IsZeroConfig<F>,
+    /// for chip to determine whether cnt is 16
+    cnt_is_16: IsZeroConfig<F>,
     /// for chip to check if addr is changed from previous row
     addr_unchange: IsZeroConfig<F>,
+    /// for chip to check if addr is zero, which means the row is padding
+    addr_is_zero: IsZeroWithRotationConfig<F>,
     _marker: PhantomData<F>,
 }
 
@@ -66,25 +67,25 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             value_lo,
         } = bytecode_table;
         let q_enable = meta.complex_selector();
+        let instance_addr = meta.instance_column();
+        let instance_bytecode = meta.instance_column();
         let acc_hi = meta.advice_column();
         let acc_lo = meta.advice_column();
         let cnt = meta.advice_column();
         let is_high = meta.advice_column();
         let cnt_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
-        let _cnt_minus_15_inv = meta.advice_column();
-        let cnt_is_15 = IsZeroChip::configure(
+        let _cnt_minus_16_inv = meta.advice_column();
+        let cnt_is_16 = IsZeroChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
             |meta| {
                 let cnt = meta.query_advice(cnt, Rotation::cur());
-                cnt - 15.expr()
+                cnt - 16.expr()
             },
-            _cnt_minus_15_inv,
+            _cnt_minus_16_inv,
         );
-        let _addr_diff = meta.advice_column();
-        let instance_addr = meta.instance_column();
-        let instance_bytecode = meta.instance_column();
+        let _addr_diff_inv = meta.advice_column();
         let addr_unchange = IsZeroChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
@@ -93,8 +94,10 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                 let addr_prev = meta.query_advice(addr, Rotation::prev());
                 addr_cur - addr_prev
             },
-            _addr_diff,
+            _addr_diff_inv,
         );
+        let addr_is_zero =
+            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), addr);
         // we need to copy (equality) from public input to advice column
         meta.enable_equality(instance_addr);
         meta.enable_equality(addr);
@@ -114,8 +117,9 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             cnt,
             is_high,
             cnt_is_zero,
-            cnt_is_15,
+            cnt_is_16,
             addr_unchange,
+            addr_is_zero,
             _marker: PhantomData,
         };
         // add all gate constraints here
@@ -131,10 +135,51 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let addr_unchange = config.addr_unchange.expr();
             let pc_cur = meta.query_advice(config.pc, Rotation::cur());
             let pc_prev = meta.query_advice(config.pc, Rotation::prev());
+            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
             vec![
                 q_enable
                     * ((1.expr() - addr_unchange.clone()) * pc_cur.clone()
-                        + addr_unchange * (pc_cur - pc_prev - 1.expr())),
+                        + addr_unchange
+                            * (1.expr() - addr_is_zero) // this row is not padding
+                            * (pc_cur - pc_prev - 1.expr())),
+            ]
+        });
+        meta.create_gate("BYTECODE_padding_is_zero", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
+            let addr = meta.query_advice(config.addr, Rotation::cur());
+            let pc = meta.query_advice(config.pc, Rotation::cur());
+            let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
+            let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
+            let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
+            let acc_hi = meta.query_advice(config.acc_hi, Rotation::cur());
+            let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let is_high = meta.query_advice(config.is_high, Rotation::cur());
+            vec![
+                q_enable.clone() * addr_is_zero.clone() * addr,
+                q_enable.clone() * addr_is_zero.clone() * pc,
+                q_enable.clone() * addr_is_zero.clone() * bytecode,
+                q_enable.clone() * addr_is_zero.clone() * value_hi,
+                q_enable.clone() * addr_is_zero.clone() * value_lo,
+                q_enable.clone() * addr_is_zero.clone() * acc_hi,
+                q_enable.clone() * addr_is_zero.clone() * acc_lo,
+                q_enable.clone() * addr_is_zero.clone() * cnt,
+                q_enable * addr_is_zero * is_high,
+            ]
+        });
+        meta.create_gate("BYTECODE_is_high", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let cnt_is_16 = config.cnt_is_16.expr();
+            let is_high_cur = meta.query_advice(config.is_high, Rotation::cur());
+            let is_high_next = meta.query_advice(config.is_high, Rotation::next());
+            vec![
+                q_enable.clone()
+                    * (1.expr() - cnt_is_zero)
+                    * (1.expr() - cnt_is_16.clone())
+                    * (is_high_cur.clone() - is_high_next.clone()),
+                q_enable * cnt_is_16 * (is_high_cur.clone() - is_high_next.clone() - 1.expr()),
             ]
         });
         // todo many more gates
@@ -144,105 +189,113 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
 }
 
 impl<F: Field> BytecodeCircuitConfig<F> {
+    fn assign_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        row_cur: &Row,
+        row_prev: Option<&Row>,
+    ) -> Result<(), Error> {
+        let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
+        let cnt_is_16 = IsZeroChip::construct(self.cnt_is_16.clone());
+        let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
+        let addr_is_zero = IsZeroWithRotationChip::construct(self.addr_is_zero.clone());
+
+        assign_advice_or_fixed(region, offset, &row_cur.pc, self.pc)?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            &row_cur.value_hi.unwrap_or_default(),
+            self.value_hi,
+        )?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            &row_cur.value_lo.unwrap_or_default(),
+            self.value_lo,
+        )?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            &row_cur.acc_hi.unwrap_or_default(),
+            self.acc_hi,
+        )?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            &row_cur.acc_lo.unwrap_or_default(),
+            self.acc_lo,
+        )?;
+        assign_advice_or_fixed(region, offset, &row_cur.cnt, self.cnt)?;
+        assign_advice_or_fixed(region, offset, &row_cur.is_high, self.is_high)?;
+        cnt_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &row_cur.cnt,
+            ))),
+        )?;
+        cnt_is_16.assign(
+            region,
+            offset,
+            Value::known(
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.cnt)) - F::from(16),
+            ),
+        )?;
+        addr_unchange.assign(
+            region,
+            offset,
+            Value::known(
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.addr))
+                    - F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                        &row_prev.map(|x| x.addr).unwrap_or_default(),
+                    )),
+            ),
+        )?;
+        addr_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &row_cur.addr,
+            ))),
+        )?;
+        Ok(())
+    }
+
     /// assign values from witness in a region, except for values copied from instance
     pub fn assign_with_region(
         &self,
         region: &mut Region<'_, F>,
         witness: &Witness,
-        num_padding_row: usize,
+        num_row_incl_padding: usize,
     ) -> Result<(), Error> {
-        let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
-        let cnt_is_15 = IsZeroChip::construct(self.cnt_is_15.clone());
-        let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
-        // assign padding rows
-        for offset in 0..num_padding_row {
-            region.assign_advice(|| "pc", self.pc, offset, || Value::known(F::ZERO))?;
-            region.assign_advice(
-                || "value_hi",
-                self.value_hi,
-                offset,
-                || Value::known(F::ZERO),
-            )?;
-            region.assign_advice(
-                || "value_lo",
-                self.value_lo,
-                offset,
-                || Value::known(F::ZERO),
-            )?;
-            region.assign_advice(|| "acc_hi", self.acc_hi, offset, || Value::known(F::ZERO))?;
-            region.assign_advice(|| "acc_lo", self.acc_lo, offset, || Value::known(F::ZERO))?;
-            region.assign_advice(|| "cnt", self.cnt, offset, || Value::known(F::ZERO))?;
-            region.assign_advice(|| "is_high", self.is_high, offset, || Value::known(F::ZERO))?;
-            cnt_is_zero.assign(region, offset, Value::known(F::ZERO))?;
-            cnt_is_15.assign(region, offset, Value::known(F::ZERO))?;
-            addr_unchange.assign(region, offset, Value::known(F::ZERO))?;
-        }
-        // assign values from witness
-        for (offset, row) in witness.bytecode.iter().enumerate() {
-            region.assign_advice(
-                || "pc",
-                self.pc,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.pc.as_u128())),
-            )?;
-            region.assign_advice(
-                || "value_hi",
-                self.value_hi,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.value_hi.unwrap_or_default().as_u128())),
-            )?;
-            region.assign_advice(
-                || "value_lo",
-                self.value_lo,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.value_lo.unwrap_or_default().as_u128())),
-            )?;
-            region.assign_advice(
-                || "acc_hi",
-                self.acc_hi,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.acc_hi.unwrap_or_default().as_u128())),
-            )?;
-            region.assign_advice(
-                || "acc_lo",
-                self.acc_lo,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.acc_lo.unwrap_or_default().as_u128())),
-            )?;
-            region.assign_advice(
-                || "cnt",
-                self.cnt,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.cnt.as_u128())),
-            )?;
-            region.assign_advice(
-                || "is_high",
-                self.is_high,
-                num_padding_row + offset,
-                || Value::known(F::from_u128(row.is_high.as_u128())),
-            )?;
-            cnt_is_zero.assign(
-                region,
-                num_padding_row + offset,
-                Value::known(F::from_u128(row.cnt.as_u128())),
-            )?;
-            cnt_is_15.assign(
-                region,
-                num_padding_row + offset,
-                Value::known(F::from_u128(row.cnt.as_u128()) - F::from(15)),
-            )?;
-        }
-        for (offset, (addr_cur, addr_prev)) in zip(
-            witness.bytecode.iter().map(|row| row.addr),
-            once(U256::zero()).chain(witness.bytecode.iter().map(|row| row.addr)),
-        )
-        .enumerate()
+        // assign the first row
+        self.assign_row(
+            region,
+            0,
+            witness
+                .bytecode
+                .first()
+                .expect("bytecode must have first row"),
+            None,
+        )?;
+        // assign the rest rows
+        for (offset, (row_cur, row_prev)) in
+            zip(witness.bytecode.iter().skip(1), witness.bytecode.iter()).enumerate()
         {
-            addr_unchange.assign(
-                region,
-                num_padding_row + offset,
-                Value::known(F::from_u128(addr_cur.as_u128()) - F::from_u128(addr_prev.as_u128())),
-            )?;
+            let offset = offset + 1;
+            self.assign_row(region, offset, row_cur, Some(row_prev))?;
+        }
+        // pad the first row
+        self.assign_row(
+            region,
+            witness.bytecode.len(),
+            &Default::default(),
+            witness.bytecode.last(),
+        )?;
+        // pad the rest rows
+        for offset in witness.bytecode.len() + 1..num_row_incl_padding {
+            self.assign_row(region, offset, &Default::default(), None)?;
         }
         Ok(())
     }
@@ -251,18 +304,14 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     pub fn assign_from_instance_with_region(
         &self,
         region: &mut Region<'_, F>,
-        num_padding_row: usize,
+        num_padding_begin: usize,
         max_codesize: usize,
+        num_row_incl_padding: usize,
     ) -> Result<(), Error> {
         // assign padding rows
-        for offset in 0..num_padding_row {
-            region.assign_advice(|| "addr", self.addr, offset, || Value::known(F::ZERO))?;
-            region.assign_advice(
-                || "bytecode",
-                self.bytecode,
-                offset,
-                || Value::known(F::ZERO),
-            )?;
+        for offset in 0..num_padding_begin {
+            assign_advice_or_fixed(region, offset, &U256::zero(), self.addr)?;
+            assign_advice_or_fixed(region, offset, &U256::zero(), self.bytecode)?;
         }
         // use permutation to copy bytecode from instance to advice
         for offset in 0..max_codesize {
@@ -273,15 +322,19 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 self.instance_addr,
                 offset,
                 self.addr,
-                num_padding_row + offset,
+                num_padding_begin + offset,
             )?;
             region.assign_advice_from_instance(
                 || "bytecode",
                 self.instance_bytecode,
                 offset,
                 self.bytecode,
-                num_padding_row + offset,
+                num_padding_begin + offset,
             )?;
+        }
+        for offset in num_padding_begin + max_codesize..num_row_incl_padding {
+            assign_advice_or_fixed(region, offset, &U256::zero(), self.addr)?;
+            assign_advice_or_fixed(region, offset, &U256::zero(), self.bytecode)?;
         }
         Ok(())
     }
@@ -298,31 +351,47 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         region.name_column(|| "BYTECODE_is_high", self.is_high);
         self.cnt_is_zero
             .annotate_columns_in_region(region, "BYTECODE_cnt_is_zero");
-        self.cnt_is_15
-            .annotate_columns_in_region(region, "BYTECODE_cnt_is_15");
+        self.cnt_is_16
+            .annotate_columns_in_region(region, "BYTECODE_cnt_is_16");
         self.addr_unchange
             .annotate_columns_in_region(region, "BYTECODE_addr_unchange");
+        self.addr_is_zero
+            .annotate_columns_in_region(region, "BYTECODE_addr_is_zero");
     }
 }
 
 #[derive(Clone, Default, Debug)]
 pub struct BytecodeCircuit<F: Field> {
-    block: Block<F>,
+    witness: Witness,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
     type Config = BytecodeCircuitConfig<F>;
 
-    fn new_from_block(block: &Block<F>) -> Self {
+    fn new_from_witness(witness: &Witness) -> Self {
         BytecodeCircuit {
-            block: block.clone(),
+            witness: witness.clone(),
             _marker: PhantomData,
         }
     }
 
     fn instance(&self) -> Vec<Vec<F>> {
-        todo!()
+        let vec_addr: Vec<F> = self
+            .witness
+            .bytecode
+            .iter()
+            .skip(self.witness.num_padding_begin)
+            .map(|row| F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr)))
+            .collect();
+        let vec_bytecode: Vec<F> = self
+            .witness
+            .bytecode
+            .iter()
+            .skip(self.witness.num_padding_begin)
+            .map(|row| F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.bytecode)))
+            .collect();
+        vec![vec_addr, vec_bytecode]
     }
 
     fn synthesize_sub(
@@ -330,11 +399,35 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
-        layouter.assign_region(|| "bytecode circuit", |mut region| Ok(()))
+        layouter.assign_region(
+            || "bytecode circuit",
+            |mut region| {
+                config.annotate_circuit_in_region(&mut region);
+                config.assign_with_region(
+                    &mut region,
+                    &self.witness,
+                    self.witness.num_row_incl_padding,
+                )?;
+                config.assign_from_instance_with_region(
+                    &mut region,
+                    self.witness.num_padding_begin,
+                    self.witness.max_codesize,
+                    self.witness.num_row_incl_padding,
+                )?;
+                // sub circuit don't enable q_enable selector
+                Ok(())
+            },
+        )
     }
 
-    fn min_num_rows_block() -> (usize, usize) {
-        todo!()
+    fn unusable_rows() -> (usize, usize) {
+        // Rotation in constrains has prev and next, so return 1,1
+        (1, 1)
+    }
+
+    fn num_rows(witness: &Witness) -> usize {
+        // bytecode witness length plus must-have padding in the end
+        Self::unusable_rows().1 + witness.bytecode.len()
     }
 }
 
@@ -354,7 +447,6 @@ mod test {
     #[derive(Clone, Default, Debug)]
     pub struct BytecodeTestCircuit<F: Field, const MAX_CODESIZE: usize> {
         witness: Witness,
-        num_padding_row: usize,
         _marker: PhantomData<F>,
     }
 
@@ -376,24 +468,25 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            // let cnt_is_zero = IsZeroWithRotationChip::construct(config.cnt_is_zero.clone());
-            // let cnt_is_15 = IsZeroChip::construct(config.cnt_is_15.clone());
-            // let addr_unchange = IsZeroChip::construct(config.addr_unchange.clone());
             layouter.assign_region(
                 || "bytecode for test",
                 |mut region| {
                     config.annotate_circuit_in_region(&mut region);
-                    config.assign_with_region(&mut region, &self.witness, self.num_padding_row)?;
+                    config.assign_with_region(
+                        &mut region,
+                        &self.witness,
+                        self.witness.num_row_incl_padding,
+                    )?;
                     config.assign_from_instance_with_region(
                         &mut region,
-                        self.num_padding_row,
-                        MAX_CODESIZE,
+                        self.witness.num_padding_begin,
+                        self.witness.max_codesize,
+                        self.witness.num_row_incl_padding,
                     )?;
-                    // todo should do a constant number of enable()
-                    for offset in 0..self.witness.bytecode.len() {
-                        if offset >= self.num_padding_row {
-                            config.q_enable.enable(&mut region, offset)?;
-                        }
+                    for offset in self.witness.num_padding_begin
+                        ..self.witness.num_row_incl_padding - self.witness.num_padding_end
+                    {
+                        config.q_enable.enable(&mut region, offset)?;
                     }
 
                     Ok(())
@@ -403,18 +496,18 @@ mod test {
     }
 
     impl<F: Field, const MAX_CODESIZE: usize> BytecodeTestCircuit<F, MAX_CODESIZE> {
-        pub fn new(witness: Witness, first_rows_to_pad: usize) -> Self {
+        pub fn new(witness: Witness) -> Self {
+            // make sure const in type and witness are equal
+            assert_eq!(MAX_CODESIZE, witness.max_codesize);
             Self {
                 witness,
-                num_padding_row: first_rows_to_pad,
                 _marker: PhantomData,
             }
         }
     }
 
     #[test]
-    fn one_contract() {
-        let num_padding: usize = 1;
+    fn two_simple_contract() {
         let row1 = Row {
             addr: "0x25556666".into(),
             bytecode: OpcodeId::PUSH1.as_u8().into(),
@@ -446,43 +539,40 @@ mod test {
         };
         let row6 = Row {
             addr: "0x66668888".into(),
-            pc: 1.into(),
+            pc: 0.into(),
             bytecode: OpcodeId::STOP.as_u8().into(),
             ..Default::default()
         };
+        const MAX_CODESIZE: usize = 200;
         let mut witness = Witness {
             bytecode: vec![row1, row2, row3, row4, row5, row6],
+            max_codesize: MAX_CODESIZE,
+            num_padding_begin: 1,
+            num_padding_end: 1,
+            num_row_incl_padding: 245,
             ..Default::default()
         };
         let mut instance = {
-            let vec_addr: Vec<Fp> = witness
+            let mut vec_addr: Vec<Fp> = witness
                 .bytecode
                 .iter()
                 .map(|row| Fp::from_u128(row.addr.as_u128()))
                 .collect();
-            // debug what if we pop one from it?
-            let vec_bytecode: Vec<Fp> = witness
+            let mut vec_bytecode: Vec<Fp> = witness
                 .bytecode
                 .iter()
                 .map(|row| Fp::from_u128(row.bytecode.as_u128()))
                 .collect();
+            // seems don't need to pad instance
             vec![vec_addr, vec_bytecode]
         };
         // insert padding rows (rows with all 0)
-        // for _ in 0..num_padding {
-        //     witness.bytecode.insert(0, Default::default());
-        // }
-        // println!("instance\n{:?}\n", instance);
-
-        let mut wtr = csv::Writer::from_writer(std::io::stdout());
-        for row in &witness.bytecode {
-            wtr.serialize(&row).unwrap();
+        for _ in 0..witness.num_padding_begin {
+            witness.bytecode.insert(0, Default::default());
         }
-        wtr.flush().unwrap();
 
         let k = 8;
-        const MAX_CODESIZE: usize = 200;
-        let circuit = BytecodeTestCircuit::<Fp, MAX_CODESIZE>::new(witness.clone(), num_padding);
+        let circuit = BytecodeTestCircuit::<Fp, MAX_CODESIZE>::new(witness.clone());
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover.assert_satisfied_par();
     }

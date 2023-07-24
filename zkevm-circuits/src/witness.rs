@@ -30,6 +30,14 @@ pub struct Witness {
     pub public: Vec<public::Row>,
     pub state: Vec<state::Row>,
     pub arithmetic: Vec<arithmetic::Row>,
+    /// the number of padding in advice columns at the beginning
+    pub num_padding_begin: usize,
+    /// the number of padding in advice columns in the end
+    pub num_padding_end: usize,
+    /// the max codesize to do permutation constraint in bytecode circuit
+    pub max_codesize: usize,
+    /// the number of rows including padding after witness; <= 2^k
+    pub num_row_incl_padding: usize,
 }
 
 pub struct CurrentState {

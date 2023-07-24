@@ -1,4 +1,4 @@
-use crate::witness;
+use crate::witness::Witness;
 use eth_types::{Field, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
@@ -22,13 +22,14 @@ pub trait SubCircuit<F: Field> {
     /// Configuration of the SubCircuit.
     type Config: SubCircuitConfig<F>;
 
-    /// Create a new SubCircuit from a witness Block
-    fn new_from_block(block: &witness::Block<F>) -> Self;
+    /// Create a new SubCircuit from witness
+    fn new_from_witness(witness: &Witness) -> Self;
 
     /// Returns the instance columns required for this circuit.
     fn instance(&self) -> Vec<Vec<F>> {
         vec![]
     }
+
     /// Assign only the columns used by this sub-circuit.  This includes the
     /// columns that belong to the exposed lookup table contained within, if
     /// any; and excludes external tables that this sub-circuit does lookups
@@ -36,13 +37,16 @@ pub trait SubCircuit<F: Field> {
     fn synthesize_sub(
         &self,
         config: &Self::Config,
-        // challenges: &Challenges<Value<F>>, todo challenges not defined yet
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error>;
 
-    /// Return the minimum number of rows required to prove the block.
-    /// Row numbers without/with padding are both returned.
-    fn min_num_rows_block(/*block: &witness::Block<F> todo block not defined yet*/) -> (usize, usize);
+    /// Number of rows before and after the actual witness that cannot be used, which decides that
+    /// the selector cannot be enabled
+    fn unusable_rows() -> (usize, usize);
+
+    /// Return the number of rows required to prove the witness.
+    /// Only include the rows in witness and necessary padding, do not include padding to 2^k.
+    fn num_rows(witness: &Witness) -> usize;
 }
 
 #[macro_export]
@@ -56,7 +60,7 @@ macro_rules! add_expression_to_constraints {
 pub fn assign_advice_or_fixed<F: Field, C: Into<Column<Any>>>(
     region: &mut Region<'_, F>,
     offset: usize,
-    value: U256,
+    value: &U256,
     column: C,
 ) -> Result<(), Error> {
     let column_any = column.into();
@@ -147,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_64() {
+    fn test_convert_fr() {
         let input_1 = U256::from(1);
         let field_1 = Fr::one();
         assert_eq!(

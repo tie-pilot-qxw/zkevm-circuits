@@ -39,6 +39,7 @@ impl<F: Field> ExecutionGadget<F> for StopGadget<F> {
             public: vec![],
             state: vec![],
             arithmetic: vec![],
+            ..Default::default()
         }
     }
 }

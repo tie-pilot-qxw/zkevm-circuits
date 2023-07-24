@@ -1,7 +1,6 @@
 use crate::table::{FixedTable, StackTable};
 use crate::util::{self, SubCircuit, SubCircuitConfig};
-//use crate::witness::block::{SelectorColumn, StackCircuitWitness};
-use crate::witness::Block;
+use crate::witness::Witness;
 use eth_types::Field;
 
 use crate::witness::state::{Row, Tag};
@@ -75,25 +74,21 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
 
 #[derive(Clone, Default, Debug)]
 pub struct StateCircuit<F: Field> {
-    block: Block<F>,
+    witness: Witness,
     _marker: PhantomData<F>,
 }
 
 impl<F: Field> SubCircuit<F> for StateCircuit<F> {
     type Config = StateCircuitConfig<F>;
 
-    fn new_from_block(block: &Block<F>) -> Self {
+    fn new_from_witness(witness: &Witness) -> Self {
         StateCircuit {
-            block: block.clone(),
+            witness: witness.clone(),
             _marker: PhantomData,
         }
     }
 
     fn instance(&self) -> Vec<Vec<F>> {
-        todo!()
-    }
-
-    fn min_num_rows_block() -> (usize, usize) {
         todo!()
     }
 
@@ -181,5 +176,13 @@ impl<F: Field> SubCircuit<F> for StateCircuit<F> {
                 Ok(())
             },
         )
+    }
+
+    fn unusable_rows() -> (usize, usize) {
+        todo!()
+    }
+
+    fn num_rows(witness: &Witness) -> usize {
+        todo!()
     }
 }
