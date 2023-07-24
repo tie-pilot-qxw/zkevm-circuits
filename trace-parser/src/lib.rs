@@ -13,7 +13,7 @@ fn parse_u256(s: &str) -> Result<U256, ()> {
     if s.len() > 2 && s[..2].eq("0x") {
         U256::from_str_radix(&s[2..], 16).map_err(|_| ())
     } else {
-        U256::from_str_radix(s, 16).map_err(|_| ())
+        U256::from_str_radix(s, 10).map_err(|_| ())
     }
 }
 
