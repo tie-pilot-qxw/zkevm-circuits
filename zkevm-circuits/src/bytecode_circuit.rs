@@ -49,7 +49,8 @@ pub struct BytecodeCircuitConfig<F> {
 }
 
 pub struct BytecodeCircuitConfigArgs {
-    pub(crate) bytecode_table: BytecodeTable,
+    pub q_enable: Selector,
+    pub bytecode_table: BytecodeTable,
 }
 
 impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
@@ -57,7 +58,10 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
 
     fn new(
         meta: &mut ConstraintSystem<F>,
-        Self::ConfigArgs { bytecode_table }: Self::ConfigArgs,
+        Self::ConfigArgs {
+            q_enable,
+            bytecode_table,
+        }: Self::ConfigArgs,
     ) -> Self {
         let BytecodeTable {
             addr,
@@ -66,7 +70,6 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             value_hi,
             value_lo,
         } = bytecode_table;
-        let q_enable = meta.complex_selector();
         let instance_addr = meta.instance_column();
         let instance_bytecode = meta.instance_column();
         let acc_hi = meta.advice_column();
@@ -376,6 +379,7 @@ pub struct BytecodeCircuit<F: Field> {
 
 impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
     type Config = BytecodeCircuitConfig<F>;
+    type Cells = ();
 
     fn new_from_witness(witness: &Witness) -> Self {
         BytecodeCircuit {
@@ -471,8 +475,15 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let q_enable = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta);
-            Self::Config::new(meta, BytecodeCircuitConfigArgs { bytecode_table })
+            Self::Config::new(
+                meta,
+                BytecodeCircuitConfigArgs {
+                    q_enable,
+                    bytecode_table,
+                },
+            )
         }
 
         fn synthesize(

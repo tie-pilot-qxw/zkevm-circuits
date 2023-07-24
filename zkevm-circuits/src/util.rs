@@ -22,6 +22,9 @@ pub trait SubCircuit<F: Field> {
     /// Configuration of the SubCircuit.
     type Config: SubCircuitConfig<F>;
 
+    /// Cells that need to use permutation constraints.
+    type Cells;
+
     /// Create a new SubCircuit from witness
     fn new_from_witness(witness: &Witness) -> Self;
 
@@ -33,12 +36,12 @@ pub trait SubCircuit<F: Field> {
     /// Assign only the columns used by this sub-circuit.  This includes the
     /// columns that belong to the exposed lookup table contained within, if
     /// any; and excludes external tables that this sub-circuit does lookups
-    /// to.
+    /// to. Return the cells that need to use permutation constraints.
     fn synthesize_sub(
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error>;
+    ) -> Result<Self::Cells, Error>;
 
     /// Number of rows before and after the actual witness that cannot be used, which decides that
     /// the selector cannot be enabled

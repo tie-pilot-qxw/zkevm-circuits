@@ -80,6 +80,7 @@ pub struct StateCircuit<F: Field> {
 
 impl<F: Field> SubCircuit<F> for StateCircuit<F> {
     type Config = StateCircuitConfig<F>;
+    type Cells = ();
 
     fn new_from_witness(witness: &Witness) -> Self {
         StateCircuit {
