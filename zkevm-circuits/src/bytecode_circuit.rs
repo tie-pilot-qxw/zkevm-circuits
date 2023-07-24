@@ -227,7 +227,12 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             self.acc_lo,
         )?;
         assign_advice_or_fixed(region, offset, row_cur.cnt.as_ref().unwrap(), self.cnt)?;
-        assign_advice_or_fixed(region, offset, row_cur.is_high.as_ref().unwrap(), self.is_high)?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            row_cur.is_high.as_ref().unwrap(),
+            self.is_high,
+        )?;
         cnt_is_zero.assign(
             region,
             offset,
@@ -239,7 +244,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             region,
             offset,
             Value::known(
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(row_cur.cnt.as_ref().unwrap())) - F::from(16),
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(row_cur.cnt.as_ref().unwrap()))
+                    - F::from(16),
             ),
         )?;
         addr_unchange.assign(
@@ -389,7 +395,9 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
             .bytecode
             .iter()
             .skip(self.witness.num_padding_begin)
-            .map(|row| F::from_uniform_bytes(&convert_u256_to_64_bytes(row.bytecode.as_ref().unwrap())))
+            .map(|row| {
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(row.bytecode.as_ref().unwrap()))
+            })
             .collect();
         vec![vec_addr, vec_bytecode]
     }
