@@ -17,7 +17,7 @@ use crate::util::Expr;
 
 /// Config struct representing the required fields for an `IsZero` config to
 /// exist.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct IsZeroWithRotationConfig<F> {
     /// The value. This chip doesn't need to assign it
     pub value: Column<Advice>,

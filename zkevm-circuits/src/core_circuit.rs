@@ -71,16 +71,16 @@ pub struct CoreCircuitConfig<F> {
     // IsZero chip for witness column cnt
     cnt_is_zero: IsZeroWithRotationConfig<F>,
     /// Tables used for lookup
-    bytecode_table: BytecodeTable,
+    bytecode_table: BytecodeTable<F>,
 }
 
-pub struct CoreCircuitConfigArgs {
+pub struct CoreCircuitConfigArgs<F> {
     pub q_enable: Selector,
-    pub bytecode_table: BytecodeTable,
+    pub bytecode_table: BytecodeTable<F>,
 } // todo change this
 
 impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
-    type ConfigArgs = CoreCircuitConfigArgs;
+    type ConfigArgs = CoreCircuitConfigArgs<F>;
 
     fn new(
         meta: &mut ConstraintSystem<F>,
@@ -211,7 +211,7 @@ impl<F: Field> Circuit<F> for CoreCircuit<F> {
     }
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         let q_enable = meta.complex_selector();
-        let bytecode_table = BytecodeTable::construct(meta);
+        let bytecode_table = BytecodeTable::construct(meta, q_enable);
         Self::Config::new(
             meta,
             CoreCircuitConfigArgs {

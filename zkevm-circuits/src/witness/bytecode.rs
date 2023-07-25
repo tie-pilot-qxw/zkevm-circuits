@@ -9,9 +9,9 @@ pub struct Row {
     pub pc: Option<U256>,
     /// bytecode, operation code or pushed value
     pub bytecode: Option<U256>,
-    /// pushed value, high 128 bits
+    /// pushed value, high 128 bits (0 or non-push opcodes)
     pub value_hi: Option<U256>,
-    /// pushed value, low 128 bits
+    /// pushed value, low 128 bits (0 or non-push opcodes)
     pub value_lo: Option<U256>,
     /// accumulated value, high 128 bits. accumulation will go X times for PUSHX
     pub acc_hi: Option<U256>,

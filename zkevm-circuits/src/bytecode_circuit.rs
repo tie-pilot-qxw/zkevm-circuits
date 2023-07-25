@@ -48,13 +48,13 @@ pub struct BytecodeCircuitConfig<F> {
     _marker: PhantomData<F>,
 }
 
-pub struct BytecodeCircuitConfigArgs {
+pub struct BytecodeCircuitConfigArgs<F> {
     pub q_enable: Selector,
-    pub bytecode_table: BytecodeTable,
+    pub bytecode_table: BytecodeTable<F>,
 }
 
 impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
-    type ConfigArgs = BytecodeCircuitConfigArgs;
+    type ConfigArgs = BytecodeCircuitConfigArgs<F>;
 
     fn new(
         meta: &mut ConstraintSystem<F>,
@@ -69,15 +69,14 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             bytecode,
             value_hi,
             value_lo,
+            cnt_is_zero,
         } = bytecode_table;
         let instance_addr = meta.instance_column();
         let instance_bytecode = meta.instance_column();
         let acc_hi = meta.advice_column();
         let acc_lo = meta.advice_column();
-        let cnt = meta.advice_column();
+        let cnt = cnt_is_zero.value;
         let is_high = meta.advice_column();
-        let cnt_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
         let _cnt_minus_16_inv = meta.advice_column();
         let cnt_is_16 = IsZeroChip::configure(
             meta,
@@ -476,7 +475,7 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let q_enable = meta.complex_selector();
-            let bytecode_table = BytecodeTable::construct(meta);
+            let bytecode_table = BytecodeTable::construct(meta, q_enable);
             Self::Config::new(
                 meta,
                 BytecodeCircuitConfigArgs {
