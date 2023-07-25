@@ -9,7 +9,7 @@ use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance, Selector};
 use halo2_proofs::poly::Rotation;
-use std::iter::{once, zip};
+use std::iter::zip;
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -39,8 +39,8 @@ pub struct BytecodeCircuitConfig<F> {
     is_high: Column<Advice>,
     /// for chip to determine whether cnt is 0
     cnt_is_zero: IsZeroWithRotationConfig<F>,
-    /// for chip to determine whether cnt is 16
-    cnt_is_16: IsZeroConfig<F>,
+    /// for chip to determine whether cnt is 15
+    cnt_is_15: IsZeroConfig<F>,
     /// for chip to check if addr is changed from previous row
     addr_unchange: IsZeroConfig<F>,
     /// for chip to check if addr is zero, which means the row is padding
@@ -77,15 +77,15 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         let acc_lo = meta.advice_column();
         let cnt = cnt_is_zero.value;
         let is_high = meta.advice_column();
-        let _cnt_minus_16_inv = meta.advice_column();
-        let cnt_is_16 = IsZeroChip::configure(
+        let _cnt_minus_15_inv = meta.advice_column();
+        let cnt_is_15 = IsZeroChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
             |meta| {
                 let cnt = meta.query_advice(cnt, Rotation::cur());
-                cnt - 16.expr()
+                cnt - 15.expr()
             },
-            _cnt_minus_16_inv,
+            _cnt_minus_15_inv,
         );
         let _addr_diff_inv = meta.advice_column();
         let addr_unchange = IsZeroChip::configure(
@@ -119,7 +119,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             cnt,
             is_high,
             cnt_is_zero,
-            cnt_is_16,
+            cnt_is_15,
             addr_unchange,
             addr_is_zero,
             _marker: PhantomData,
@@ -170,18 +170,72 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                 q_enable * addr_is_zero * is_high,
             ]
         });
-        meta.create_gate("BYTECODE_is_high", |meta| {
+        meta.create_gate("BYTECODE_is_high_same_or_decrease", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
-            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-            let cnt_is_16 = config.cnt_is_16.expr();
+            let cnt_is_zero_prev = config.cnt_is_zero.expr_at(meta, Rotation::prev());
+            let cnt_is_15 = config.cnt_is_15.expr();
+            let is_high_prev = meta.query_advice(config.is_high, Rotation::prev());
             let is_high_cur = meta.query_advice(config.is_high, Rotation::cur());
-            let is_high_next = meta.query_advice(config.is_high, Rotation::next());
+            vec![
+                q_enable * (1.expr() - cnt_is_zero_prev) * (is_high_prev - is_high_cur - cnt_is_15),
+            ]
+        });
+        meta.create_gate("BYTECODE_value_same", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let value_hi_cur = meta.query_advice(config.value_hi, Rotation::cur());
+            let value_lo_cur = meta.query_advice(config.value_lo, Rotation::cur());
+            let value_hi_prev = meta.query_advice(config.value_hi, Rotation::prev());
+            let value_lo_prev = meta.query_advice(config.value_lo, Rotation::prev());
+            let cnt_is_zero_prev = config.cnt_is_zero.expr_at(meta, Rotation::prev());
             vec![
                 q_enable.clone()
-                    * (1.expr() - cnt_is_zero)
-                    * (1.expr() - cnt_is_16.clone())
-                    * (is_high_cur.clone() - is_high_next.clone()),
-                q_enable * cnt_is_16 * (is_high_cur.clone() - is_high_next.clone() - 1.expr()),
+                    * (1.expr() - cnt_is_zero_prev.clone())
+                    * (value_hi_cur - value_hi_prev),
+                q_enable * (1.expr() - cnt_is_zero_prev) * (value_lo_cur - value_lo_prev),
+            ]
+        });
+        meta.create_gate("BYTECODE_acc_initial_zero", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let acc_hi_cur = meta.query_advice(config.acc_hi, Rotation::cur());
+            let acc_lo_cur = meta.query_advice(config.acc_lo, Rotation::cur());
+            let cnt_is_zero_prev = config.cnt_is_zero.expr_at(meta, Rotation::prev());
+            vec![
+                q_enable.clone() * cnt_is_zero_prev.clone() * acc_hi_cur,
+                q_enable * cnt_is_zero_prev * acc_lo_cur,
+            ]
+        });
+        meta.create_gate("BYTECODE_acc_accumulate", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let acc_hi_cur = meta.query_advice(config.acc_hi, Rotation::cur());
+            let acc_lo_cur = meta.query_advice(config.acc_lo, Rotation::cur());
+            let acc_hi_prev = meta.query_advice(config.acc_hi, Rotation::prev());
+            let acc_lo_prev = meta.query_advice(config.acc_lo, Rotation::prev());
+            let is_high = meta.query_advice(config.is_high, Rotation::cur());
+            let cnt_is_zero_prev = config.cnt_is_zero.expr_at(meta, Rotation::prev());
+            let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
+            vec![
+                q_enable.clone()
+                    * (1.expr() - cnt_is_zero_prev.clone())
+                    * (acc_hi_prev.clone()
+                        + is_high.clone() * (255.expr() * acc_hi_prev + bytecode.clone())
+                        - acc_hi_cur),
+                q_enable
+                    * (1.expr() - cnt_is_zero_prev)
+                    * (acc_lo_prev.clone()
+                        + (1.expr() - is_high) * (255.expr() * acc_lo_prev + bytecode)
+                        - acc_lo_cur),
+            ]
+        });
+        meta.create_gate("BYTECODE_value_equal_acc", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let acc_hi = meta.query_advice(config.acc_hi, Rotation::cur());
+            let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
+            let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
+            let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            vec![
+                q_enable.clone() * cnt_is_zero.clone() * (value_hi - acc_hi),
+                q_enable * cnt_is_zero * (value_lo - acc_lo),
             ]
         });
         // todo many more gates
@@ -199,7 +253,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         row_prev: Option<&Row>,
     ) -> Result<(), Error> {
         let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
-        let cnt_is_16 = IsZeroChip::construct(self.cnt_is_16.clone());
+        let cnt_is_15 = IsZeroChip::construct(self.cnt_is_15.clone());
         let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
         let addr_is_zero = IsZeroWithRotationChip::construct(self.addr_is_zero.clone());
 
@@ -242,12 +296,12 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 &row_cur.cnt.unwrap_or_default(),
             ))),
         )?;
-        cnt_is_16.assign(
+        cnt_is_15.assign(
             region,
             offset,
             Value::known(
                 F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.cnt.unwrap_or_default()))
-                    - F::from(16),
+                    - F::from(15),
             ),
         )?;
         addr_unchange.assign(
@@ -361,8 +415,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         region.name_column(|| "BYTECODE_is_high", self.is_high);
         self.cnt_is_zero
             .annotate_columns_in_region(region, "BYTECODE_cnt_is_zero");
-        self.cnt_is_16
-            .annotate_columns_in_region(region, "BYTECODE_cnt_is_16");
+        self.cnt_is_15
+            .annotate_columns_in_region(region, "BYTECODE_cnt_is_15");
         self.addr_unchange
             .annotate_columns_in_region(region, "BYTECODE_addr_unchange");
         self.addr_is_zero
@@ -436,8 +490,8 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
     }
 
     fn unusable_rows() -> (usize, usize) {
-        // Rotation in constrains has prev and next, so return 1,1
-        (1, 1)
+        // Rotation in constrains has prev and but doesn't have next, so return 1,0
+        (1, 0)
     }
 
     fn num_rows(witness: &Witness) -> usize {
@@ -452,8 +506,8 @@ mod test {
     use crate::witness::bytecode::Row;
     use crate::witness::Witness;
     use eth_types::evm_types::OpcodeId;
-    use eth_types::Field;
-    use eth_types::U256;
+    use eth_types::{Bytecode, Field, U256};
+    use halo2_proofs::dev::CircuitGates;
     use halo2_proofs::halo2curves::ff::{FromUniformBytes, PrimeField};
     use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
     use std::marker::PhantomData;
@@ -528,6 +582,46 @@ mod test {
         }
     }
 
+    fn test_bytecode_circuit(witness: Witness) -> MockProver<Fp> {
+        const MAX_CODESIZE: usize = 200;
+        let mut witness = Witness {
+            max_codesize: MAX_CODESIZE,
+            num_padding_begin: 1,
+            num_padding_end: 1,
+            num_row_incl_padding: 245,
+            ..witness
+        };
+        let mut instance = {
+            let mut vec_addr: Vec<Fp> = witness
+                .bytecode
+                .iter()
+                .map(|row| {
+                    Fp::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default()))
+                })
+                .collect();
+            let mut vec_bytecode: Vec<Fp> = witness
+                .bytecode
+                .iter()
+                .map(|row| {
+                    Fp::from_uniform_bytes(&convert_u256_to_64_bytes(
+                        &row.bytecode.unwrap_or_default(),
+                    ))
+                })
+                .collect();
+            // seems don't need to pad instance
+            vec![vec_addr, vec_bytecode]
+        };
+        // insert padding rows (rows with all 0)
+        for _ in 0..witness.num_padding_begin {
+            witness.bytecode.insert(0, Default::default());
+        }
+
+        let k = 8;
+        let circuit = BytecodeTestCircuit::<Fp, MAX_CODESIZE>::new(witness.clone());
+        let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
+        prover
+    }
+
     #[test]
     fn two_simple_contract() {
         let row1 = Row {
@@ -565,37 +659,76 @@ mod test {
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
             ..Default::default()
         };
-        const MAX_CODESIZE: usize = 200;
         let mut witness = Witness {
             bytecode: vec![row1, row2, row3, row4, row5, row6],
-            max_codesize: MAX_CODESIZE,
-            num_padding_begin: 1,
-            num_padding_end: 1,
-            num_row_incl_padding: 245,
             ..Default::default()
         };
-        let mut instance = {
-            let mut vec_addr: Vec<Fp> = witness
-                .bytecode
-                .iter()
-                .map(|row| Fp::from_u128(row.addr.unwrap_or_default().as_u128()))
-                .collect();
-            let mut vec_bytecode: Vec<Fp> = witness
-                .bytecode
-                .iter()
-                .map(|row| Fp::from_u128(row.bytecode.unwrap_or_default().as_u128()))
-                .collect();
-            // seems don't need to pad instance
-            vec![vec_addr, vec_bytecode]
-        };
-        // insert padding rows (rows with all 0)
-        for _ in 0..witness.num_padding_begin {
-            witness.bytecode.insert(0, Default::default());
-        }
-
-        let k = 8;
-        let circuit = BytecodeTestCircuit::<Fp, MAX_CODESIZE>::new(witness.clone());
-        let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
+        let prover = test_bytecode_circuit(witness);
         prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn push_30() {
+        let x = 30; //should be 1..=32
+        let mut bytecode = Bytecode::default();
+        bytecode.push(x, u128::MAX);
+        let machine_code = bytecode.code();
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness = Witness::new(&trace, &machine_code);
+
+        let prover = test_bytecode_circuit(witness);
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn push_30_fuzzing() {
+        let x = 30; //should be 1..=32
+        let mut bytecode = Bytecode::default();
+        bytecode.push(x, u128::MAX);
+        let machine_code = bytecode.code();
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness = Witness::new(&trace, &machine_code);
+
+        {
+            let mut witness = witness.clone();
+            witness.bytecode[1].value_hi = Some(0x1.into());
+            let prover = test_bytecode_circuit(witness);
+            assert!(prover.verify_par().is_err());
+        }
+        {
+            let mut witness = witness.clone();
+            witness.bytecode[1].value_lo = Some(0x1.into());
+            let prover = test_bytecode_circuit(witness);
+            assert!(prover.verify_par().is_err());
+        }
+        {
+            let mut witness = witness.clone();
+            witness.bytecode[1].acc_hi = Some(0x1.into());
+            let prover = test_bytecode_circuit(witness);
+            assert!(prover.verify_par().is_err());
+        }
+        {
+            let mut witness = witness.clone();
+            witness.bytecode[1].acc_lo = Some(0x1.into());
+            let prover = test_bytecode_circuit(witness);
+            assert!(prover.verify_par().is_err());
+        }
+        {
+            let mut witness = witness.clone();
+            witness.bytecode[1].cnt = Some(0x1.into());
+            let prover = test_bytecode_circuit(witness);
+            assert!(prover.verify_par().is_err());
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_gates_lookups() {
+        let gates = CircuitGates::collect::<Fp, BytecodeTestCircuit<Fp, 200>>();
+        let str = gates.queries_to_csv();
+        for line in str.lines() {
+            let last_csv = line.rsplitn(2, ',').next().unwrap();
+            println!("{}", last_csv);
+        }
     }
 }

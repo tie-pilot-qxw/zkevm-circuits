@@ -28,7 +28,6 @@ mod test {
     use eth_types::evm_types::OpcodeId;
 
     use super::*;
-    use std::io;
 
     #[test]
     fn print_csv() {
@@ -53,7 +52,7 @@ mod test {
             acc_lo: Some(3.into()),
             ..Default::default()
         };
-        let mut wtr = csv::Writer::from_writer(io::stdout());
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
         wtr.serialize(&row1).unwrap();
         wtr.serialize(&row2).unwrap();
         wtr.serialize(&row3).unwrap();
