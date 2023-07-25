@@ -14,8 +14,8 @@ use eth_types::Field;
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::SimpleFloorPlanner;
 use halo2_proofs::circuit::{Layouter, Value};
+use halo2_proofs::circuit::{Region, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -70,16 +70,25 @@ pub struct CoreCircuitConfig<F> {
     vers_31: Column<Advice>,
     // IsZero chip for witness column cnt
     cnt_is_zero: IsZeroWithRotationConfig<F>,
+    /// Tables used for lookup
+    bytecode_table: BytecodeTable,
 }
 
-pub struct NilCircuitConfigArgs {} // todo change this
+pub struct CoreCircuitConfigArgs {
+    pub q_enable: Selector,
+    pub bytecode_table: BytecodeTable,
+} // todo change this
 
 impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
-    type ConfigArgs = NilCircuitConfigArgs;
+    type ConfigArgs = CoreCircuitConfigArgs;
 
-    fn new(meta: &mut ConstraintSystem<F>, Self::ConfigArgs {}: Self::ConfigArgs) -> Self {
-        let q_enable = meta.complex_selector();
-
+    fn new(
+        meta: &mut ConstraintSystem<F>,
+        Self::ConfigArgs {
+            q_enable,
+            bytecode_table,
+        }: Self::ConfigArgs,
+    ) -> Self {
         let tx_idx = meta.advice_column();
         let call_id = meta.advice_column();
         let code_addr = meta.advice_column();
@@ -164,6 +173,7 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             vers_30,
             vers_31,
             cnt_is_zero,
+            bytecode_table,
         };
 
         meta.create_gate("Core Circuit counter", |meta| {
@@ -188,19 +198,27 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct CoreTestCircuit<F: Field> {
+pub struct CoreCircuit<F: Field> {
     witness: Vec<Row>,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field> Circuit<F> for CoreTestCircuit<F> {
+impl<F: Field> Circuit<F> for CoreCircuit<F> {
     type Config = CoreCircuitConfig<F>;
     type FloorPlanner = SimpleFloorPlanner;
     fn without_witnesses(&self) -> Self {
         Self::default()
     }
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        Self::Config::new(meta, NilCircuitConfigArgs {})
+        let q_enable = meta.complex_selector();
+        let bytecode_table = BytecodeTable::construct(meta);
+        Self::Config::new(
+            meta,
+            CoreCircuitConfigArgs {
+                q_enable,
+                bytecode_table,
+            },
+        )
     }
 
     fn synthesize(
@@ -467,7 +485,7 @@ impl<F: Field> Circuit<F> for CoreTestCircuit<F> {
     }
 }
 
-impl<F: Field> CoreTestCircuit<F> {
+impl<F: Field> CoreCircuit<F> {
     pub fn new(witness: Vec<Row>) -> Self {
         Self {
             witness,
@@ -478,7 +496,7 @@ impl<F: Field> CoreTestCircuit<F> {
 
 #[cfg(test)]
 mod test {
-    use crate::core_circuit::CoreTestCircuit;
+    use crate::core_circuit::CoreCircuit;
 
     use crate::witness::core::Row;
     use eth_types::evm_types::OpcodeId;
@@ -498,7 +516,7 @@ mod test {
             row_2,
             padding,
         ];
-        let circuit = CoreTestCircuit::<Fp>::new(rows);
+        let circuit = CoreCircuit::<Fp>::new(rows);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied_par();
     }

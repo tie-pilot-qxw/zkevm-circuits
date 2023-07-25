@@ -1,4 +1,6 @@
+use crate::witness::arithmetic::{self, Row, Tag};
 use eth_types::Field;
+use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Fixed, Instance};
 
@@ -105,4 +107,18 @@ impl FixedTable {
         }
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ArithmeticTable {
+    // the tag to represent arithmetic opcdes
+    tag: arithmetic::Tag,
+    operand0_hi: Column<Advice>,
+    operand0_lo: Column<Advice>,
+    operand1_hi: Column<Advice>,
+    operand1_lo: Column<Advice>,
+    operand2_hi: Column<Advice>,
+    operand2_lo: Column<Advice>,
+    operand3_hi: Column<Advice>,
+    operand3_lo: Column<Advice>,
 }
