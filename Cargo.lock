@@ -3247,6 +3247,7 @@ dependencies = [
  "eth-types",
  "gadgets",
  "halo2_proofs",
+ "itertools",
  "lazy_static",
  "log",
  "plotters",

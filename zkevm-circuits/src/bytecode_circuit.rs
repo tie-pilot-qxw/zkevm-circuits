@@ -45,7 +45,6 @@ pub struct BytecodeCircuitConfig<F> {
     addr_unchange: IsZeroConfig<F>,
     /// for chip to check if addr is zero, which means the row is padding
     addr_is_zero: IsZeroWithRotationConfig<F>,
-    _marker: PhantomData<F>,
 }
 
 pub struct BytecodeCircuitConfigArgs<F> {
@@ -122,7 +121,6 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             cnt_is_15,
             addr_unchange,
             addr_is_zero,
-            _marker: PhantomData,
         };
         // add all gate constraints here
         meta.create_gate("BYTECODE_cnt_decrease", |meta| {
@@ -425,12 +423,14 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct BytecodeCircuit<F: Field> {
+pub struct BytecodeCircuit<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> {
     witness: Witness,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
+impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F>
+    for BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
+{
     type Config = BytecodeCircuitConfig<F>;
     type Cells = ();
 
@@ -442,11 +442,12 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
     }
 
     fn instance(&self) -> Vec<Vec<F>> {
+        let (num_padding_begin, _num_padding_end) = Self::unusable_rows();
         let vec_addr: Vec<F> = self
             .witness
             .bytecode
             .iter()
-            .skip(self.witness.num_padding_begin)
+            .skip(num_padding_begin)
             .map(|row| {
                 F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default()))
             })
@@ -455,7 +456,7 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
             .witness
             .bytecode
             .iter()
-            .skip(self.witness.num_padding_begin)
+            .skip(num_padding_begin)
             .map(|row| {
                 F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.bytecode.unwrap_or_default()))
             })
@@ -468,22 +469,22 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
+        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
             || "bytecode circuit",
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
-                config.assign_with_region(
-                    &mut region,
-                    &self.witness,
-                    self.witness.num_row_incl_padding,
-                )?;
+                config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
                 config.assign_from_instance_with_region(
                     &mut region,
-                    self.witness.num_padding_begin,
-                    self.witness.max_codesize,
-                    self.witness.num_row_incl_padding,
+                    num_padding_begin,
+                    MAX_CODESIZE,
+                    MAX_NUM_ROW,
                 )?;
-                // sub circuit don't enable q_enable selector
+                // sub circuit need to enable selector
+                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
+                    config.q_enable.enable(&mut region, offset)?;
+                }
                 Ok(())
             },
         )
@@ -503,23 +504,21 @@ impl<F: Field> SubCircuit<F> for BytecodeCircuit<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::witness::bytecode::Row;
-    use crate::witness::Witness;
+    use crate::util::log2_ceil;
     use eth_types::evm_types::OpcodeId;
-    use eth_types::{Bytecode, Field, U256};
-    use halo2_proofs::dev::CircuitGates;
-    use halo2_proofs::halo2curves::ff::{FromUniformBytes, PrimeField};
-    use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
-    use std::marker::PhantomData;
+    use eth_types::Bytecode;
+    use halo2_proofs::dev::{CircuitGates, MockProver};
+    use halo2_proofs::halo2curves::bn256::Fr;
 
     /// A standalone circuit for testing
     #[derive(Clone, Default, Debug)]
-    pub struct BytecodeTestCircuit<F: Field, const MAX_CODESIZE: usize> {
-        witness: Witness,
-        _marker: PhantomData<F>,
-    }
+    pub struct BytecodeTestCircuit<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
+        BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+    );
 
-    impl<F: Field, const MAX_CODESIZE: usize> Circuit<F> for BytecodeTestCircuit<F, MAX_CODESIZE> {
+    impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> Circuit<F>
+        for BytecodeTestCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
+    {
         type Config = BytecodeCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -544,81 +543,38 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            layouter.assign_region(
-                || "bytecode for test",
-                |mut region| {
-                    config.annotate_circuit_in_region(&mut region);
-                    config.assign_with_region(
-                        &mut region,
-                        &self.witness,
-                        self.witness.num_row_incl_padding,
-                    )?;
-                    config.assign_from_instance_with_region(
-                        &mut region,
-                        self.witness.num_padding_begin,
-                        self.witness.max_codesize,
-                        self.witness.num_row_incl_padding,
-                    )?;
-                    for offset in self.witness.num_padding_begin
-                        ..self.witness.num_row_incl_padding - self.witness.num_padding_end
-                    {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
-
-                    Ok(())
-                },
-            )
+            // let circuit = BytecodeCircuit::<F, MAX_CODESIZE>::new_from_witness(&self.witness);
+            self.0.synthesize_sub(&config, &mut layouter)
         }
     }
 
-    impl<F: Field, const MAX_CODESIZE: usize> BytecodeTestCircuit<F, MAX_CODESIZE> {
+    impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>
+        BytecodeTestCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
+    {
         pub fn new(witness: Witness) -> Self {
-            // make sure const in type and witness are equal
-            assert_eq!(MAX_CODESIZE, witness.max_codesize);
-            Self {
-                witness,
-                _marker: PhantomData,
-            }
+            Self(BytecodeCircuit::new_from_witness(&witness))
+        }
+
+        pub fn instance(&self) -> Vec<Vec<F>> {
+            self.0.instance()
         }
     }
 
-    fn test_bytecode_circuit(witness: Witness) -> MockProver<Fp> {
+    fn test_bytecode_circuit(witness: Witness) -> MockProver<Fr> {
         const MAX_CODESIZE: usize = 200;
-        let mut witness = Witness {
-            max_codesize: MAX_CODESIZE,
-            num_padding_begin: 1,
-            num_padding_end: 1,
-            num_row_incl_padding: 245,
-            ..witness
-        };
-        let mut instance = {
-            let mut vec_addr: Vec<Fp> = witness
-                .bytecode
-                .iter()
-                .map(|row| {
-                    Fp::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default()))
-                })
-                .collect();
-            let mut vec_bytecode: Vec<Fp> = witness
-                .bytecode
-                .iter()
-                .map(|row| {
-                    Fp::from_uniform_bytes(&convert_u256_to_64_bytes(
-                        &row.bytecode.unwrap_or_default(),
-                    ))
-                })
-                .collect();
-            // seems don't need to pad instance
-            vec![vec_addr, vec_bytecode]
-        };
+        const MAX_NUM_ROW: usize = 245;
+        let (num_padding_begin, num_padding_end) =
+            BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows();
+        let mut witness = witness;
         // insert padding rows (rows with all 0)
-        for _ in 0..witness.num_padding_begin {
+        for _ in 0..num_padding_begin {
             witness.bytecode.insert(0, Default::default());
         }
 
-        let k = 8;
-        let circuit = BytecodeTestCircuit::<Fp, MAX_CODESIZE>::new(witness.clone());
-        let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
+        let k = log2_ceil(MAX_NUM_ROW);
+        let circuit = BytecodeTestCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::new(witness.clone());
+        let instance = circuit.instance();
+        let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         prover
     }
 
@@ -724,7 +680,7 @@ mod test {
     #[test]
     #[ignore]
     fn print_gates_lookups() {
-        let gates = CircuitGates::collect::<Fp, BytecodeTestCircuit<Fp, 200>>();
+        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr, 245, 200>>();
         let str = gates.queries_to_csv();
         for line in str.lines() {
             let last_csv = line.rsplitn(2, ',').next().unwrap();

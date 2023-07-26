@@ -52,6 +52,11 @@ pub trait SubCircuit<F: Field> {
     fn num_rows(witness: &Witness) -> usize;
 }
 
+/// Ceiling of log_2(n)
+pub fn log2_ceil(n: usize) -> u32 {
+    u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32
+}
+
 #[macro_export]
 macro_rules! add_expression_to_constraints {
     ($v:expr,$e:expr) => {

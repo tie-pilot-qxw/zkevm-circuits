@@ -1,223 +1,242 @@
-// //! Super circuit is a circuit that puts all zkevm circuits together
+//! Super circuit is a circuit that puts all zkevm circuits together
+use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
+use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
+use crate::table::{BytecodeTable, FixedTable, StackTable};
+use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::witness::Witness;
+use eth_types::Field;
+use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
+use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
+use halo2_proofs::poly::Rotation;
 
-// use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
-// use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-// use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-// use crate::table::{BytecodeTable, FixedTable, StackTable};
-// use crate::util::{SubCircuit, SubCircuitConfig};
-// use crate::witness::Block;
-// use eth_types::Field;
-// use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
-// use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
-// use halo2_proofs::poly::Rotation;
+#[derive(Clone)]
+pub struct SuperCircuitConfig<F> {
+    core_circuit: CoreCircuitConfig<F>,
+    bytecode_circuit: BytecodeCircuitConfig<F>,
+}
 
-// #[derive(Clone)]
-// pub struct SuperCircuitConfig<F> {
-//     core_circuit: CoreCircuitConfig<F>,
-//     state_circuit: StateCircuitConfig<F>,
-//     bytecode_circuit: BytecodeCircuitConfig<F>,
-// }
+impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
+    type ConfigArgs = ();
 
-// /// Circuit configuration arguments
-// pub struct SuperCircuitConfigArgs {}
+    fn new(meta: &mut ConstraintSystem<F>, _: Self::ConfigArgs) -> Self {
+        let q_enable_bytecode = meta.complex_selector();
+        let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+        let q_enable_core = meta.complex_selector();
+        let core_circuit = CoreCircuitConfig::new(
+            meta,
+            CoreCircuitConfigArgs {
+                q_enable: q_enable_core,
+                bytecode_table,
+            },
+        );
+        let bytecode_circuit = BytecodeCircuitConfig::new(
+            meta,
+            BytecodeCircuitConfigArgs {
+                q_enable: q_enable_bytecode,
+                bytecode_table,
+            },
+        );
+        SuperCircuitConfig {
+            core_circuit,
+            bytecode_circuit,
+        }
+    }
+}
 
-// impl<F: Field> SubCircuitConfig<F> for SuperCircuitConfig<F> {
-//     type ConfigArgs = SuperCircuitConfigArgs;
+#[derive(Clone, Default, Debug)]
+pub struct SuperCircuit<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> {
+    pub core_circuit: CoreCircuit<F>,
+    pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+}
 
-//     fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
-//         let stack_table = StackTable::construct(meta);
-//         let bytecode_table = BytecodeTable::construct(meta);
-//         let fixed_table = FixedTable::construct(meta);
-//         let core_circuit = CoreCircuitConfig::new(
-//             meta,
-//             CoreCircuitConfigArgs {
-//                 stack_table,
-//                 bytecode_table,
-//             },
-//         );
-//         let state_circuit = StateCircuitConfig::new(
-//             meta,
-//             StateCircuitConfigArgs {
-//                 stack_table,
-//                 fixed_table,
-//             },
-//         );
-//         let bytecode_circuit =
-//             BytecodeCircuitConfig::new(meta, BytecodeCircuitConfigArgs { bytecode_table });
-//         SuperCircuitConfig {
-//             core_circuit,
-//             state_circuit,
-//             bytecode_circuit,
-//         }
-//     }
-// }
+impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F>
+    for SuperCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
+{
+    type Config = SuperCircuitConfig<F>;
+    type Cells = ();
 
-// #[derive(Clone, Default, Debug)]
-// pub struct SuperCircuit<F: Field> {
-//     pub core_circuit: CoreCircuit<F>,
-//     pub state_circuit: StateCircuit<F>,
-//     pub bytecode_circuit: BytecodeCircuit<F>,
-// }
+    fn new_from_witness(witness: &Witness) -> Self {
+        assert!(Self::num_rows(witness) <= MAX_NUM_ROW);
+        //TODO let core_circuit = CoreCircuit::new_from_witness(witness);
+        let core_circuit = CoreCircuit::new(witness.core.clone());
+        let bytecode_circuit = BytecodeCircuit::new_from_witness(witness);
+        Self {
+            core_circuit,
+            bytecode_circuit,
+        }
+    }
 
-// impl<F: Field> SubCircuit<F> for SuperCircuit<F> {
-//     type Config = SuperCircuitConfig<F>;
+    fn instance(&self) -> Vec<Vec<F>> {
+        let mut instance = Vec::new();
+        // instance.extend_from_slice(&self.core_circuit.instance());
+        instance.extend_from_slice(&self.bytecode_circuit.instance());
 
-//     fn new_from_block(block: &Block<F>) -> Self {
-//         let core_circuit = CoreCircuit::new_from_block(block);
-//         let state_circuit = StateCircuit::new_from_block(block);
-//         let bytecode_circuit = BytecodeCircuit::new_from_block(block);
-//         SuperCircuit {
-//             core_circuit,
-//             state_circuit,
-//             bytecode_circuit,
-//         }
-//     }
+        instance
+    }
 
-//     fn instance(&self) -> Vec<Vec<F>> {
-//         let mut instance = Vec::new();
-//         instance.extend_from_slice(&self.core_circuit.instance());
-//         instance.extend_from_slice(&self.bytecode_circuit.instance());
+    fn synthesize_sub(
+        &self,
+        config: &Self::Config,
+        layouter: &mut impl Layouter<F>,
+    ) -> Result<(), Error> {
+        //TODO self.core_circuit.synthesize_sub(&config.core_circuit, layouter)?;
+        // self.state_circuit.synthesize_sub(&config.state_circuit, layouter)?;
+        self.bytecode_circuit
+            .synthesize_sub(&config.bytecode_circuit, layouter)?;
+        Ok(())
+    }
 
-//         instance
-//     }
+    fn unusable_rows() -> (usize, usize) {
+        let unusable_rows = [BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows()];
+        let begin = itertools::max(unusable_rows.iter().map(|(begin, end)| *begin)).unwrap();
+        let end = itertools::max(unusable_rows.iter().map(|(begin, end)| *end)).unwrap();
+        (begin, end)
+    }
 
-//     fn synthesize_sub(
-//         &self,
-//         _config: &Self::Config,
-//         _layouter: &mut impl Layouter<F>,
-//     ) -> Result<(), Error> {
-//         todo!()
-//     }
+    fn num_rows(witness: &Witness) -> usize {
+        let num_rows = [BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(
+            witness,
+        )];
+        itertools::max(num_rows).unwrap()
+    }
+}
 
-//     fn min_num_rows_block() -> (usize, usize) {
-//         todo!()
-//     }
-// }
+impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> Circuit<F>
+    for SuperCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
+{
+    type Config = SuperCircuitConfig<F>;
+    type FloorPlanner = SimpleFloorPlanner;
 
-// impl<F: Field> Circuit<F> for SuperCircuit<F> {
-//     type Config = SuperCircuitConfig<F>;
-//     type FloorPlanner = SimpleFloorPlanner;
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
 
-//     fn without_witnesses(&self) -> Self {
-//         Self::default()
-//     }
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        Self::Config::new(meta, ())
+    }
 
-//     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-//         Self::Config::new(meta, SuperCircuitConfigArgs {})
-//     }
+    fn synthesize(
+        &self,
+        config: Self::Config,
+        mut layouter: impl Layouter<F>,
+    ) -> Result<(), Error> {
+        self.synthesize_sub(&config, &mut layouter)?;
+        Ok(())
+    }
+}
 
-//     fn synthesize(
-//         &self,
-//         config: Self::Config,
-//         mut layouter: impl Layouter<F>,
-//     ) -> Result<(), Error> {
-//         self.core_circuit
-//             .synthesize_sub(&config.core_circuit, &mut layouter)?;
-//         self.state_circuit
-//             .synthesize_sub(&config.state_circuit, &mut layouter)?;
-//         self.bytecode_circuit
-//             .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
-//         Ok(())
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::log2_ceil;
+    use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
+    use halo2_proofs::halo2curves::bn256::{Fr, G1};
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::witness::block::WitnessTable;
-//     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
-//     use halo2_proofs::halo2curves::bn256::{Fr, G1};
+    #[cfg(feature = "plot")]
+    use plotters::prelude::*;
 
-//     #[cfg(feature = "plot")]
-//     use plotters::prelude::*;
+    const MAX_CODESIZE: usize = 200;
+    const MAX_NUM_ROW: usize = 245;
 
-//     #[test]
-//     fn test_add() {
-//         let k: u32 = 9;
-//         let machine_code = trace_parser::assemble_file("debug/1.txt");
-//         let trace = trace_parser::trace_program(&machine_code);
-//         let witness_table = WitnessTable::new(&machine_code, &trace);
-//         let block: Block<Fr> = Block::new(witness_table);
+    fn test_super_circuit(
+        witness: Witness,
+    ) -> (
+        u32,
+        SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE>,
+        MockProver<Fr>,
+    ) {
+        let (num_padding_begin, num_padding_end) =
+            SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows();
+        let mut witness = witness;
+        // insert padding rows (rows with all 0)
+        for _ in 0..num_padding_begin {
+            witness.bytecode.insert(0, Default::default());
+        }
 
-//         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&block);
-//         let instance = vec![];
-//         let prover = MockProver::run(k, &circuit, instance).unwrap();
-//         let res = prover.verify_par();
-//         if let Err(err) = res {
-//             panic!("Verification failures: {:?}", err);
-//         }
-//     }
+        let k = log2_ceil(MAX_NUM_ROW);
+        let circuit = SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::new_from_witness(&witness);
+        let instance = circuit.instance();
+        let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
+        (k, circuit, prover)
+    }
 
-//     #[test]
-//     #[ignore]
-//     #[cfg(feature = "plot")]
-//     fn test_draw() {
-//         let k = 9;
-//         let machine_code = trace_parser::assemble_file("debug/1.txt");
-//         let trace = trace_parser::trace_program(&machine_code);
-//         let witness_table = WitnessTable::new(&machine_code, &trace);
-//         let block: Block<Fr> = Block::new(witness_table);
+    #[test]
+    fn test_from_test_data() {
+        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness = Witness::new(&trace, &machine_code);
 
-//         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&block);
-//         // draw picture
-//         let root = BitMapBackend::new("layout_100x340.png", (1600, 900)).into_drawing_area();
-//         root.fill(&WHITE).unwrap();
-//         let root = root
-//             .titled("Example Circuit Layout", ("sans-serif", 60))
-//             .unwrap();
+        let (k, circuit, prover) = test_super_circuit(witness);
+        prover.assert_satisfied_par();
+    }
 
-//         halo2_proofs::dev::CircuitLayout::default()
-//             .view_width(0..340)
-//             .view_height(0..100)
-//             // You can hide labels, which can be useful with smaller areas.
-//             .show_labels(true)
-//             // Render the circuit onto your area!
-//             // The first argument is the size parameter for the circuit.
-//             .render(k, &circuit, &root)
-//             .unwrap();
-//     }
+    #[test]
+    #[ignore]
+    #[cfg(feature = "plot")]
+    fn test_draw() {
+        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness = Witness::new(&trace, &machine_code);
 
-//     #[test]
-//     #[ignore]
-//     fn print_circuit_metrics() {
-//         // gates
-//         println!(
-//             "{} gates {}",
-//             vec!["#"; 20].join(""),
-//             vec!["#"; 20].join("")
-//         );
-//         let gates = CircuitGates::collect::<Fr, SuperCircuit<Fr>>();
-//         let str = gates.queries_to_csv();
-//         for line in str.lines() {
-//             let last_csv = line.rsplitn(2, ',').next().unwrap();
-//             println!("{}", last_csv);
-//         }
+        let (k, circuit, prover) = test_super_circuit(witness);
+        // draw picture
+        let root = BitMapBackend::new("layout_100x340.png", (1600, 900)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Example Circuit Layout", ("sans-serif", 60))
+            .unwrap();
 
-//         println!(
-//             "{} costs {}",
-//             vec!["#"; 20].join(""),
-//             vec!["#"; 20].join("")
-//         );
-//         let _k = 9;
-//         let machine_code = trace_parser::assemble_file("debug/1.txt");
-//         let trace = trace_parser::trace_program(&machine_code);
-//         let witness_table = WitnessTable::new(&machine_code, &trace);
-//         let block: Block<Fr> = Block::new(witness_table);
+        halo2_proofs::dev::CircuitLayout::default()
+            .view_width(0..340)
+            .view_height(0..100)
+            // You can hide labels, which can be useful with smaller areas.
+            .show_labels(true)
+            // Render the circuit onto your area!
+            // The first argument is the size parameter for the circuit.
+            .render(k, &circuit, &root)
+            .unwrap();
+    }
 
-//         let circuit: SuperCircuit<Fr> = SuperCircuit::new_from_block(&block);
-//         let circuit_cost: CircuitCost<G1, SuperCircuit<Fr>> = CircuitCost::measure(9, &circuit);
-//         // let proof_size: usize = circuit_cost.proof_size(1).into();
-//         println!("Proof cost {:#?}", circuit_cost);
+    #[test]
+    #[ignore]
+    fn print_circuit_metrics() {
+        // gates
+        println!(
+            "{} gates {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let gates = CircuitGates::collect::<Fr, SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE>>();
+        let str = gates.queries_to_csv();
+        for line in str.lines() {
+            let last_csv = line.rsplitn(2, ',').next().unwrap();
+            println!("{}", last_csv);
+        }
 
-//         println!(
-//             "{} lookups {}",
-//             vec!["#"; 20].join(""),
-//             vec!["#"; 20].join("")
-//         );
-//         let mut cs = ConstraintSystem::default();
-//         let _config = SuperCircuit::<Fr>::configure(&mut cs);
-//         for lookup in cs.lookups() {
-//             println!("{}: {:?}", lookup, lookup);
-//         }
-//     }
-// }
+        println!(
+            "{} costs {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness = Witness::new(&trace, &machine_code);
+
+        let (k, circuit, prover) = test_super_circuit(witness);
+        let circuit_cost: CircuitCost<G1, SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE>> =
+            CircuitCost::measure(k as usize, &circuit);
+        // let proof_size: usize = circuit_cost.proof_size(1).into();
+        println!("Proof cost {:#?}", circuit_cost);
+
+        println!(
+            "{} lookups {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let mut cs = ConstraintSystem::default();
+        let _config = SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::configure(&mut cs);
+        for lookup in cs.lookups() {
+            println!("{}: {:?}", lookup, lookup);
+        }
+    }
+}
