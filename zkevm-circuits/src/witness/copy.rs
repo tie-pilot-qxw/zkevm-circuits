@@ -5,21 +5,21 @@ use serde::Serialize;
 pub struct Row {
     /// The byte value that is copied
     pub byte: U256,
-    /// The src type, one of PublicCalldata, Memory, Bytecode, Calldata, Returndata
+    /// The source type, one of PublicCalldata, Memory, Bytecode, Calldata, Returndata
     pub src_type: Type,
-    /// The src id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
+    /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
     pub src_id: U256,
-    /// The src pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
+    /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
     pub src_pointer: U256,
-    /// The src stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
+    /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
     pub src_stamp: Option<U256>,
-    /// The dst type, one of Memory, Calldata, Returndata, PublicLog
+    /// The destination type, one of Memory, Calldata, Returndata, PublicLog
     pub dst_type: Type,
-    /// The dst id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
+    /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
     pub dst_id: U256,
-    /// The dst pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
+    /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
     pub dst_pointer: U256,
-    /// The dst stamp, state stamp for Memory, Calldata, Returndata. As for PublicLog it means the log_stamp
+    /// The destination stamp, state stamp for Memory, Calldata, Returndata. As for PublicLog it means the log_stamp
     pub dst_stamp: U256,
     /// The counter for one copy operation
     pub cnt: U256,
@@ -27,7 +27,9 @@ pub struct Row {
     pub len: U256,
 }
 
-/// Src and dst type. Dst type could only be Memory, Calldata, Returndata, PublicLog, hence it needs two bits to represent. Src type needs three bits.
+/// Source and destination type.
+/// Destination type could only be Memory, Calldata, Returndata, PublicLog, hence it needs two bits to represent.
+/// Source type needs three bits.
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub enum Type {
     #[default]

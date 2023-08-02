@@ -92,7 +92,7 @@ impl FixedTable {
 
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug)]
-pub enum Lookup<F> {
+pub enum LookupEntry<F> {
     /// Lookup to fixed table
     Fixed {
         /// Tag could be LogicAnd, LogicOr, LogicXor, or PushCnt
@@ -141,40 +141,31 @@ pub enum Lookup<F> {
     },
     /// Lookup to copy table.
     CopyTable {
-        // /// Whether the row is the first row of the copy event.
-        // is_first: Expression<F>,
-        // /// The source ID for the copy event.
-        // src_id: Expression<F>,
-        // /// The source tag for the copy event.
-        // src_tag: Expression<F>,
-        // /// The destination ID for the copy event.
-        // dst_id: Expression<F>,
-        // /// The destination tag for the copy event.
-        // dst_tag: Expression<F>,
-        // /// The source address where bytes are copied from.
-        // src_addr: Expression<F>,
-        // /// The source address where all source-side bytes have been copied.
-        // /// This does not necessarily mean there no more bytes to be copied, but
-        // /// any bytes following this address will indicating padding.
-        // src_addr_end: Expression<F>,
-        // /// The destination address at which bytes are copied.
-        // dst_addr: Expression<F>,
-        // /// The number of bytes to be copied in this copy event.
-        // length: Expression<F>,
-        // /// The RLC accumulator value, which is used for SHA3 opcode.
-        // rlc_acc: Expression<F>,
-        // /// The RW counter at the start of the copy event.
-        // rw_counter: Expression<F>,
-        // /// The RW counter that is incremented by the time all bytes have been
-        // /// copied specific to this copy event.
-        // rwc_inc: Expression<F>,
+        /// The source type for the copy event.
+        src_type: Expression<F>,
+        /// The source ID for the copy event.
+        src_id: Expression<F>,
+        /// The source pointer (index or address depending on the type)
+        src_pointer: Expression<F>,
+        /// The source stamp (state stamp or N/A)
+        src_stamp: Expression<F>,
+        /// The destination type for the copy event.
+        dst_type: Expression<F>,
+        /// The destination ID for the copy event.
+        dst_id: Expression<F>,
+        /// The destination pointer (index or address depending on the type)
+        dst_pointer: Expression<F>,
+        /// The destination stamp (state stamp or log stamp)
+        dst_stamp: Expression<F>,
+        /// The length of the copy event
+        len: Expression<F>,
     },
     /// Conditional lookup enabled by the first element.
-    Conditional(Expression<F>, Box<Lookup<F>>),
+    Conditional(Expression<F>, Box<LookupEntry<F>>),
 }
 
 // todo code copied from scroll
-impl<F: Field> Lookup<F> {
+impl<F: Field> LookupEntry<F> {
     pub(crate) fn conditional(self, condition: Expression<F>) -> Self {
         Self::Conditional(condition, self.into())
     }

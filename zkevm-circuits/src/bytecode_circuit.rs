@@ -543,7 +543,6 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            // let circuit = BytecodeCircuit::<F, MAX_CODESIZE>::new_from_witness(&self.witness);
             self.0.synthesize_sub(&config, &mut layouter)
         }
     }
