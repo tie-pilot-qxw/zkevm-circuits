@@ -1,10 +1,14 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget};
+use crate::execution::{
+    ExecutionConfig, ExecutionGadget, ExecutionGadgetAssociated, ExecutionState,
+};
+use crate::table::LookupEntry;
+use crate::util::query_expression;
 use crate::witness::{arithmetic, CurrentState};
 use crate::witness::{core, state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use gadgets::util::Expr;
-use halo2_proofs::plonk::ConstraintSystem;
+use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use trace_parser::Trace;
@@ -14,12 +18,60 @@ pub struct AddGadget<F: Field> {
 }
 
 impl<F: Field> ExecutionGadget<F> for AddGadget<F> {
-    const NAME: &'static str = "ADD";
+    fn name(&self) -> &'static str {
+        "ADD"
+    }
 
-    fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
-        AddGadget {
+    fn execution_state(&self) -> ExecutionState {
+        ExecutionState::ADD
+    }
+
+    fn num_row(&self) -> usize {
+        3
+    }
+
+    fn get_constraints(
+        &self,
+        config: &ExecutionConfig<F>,
+        meta: &mut VirtualCells<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let x = vec![(
+            String::from("correct_opcode"),
+            opcode - OpcodeId::ADD.as_u8().expr(),
+        )];
+        x
+    }
+
+    fn get_lookups(
+        &self,
+        config: &ExecutionConfig<F>,
+        meta: &mut ConstraintSystem<F>,
+    ) -> Vec<(String, LookupEntry<F>)> {
+        let opcode = query_expression(meta, |meta| {
+            let opcode = meta.query_advice(config.opcode, Rotation::cur());
+            opcode
+        });
+        // todo tmp lookup
+        vec![(
+            String::from("tmp"),
+            LookupEntry::Bytecode {
+                addr: 0.expr(),
+                pc: 0.expr(),
+                opcode,
+                is_code: 0.expr(),
+                value_hi: 0.expr(),
+                value_lo: 0.expr(),
+            },
+        )]
+    }
+}
+
+impl<F: Field> ExecutionGadgetAssociated<F> for AddGadget<F> {
+    fn new() -> Box<dyn ExecutionGadget<F>> {
+        Box::new(Self {
             _marker: PhantomData,
-        }
+        })
     }
 
     fn gen_witness(trace: &Trace, current_state: &mut CurrentState) -> Witness {
@@ -72,7 +124,7 @@ impl<F: Field> ExecutionGadget<F> for AddGadget<F> {
             vers_14: Some(1.into()),
             ..Default::default()
         };
-        let mut core_row0 = core::ExecutionState::ADD.to_core_row();
+        let mut core_row0 = ExecutionState::ADD.to_core_row();
         core_row0.tx_idx = current_state.tx_idx.into();
         core_row0.call_id = current_state.call_id.into();
         core_row0.code_addr = current_state.code_addr.into();

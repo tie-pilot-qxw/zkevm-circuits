@@ -6,9 +6,6 @@ use crate::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::{self};
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
-use crate::witness::block::{CoreCircuitWitness, SelectorColumn};
-use crate::witness::Block;
-use crate::witness::{EXECUTION_STATE_NUM, OPERAND_NUM};
 use eth_types::Field;
 
 use gadgets::is_zero::IsZeroInstruction;
@@ -22,19 +19,19 @@ use std::marker::PhantomData;
 
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F> {
-    q_enable: Selector,
+    pub q_enable: Selector,
     // witness column of transaction index
-    tx_idx: Column<Advice>,
+    pub tx_idx: Column<Advice>,
     // witness column of call id
-    call_id: Column<Advice>,
+    pub call_id: Column<Advice>,
     // witness column of contract address
-    code_addr: Column<Advice>,
+    pub code_addr: Column<Advice>,
     // witness column of program counter
-    pc: Column<Advice>,
+    pub pc: Column<Advice>,
     // witness columns of opcode
-    opcode: Column<Advice>,
+    pub opcode: Column<Advice>,
     // witness column of opcode counter
-    cnt: Column<Advice>,
+    pub cnt: Column<Advice>,
     // wiitness columns of 32 versatile
     vers_0: Column<Advice>,
     vers_1: Column<Advice>,
@@ -69,7 +66,7 @@ pub struct CoreCircuitConfig<F> {
     vers_30: Column<Advice>,
     vers_31: Column<Advice>,
     // IsZero chip for witness column cnt
-    cnt_is_zero: IsZeroWithRotationConfig<F>,
+    pub cnt_is_zero: IsZeroWithRotationConfig<F>,
     /// Tables used for lookup
     bytecode_table: BytecodeTable<F>,
 }

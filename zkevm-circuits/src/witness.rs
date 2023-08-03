@@ -1,5 +1,4 @@
 pub mod arithmetic;
-pub(crate) mod block;
 pub mod bytecode;
 pub mod copy;
 pub mod core;
@@ -9,14 +8,11 @@ pub mod public;
 pub mod state;
 
 use crate::execution;
-use crate::execution::ExecutionGadget;
-pub use block::Block;
-pub use block::{EXECUTION_STATE_NUM, OPERAND_NUM};
+use crate::execution::ExecutionGadgetAssociated;
 use eth_types::evm_types::OpcodeId;
 use eth_types::evm_types::Stack;
 use eth_types::U256;
 use halo2_proofs::halo2curves::bn256::Fr;
-use halo2_proofs::halo2curves::ff::PrimeField;
 use std::cmp::max;
 use std::collections::HashMap;
 use trace_parser::Trace;

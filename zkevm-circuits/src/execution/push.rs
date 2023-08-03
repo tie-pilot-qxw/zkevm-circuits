@@ -1,11 +1,11 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget};
+use crate::execution::{
+    ExecutionConfig, ExecutionGadget, ExecutionGadgetAssociated, ExecutionState,
+};
+use crate::table::LookupEntry;
 use crate::witness::CurrentState;
 use crate::witness::{core, state, Witness};
-use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
-use gadgets::util::Expr;
-use halo2_proofs::plonk::ConstraintSystem;
-use halo2_proofs::poly::Rotation;
+use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 use trace_parser::Trace;
 
@@ -14,12 +14,40 @@ pub struct PushGadget<F: Field> {
 }
 
 impl<F: Field> ExecutionGadget<F> for PushGadget<F> {
-    const NAME: &'static str = "PUSH";
+    fn name(&self) -> &'static str {
+        "PUSH"
+    }
 
-    fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
-        PushGadget {
+    fn execution_state(&self) -> ExecutionState {
+        ExecutionState::PUSH
+    }
+
+    fn num_row(&self) -> usize {
+        2
+    }
+
+    fn get_constraints(
+        &self,
+        _config: &ExecutionConfig<F>,
+        _meta: &mut VirtualCells<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        todo!()
+    }
+
+    fn get_lookups(
+        &self,
+        _config: &ExecutionConfig<F>,
+        _meta: &mut ConstraintSystem<F>,
+    ) -> Vec<(String, LookupEntry<F>)> {
+        todo!()
+    }
+}
+
+impl<F: Field> ExecutionGadgetAssociated<F> for PushGadget<F> {
+    fn new() -> Box<dyn ExecutionGadget<F>> {
+        Box::new(Self {
             _marker: PhantomData,
-        }
+        })
     }
 
     fn gen_witness(trace: &Trace, current_state: &mut CurrentState) -> Witness {
@@ -42,7 +70,7 @@ impl<F: Field> ExecutionGadget<F> for PushGadget<F> {
             vers_4: Some(1.into()),
             ..Default::default()
         };
-        let mut core_row0 = core::ExecutionState::PUSH.to_core_row();
+        let mut core_row0 = ExecutionState::PUSH.to_core_row();
         core_row0.tx_idx = current_state.tx_idx.into();
         core_row0.call_id = current_state.call_id.into();
         core_row0.code_addr = current_state.code_addr.into();

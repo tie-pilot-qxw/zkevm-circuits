@@ -4,8 +4,7 @@ mod operation;
 
 use crate::arithmetic_circuit::operation::OperationGadget;
 use crate::util::{self, SubCircuit, SubCircuitConfig};
-use crate::witness::block::{SelectorColumn, StackCircuitWitness};
-use crate::witness::{arithmetic, Block};
+use crate::witness::arithmetic;
 use arithmetic::{Row, Tag};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};

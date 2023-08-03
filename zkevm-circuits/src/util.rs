@@ -2,7 +2,19 @@ use crate::witness::Witness;
 use eth_types::{Field, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Fixed};
+use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Fixed, VirtualCells};
+
+pub(crate) fn query_expression<F: Field, T>(
+    meta: &mut ConstraintSystem<F>,
+    mut f: impl FnMut(&mut VirtualCells<F>) -> T,
+) -> T {
+    let mut expr = None;
+    meta.create_gate("Query expression", |meta| {
+        expr = Some(f(meta));
+        Some(0.expr())
+    });
+    expr.unwrap()
+}
 
 /// SubCircuit configuration
 pub trait SubCircuitConfig<F: Field> {
@@ -117,7 +129,7 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
 #[cfg(test)]
 mod tests {
     use crate::util::convert_u256_to_64_bytes;
-    use eth_types::{Field, U256};
+    use eth_types::U256;
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::halo2curves::ff::FromUniformBytes;
     use std::str::FromStr;

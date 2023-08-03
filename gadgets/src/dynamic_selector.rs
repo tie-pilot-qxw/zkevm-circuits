@@ -183,7 +183,7 @@ mod test {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Selector,
+        Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Selector,
     };
     use halo2_proofs::poly::Rotation;
     use std::marker::PhantomData;

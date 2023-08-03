@@ -6,7 +6,7 @@ use eth_types::{Field, U256};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region, SimpleFloorPlanner, Value};
+use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance, Selector};
 use halo2_proofs::poly::Rotation;
 use std::iter::zip;
@@ -507,6 +507,7 @@ mod test {
     use crate::util::log2_ceil;
     use eth_types::evm_types::OpcodeId;
     use eth_types::Bytecode;
+    use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::{CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::Fr;
 
@@ -562,7 +563,7 @@ mod test {
     fn test_bytecode_circuit(witness: Witness) -> MockProver<Fr> {
         const MAX_CODESIZE: usize = 200;
         const MAX_NUM_ROW: usize = 245;
-        let (num_padding_begin, num_padding_end) =
+        let (num_padding_begin, _num_padding_end) =
             BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows();
         let mut witness = witness;
         // insert padding rows (rows with all 0)
@@ -614,7 +615,7 @@ mod test {
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
             ..Default::default()
         };
-        let mut witness = Witness {
+        let witness = Witness {
             bytecode: vec![row1, row2, row3, row4, row5, row6],
             ..Default::default()
         };
