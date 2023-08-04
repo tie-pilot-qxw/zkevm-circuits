@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 /// Dynamic selector that generates expressions of degree 2 to select from N
 /// possible targets using about 2 sqrt(N) cells..
 /// Type parameter CNT: how many possible targets this selector supports.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct DynamicSelectorConfig<F, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> {
     /// target = i * NUM_LOW + j
     /// selector = high[i] * low[j]
@@ -152,6 +152,17 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
             )?;
         }
         Ok(())
+    }
+
+    /// Get the values for the target
+    pub fn get_assignment_values(&self, target: usize) -> ([bool; NUM_HIGH], [bool; NUM_LOW]) {
+        let mut arr_hi = [false; NUM_HIGH];
+        let mut arr_lo = [false; NUM_LOW];
+        let high = target / NUM_LOW;
+        let low = target % NUM_LOW;
+        arr_hi[high] = true;
+        arr_lo[low] = true;
+        (arr_hi, arr_lo)
     }
 
     /// Given an `DynamicSelectorChip`, construct the chip.

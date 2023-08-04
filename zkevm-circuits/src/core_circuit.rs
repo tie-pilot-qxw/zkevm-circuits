@@ -1,13 +1,13 @@
 // use crate::util::{, SubCircuitConfig};
 
-use crate::witness::core::Row;
-
 use crate::execution::ExecutionGadgets;
 use crate::table::{BytecodeTable, StackTable};
-use crate::util::{self};
+use crate::util::{self, assign_advice_or_fixed};
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
-use eth_types::Field;
-
+use crate::witness::core::Row;
+use crate::witness::Witness;
+use eth_types::{Field, U256};
+use gadgets::dynamic_selector::{DynamicSelectorChip, DynamicSelectorConfig};
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
@@ -18,7 +18,12 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 #[derive(Clone)]
-pub struct CoreCircuitConfig<F> {
+pub struct CoreCircuitConfig<
+    F: Field,
+    const CNT: usize,
+    const NUM_HIGH: usize,
+    const NUM_LOW: usize,
+> {
     pub q_enable: Selector,
     // witness column of transaction index
     pub tx_idx: Column<Advice>,
@@ -32,51 +37,296 @@ pub struct CoreCircuitConfig<F> {
     pub opcode: Column<Advice>,
     // witness column of opcode counter
     pub cnt: Column<Advice>,
-    // wiitness columns of 32 versatile
-    vers_0: Column<Advice>,
-    vers_1: Column<Advice>,
-    vers_2: Column<Advice>,
-    vers_3: Column<Advice>,
-    vers_4: Column<Advice>,
-    vers_5: Column<Advice>,
-    vers_6: Column<Advice>,
-    vers_7: Column<Advice>,
-    vers_8: Column<Advice>,
-    vers_9: Column<Advice>,
-    vers_10: Column<Advice>,
-    vers_11: Column<Advice>,
-    vers_12: Column<Advice>,
-    vers_13: Column<Advice>,
-    vers_14: Column<Advice>,
-    vers_15: Column<Advice>,
-    vers_16: Column<Advice>,
-    vers_17: Column<Advice>,
-    vers_18: Column<Advice>,
-    vers_19: Column<Advice>,
-    vers_20: Column<Advice>,
-    vers_21: Column<Advice>,
-    vers_22: Column<Advice>,
-    vers_23: Column<Advice>,
-    vers_24: Column<Advice>,
-    vers_25: Column<Advice>,
-    vers_26: Column<Advice>,
-    vers_27: Column<Advice>,
-    vers_28: Column<Advice>,
-    vers_29: Column<Advice>,
-    vers_30: Column<Advice>,
-    vers_31: Column<Advice>,
+    // witness columns of 32 versatile purposes
+    pub vers: [Column<Advice>; 32],
     // IsZero chip for witness column cnt
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
-    /// Tables used for lookup
+    // Selector of execution state todo rename to execution state selector
+    pub dynamic_selector: DynamicSelectorConfig<F, CNT, NUM_HIGH, NUM_LOW>,
+    // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
 }
+/*
+impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
+    CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>
+{
+    fn synthesize(
+        &self,
+        Core: &CoreCircuit<F, CNT, NUM_HIGH, NUM_LOW>,
+        layouter: &mut impl Layouter<F>,
+    ) -> Result<(), Error> {
+        let cnt_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        let dynamic_selector = DynamicSelectorChip::construct(self.dynamic_selector);
+        layouter.assign_region(
+            || "core",
+            |mut region| {
+                // annotate columns todo
+                region.name_column(|| "cnt", self.cnt);
+                for (offset, row) in Core.witness.core.iter().enumerate() {
+                    region.assign_advice(
+                        || "cnt",
+                        self.cnt,
+                        offset,
+                        || Value::known(F::from_u128(row.cnt.as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "tx_idx",
+                        self.tx_idx,
+                        offset,
+                        || Value::known(F::from_u128(row.tx_idx.as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "call_id",
+                        self.call_id,
+                        offset,
+                        || Value::known(F::from_u128(row.call_id.as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "code_addr",
+                        self.code_addr,
+                        offset,
+                        || {
+                            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                                &row.code_addr,
+                            )))
+                        },
+                    )?;
+                    region.assign_advice(
+                        || "pc",
+                        self.pc,
+                        offset,
+                        || Value::known(F::from_u128(row.pc.as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "opcode",
+                        self.opcode,
+                        offset,
+                        || Value::known(F::from_u128(row.opcode.as_u8() as u128)),
+                    )?;
+                    region.assign_advice(
+                        || "vers_0",
+                        self.vers[0],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_0.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_1",
+                        self.vers[1],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_1.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_2",
+                        self.vers[2],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_2.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_3",
+                        self.vers[3],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_3.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_4",
+                        self.vers[4],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_4.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_5",
+                        self.vers[5],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_5.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_6",
+                        self.vers[6],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_2.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_7",
+                        self.vers[7],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_3.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_8",
+                        self.vers[8],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_8.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_9",
+                        self.vers[9],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_9.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_10",
+                        self.vers[10],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_10.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_11",
+                        self.vers[11],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_11.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_12",
+                        self.vers[12],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_12.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_13",
+                        self.vers[13],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_13.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_14",
+                        self.vers[14],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_14.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_15",
+                        self.vers[15],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_15.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_16",
+                        self.vers[16],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_16.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_17",
+                        self.vers[17],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_17.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_18",
+                        self.vers[18],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_18.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_19",
+                        self.vers[19],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_19.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_20",
+                        self.vers[20],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_20.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_21",
+                        self.vers[21],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_21.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_22",
+                        self.vers[22],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_22.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_23",
+                        self.vers[23],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_23.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_24",
+                        self.vers[24],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_24.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_25",
+                        self.vers[25],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_25.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_26",
+                        self.vers[26],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_26.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_27",
+                        self.vers[27],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_27.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_28",
+                        self.vers[28],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_28.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_29",
+                        self.vers[29],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_29.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_30",
+                        self.vers[30],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_30.unwrap_or_default().as_u128())),
+                    )?;
+                    region.assign_advice(
+                        || "vers_31",
+                        self.vers[31],
+                        offset,
+                        || Value::known(F::from_u128(row.vers_31.unwrap_or_default().as_u128())),
+                    )?;
 
+                    // do not enable first and last padding row
+                    // todo what should be it
+                    if offset > 2 && offset < (Core.witness.core).len() - 1 {
+                        self.q_enable.enable(&mut region, offset)?;
+                    }
+                    cnt_is_zero.assign(
+                        &mut region,
+                        offset,
+                        Value::known(F::from_u128(row.cnt.as_u128())),
+                    )?;
+                    // correctly assign the values
+                    // dynamic_selector.assign(&mut region, offset, row.opcode.as_u8() as usize)?;
+                }
+
+                // todo assign dynamic selectors
+
+                Ok(())
+            },
+        )
+    }
+}
+*/
 pub struct CoreCircuitConfigArgs<F> {
     pub q_enable: Selector,
     pub bytecode_table: BytecodeTable<F>,
 } // todo change this
 
-impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
+impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> SubCircuitConfig<F>
+    for CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>
+{
     type ConfigArgs = CoreCircuitConfigArgs<F>;
 
     fn new(
@@ -93,41 +343,42 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
         let opcode = meta.advice_column();
         let cnt = meta.advice_column();
 
-        let vers_0 = meta.advice_column();
-        let vers_1 = meta.advice_column();
-        let vers_2 = meta.advice_column();
-        let vers_3 = meta.advice_column();
-        let vers_4 = meta.advice_column();
-        let vers_5 = meta.advice_column();
-        let vers_6 = meta.advice_column();
-        let vers_7 = meta.advice_column();
-        let vers_8 = meta.advice_column();
-        let vers_9 = meta.advice_column();
-        let vers_10 = meta.advice_column();
-        let vers_11 = meta.advice_column();
-        let vers_12 = meta.advice_column();
-        let vers_13 = meta.advice_column();
-        let vers_14 = meta.advice_column();
-        let vers_15 = meta.advice_column();
-        let vers_16 = meta.advice_column();
-        let vers_17 = meta.advice_column();
-        let vers_18 = meta.advice_column();
-        let vers_19 = meta.advice_column();
-        let vers_20 = meta.advice_column();
-        let vers_21 = meta.advice_column();
-        let vers_22 = meta.advice_column();
-        let vers_23 = meta.advice_column();
-        let vers_24 = meta.advice_column();
-        let vers_25 = meta.advice_column();
-        let vers_26 = meta.advice_column();
-        let vers_27 = meta.advice_column();
-        let vers_28 = meta.advice_column();
-        let vers_29 = meta.advice_column();
-        let vers_30 = meta.advice_column();
-        let vers_31 = meta.advice_column();
+        let vers: [Column<Advice>; 32] = [(); 32]
+            .iter()
+            .map(|_| meta.advice_column())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
 
         let cnt_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+
+        let dynamic_selector = DynamicSelectorChip::configure(
+            meta,
+            |meta| {
+                let q_enable = meta.query_selector(q_enable);
+                let ans = cnt_is_zero.expr_at(meta, Rotation::cur());
+                q_enable * ans
+            },
+            vers[0..NUM_HIGH].try_into().unwrap(),
+            vers[NUM_HIGH..NUM_HIGH + NUM_LOW].try_into().unwrap(),
+        );
+
+        meta.create_gate("Core Circuit counter", |meta| {
+            let q_enable = meta.query_selector(q_enable);
+            let cnt_cur = meta.query_advice(cnt, Rotation::cur());
+            let cnt_prev = meta.query_advice(cnt, Rotation::prev());
+            let cnt_is_zero_prev = cnt_is_zero.expr_at(meta, Rotation::prev());
+            vec![q_enable * (1.expr() - cnt_is_zero_prev) * (cnt_prev - cnt_cur - 1.expr())]
+        });
+
+        meta.create_gate("Program, Counter", |meta| {
+            let q_enable = meta.query_selector(q_enable);
+            let pc_cur = meta.query_advice(pc, Rotation::cur());
+            let pc_prev = meta.query_advice(pc, Rotation::prev());
+            let cnt_is_zero_prev = cnt_is_zero.expr_at(meta, Rotation::prev());
+            vec![q_enable * (1.expr() - cnt_is_zero_prev) * (pc_prev - pc_cur)]
+        });
 
         let config = Self {
             q_enable,
@@ -137,353 +388,214 @@ impl<F: Field> SubCircuitConfig<F> for CoreCircuitConfig<F> {
             pc,
             opcode,
             cnt,
-            vers_0,
-            vers_1,
-            vers_2,
-            vers_3,
-            vers_4,
-            vers_5,
-            vers_6,
-            vers_7,
-            vers_8,
-            vers_9,
-            vers_10,
-            vers_11,
-            vers_12,
-            vers_13,
-            vers_14,
-            vers_15,
-            vers_16,
-            vers_17,
-            vers_18,
-            vers_19,
-            vers_20,
-            vers_21,
-            vers_22,
-            vers_23,
-            vers_24,
-            vers_25,
-            vers_26,
-            vers_27,
-            vers_28,
-            vers_29,
-            vers_30,
-            vers_31,
+            vers,
             cnt_is_zero,
+            dynamic_selector,
             bytecode_table,
         };
-
-        meta.create_gate("Core Circuit counter", |meta| {
-            let q_enable = meta.query_selector(config.q_enable);
-            let cnt_cur = meta.query_advice(config.cnt, Rotation::cur());
-            let cnt_prev = meta.query_advice(config.cnt, Rotation::prev());
-            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-            vec![q_enable * (1.expr() - cnt_is_zero) * (cnt_prev - cnt_cur - 1.expr())]
-        });
-
-        meta.create_gate("Program, Counter", |meta| {
-            let q_enable = meta.query_selector(config.q_enable);
-            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-            let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-            let pc_prev = meta.query_advice(config.pc, Rotation::prev());
-            vec![q_enable * (1.expr() - cnt_is_zero) * (pc_prev - pc_cur)]
-        });
 
         // tx_id, call_id, code_addr constraints?
         config
     }
 }
 
+impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
+    CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>
+{
+    #[rustfmt::skip]
+    fn assign_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        row: &Row,
+    ) -> Result<(), Error> {
+        let cnt_is_zero: IsZeroWithRotationChip<F> = IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        assign_advice_or_fixed(region, offset, &row.tx_idx, self.tx_idx)?;
+        assign_advice_or_fixed(region, offset, &row.call_id, self.call_id)?;
+        assign_advice_or_fixed(region, offset, &row.code_addr, self.code_addr)?;
+        assign_advice_or_fixed(region, offset, &row.pc, self.pc)?;
+        assign_advice_or_fixed(region, offset, &row.opcode.as_u8().into(), self.opcode)?;
+        assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed(region, offset, &row.vers_0.unwrap_or_default(), self.vers[0])?;
+        assign_advice_or_fixed(region, offset, &row.vers_1.unwrap_or_default(), self.vers[1])?;
+        assign_advice_or_fixed(region, offset, &row.vers_2.unwrap_or_default(), self.vers[2])?;
+        assign_advice_or_fixed(region, offset, &row.vers_3.unwrap_or_default(), self.vers[3])?;
+        assign_advice_or_fixed(region, offset, &row.vers_4.unwrap_or_default(), self.vers[4])?;
+        assign_advice_or_fixed(region, offset, &row.vers_5.unwrap_or_default(), self.vers[5])?;
+        assign_advice_or_fixed(region, offset, &row.vers_6.unwrap_or_default(), self.vers[6])?;
+        assign_advice_or_fixed(region, offset, &row.vers_7.unwrap_or_default(), self.vers[7])?;
+        assign_advice_or_fixed(region, offset, &row.vers_8.unwrap_or_default(), self.vers[8])?;
+        assign_advice_or_fixed(region, offset, &row.vers_9.unwrap_or_default(), self.vers[9])?;
+        assign_advice_or_fixed(region, offset, &row.vers_10.unwrap_or_default(), self.vers[10])?;
+        assign_advice_or_fixed(region, offset, &row.vers_11.unwrap_or_default(), self.vers[11])?;
+        assign_advice_or_fixed(region, offset, &row.vers_12.unwrap_or_default(), self.vers[12])?;
+        assign_advice_or_fixed(region, offset, &row.vers_13.unwrap_or_default(), self.vers[13])?;
+        assign_advice_or_fixed(region, offset, &row.vers_14.unwrap_or_default(), self.vers[14])?;
+        assign_advice_or_fixed(region, offset, &row.vers_15.unwrap_or_default(), self.vers[15])?;
+        assign_advice_or_fixed(region, offset, &row.vers_16.unwrap_or_default(), self.vers[16])?;
+        assign_advice_or_fixed(region, offset, &row.vers_17.unwrap_or_default(), self.vers[17])?;
+        assign_advice_or_fixed(region, offset, &row.vers_18.unwrap_or_default(), self.vers[18])?;
+        assign_advice_or_fixed(region, offset, &row.vers_19.unwrap_or_default(), self.vers[19])?;
+        assign_advice_or_fixed(region, offset, &row.vers_20.unwrap_or_default(), self.vers[20])?;
+        assign_advice_or_fixed(region, offset, &row.vers_21.unwrap_or_default(), self.vers[21])?;
+        assign_advice_or_fixed(region, offset, &row.vers_22.unwrap_or_default(), self.vers[22])?;
+        assign_advice_or_fixed(region, offset, &row.vers_23.unwrap_or_default(), self.vers[23])?;
+        assign_advice_or_fixed(region, offset, &row.vers_24.unwrap_or_default(), self.vers[24])?;
+        assign_advice_or_fixed(region, offset, &row.vers_25.unwrap_or_default(), self.vers[25])?;
+        assign_advice_or_fixed(region, offset, &row.vers_26.unwrap_or_default(), self.vers[26])?;
+        assign_advice_or_fixed(region, offset, &row.vers_27.unwrap_or_default(), self.vers[27])?;
+        assign_advice_or_fixed(region, offset, &row.vers_28.unwrap_or_default(), self.vers[28])?;
+        assign_advice_or_fixed(region, offset, &row.vers_29.unwrap_or_default(), self.vers[29])?;
+        assign_advice_or_fixed(region, offset, &row.vers_30.unwrap_or_default(), self.vers[30])?;
+        assign_advice_or_fixed(region, offset, &row.vers_31.unwrap_or_default(), self.vers[31])?;
+        cnt_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &row.cnt,
+            ))),
+        )?;
+        Ok(())
+    }
+
+    // assign a padding row whose state selector is 1,00000,1,000000 (it is not all 0)
+    #[rustfmt::skip]
+    fn assign_padding_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+    ) -> Result<(), Error> {
+        let cnt_is_zero: IsZeroWithRotationChip<F> = IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.tx_idx)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.code_addr)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.pc)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.opcode)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.cnt)?;
+        for i in 0..32 {
+            assign_advice_or_fixed(region, offset, &{
+                if i==0 || i==NUM_HIGH {
+                    U256::one()
+                } else {
+                    U256::zero()}
+            }, self.vers[i])?;
+        }
+        cnt_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::ZERO),
+        )?;
+        Ok(())
+    }
+
+    /// assign values from witness in a region
+    pub fn assign_with_region(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &Witness,
+        num_row_incl_padding: usize,
+    ) -> Result<(), Error> {
+        for (offset, row) in witness.core.iter().enumerate() {
+            self.assign_row(region, offset, row)?;
+        }
+        // pad the rest rows
+        for offset in witness.core.len()..num_row_incl_padding {
+            self.assign_padding_row(region, offset)?;
+        }
+        Ok(())
+    }
+
+    pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
+        region.name_column(|| "CORE_tx_idx", self.tx_idx);
+        region.name_column(|| "CORE_call_id", self.call_id);
+        region.name_column(|| "CORE_code_addr", self.code_addr);
+        region.name_column(|| "CORE_pc", self.pc);
+        region.name_column(|| "CORE_opcode", self.opcode);
+        region.name_column(|| "CORE_cnt", self.cnt);
+        for i in 0..32 {
+            region.name_column(|| format!("CORE_vers_{}", i), self.vers[i]);
+        }
+        self.cnt_is_zero
+            .annotate_columns_in_region(region, "CORE_cnt_is_zero");
+    }
+}
+
 #[derive(Clone, Default, Debug)]
-pub struct CoreCircuit<F: Field> {
-    witness: Vec<Row>,
+pub struct CoreCircuit<
+    F: Field,
+    const MAX_NUM_ROW: usize,
+    const CNT: usize,
+    const NUM_HIGH: usize,
+    const NUM_LOW: usize,
+> {
+    witness: Witness,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field> Circuit<F> for CoreCircuit<F> {
-    type Config = CoreCircuitConfig<F>;
-    type FloorPlanner = SimpleFloorPlanner;
-    fn without_witnesses(&self) -> Self {
-        Self::default()
-    }
-    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        let q_enable = meta.complex_selector();
-        let bytecode_table = BytecodeTable::construct(meta, q_enable);
-        Self::Config::new(
-            meta,
-            CoreCircuitConfigArgs {
-                q_enable,
-                bytecode_table,
-            },
-        )
+impl<
+        F: Field,
+        const MAX_NUM_ROW: usize,
+        const CNT: usize,
+        const NUM_HIGH: usize,
+        const NUM_LOW: usize,
+    > SubCircuit<F> for CoreCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
+{
+    type Config = CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
+    type Cells = ();
+
+    fn new_from_witness(witness: &Witness) -> Self {
+        CoreCircuit {
+            witness: witness.clone(),
+            _marker: PhantomData,
+        }
     }
 
-    fn synthesize(
+    fn instance(&self) -> Vec<Vec<F>> {
+        todo!()
+    }
+
+    fn synthesize_sub(
         &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<F>,
+        config: &Self::Config,
+        layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
-        let cnt_is_zero = IsZeroWithRotationChip::construct(config.cnt_is_zero.clone());
-
+        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
-            || "core",
+            || "core circuit",
             |mut region| {
-                // annotate columns todo
-                region.name_column(|| "cnt", config.cnt);
-                for (offset, row) in self.witness.iter().enumerate() {
-                    region.assign_advice(
-                        || "cnt",
-                        config.cnt,
-                        offset,
-                        || Value::known(F::from_u128(row.cnt.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "tx_idx",
-                        config.tx_idx,
-                        offset,
-                        || Value::known(F::from_u128(row.tx_idx.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "call_id",
-                        config.call_id,
-                        offset,
-                        || Value::known(F::from_u128(row.call_id.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "code_addr",
-                        config.code_addr,
-                        offset,
-                        || {
-                            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                                &row.code_addr,
-                            )))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "pc",
-                        config.pc,
-                        offset,
-                        || Value::known(F::from_u128(row.pc.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "opcode",
-                        config.opcode,
-                        offset,
-                        || Value::known(F::from_u128(row.opcode.as_u8() as u128)),
-                    )?;
-                    region.assign_advice(
-                        || "vers_0",
-                        config.vers_0,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_0.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_1",
-                        config.vers_1,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_1.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_2",
-                        config.vers_2,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_2.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_3",
-                        config.vers_3,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_3.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_4",
-                        config.vers_4,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_4.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_5",
-                        config.vers_5,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_5.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_6",
-                        config.vers_6,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_2.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_7",
-                        config.vers_7,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_3.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_8",
-                        config.vers_8,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_8.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_9",
-                        config.vers_9,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_9.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_10",
-                        config.vers_10,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_10.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_11",
-                        config.vers_11,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_11.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_12",
-                        config.vers_12,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_12.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_13",
-                        config.vers_13,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_13.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_14",
-                        config.vers_14,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_14.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_15",
-                        config.vers_15,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_15.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_16",
-                        config.vers_16,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_16.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_17",
-                        config.vers_17,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_17.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_18",
-                        config.vers_18,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_18.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_19",
-                        config.vers_19,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_19.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_20",
-                        config.vers_20,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_20.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_21",
-                        config.vers_21,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_21.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_22",
-                        config.vers_22,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_22.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_23",
-                        config.vers_23,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_23.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_24",
-                        config.vers_24,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_24.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_25",
-                        config.vers_25,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_25.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_26",
-                        config.vers_26,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_26.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_27",
-                        config.vers_27,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_27.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_28",
-                        config.vers_28,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_28.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_29",
-                        config.vers_29,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_29.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_30",
-                        config.vers_30,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_30.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_31",
-                        config.vers_31,
-                        offset,
-                        || Value::known(F::from_u128(row.vers_31.unwrap_or_default().as_u128())),
-                    )?;
-
-                    // do not enable first and last padding row
-                    // todo what should be it
-                    if offset > 2 && offset < (&self.witness).len() - 1 {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
-                    cnt_is_zero.assign(
-                        &mut region,
-                        offset,
-                        Value::known(F::from_u128(row.cnt.as_u128())),
-                    )?;
+                config.annotate_circuit_in_region(&mut region);
+                config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+                // sub circuit need to enable selector
+                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
+                    config.q_enable.enable(&mut region, offset)?;
                 }
-
                 Ok(())
             },
         )
     }
+
+    // copy from bytecode circuit, may need to be modified
+    fn unusable_rows() -> (usize, usize) {
+        // Rotation in constrains has prev and but doesn't have next, so return 1,0
+        // copy from bytecode circuit, may need to be modified
+        (1, 0)
+    }
+    // copy from bytecode circuit, may need to be modified
+    fn num_rows(witness: &Witness) -> usize {
+        // bytecode witness length plus must-have padding in the end
+        Self::unusable_rows().1 + witness.core.len()
+    }
 }
 
-impl<F: Field> CoreCircuit<F> {
-    pub fn new(witness: Vec<Row>) -> Self {
+impl<
+        F: Field,
+        const MAX_NUM_ROW: usize,
+        const CNT: usize,
+        const NUM_HIGH: usize,
+        const NUM_LOW: usize,
+    > CoreCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
+{
+    pub fn new(witness: Witness) -> Self {
         Self {
             witness,
             _marker: PhantomData,
@@ -493,34 +605,98 @@ impl<F: Field> CoreCircuit<F> {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::core_circuit::CoreCircuit;
-
     use crate::witness::core::Row;
+    use crate::witness::Witness;
     use eth_types::evm_types::OpcodeId;
 
+    use crate::util::log2_ceil;
     use eth_types::U256;
     use halo2_proofs::halo2curves::ff::FromUniformBytes;
     use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
 
-    fn test_simple_core_circuit(row_0: Row, row_1: Row, row_2: Row) {
-        let k = 8;
-        let padding = Row::default();
-        let rows = vec![
-            padding.clone(),
-            padding.clone(),
-            row_0,
-            row_1,
-            row_2,
-            padding,
-        ];
-        let circuit = CoreCircuit::<Fp>::new(rows);
+    const CNT: usize = 256;
+    const NUM_HIGH: usize = 16;
+    const NUM_LOW: usize = 16;
+    #[derive(Clone, Default, Debug)]
+    pub struct CoreTestCircuit<
+        F: Field,
+        const MAX_NUM_ROW: usize,
+        const CNT: usize,
+        const NUM_HIGH: usize,
+        const NUM_LOW: usize,
+    >(CoreCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>);
+
+    impl<
+            F: Field,
+            const MAX_NUM_ROW: usize,
+            const CNT: usize,
+            const NUM_HIGH: usize,
+            const NUM_LOW: usize,
+        > Circuit<F> for CoreTestCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
+    {
+        type Config = CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
+        type FloorPlanner = SimpleFloorPlanner;
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let q_enable_bytecode = meta.complex_selector();
+            let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+            let q_enable = meta.complex_selector();
+            Self::Config::new(
+                meta,
+                CoreCircuitConfigArgs {
+                    q_enable,
+                    bytecode_table,
+                },
+            )
+        }
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<F>,
+        ) -> Result<(), Error> {
+            self.0.synthesize_sub(&config, &mut layouter)
+        }
+    }
+
+    impl<
+            F: Field,
+            const MAX_NUM_ROW: usize,
+            const CNT: usize,
+            const NUM_HIGH: usize,
+            const NUM_LOW: usize,
+        > CoreTestCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
+    {
+        pub fn new(witness: Witness) -> Self {
+            Self(CoreCircuit::new_from_witness(&witness))
+        }
+
+        pub fn instance(&self) -> Vec<Vec<F>> {
+            self.0.instance()
+        }
+    }
+
+    fn test_simple_core_circuit(witness: Witness) -> MockProver<Fp> {
+        const MAX_NUM_ROW: usize = 245;
+        let (num_padding_begin, _num_padding_end) =
+            CoreCircuit::<Fp, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>::unusable_rows();
+        let mut witness = witness;
+        // insert padding rows (rows with all 0)
+        for _ in 0..num_padding_begin {
+            witness.core.insert(0, Default::default());
+        }
+
+        let k = log2_ceil(MAX_NUM_ROW);
+        let circuit = CoreTestCircuit::<Fp, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover
     }
 
     #[test]
-
-    fn test_core_circuit_with_three_rows() {
+    fn test_core_circuit_with_three_correct_rows() {
         let row_0: Row = Row {
             tx_idx: 1.into(),
             call_id: 1.into(),
@@ -549,20 +725,65 @@ mod test {
             pc: 1.into(),
             opcode: OpcodeId::ADD,
             cnt: 0.into(),
+            vers_0: Some(1.into()),  // dynamic seletor high is correct
+            vers_17: Some(1.into()), // dynamic selector low is correct
+            ..Default::default()
+        };
+        let mut witness = Witness {
+            core: vec![row_0, row_1, row_2],
+            ..Default::default()
+        };
+        let prover = test_simple_core_circuit(witness);
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_core_circuit_with_three_false_rows() {
+        let row_0: Row = Row {
+            tx_idx: 1.into(),
+            call_id: 1.into(),
+            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
+            pc: 1.into(),
+            opcode: OpcodeId::ADD,
+            cnt: 2.into(),
+            vers_0: Some(U256::from(0)),
             ..Default::default()
         };
 
-        test_simple_core_circuit(row_0, row_1, row_2);
-    }
-    #[test]
-    fn test_convert() {
-        let num: [u8; 64] = [0u8; 64];
-        let mut number_255 = num.clone();
-        number_255[0] = 255;
-        assert_eq!(Fp::from_uniform_bytes(&number_255), Fp::from(255));
+        let row_1: Row = Row {
+            tx_idx: 1.into(),
+            call_id: 1.into(),
+            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
+            pc: 1.into(),
+            opcode: OpcodeId::ADD,
+            cnt: 1.into(),
+            ..Default::default()
+        };
 
-        let mut number_256 = num.clone();
-        number_256[1] = 1;
-        assert_eq!(Fp::from_uniform_bytes(&number_256), Fp::from(256));
+        let row_2: Row = Row {
+            tx_idx: 1.into(),
+            call_id: 1.into(),
+            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
+            pc: 1.into(),
+            opcode: OpcodeId::ADD,
+            cnt: 0.into(),
+            vers_0: Some(1.into()),  // dynamic seletor high is correct
+            vers_18: Some(2.into()), // dynamic selector low is false
+            ..Default::default()
+        };
+        let mut witness = Witness {
+            core: vec![row_0, row_1, row_2],
+            ..Default::default()
+        };
+        let prover = test_simple_core_circuit(witness);
+        assert!(prover.verify_par().is_err());
+    }
+
+    #[test]
+    fn test_core_parser() {
+        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+        let trace = trace_parser::trace_program(&machine_code);
+        let witness: Witness = Witness::new(&trace, &machine_code);
+        test_simple_core_circuit(witness);
     }
 }

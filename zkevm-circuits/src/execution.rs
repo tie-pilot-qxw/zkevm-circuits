@@ -12,8 +12,11 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use trace_parser::Trace;
+const CNT: usize = 256;
+const NUM_HIGH: usize = 16;
+const NUM_LOW: usize = 16;
 
-pub(crate) type ExecutionConfig<F> = CoreCircuitConfig<F>;
+pub(crate) type ExecutionConfig<F> = CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
 
 /// Execution Gadget for the configure and witness generation of an execution state
 pub(crate) trait ExecutionGadget<F: Field> {
