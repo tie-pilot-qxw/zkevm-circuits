@@ -43,8 +43,6 @@ impl From<Tag> for usize {
     }
 }
 
-const TAG_NUM: usize = 2;
-
 #[cfg(test)]
 mod test {
     use crate::witness::arithmetic::{Row, Tag};

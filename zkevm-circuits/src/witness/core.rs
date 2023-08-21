@@ -2,8 +2,11 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::U256;
 use serde::Serialize;
 
+/// core row has a few single-purpose columns (tx_idx, call_id, code_addr, pc, opcode, cnt)
+/// and 32 versatile columns
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
+    // the following columns are single purpose, non-versatile
     // transaction index of present opcode
     pub tx_idx: U256,
     // call id of present opcode
@@ -59,7 +62,7 @@ mod test {
     use serde::Serialize;
     #[test]
     fn print_csv() {
-        let Row0 = Row {
+        let row0 = Row {
             tx_idx: 1.into(),
             call_id: 1.into(),
             code_addr: U256::from_str_radix("ffffffffffffffff", 16).unwrap(),
@@ -68,7 +71,7 @@ mod test {
             cnt: 2.into(),
             ..Default::default()
         };
-        let Row1 = Row {
+        let row1 = Row {
             tx_idx: 1.into(),
             call_id: 1.into(),
             code_addr: U256::from_str_radix("ffffffffffffffff", 16).unwrap(),
@@ -77,7 +80,7 @@ mod test {
             cnt: 1.into(),
             ..Default::default()
         };
-        let Row2 = Row {
+        let row2 = Row {
             tx_idx: 1.into(),
             call_id: 1.into(),
             code_addr: U256::from_str_radix("ffffffffffffffff", 16).unwrap(),
@@ -86,7 +89,7 @@ mod test {
             cnt: 0.into(),
             ..Default::default()
         };
-        let Row3 = Row {
+        let row3 = Row {
             tx_idx: 1.into(),
             call_id: 1.into(),
             code_addr: U256::from_str_radix("ffffffffffffffff", 16).unwrap(),
@@ -94,10 +97,10 @@ mod test {
             ..Default::default()
         };
         let mut wtr = csv::Writer::from_writer(std::io::stdout());
-        wtr.serialize(Row0).unwrap();
-        wtr.serialize(Row1).unwrap();
-        wtr.serialize(Row2).unwrap();
-        wtr.serialize(Row3).unwrap();
+        wtr.serialize(row0).unwrap();
+        wtr.serialize(row1).unwrap();
+        wtr.serialize(row2).unwrap();
+        wtr.serialize(row3).unwrap();
         wtr.flush().unwrap();
     }
 }

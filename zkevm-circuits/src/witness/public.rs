@@ -113,7 +113,7 @@ impl Row {
                     u32::MAX
                         .to_be_bytes()
                         .into_iter()
-                        .chain(((tx_idx + 1) as u128).to_be_bytes().into_iter())
+                        .chain(((tx_idx + 1) as u128).to_be_bytes())
                         .collect::<Vec<_>>()
                         .as_slice(),
                 )

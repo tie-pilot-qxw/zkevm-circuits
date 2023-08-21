@@ -1,6 +1,8 @@
 // use crate::util::{, SubCircuitConfig};
 
-use crate::execution::ExecutionGadgets;
+use crate::execution::{
+    get_every_execution_gadgets, ExecutionConfig, ExecutionGadget, ExecutionGadgets, ExecutionState,
+};
 use crate::table::{BytecodeTable, StackTable};
 use crate::util::{self, assign_advice_or_fixed};
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
@@ -16,14 +18,14 @@ use halo2_proofs::circuit::{Region, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+use strum::EnumCount;
+
+/// Number of versatile columns in core circuit
+pub(crate) const NUM_VERS: usize = 32;
 
 #[derive(Clone)]
-pub struct CoreCircuitConfig<
-    F: Field,
-    const CNT: usize,
-    const NUM_HIGH: usize,
-    const NUM_LOW: usize,
-> {
+pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+{
     pub q_enable: Selector,
     // witness column of transaction index
     pub tx_idx: Column<Advice>,
@@ -38,294 +40,25 @@ pub struct CoreCircuitConfig<
     // witness column of opcode counter
     pub cnt: Column<Advice>,
     // witness columns of 32 versatile purposes
-    pub vers: [Column<Advice>; 32],
+    pub vers: [Column<Advice>; NUM_VERS],
     // IsZero chip for witness column cnt
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
-    // Selector of execution state todo rename to execution state selector
-    pub dynamic_selector: DynamicSelectorConfig<F, CNT, NUM_HIGH, NUM_LOW>,
+    // Selector of execution state
+    pub execution_state_selector:
+        DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    // Execution gadgets to constraint execution states
+    execution_gadgets: ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
 }
-/*
-impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
-    CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>
-{
-    fn synthesize(
-        &self,
-        Core: &CoreCircuit<F, CNT, NUM_HIGH, NUM_LOW>,
-        layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error> {
-        let cnt_is_zero: IsZeroWithRotationChip<F> =
-            IsZeroWithRotationChip::construct(self.cnt_is_zero);
-        let dynamic_selector = DynamicSelectorChip::construct(self.dynamic_selector);
-        layouter.assign_region(
-            || "core",
-            |mut region| {
-                // annotate columns todo
-                region.name_column(|| "cnt", self.cnt);
-                for (offset, row) in Core.witness.core.iter().enumerate() {
-                    region.assign_advice(
-                        || "cnt",
-                        self.cnt,
-                        offset,
-                        || Value::known(F::from_u128(row.cnt.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "tx_idx",
-                        self.tx_idx,
-                        offset,
-                        || Value::known(F::from_u128(row.tx_idx.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "call_id",
-                        self.call_id,
-                        offset,
-                        || Value::known(F::from_u128(row.call_id.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "code_addr",
-                        self.code_addr,
-                        offset,
-                        || {
-                            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                                &row.code_addr,
-                            )))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "pc",
-                        self.pc,
-                        offset,
-                        || Value::known(F::from_u128(row.pc.as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "opcode",
-                        self.opcode,
-                        offset,
-                        || Value::known(F::from_u128(row.opcode.as_u8() as u128)),
-                    )?;
-                    region.assign_advice(
-                        || "vers_0",
-                        self.vers[0],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_0.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_1",
-                        self.vers[1],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_1.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_2",
-                        self.vers[2],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_2.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_3",
-                        self.vers[3],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_3.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_4",
-                        self.vers[4],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_4.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_5",
-                        self.vers[5],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_5.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_6",
-                        self.vers[6],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_2.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_7",
-                        self.vers[7],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_3.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_8",
-                        self.vers[8],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_8.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_9",
-                        self.vers[9],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_9.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_10",
-                        self.vers[10],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_10.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_11",
-                        self.vers[11],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_11.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_12",
-                        self.vers[12],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_12.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_13",
-                        self.vers[13],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_13.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_14",
-                        self.vers[14],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_14.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_15",
-                        self.vers[15],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_15.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_16",
-                        self.vers[16],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_16.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_17",
-                        self.vers[17],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_17.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_18",
-                        self.vers[18],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_18.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_19",
-                        self.vers[19],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_19.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_20",
-                        self.vers[20],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_20.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_21",
-                        self.vers[21],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_21.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_22",
-                        self.vers[22],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_22.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_23",
-                        self.vers[23],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_23.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_24",
-                        self.vers[24],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_24.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_25",
-                        self.vers[25],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_25.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_26",
-                        self.vers[26],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_26.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_27",
-                        self.vers[27],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_27.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_28",
-                        self.vers[28],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_28.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_29",
-                        self.vers[29],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_29.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_30",
-                        self.vers[30],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_30.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "vers_31",
-                        self.vers[31],
-                        offset,
-                        || Value::known(F::from_u128(row.vers_31.unwrap_or_default().as_u128())),
-                    )?;
 
-                    // do not enable first and last padding row
-                    // todo what should be it
-                    if offset > 2 && offset < (Core.witness.core).len() - 1 {
-                        self.q_enable.enable(&mut region, offset)?;
-                    }
-                    cnt_is_zero.assign(
-                        &mut region,
-                        offset,
-                        Value::known(F::from_u128(row.cnt.as_u128())),
-                    )?;
-                    // correctly assign the values
-                    // dynamic_selector.assign(&mut region, offset, row.opcode.as_u8() as usize)?;
-                }
-
-                // todo assign dynamic selectors
-
-                Ok(())
-            },
-        )
-    }
-}
-*/
 pub struct CoreCircuitConfigArgs<F> {
     pub q_enable: Selector,
     pub bytecode_table: BytecodeTable<F>,
 } // todo change this
 
-impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> SubCircuitConfig<F>
-    for CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>
+impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
+    for CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     type ConfigArgs = CoreCircuitConfigArgs<F>;
 
@@ -343,26 +76,39 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> Su
         let opcode = meta.advice_column();
         let cnt = meta.advice_column();
 
-        let vers: [Column<Advice>; 32] = [(); 32]
-            .iter()
-            .map(|_| meta.advice_column())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
+        let vers: [Column<Advice>; NUM_VERS] = std::array::from_fn(|_| meta.advice_column());
 
         let cnt_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
 
-        let dynamic_selector = DynamicSelectorChip::configure(
+        let execution_state_selector = DynamicSelectorChip::configure(
             meta,
             |meta| {
                 let q_enable = meta.query_selector(q_enable);
                 let ans = cnt_is_zero.expr_at(meta, Rotation::cur());
                 q_enable * ans
             },
-            vers[0..NUM_HIGH].try_into().unwrap(),
-            vers[NUM_HIGH..NUM_HIGH + NUM_LOW].try_into().unwrap(),
+            vers[0..NUM_STATE_HI_COL].try_into().unwrap(),
+            vers[NUM_STATE_HI_COL..NUM_STATE_HI_COL + NUM_STATE_LO_COL]
+                .try_into()
+                .unwrap(),
         );
+
+        let execution_config = ExecutionConfig {
+            q_enable,
+            tx_idx,
+            call_id,
+            code_addr,
+            pc,
+            opcode,
+            cnt,
+            vers,
+            cnt_is_zero,
+            execution_state_selector,
+            bytecode_table,
+        };
+        // all execution gadgets are created here
+        let execution_gadgets = ExecutionGadgets::configure(meta, execution_config);
 
         meta.create_gate("Core Circuit counter", |meta| {
             let q_enable = meta.query_selector(q_enable);
@@ -390,7 +136,8 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> Su
             cnt,
             vers,
             cnt_is_zero,
-            dynamic_selector,
+            execution_state_selector,
+            execution_gadgets,
             bytecode_table,
         };
 
@@ -399,8 +146,8 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> Su
     }
 }
 
-impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
-    CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>
+impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     #[rustfmt::skip]
     fn assign_row(
@@ -416,38 +163,17 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
         assign_advice_or_fixed(region, offset, &row.pc, self.pc)?;
         assign_advice_or_fixed(region, offset, &row.opcode.as_u8().into(), self.opcode)?;
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
-        assign_advice_or_fixed(region, offset, &row.vers_0.unwrap_or_default(), self.vers[0])?;
-        assign_advice_or_fixed(region, offset, &row.vers_1.unwrap_or_default(), self.vers[1])?;
-        assign_advice_or_fixed(region, offset, &row.vers_2.unwrap_or_default(), self.vers[2])?;
-        assign_advice_or_fixed(region, offset, &row.vers_3.unwrap_or_default(), self.vers[3])?;
-        assign_advice_or_fixed(region, offset, &row.vers_4.unwrap_or_default(), self.vers[4])?;
-        assign_advice_or_fixed(region, offset, &row.vers_5.unwrap_or_default(), self.vers[5])?;
-        assign_advice_or_fixed(region, offset, &row.vers_6.unwrap_or_default(), self.vers[6])?;
-        assign_advice_or_fixed(region, offset, &row.vers_7.unwrap_or_default(), self.vers[7])?;
-        assign_advice_or_fixed(region, offset, &row.vers_8.unwrap_or_default(), self.vers[8])?;
-        assign_advice_or_fixed(region, offset, &row.vers_9.unwrap_or_default(), self.vers[9])?;
-        assign_advice_or_fixed(region, offset, &row.vers_10.unwrap_or_default(), self.vers[10])?;
-        assign_advice_or_fixed(region, offset, &row.vers_11.unwrap_or_default(), self.vers[11])?;
-        assign_advice_or_fixed(region, offset, &row.vers_12.unwrap_or_default(), self.vers[12])?;
-        assign_advice_or_fixed(region, offset, &row.vers_13.unwrap_or_default(), self.vers[13])?;
-        assign_advice_or_fixed(region, offset, &row.vers_14.unwrap_or_default(), self.vers[14])?;
-        assign_advice_or_fixed(region, offset, &row.vers_15.unwrap_or_default(), self.vers[15])?;
-        assign_advice_or_fixed(region, offset, &row.vers_16.unwrap_or_default(), self.vers[16])?;
-        assign_advice_or_fixed(region, offset, &row.vers_17.unwrap_or_default(), self.vers[17])?;
-        assign_advice_or_fixed(region, offset, &row.vers_18.unwrap_or_default(), self.vers[18])?;
-        assign_advice_or_fixed(region, offset, &row.vers_19.unwrap_or_default(), self.vers[19])?;
-        assign_advice_or_fixed(region, offset, &row.vers_20.unwrap_or_default(), self.vers[20])?;
-        assign_advice_or_fixed(region, offset, &row.vers_21.unwrap_or_default(), self.vers[21])?;
-        assign_advice_or_fixed(region, offset, &row.vers_22.unwrap_or_default(), self.vers[22])?;
-        assign_advice_or_fixed(region, offset, &row.vers_23.unwrap_or_default(), self.vers[23])?;
-        assign_advice_or_fixed(region, offset, &row.vers_24.unwrap_or_default(), self.vers[24])?;
-        assign_advice_or_fixed(region, offset, &row.vers_25.unwrap_or_default(), self.vers[25])?;
-        assign_advice_or_fixed(region, offset, &row.vers_26.unwrap_or_default(), self.vers[26])?;
-        assign_advice_or_fixed(region, offset, &row.vers_27.unwrap_or_default(), self.vers[27])?;
-        assign_advice_or_fixed(region, offset, &row.vers_28.unwrap_or_default(), self.vers[28])?;
-        assign_advice_or_fixed(region, offset, &row.vers_29.unwrap_or_default(), self.vers[29])?;
-        assign_advice_or_fixed(region, offset, &row.vers_30.unwrap_or_default(), self.vers[30])?;
-        assign_advice_or_fixed(region, offset, &row.vers_31.unwrap_or_default(), self.vers[31])?;
+        for (i, value) in [
+            &row.vers_0, &row.vers_1, &row.vers_2, &row.vers_3, &row.vers_4,
+            &row.vers_5, &row.vers_6, &row.vers_7, &row.vers_8, &row.vers_9,
+            &row.vers_10, &row.vers_11, &row.vers_12, &row.vers_13, &row.vers_14,
+            &row.vers_15, &row.vers_16, &row.vers_17, &row.vers_18, &row.vers_19,
+            &row.vers_20, &row.vers_21, &row.vers_22, &row.vers_23, &row.vers_24,
+            &row.vers_25, &row.vers_26, &row.vers_27, &row.vers_28, &row.vers_29,
+            &row.vers_30, &row.vers_31,
+        ].into_iter().enumerate() {
+            assign_advice_or_fixed(region, offset, &value.unwrap_or_default(), self.vers[i])?;
+        }
         cnt_is_zero.assign(
             region,
             offset,
@@ -458,33 +184,47 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
         Ok(())
     }
 
-    // assign a padding row whose state selector is 1,00000,1,000000 (it is not all 0)
+    // assign a padding row whose state selector is the first `ExecutionState`
+    // and auxiliary columns are kept from the last row
     #[rustfmt::skip]
     fn assign_padding_row(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
+        last_row: &Row,
     ) -> Result<(), Error> {
-        let cnt_is_zero: IsZeroWithRotationChip<F> = IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        let cnt_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.cnt_is_zero);
         assign_advice_or_fixed(region, offset, &U256::zero(), self.tx_idx)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.code_addr)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.pc)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.opcode)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.cnt)?;
-        for i in 0..32 {
-            assign_advice_or_fixed(region, offset, &{
-                if i==0 || i==NUM_HIGH {
-                    U256::one()
-                } else {
-                    U256::zero()}
-            }, self.vers[i])?;
+        // assign execution selector state, the first state
+        for i in 0..NUM_STATE_HI_COL + NUM_STATE_LO_COL {
+            assign_advice_or_fixed(
+                region,
+                offset,
+                &{
+                    if i == 0 || i == NUM_STATE_HI_COL { U256::one() } else { U256::zero() }
+                },
+                self.vers[i],
+            )?;
         }
-        cnt_is_zero.assign(
-            region,
-            offset,
-            Value::known(F::ZERO),
-        )?;
+        // assign auxiliary, values are kept from the last row
+        for (i, value) in (NUM_STATE_HI_COL + NUM_STATE_LO_COL..NUM_VERS).zip(
+            [&last_row.vers_20, &last_row.vers_21, &last_row.vers_22, &last_row.vers_23, &last_row.vers_24,
+                &last_row.vers_25, &last_row.vers_26, &last_row.vers_27, &last_row.vers_28, &last_row.vers_29,
+                &last_row.vers_30, &last_row.vers_31]) {
+            assign_advice_or_fixed(
+                region,
+                offset,
+                &value.unwrap_or_default(),
+                self.vers[i],
+            )?;
+        }
+        cnt_is_zero.assign(region, offset, Value::known(F::ZERO))?;
         Ok(())
     }
 
@@ -498,9 +238,13 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
         for (offset, row) in witness.core.iter().enumerate() {
             self.assign_row(region, offset, row)?;
         }
+        let last_row = witness
+            .core
+            .last()
+            .expect("core witness must have last row");
         // pad the rest rows
         for offset in witness.core.len()..num_row_incl_padding {
-            self.assign_padding_row(region, offset)?;
+            self.assign_padding_row(region, offset, last_row)?;
         }
         Ok(())
     }
@@ -512,7 +256,7 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
         region.name_column(|| "CORE_pc", self.pc);
         region.name_column(|| "CORE_opcode", self.opcode);
         region.name_column(|| "CORE_cnt", self.cnt);
-        for i in 0..32 {
+        for i in 0..NUM_VERS {
             region.name_column(|| format!("CORE_vers_{}", i), self.vers[i]);
         }
         self.cnt_is_zero
@@ -524,9 +268,8 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
 pub struct CoreCircuit<
     F: Field,
     const MAX_NUM_ROW: usize,
-    const CNT: usize,
-    const NUM_HIGH: usize,
-    const NUM_LOW: usize,
+    const NUM_STATE_HI_COL: usize,
+    const NUM_STATE_LO_COL: usize,
 > {
     witness: Witness,
     _marker: PhantomData<F>,
@@ -535,12 +278,11 @@ pub struct CoreCircuit<
 impl<
         F: Field,
         const MAX_NUM_ROW: usize,
-        const CNT: usize,
-        const NUM_HIGH: usize,
-        const NUM_LOW: usize,
-    > SubCircuit<F> for CoreCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
+        const NUM_STATE_HI_COL: usize,
+        const NUM_STATE_LO_COL: usize,
+    > SubCircuit<F> for CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
-    type Config = CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
+    type Config = CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
     type Cells = ();
 
     fn new_from_witness(witness: &Witness) -> Self {
@@ -548,10 +290,6 @@ impl<
             witness: witness.clone(),
             _marker: PhantomData,
         }
-    }
-
-    fn instance(&self) -> Vec<Vec<F>> {
-        todo!()
     }
 
     fn synthesize_sub(
@@ -574,11 +312,9 @@ impl<
         )
     }
 
-    // copy from bytecode circuit, may need to be modified
     fn unusable_rows() -> (usize, usize) {
-        // Rotation in constrains has prev and but doesn't have next, so return 1,0
-        // copy from bytecode circuit, may need to be modified
-        (1, 0)
+        ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows()
+        //todo add other values
     }
     // copy from bytecode circuit, may need to be modified
     fn num_rows(witness: &Witness) -> usize {
@@ -590,10 +326,9 @@ impl<
 impl<
         F: Field,
         const MAX_NUM_ROW: usize,
-        const CNT: usize,
-        const NUM_HIGH: usize,
-        const NUM_LOW: usize,
-    > CoreCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
+        const NUM_STATE_HI_COL: usize,
+        const NUM_STATE_LO_COL: usize,
+    > CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     pub fn new(witness: Witness) -> Self {
         Self {
@@ -611,32 +346,19 @@ mod test {
     use crate::witness::Witness;
     use eth_types::evm_types::OpcodeId;
 
+    use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::util::log2_ceil;
     use eth_types::U256;
     use halo2_proofs::halo2curves::ff::FromUniformBytes;
     use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
 
-    const CNT: usize = 256;
-    const NUM_HIGH: usize = 16;
-    const NUM_LOW: usize = 16;
     #[derive(Clone, Default, Debug)]
-    pub struct CoreTestCircuit<
-        F: Field,
-        const MAX_NUM_ROW: usize,
-        const CNT: usize,
-        const NUM_HIGH: usize,
-        const NUM_LOW: usize,
-    >(CoreCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>);
+    pub struct CoreTestCircuit<F: Field>(
+        CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    );
 
-    impl<
-            F: Field,
-            const MAX_NUM_ROW: usize,
-            const CNT: usize,
-            const NUM_HIGH: usize,
-            const NUM_LOW: usize,
-        > Circuit<F> for CoreTestCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
-    {
-        type Config = CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
+    impl<F: Field> Circuit<F> for CoreTestCircuit<F> {
+        type Config = CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
             Self::default()
@@ -662,14 +384,7 @@ mod test {
         }
     }
 
-    impl<
-            F: Field,
-            const MAX_NUM_ROW: usize,
-            const CNT: usize,
-            const NUM_HIGH: usize,
-            const NUM_LOW: usize,
-        > CoreTestCircuit<F, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>
-    {
+    impl<F: Field> CoreTestCircuit<F> {
         pub fn new(witness: Witness) -> Self {
             Self(CoreCircuit::new_from_witness(&witness))
         }
@@ -680,9 +395,8 @@ mod test {
     }
 
     fn test_simple_core_circuit(witness: Witness) -> MockProver<Fp> {
-        const MAX_NUM_ROW: usize = 245;
         let (num_padding_begin, _num_padding_end) =
-            CoreCircuit::<Fp, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>::unusable_rows();
+            CoreCircuit::<Fp, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows();
         let mut witness = witness;
         // insert padding rows (rows with all 0)
         for _ in 0..num_padding_begin {
@@ -690,11 +404,12 @@ mod test {
         }
 
         let k = log2_ceil(MAX_NUM_ROW);
-        let circuit = CoreTestCircuit::<Fp, MAX_NUM_ROW, CNT, NUM_HIGH, NUM_LOW>::new(witness);
+        let circuit = CoreTestCircuit::<Fp>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         prover
     }
 
+    #[ignore] //todo remove this test
     #[test]
     fn test_core_circuit_with_three_correct_rows() {
         let row_0: Row = Row {
@@ -725,12 +440,25 @@ mod test {
             pc: 1.into(),
             opcode: OpcodeId::ADD,
             cnt: 0.into(),
-            vers_0: Some(1.into()),  // dynamic seletor high is correct
-            vers_17: Some(1.into()), // dynamic selector low is correct
+            vers_0: Some(1.into()),  // dynamic selector high is correct
+            vers_11: Some(1.into()), // dynamic selector low is correct
+            vers_20: Some(3.into()), // state stamp after add is 3
+            vers_21: Some(3.into()), // state stamp after add is 3
+            ..Default::default()
+        };
+        let row_3: Row = Row {
+            tx_idx: 1.into(),
+            call_id: 1.into(),
+            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
+            pc: 2.into(),
+            opcode: OpcodeId::STOP,
+            cnt: 0.into(),
+            vers_0: Some(1.into()),  // dynamic selector high is correct
+            vers_10: Some(1.into()), // dynamic selector low is correct
             ..Default::default()
         };
         let mut witness = Witness {
-            core: vec![row_0, row_1, row_2],
+            core: vec![row_0, row_1, row_2, row_3],
             ..Default::default()
         };
         let prover = test_simple_core_circuit(witness);

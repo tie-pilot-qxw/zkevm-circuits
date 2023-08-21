@@ -9,21 +9,21 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use trace_parser::Trace;
 
-const NUM_ROW: usize = 1;
+pub(crate) const NUM_ROW: usize = 1;
 
-pub struct StopGadget<F: Field> {
+pub struct EndBlockGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for StopGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for EndBlockGadget<F>
 {
     fn name(&self) -> &'static str {
-        "STOP"
+        "END_CALL"
     }
 
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::STOP
+        ExecutionState::END_BLOCK
     }
 
     fn num_row(&self) -> usize {
@@ -31,7 +31,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::end_block::NUM_ROW) // end unusable rows is super::end_block::NUM_ROW
+        (NUM_ROW, NUM_ROW)
     }
 
     fn get_constraints(
@@ -39,45 +39,42 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let Auxiliary {
             state_stamp,
-            stack_pointer,
             log_stamp,
-            gas_left,
-            refund,
-            memory_chunk,
-            read_only,
             ..
         } = config.get_auxiliary();
         let state_stamp_cur = meta.query_advice(state_stamp, Rotation::cur());
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
-        let stack_pointer_cur = meta.query_advice(stack_pointer, Rotation::cur());
-        let stack_pointer_prev = meta.query_advice(stack_pointer, Rotation(-1 * NUM_ROW as i32));
         let log_stamp_cur = meta.query_advice(log_stamp, Rotation::cur());
         let log_stamp_prev = meta.query_advice(log_stamp, Rotation(-1 * NUM_ROW as i32));
-        let read_only_cur = meta.query_advice(read_only, Rotation::cur());
-        let read_only_prev = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
-        // next execution state should be END_BLOCK, temporarily todo
-        let next_is_end_block = config.execution_state_selector.selector(
+        // prev state should be stop or self, temporarily todo
+        let prev_is_stop = config.execution_state_selector.selector(
+            meta,
+            ExecutionState::STOP as usize,
+            Rotation(-1 * NUM_ROW as i32),
+        );
+        let prev_is_end_block = config.execution_state_selector.selector(
             meta,
             ExecutionState::END_BLOCK as usize,
-            Rotation(super::end_block::NUM_ROW as i32),
+            Rotation(-1 * NUM_ROW as i32),
         );
 
         vec![
-            ("opcode".into(), opcode - OpcodeId::STOP.as_u8().expr()),
-            ("next pc".into(), pc_next - pc_cur), // if stop, next pc is same
-            ("state stamp".into(), state_stamp_cur - state_stamp_prev),
+            ("special next pc = 0".into(), pc_next),
             (
-                "stack pointer".into(),
-                stack_pointer_cur - stack_pointer_prev,
+                "state stamp is kept in padding".into(),
+                state_stamp_cur - state_stamp_prev,
             ),
-            ("log stamp".into(), log_stamp_cur - log_stamp_prev),
-            ("read only".into(), read_only_cur - read_only_prev),
-            ("next is end_block".into(), next_is_end_block - 1.expr()),
+            (
+                "log stamp is kept in padding".into(),
+                log_stamp_cur - log_stamp_prev,
+            ),
+            (
+                "prev is stop or self".into(),
+                prev_is_stop + prev_is_end_block - 1.expr(),
+            ),
         ]
     }
 
@@ -89,9 +86,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        assert_eq!(trace.op, OpcodeId::STOP);
-        let core_row = ExecutionState::STOP.into_exec_state_core_row(
+    fn gen_witness(&self, _: &Trace, current_state: &mut CurrentState) -> Witness {
+        let core_row = ExecutionState::END_BLOCK.into_exec_state_core_row(
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -106,7 +102,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(StopGadget {
+    Box::new(EndBlockGadget {
         _marker: PhantomData,
     })
 }

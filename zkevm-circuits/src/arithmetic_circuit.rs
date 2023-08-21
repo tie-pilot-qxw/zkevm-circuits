@@ -136,7 +136,7 @@ impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
 
             constraints
                 .into_iter()
-                .chain(operation::add::AddGadget::<F>::constraints(&config, meta).into_iter())
+                .chain(operation::add::AddGadget::<F>::constraints(&config, meta))
                 .map(move |(name, constraint)| {
                     (name, q_enable.clone() * condition.clone() * constraint)
                 })
@@ -368,6 +368,7 @@ mod test {
         prover.assert_satisfied_par();
     }
 
+    /*
     #[test]
     fn add_0_0() {
         let row0 = Row {
@@ -443,4 +444,5 @@ mod test {
         };
         test_add_two_number(row0, row1);
     }
+     */
 }

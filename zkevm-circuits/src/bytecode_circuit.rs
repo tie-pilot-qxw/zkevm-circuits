@@ -68,13 +68,13 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             bytecode,
             value_hi,
             value_lo,
+            cnt,
             cnt_is_zero,
         } = bytecode_table;
         let instance_addr = meta.instance_column();
         let instance_bytecode = meta.instance_column();
         let acc_hi = meta.advice_column();
         let acc_lo = meta.advice_column();
-        let cnt = cnt_is_zero.value;
         let is_high = meta.advice_column();
         let _cnt_minus_15_inv = meta.advice_column();
         let cnt_is_15 = IsZeroChip::configure(
@@ -443,7 +443,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 
     fn instance(&self) -> Vec<Vec<F>> {
         let (num_padding_begin, _num_padding_end) = Self::unusable_rows();
-        let vec_addr: Vec<F> = self
+        let mut vec_addr: Vec<F> = self
             .witness
             .bytecode
             .iter()
@@ -452,7 +452,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
                 F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default()))
             })
             .collect();
-        let vec_bytecode: Vec<F> = self
+        let mut vec_bytecode: Vec<F> = self
             .witness
             .bytecode
             .iter()
@@ -461,6 +461,18 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
                 F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.bytecode.unwrap_or_default()))
             })
             .collect();
+        if vec_bytecode.len() > MAX_CODESIZE {
+            panic!(
+                "bytecode instance length {} > MAX_CODESIZE {} (consider increase parameter MAX_CODESIZE)",
+                vec_bytecode.len(),
+                MAX_CODESIZE
+            );
+        }
+        // padding 0 to the end
+        for _ in vec_bytecode.len()..MAX_CODESIZE {
+            vec_addr.push(F::ZERO);
+            vec_bytecode.push(F::ZERO);
+        }
         vec![vec_addr, vec_bytecode]
     }
 
@@ -504,6 +516,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::util::log2_ceil;
     use eth_types::evm_types::OpcodeId;
     use eth_types::Bytecode;
@@ -513,13 +526,9 @@ mod test {
 
     /// A standalone circuit for testing
     #[derive(Clone, Default, Debug)]
-    pub struct BytecodeTestCircuit<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
-        BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
-    );
+    pub struct BytecodeTestCircuit<F: Field>(BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>);
 
-    impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> Circuit<F>
-        for BytecodeTestCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
-    {
+    impl<F: Field> Circuit<F> for BytecodeTestCircuit<F> {
         type Config = BytecodeCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -548,9 +557,7 @@ mod test {
         }
     }
 
-    impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>
-        BytecodeTestCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
-    {
+    impl<F: Field> BytecodeTestCircuit<F> {
         pub fn new(witness: Witness) -> Self {
             Self(BytecodeCircuit::new_from_witness(&witness))
         }
@@ -561,8 +568,6 @@ mod test {
     }
 
     fn test_bytecode_circuit(witness: Witness) -> MockProver<Fr> {
-        const MAX_CODESIZE: usize = 200;
-        const MAX_NUM_ROW: usize = 245;
         let (num_padding_begin, _num_padding_end) =
             BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows();
         let mut witness = witness;
@@ -572,7 +577,7 @@ mod test {
         }
 
         let k = log2_ceil(MAX_NUM_ROW);
-        let circuit = BytecodeTestCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::new(witness.clone());
+        let circuit = BytecodeTestCircuit::<Fr>::new(witness.clone());
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         prover
@@ -680,7 +685,7 @@ mod test {
     #[test]
     #[ignore]
     fn print_gates_lookups() {
-        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr, 245, 200>>();
+        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr>>();
         let str = gates.queries_to_csv();
         for line in str.lines() {
             let last_csv = line.rsplitn(2, ',').next().unwrap();

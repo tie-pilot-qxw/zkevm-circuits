@@ -1,10 +1,12 @@
 use crate::witness::arithmetic;
 use eth_types::Field;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
+use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector,
+    Advice, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector, VirtualCells,
 };
+use halo2_proofs::poly::Rotation;
 
 /// The table shared between Core Circuit and Stack Circuit
 #[derive(Clone, Copy, Debug)]
@@ -49,6 +51,8 @@ pub struct BytecodeTable<F> {
     pub value_hi: Column<Advice>,
     /// pushed value, lo 128 bits
     pub value_lo: Column<Advice>,
+    /// push opcode's cnt
+    pub cnt: Column<Advice>,
     /// is_zero of push opcode's cnt. iff it is zero at prev row, this row is code.
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
 }
@@ -64,7 +68,47 @@ impl<F: Field> BytecodeTable<F> {
             bytecode: meta.advice_column(),
             value_hi: meta.advice_column(),
             value_lo: meta.advice_column(),
+            cnt,
             cnt_is_zero,
+        }
+    }
+
+    pub fn get_lookup_vector(
+        &self,
+        meta: &mut VirtualCells<F>,
+        lookup: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_addr = meta.query_advice(self.addr, Rotation::cur());
+        let table_pc = meta.query_advice(self.pc, Rotation::cur());
+        let table_bytecode = meta.query_advice(self.bytecode, Rotation::cur());
+        let table_not_code = 1.expr() - self.cnt_is_zero.expr_at(meta, Rotation::prev());
+        let table_value_hi = meta.query_advice(self.value_hi, Rotation::cur());
+        let table_value_lo = meta.query_advice(self.value_lo, Rotation::cur());
+        let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
+        let table_is_push = 1.expr() - self.cnt_is_zero.expr_at(meta, Rotation::cur());
+        match lookup {
+            LookupEntry::BytecodeFull {
+                addr,
+                pc,
+                opcode,
+                not_code,
+                value_hi,
+                value_lo,
+                cnt,
+                is_push,
+            } => {
+                vec![
+                    (addr, table_addr),
+                    (pc, table_pc),
+                    (opcode, table_bytecode),
+                    (not_code, table_not_code),
+                    (value_hi, table_value_hi),
+                    (value_lo, table_value_lo),
+                    (cnt, table_cnt),
+                    (is_push, table_is_push),
+                ]
+            }
+            _ => panic!("Not bytecode lookup!"),
         }
     }
 }
@@ -123,8 +167,7 @@ pub enum LookupEntry<F> {
         /// A boolean value to specify if the access record is a read or write.
         is_write: Expression<F>,
     },
-    /// Lookup to bytecode table, which contains all used creation code and
-    /// contract code.
+    /// Lookup to bytecode table that only involves addr, pc, and opcode
     Bytecode {
         /// Address of the contract
         addr: Expression<F>,
@@ -132,12 +175,25 @@ pub enum LookupEntry<F> {
         pc: Expression<F>,
         /// The opcode or bytecode
         opcode: Expression<F>,
+    },
+    /// Lookup to bytecode table (full mode), which contains all necessary columns
+    BytecodeFull {
+        /// Address of the contract
+        addr: Expression<F>,
+        /// Program counter or the index of bytecodes
+        pc: Expression<F>,
+        /// The opcode or bytecode
+        opcode: Expression<F>,
         /// Whether this pc points to a code or a pushed value
-        is_code: Expression<F>,
+        not_code: Expression<F>,
         /// Pushed value, high 128 bits (0 or non-push opcodes)
         value_hi: Expression<F>,
         /// Pushed value, low 128 bits (0 or non-push opcodes)
         value_lo: Expression<F>,
+        /// Cnt of push, X in PUSHX. 0 for other opcodes
+        cnt: Expression<F>,
+        /// Whether this is push
+        is_push: Expression<F>,
     },
     /// Lookup to copy table.
     CopyTable {
@@ -160,6 +216,13 @@ pub enum LookupEntry<F> {
         /// The length of the copy event
         len: Expression<F>,
     },
+    /// Lookup to arithmetic table.
+    Arithmetic {
+        /// Which arithmetic operation it is doing
+        tag: Expression<F>,
+        /// Operand 0-3 high and low 128 bits, order: [hi0,lo0,hi1,lo1,...]
+        values: [Expression<F>; 8],
+    },
     /// Conditional lookup enabled by the first element.
     Conditional(Expression<F>, Box<LookupEntry<F>>),
 }
@@ -169,6 +232,18 @@ impl<F: Field> LookupEntry<F> {
     pub(crate) fn conditional(self, condition: Expression<F>) -> Self {
         Self::Conditional(condition, self.into())
     }
+}
+
+// used to extract inner of lookup entry
+// from https://stackoverflow.com/questions/34953711/unwrap-inner-type-when-enum-variant-is-known
+#[macro_export]
+macro_rules! extract_enum_value {
+    ($value:expr, $pattern:pat => $extracted_value:expr) => {
+        match $value {
+            $pattern => $extracted_value,
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
 }
 
 #[derive(Clone, Copy, Debug)]

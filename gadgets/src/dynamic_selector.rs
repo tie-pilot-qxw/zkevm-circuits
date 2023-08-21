@@ -49,12 +49,17 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
     }
 
     /// Get the selector value of target
-    pub fn selector(&self, meta: &mut VirtualCells<F>, target: usize) -> Expression<F> {
+    pub fn selector(
+        &self,
+        meta: &mut VirtualCells<F>,
+        target: usize,
+        at: Rotation,
+    ) -> Expression<F> {
         assert!(target < NUM_LOW * NUM_HIGH);
         let high = target / NUM_LOW;
         let low = target % NUM_LOW;
-        let target_high = meta.query_advice(self.target_high[high], Rotation::cur());
-        let target_low = meta.query_advice(self.target_low[low], Rotation::cur());
+        let target_high = meta.query_advice(self.target_high[high], at);
+        let target_low = meta.query_advice(self.target_low[low], at);
         target_high * target_low
     }
 }
@@ -85,10 +90,11 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
             let mut constraints: Vec<(String, Expression<F>)> = target_high
                 .iter()
                 .chain(target_low.iter())
-                .map(|col| {
+                .enumerate()
+                .map(|(i, col)| {
                     let x = meta.query_advice(col.clone(), Rotation::cur());
                     (
-                        "selector bool".into(),
+                        format!("selector[{}] bool", i),
                         q_enable.clone() * x.clone() * (1u8.expr() - x),
                     )
                 })
@@ -115,7 +121,7 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
             for unusable in CNT..NUM_LOW * NUM_HIGH {
                 constraints.push((
                     format!("unusable target {} selector = 0", unusable),
-                    q_enable.clone() * config.selector(meta, unusable),
+                    q_enable.clone() * config.selector(meta, unusable, Rotation::cur()),
                 ));
             }
 
@@ -154,21 +160,25 @@ impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize>
         Ok(())
     }
 
-    /// Get the values for the target
-    pub fn get_assignment_values(&self, target: usize) -> ([bool; NUM_HIGH], [bool; NUM_LOW]) {
-        let mut arr_hi = [false; NUM_HIGH];
-        let mut arr_lo = [false; NUM_LOW];
-        let high = target / NUM_LOW;
-        let low = target % NUM_LOW;
-        arr_hi[high] = true;
-        arr_lo[low] = true;
-        (arr_hi, arr_lo)
-    }
-
     /// Given an `DynamicSelectorChip`, construct the chip.
     pub fn construct(config: DynamicSelectorConfig<F, CNT, NUM_HIGH, NUM_LOW>) -> Self {
         Self { config }
     }
+}
+
+/// Get the values for the target
+pub fn get_dynamic_selector_assignments(
+    target: usize,
+    num_hi: usize,
+    num_lo: usize,
+) -> (Vec<u64>, Vec<u64>) {
+    let mut arr_hi = vec![0; num_hi];
+    let mut arr_lo = vec![0; num_lo];
+    let high = target / num_lo;
+    let low = target % num_lo;
+    arr_hi[high] = 1;
+    arr_lo[low] = 1;
+    (arr_hi, arr_lo)
 }
 
 impl<F: Field, const CNT: usize, const NUM_HIGH: usize, const NUM_LOW: usize> Chip<F>
@@ -241,7 +251,7 @@ mod test {
                 let q_enable = meta.query_selector(q_enable);
                 let mut constraints: Vec<(&str, Expression<F>)> = vec![];
                 for target in 0..CNT {
-                    let expr = dynamic_selector.selector(meta, target);
+                    let expr = dynamic_selector.selector(meta, target, Rotation::cur());
                     let expr_should_be = meta.query_fixed(zero_one_values[target], Rotation::cur());
                     constraints.push((
                         "target constraint",

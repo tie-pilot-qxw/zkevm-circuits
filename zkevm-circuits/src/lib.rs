@@ -1,5 +1,6 @@
 pub mod arithmetic_circuit;
 pub mod bytecode_circuit;
+pub mod constant;
 pub mod core_circuit;
 pub mod execution;
 pub mod state_circuit;

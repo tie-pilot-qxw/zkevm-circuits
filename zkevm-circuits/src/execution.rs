@@ -1,35 +1,203 @@
 pub mod add;
+pub mod end_block;
 pub mod push;
 pub mod stop;
 
-use crate::core_circuit::CoreCircuitConfig;
-use crate::table::LookupEntry;
+use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs, NUM_VERS};
+use crate::table::{BytecodeTable, LookupEntry};
 use crate::witness::core::Row as CoreRow;
 use crate::witness::Witness;
 use crate::{execution::add::AddGadget, witness::CurrentState};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use gadgets::dynamic_selector::DynamicSelectorConfig;
+use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::util::Expr;
-use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
+use std::marker::PhantomData;
+use strum::EnumCount;
+use strum_macros::EnumCount as EnumCountMacro;
 use trace_parser::Trace;
-const CNT: usize = 256;
-const NUM_HIGH: usize = 16;
-const NUM_LOW: usize = 16;
 
-pub(crate) type ExecutionConfig<F> = CoreCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
+/// Get all execution gadgets by using this
+macro_rules! get_every_execution_gadgets {
+    () => {{
+        vec![
+            crate::execution::add::new(),
+            crate::execution::push::new(),
+            crate::execution::stop::new(),
+            crate::execution::end_block::new(),
+        ]
+    }};
+}
+pub(crate) use get_every_execution_gadgets;
+
+#[derive(Clone)]
+pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> {
+    pub(crate) q_enable: Selector,
+    // witness column of transaction index
+    pub(crate) tx_idx: Column<Advice>,
+    // witness column of call id
+    pub(crate) call_id: Column<Advice>,
+    // witness column of contract address
+    pub(crate) code_addr: Column<Advice>,
+    // witness column of program counter
+    pub(crate) pc: Column<Advice>,
+    // witness columns of opcode
+    pub(crate) opcode: Column<Advice>,
+    // witness column of opcode counter
+    pub(crate) cnt: Column<Advice>,
+    // witness columns of 32 versatile purposes
+    pub(crate) vers: [Column<Advice>; NUM_VERS],
+    // IsZero chip for witness column cnt
+    pub(crate) cnt_is_zero: IsZeroWithRotationConfig<F>,
+    // Selector of execution state
+    pub(crate) execution_state_selector:
+        DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    // Tables used for lookup
+    pub(crate) bytecode_table: BytecodeTable<F>,
+}
+
+// Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
+#[derive(Clone)]
+pub(crate) struct Auxiliary<F> {
+    /// State stamp (counter) at the end of the execution state
+    pub(crate) state_stamp: Column<Advice>,
+    /// Stack pointer at the end of the execution state
+    pub(crate) stack_pointer: Column<Advice>,
+    /// Log stamp (counter) at the end of the execution state
+    pub(crate) log_stamp: Column<Advice>,
+    /// Gas left at the end of the execution state
+    pub(crate) gas_left: Column<Advice>,
+    /// Refund at the end of the execution state
+    pub(crate) refund: Column<Advice>,
+    /// Memory usage in chunk at the end of the execution state
+    pub(crate) memory_chunk: Column<Advice>,
+    /// Read only indicator (0/1) at the end of the execution state
+    pub(crate) read_only: Column<Advice>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+{
+    /// The number of columns used by auxiliary
+    /// this+NUM_STATE_HI_COL+NUM_STATE_LO_COL should be no greater than 32
+    pub(crate) const NUM_AUXILIARY: usize = 7;
+
+    pub(crate) fn get_state_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        num: usize,
+    ) -> LookupEntry<F> {
+        const WIDTH: usize = 8;
+        let (
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        ) = (
+            meta.query_advice(self.vers[num * WIDTH + 0], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 1], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 2], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 3], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 4], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 5], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 6], Rotation::prev()),
+            meta.query_advice(self.vers[num * WIDTH + 7], Rotation::prev()),
+        );
+        LookupEntry::State {
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        }
+    }
+
+    pub(crate) fn get_bytecode_full_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push) = (
+            meta.query_advice(self.vers[24], Rotation::prev()),
+            meta.query_advice(self.vers[25], Rotation::prev()),
+            meta.query_advice(self.vers[26], Rotation::prev()),
+            meta.query_advice(self.vers[27], Rotation::prev()),
+            meta.query_advice(self.vers[28], Rotation::prev()),
+            meta.query_advice(self.vers[29], Rotation::prev()),
+            meta.query_advice(self.vers[30], Rotation::prev()),
+            meta.query_advice(self.vers[31], Rotation::prev()),
+        );
+        LookupEntry::BytecodeFull {
+            addr,
+            pc,
+            opcode,
+            not_code,
+            value_hi,
+            value_lo,
+            cnt,
+            is_push,
+        }
+    }
+
+    pub(crate) fn get_arithmetic_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let (hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3, tag) = (
+            meta.query_advice(self.vers[0], Rotation(-2)),
+            meta.query_advice(self.vers[1], Rotation(-2)),
+            meta.query_advice(self.vers[2], Rotation(-2)),
+            meta.query_advice(self.vers[3], Rotation(-2)),
+            meta.query_advice(self.vers[4], Rotation(-2)),
+            meta.query_advice(self.vers[5], Rotation(-2)),
+            meta.query_advice(self.vers[6], Rotation(-2)),
+            meta.query_advice(self.vers[7], Rotation(-2)),
+            meta.query_advice(self.vers[8], Rotation(-2)),
+        );
+        LookupEntry::Arithmetic {
+            tag,
+            values: [hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3],
+        }
+    }
+
+    pub(crate) fn get_auxiliary(&self) -> Auxiliary<F> {
+        Auxiliary {
+            state_stamp: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 0],
+            stack_pointer: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 1],
+            log_stamp: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 2],
+            gas_left: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 3],
+            refund: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 4],
+            memory_chunk: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 5],
+            read_only: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 6],
+            _marker: PhantomData,
+        }
+    }
+}
 
 /// Execution Gadget for the configure and witness generation of an execution state
-pub(crate) trait ExecutionGadget<F: Field> {
+pub(crate) trait ExecutionGadget<
+    F: Field,
+    const NUM_STATE_HI_COL: usize,
+    const NUM_STATE_LO_COL: usize,
+>
+{
     fn name(&self) -> &'static str;
     fn execution_state(&self) -> ExecutionState;
     /// Number of rows this execution state will use in core circuit
     fn num_row(&self) -> usize;
+    /// Number of rows before and after the actual witness that cannot be used, which decides that
+    /// the selector cannot be enabled
+    fn unusable_rows(&self) -> (usize, usize);
 
     /// Get gate constraints for this execution state (without condition).
     /// Rotation::cur() in the constraints means the row that column config.cnt is 0
     fn get_constraints(
         &self,
-        config: &ExecutionConfig<F>,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)>;
 
@@ -37,24 +205,32 @@ pub(crate) trait ExecutionGadget<F: Field> {
     /// Rotation::cur() in the lookups means the row that column config.cnt is 0
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F>,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)>;
+
+    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness;
 }
 
-pub(crate) trait ExecutionGadgetAssociated<F: Field> {
-    fn new() -> Box<dyn ExecutionGadget<F>>;
-
-    fn gen_witness(trace: &Trace, current_state: &mut CurrentState) -> Witness;
+#[derive(Clone)]
+pub(crate) struct ExecutionGadgets<
+    F: Field,
+    const NUM_STATE_HI_COL: usize,
+    const NUM_STATE_LO_COL: usize,
+> {
+    config: ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
 }
 
-pub(crate) struct ExecutionGadgets<F: Field> {
-    gadgets: Vec<Box<dyn ExecutionGadget<F>>>,
-}
+impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+{
+    pub(crate) fn configure(
+        meta: &mut ConstraintSystem<F>,
+        config: ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    ) -> Self {
+        let gadgets: Vec<Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>> =
+            get_every_execution_gadgets!();
 
-impl<F: Field> ExecutionGadgets<F> {
-    pub(crate) fn configure(config: &ExecutionConfig<F>, meta: &mut ConstraintSystem<F>) -> Self {
-        let gadgets = vec![AddGadget::new()]; //TODO add more
         let mut lookups_to_merge = vec![];
         for gadget in &gadgets {
             // the constraints that all execution state requires, e.g., cnt=num_row-1 at the first row
@@ -65,14 +241,19 @@ impl<F: Field> ExecutionGadgets<F> {
                 // cnt in first row of this state
                 let cnt_first = meta.query_advice(config.cnt, Rotation(-1 * num_row as i32 + 1));
                 let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-                let condition = q_enable * cnt_is_zero; //TODO dynamic selector of gadget.execution_state
+                let execution_state_selector = config.execution_state_selector.selector(
+                    meta,
+                    gadget.execution_state() as usize,
+                    Rotation::cur(),
+                );
+                let condition = q_enable * cnt_is_zero * execution_state_selector;
                 vec![
                     (
-                        "prev_state_last_cnt_is_0",
+                        "prev state last cnt = 0",
                         condition.clone() * cnt_prev_state,
                     ),
                     (
-                        "this_state_first_cnt_is_const",
+                        "this state first cnt is const",
                         condition.clone() * (cnt_first - (num_row - 1).expr()),
                     ),
                 ]
@@ -80,10 +261,18 @@ impl<F: Field> ExecutionGadgets<F> {
             // the constraints for the specific execution state, extracted from the gadget
             meta.create_gate(format!("EXECUTION_GADGET_{}", gadget.name()), |meta| {
                 // constraints without condition
-                let constraints = gadget.get_constraints(config, meta);
+                let constraints = gadget.get_constraints(&config, meta);
+                if constraints.is_empty() {
+                    return vec![("placeholder due to no constraint".into(), 0.expr())];
+                }
                 let q_enable = meta.query_selector(config.q_enable);
                 let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-                let condition = q_enable * cnt_is_zero; //TODO dynamic selector of gadget.execution_state
+                let execution_state_selector = config.execution_state_selector.selector(
+                    meta,
+                    gadget.execution_state() as usize,
+                    Rotation::cur(),
+                );
+                let condition = q_enable * cnt_is_zero * execution_state_selector;
                 constraints
                     .into_iter()
                     .map(|(s, e)| (s, condition.clone() * e))
@@ -92,56 +281,656 @@ impl<F: Field> ExecutionGadgets<F> {
             // extract lookups
             let execution_state = gadget.execution_state();
             let mut lookups = gadget
-                .get_lookups(config, meta)
+                .get_lookups(&config, meta)
                 .into_iter()
                 .map(|(string, lookup)| (string, lookup, execution_state))
                 .collect();
             lookups_to_merge.append(&mut lookups);
         }
-        // merge lookups from all gadgets
         // todo
-        ExecutionGadgets { gadgets }
+        // merge lookups from all gadgets
+        // currently there is no merge
+        for (string, lookup, execution_state) in lookups_to_merge {
+            match lookup {
+                LookupEntry::BytecodeFull { .. } => {
+                    meta.lookup_any(string, |meta| {
+                        let q_enable = meta.query_selector(config.q_enable);
+                        let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+                        let execution_state_selector = config.execution_state_selector.selector(
+                            meta,
+                            execution_state as usize,
+                            Rotation::cur(),
+                        );
+                        let condition = q_enable.clone() * cnt_is_zero * execution_state_selector;
+                        let v = config.bytecode_table.get_lookup_vector(meta, lookup);
+                        v.into_iter()
+                            .map(|(left, right)| (condition.clone() * left, right))
+                            .collect()
+                    });
+                }
+                _ => (),
+            };
+        }
+        ExecutionGadgets { config }
+    }
+
+    pub(crate) fn unusable_rows() -> (usize, usize) {
+        let gadgets: Vec<Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>> =
+            get_every_execution_gadgets!();
+        let unusable_begin =
+            itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().0)).unwrap();
+        let unusable_end =
+            itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().1)).unwrap();
+        (unusable_begin, unusable_end)
     }
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, EnumCountMacro, Eq, Hash, PartialEq)]
 pub enum ExecutionState {
+    // zkevm internal states
+    /// State that ends a block of transactions
+    END_BLOCK, // it has to be the first state as it is the default padding state
+    // opcode/operation successful states
     STOP,
     ADD,
     PUSH,
 }
 
 impl ExecutionState {
-    pub fn to_core_row(self) -> CoreRow {
-        let op = self as usize;
-        assert!(op < 100);
-        let mut selector_hi = [0; 10];
-        selector_hi[op / 10] = 1;
-        let mut selector_lo = [0; 10];
-        selector_lo[op % 10] = 1;
-        CoreRow {
-            vers_0: Some(selector_hi[0].into()),
-            vers_1: Some(selector_hi[1].into()),
-            vers_2: Some(selector_hi[2].into()),
-            vers_3: Some(selector_hi[3].into()),
-            vers_4: Some(selector_hi[4].into()),
-            vers_5: Some(selector_hi[5].into()),
-            vers_6: Some(selector_hi[6].into()),
-            vers_7: Some(selector_hi[7].into()),
-            vers_8: Some(selector_hi[8].into()),
-            vers_9: Some(selector_hi[9].into()),
-            vers_10: Some(selector_lo[0].into()),
-            vers_11: Some(selector_lo[1].into()),
-            vers_12: Some(selector_lo[2].into()),
-            vers_13: Some(selector_lo[3].into()),
-            vers_14: Some(selector_lo[4].into()),
-            vers_15: Some(selector_lo[5].into()),
-            vers_16: Some(selector_lo[6].into()),
-            vers_17: Some(selector_lo[7].into()),
-            vers_18: Some(selector_lo[8].into()),
-            vers_19: Some(selector_lo[9].into()),
-            ..Default::default()
+    // a mapping from opcode to execution state(s)
+    pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
+        match opcode {
+            OpcodeId::STOP => vec![Self::STOP],
+            OpcodeId::ADD => vec![Self::ADD],
+            OpcodeId::MUL => {
+                todo!()
+            }
+            OpcodeId::SUB => {
+                todo!()
+            }
+            OpcodeId::DIV => {
+                todo!()
+            }
+            OpcodeId::SDIV => {
+                todo!()
+            }
+            OpcodeId::MOD => {
+                todo!()
+            }
+            OpcodeId::SMOD => {
+                todo!()
+            }
+            OpcodeId::ADDMOD => {
+                todo!()
+            }
+            OpcodeId::MULMOD => {
+                todo!()
+            }
+            OpcodeId::EXP => {
+                todo!()
+            }
+            OpcodeId::SIGNEXTEND => {
+                todo!()
+            }
+            OpcodeId::LT => {
+                todo!()
+            }
+            OpcodeId::GT => {
+                todo!()
+            }
+            OpcodeId::SLT => {
+                todo!()
+            }
+            OpcodeId::SGT => {
+                todo!()
+            }
+            OpcodeId::EQ => {
+                todo!()
+            }
+            OpcodeId::ISZERO => {
+                todo!()
+            }
+            OpcodeId::AND => {
+                todo!()
+            }
+            OpcodeId::OR => {
+                todo!()
+            }
+            OpcodeId::XOR => {
+                todo!()
+            }
+            OpcodeId::NOT => {
+                todo!()
+            }
+            OpcodeId::BYTE => {
+                todo!()
+            }
+            OpcodeId::CALLDATALOAD => {
+                todo!()
+            }
+            OpcodeId::CALLDATASIZE => {
+                todo!()
+            }
+            OpcodeId::CALLDATACOPY => {
+                todo!()
+            }
+            OpcodeId::CODESIZE => {
+                todo!()
+            }
+            OpcodeId::CODECOPY => {
+                todo!()
+            }
+            OpcodeId::SHL => {
+                todo!()
+            }
+            OpcodeId::SHR => {
+                todo!()
+            }
+            OpcodeId::SAR => {
+                todo!()
+            }
+            OpcodeId::POP => {
+                todo!()
+            }
+            OpcodeId::MLOAD => {
+                todo!()
+            }
+            OpcodeId::MSTORE => {
+                todo!()
+            }
+            OpcodeId::MSTORE8 => {
+                todo!()
+            }
+            OpcodeId::JUMP => {
+                todo!()
+            }
+            OpcodeId::JUMPI => {
+                todo!()
+            }
+            OpcodeId::PC => {
+                todo!()
+            }
+            OpcodeId::MSIZE => {
+                todo!()
+            }
+            OpcodeId::JUMPDEST => {
+                todo!()
+            }
+            OpcodeId::PUSH1
+            | OpcodeId::PUSH2
+            | OpcodeId::PUSH3
+            | OpcodeId::PUSH4
+            | OpcodeId::PUSH5
+            | OpcodeId::PUSH6
+            | OpcodeId::PUSH7
+            | OpcodeId::PUSH8
+            | OpcodeId::PUSH9
+            | OpcodeId::PUSH10
+            | OpcodeId::PUSH11
+            | OpcodeId::PUSH12
+            | OpcodeId::PUSH13
+            | OpcodeId::PUSH14
+            | OpcodeId::PUSH15
+            | OpcodeId::PUSH16
+            | OpcodeId::PUSH17
+            | OpcodeId::PUSH18
+            | OpcodeId::PUSH19
+            | OpcodeId::PUSH20
+            | OpcodeId::PUSH21
+            | OpcodeId::PUSH22
+            | OpcodeId::PUSH23
+            | OpcodeId::PUSH24
+            | OpcodeId::PUSH25
+            | OpcodeId::PUSH26
+            | OpcodeId::PUSH27
+            | OpcodeId::PUSH28
+            | OpcodeId::PUSH29
+            | OpcodeId::PUSH30
+            | OpcodeId::PUSH31
+            | OpcodeId::PUSH32 => vec![Self::PUSH],
+
+            OpcodeId::DUP1 => {
+                todo!()
+            }
+            OpcodeId::DUP2 => {
+                todo!()
+            }
+            OpcodeId::DUP3 => {
+                todo!()
+            }
+            OpcodeId::DUP4 => {
+                todo!()
+            }
+            OpcodeId::DUP5 => {
+                todo!()
+            }
+            OpcodeId::DUP6 => {
+                todo!()
+            }
+            OpcodeId::DUP7 => {
+                todo!()
+            }
+            OpcodeId::DUP8 => {
+                todo!()
+            }
+            OpcodeId::DUP9 => {
+                todo!()
+            }
+            OpcodeId::DUP10 => {
+                todo!()
+            }
+            OpcodeId::DUP11 => {
+                todo!()
+            }
+            OpcodeId::DUP12 => {
+                todo!()
+            }
+            OpcodeId::DUP13 => {
+                todo!()
+            }
+            OpcodeId::DUP14 => {
+                todo!()
+            }
+            OpcodeId::DUP15 => {
+                todo!()
+            }
+            OpcodeId::DUP16 => {
+                todo!()
+            }
+            OpcodeId::SWAP1 => {
+                todo!()
+            }
+            OpcodeId::SWAP2 => {
+                todo!()
+            }
+            OpcodeId::SWAP3 => {
+                todo!()
+            }
+            OpcodeId::SWAP4 => {
+                todo!()
+            }
+            OpcodeId::SWAP5 => {
+                todo!()
+            }
+            OpcodeId::SWAP6 => {
+                todo!()
+            }
+            OpcodeId::SWAP7 => {
+                todo!()
+            }
+            OpcodeId::SWAP8 => {
+                todo!()
+            }
+            OpcodeId::SWAP9 => {
+                todo!()
+            }
+            OpcodeId::SWAP10 => {
+                todo!()
+            }
+            OpcodeId::SWAP11 => {
+                todo!()
+            }
+            OpcodeId::SWAP12 => {
+                todo!()
+            }
+            OpcodeId::SWAP13 => {
+                todo!()
+            }
+            OpcodeId::SWAP14 => {
+                todo!()
+            }
+            OpcodeId::SWAP15 => {
+                todo!()
+            }
+            OpcodeId::SWAP16 => {
+                todo!()
+            }
+            OpcodeId::RETURN => {
+                todo!()
+            }
+            OpcodeId::REVERT => {
+                todo!()
+            }
+            OpcodeId::INVALID(_) => {
+                todo!()
+            }
+            OpcodeId::SHA3 => {
+                todo!()
+            }
+            OpcodeId::ADDRESS => {
+                todo!()
+            }
+            OpcodeId::BALANCE => {
+                todo!()
+            }
+            OpcodeId::ORIGIN => {
+                todo!()
+            }
+            OpcodeId::CALLER => {
+                todo!()
+            }
+            OpcodeId::CALLVALUE => {
+                todo!()
+            }
+            OpcodeId::GASPRICE => {
+                todo!()
+            }
+            OpcodeId::EXTCODESIZE => {
+                todo!()
+            }
+            OpcodeId::EXTCODECOPY => {
+                todo!()
+            }
+            OpcodeId::EXTCODEHASH => {
+                todo!()
+            }
+            OpcodeId::RETURNDATASIZE => {
+                todo!()
+            }
+            OpcodeId::RETURNDATACOPY => {
+                todo!()
+            }
+            OpcodeId::BLOCKHASH => {
+                todo!()
+            }
+            OpcodeId::COINBASE => {
+                todo!()
+            }
+            OpcodeId::TIMESTAMP => {
+                todo!()
+            }
+            OpcodeId::NUMBER => {
+                todo!()
+            }
+            OpcodeId::DIFFICULTY => {
+                todo!()
+            }
+            OpcodeId::GASLIMIT => {
+                todo!()
+            }
+            OpcodeId::CHAINID => {
+                todo!()
+            }
+            OpcodeId::SELFBALANCE => {
+                todo!()
+            }
+            OpcodeId::BASEFEE => {
+                todo!()
+            }
+            OpcodeId::SLOAD => {
+                todo!()
+            }
+            OpcodeId::SSTORE => {
+                todo!()
+            }
+            OpcodeId::GAS => {
+                todo!()
+            }
+            OpcodeId::LOG0 => {
+                todo!()
+            }
+            OpcodeId::LOG1 => {
+                todo!()
+            }
+            OpcodeId::LOG2 => {
+                todo!()
+            }
+            OpcodeId::LOG3 => {
+                todo!()
+            }
+            OpcodeId::LOG4 => {
+                todo!()
+            }
+            OpcodeId::CREATE => {
+                todo!()
+            }
+            OpcodeId::CREATE2 => {
+                todo!()
+            }
+            OpcodeId::CALL => {
+                todo!()
+            }
+            OpcodeId::CALLCODE => {
+                todo!()
+            }
+            OpcodeId::DELEGATECALL => {
+                todo!()
+            }
+            OpcodeId::STATICCALL => {
+                todo!()
+            }
+            OpcodeId::SELFDESTRUCT => {
+                todo!()
+            }
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    /// Used in `mod test` under each execution gadget file
+    /// Generate `TestCircuit` for the execution gadget
+    macro_rules! generate_execution_gadget_test_circuit {
+        () => {
+            use super::*;
+            use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+            use crate::core_circuit::NUM_VERS;
+            use crate::table::BytecodeTable;
+            use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuitConfig};
+            use eth_types::evm_types::{OpcodeId, Stack};
+            use gadgets::dynamic_selector::DynamicSelectorChip;
+            use gadgets::is_zero::IsZeroInstruction;
+            use gadgets::is_zero_with_rotation::IsZeroWithRotationChip;
+            use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
+            use halo2_proofs::dev::MockProver;
+            use halo2_proofs::halo2curves::bn256::Fr;
+            use halo2_proofs::plonk::{Advice, Circuit, Column, Error, Selector};
+            use std::collections::HashMap;
+            #[derive(Clone, Default, Debug)]
+            struct TestCircuit<F> {
+                witness: Witness,
+                _marker: PhantomData<F>,
+            }
+            impl<F: Field> Circuit<F> for TestCircuit<F> {
+                type Config = ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
+                type FloorPlanner = SimpleFloorPlanner;
+
+                fn without_witnesses(&self) -> Self {
+                    Self::default()
+                }
+
+                fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+                    let q_enable = meta.complex_selector();
+                    let cnt = meta.advice_column();
+                    let cnt_is_zero = IsZeroWithRotationChip::configure(
+                        meta,
+                        |meta| meta.query_selector(q_enable),
+                        cnt,
+                    );
+                    let vers: [Column<Advice>; NUM_VERS] =
+                        std::array::from_fn(|_| meta.advice_column());
+                    let execution_state_selector = DynamicSelectorChip::configure(
+                        meta,
+                        |meta| {
+                            let q_enable = meta.query_selector(q_enable);
+                            let ans = cnt_is_zero.expr_at(meta, Rotation::cur());
+                            q_enable * ans
+                        },
+                        vers[0..NUM_STATE_HI_COL].try_into().unwrap(),
+                        vers[NUM_STATE_HI_COL..NUM_STATE_HI_COL + NUM_STATE_LO_COL]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    let q_enable_bytecode = meta.complex_selector();
+                    let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+                    let config = ExecutionConfig {
+                        q_enable,
+                        tx_idx: meta.advice_column(),
+                        call_id: meta.advice_column(),
+                        code_addr: meta.advice_column(),
+                        pc: meta.advice_column(),
+                        opcode: meta.advice_column(),
+                        cnt,
+                        vers,
+                        cnt_is_zero,
+                        execution_state_selector,
+                        bytecode_table,
+                    };
+                    let gadget = new();
+                    meta.create_gate("TEST", |meta| {
+                        let constraints = gadget.get_constraints(&config, meta);
+                        let q_enable = meta.query_selector(q_enable);
+                        let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+                        let condition = q_enable * cnt_is_zero;
+                        constraints
+                            .into_iter()
+                            .map(|(s, e)| (s, condition.clone() * e))
+                            .collect::<Vec<(String, Expression<F>)>>()
+                    });
+                    config
+                }
+
+                fn synthesize(
+                    &self,
+                    config: Self::Config,
+                    mut layouter: impl Layouter<F>,
+                ) -> Result<(), Error> {
+                    layouter.assign_region(
+                        || "test",
+                        |mut region| {
+                            region.name_column(|| "CORE_tx_idx", config.tx_idx);
+                            region.name_column(|| "CORE_call_id", config.call_id);
+                            region.name_column(|| "CORE_code_addr", config.code_addr);
+                            region.name_column(|| "CORE_pc", config.pc);
+                            region.name_column(|| "CORE_opcode", config.opcode);
+                            region.name_column(|| "CORE_cnt", config.cnt);
+                            for i in 0..NUM_VERS {
+                                region.name_column(|| format!("CORE_vers_{}", i), config.vers[i]);
+                            }
+                            config
+                                .cnt_is_zero
+                                .annotate_columns_in_region(&mut region, "CORE_cnt_is_zero");
+                            for (offset, row) in self.witness.core.iter().enumerate() {
+                                let cnt_is_zero: IsZeroWithRotationChip<F> =
+                                    IsZeroWithRotationChip::construct(config.cnt_is_zero);
+                                assign_advice_or_fixed(
+                                    &mut region,
+                                    offset,
+                                    &row.tx_idx,
+                                    config.tx_idx,
+                                )?;
+                                assign_advice_or_fixed(
+                                    &mut region,
+                                    offset,
+                                    &row.call_id,
+                                    config.call_id,
+                                )?;
+                                assign_advice_or_fixed(
+                                    &mut region,
+                                    offset,
+                                    &row.code_addr,
+                                    config.code_addr,
+                                )?;
+                                assign_advice_or_fixed(&mut region, offset, &row.pc, config.pc)?;
+                                assign_advice_or_fixed(
+                                    &mut region,
+                                    offset,
+                                    &row.opcode.as_u8().into(),
+                                    config.opcode,
+                                )?;
+                                assign_advice_or_fixed(&mut region, offset, &row.cnt, config.cnt)?;
+                                for (i, value) in [
+                                    &row.vers_0,
+                                    &row.vers_1,
+                                    &row.vers_2,
+                                    &row.vers_3,
+                                    &row.vers_4,
+                                    &row.vers_5,
+                                    &row.vers_6,
+                                    &row.vers_7,
+                                    &row.vers_8,
+                                    &row.vers_9,
+                                    &row.vers_10,
+                                    &row.vers_11,
+                                    &row.vers_12,
+                                    &row.vers_13,
+                                    &row.vers_14,
+                                    &row.vers_15,
+                                    &row.vers_16,
+                                    &row.vers_17,
+                                    &row.vers_18,
+                                    &row.vers_19,
+                                    &row.vers_20,
+                                    &row.vers_21,
+                                    &row.vers_22,
+                                    &row.vers_23,
+                                    &row.vers_24,
+                                    &row.vers_25,
+                                    &row.vers_26,
+                                    &row.vers_27,
+                                    &row.vers_28,
+                                    &row.vers_29,
+                                    &row.vers_30,
+                                    &row.vers_31,
+                                ]
+                                .into_iter()
+                                .enumerate()
+                                {
+                                    assign_advice_or_fixed(
+                                        &mut region,
+                                        offset,
+                                        &value.unwrap_or_default(),
+                                        config.vers[i],
+                                    )?;
+                                }
+                                cnt_is_zero.assign(
+                                    &mut region,
+                                    offset,
+                                    Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                                        &row.cnt,
+                                    ))),
+                                )?;
+                            }
+                            let gadget: Box<
+                                dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+                            > = new();
+                            // only enable the row with cnt=0
+                            let enabled_row = gadget.unusable_rows().0 + gadget.num_row() - 1;
+                            config.q_enable.enable(&mut region, enabled_row)?;
+                            Ok(())
+                        },
+                    )
+                }
+            }
+            impl<F: Field> TestCircuit<F> {
+                pub fn new(witness: Witness) -> Self {
+                    Self {
+                        witness,
+                        _marker: PhantomData,
+                    }
+                }
+            }
+        };
+    }
+    /// Used in `fn text_xx()` under each execution gadget file
+    /// Generate witness and mock prover for the execution gadget
+    macro_rules! prepare_witness_and_prover {
+        ($trace:expr, $current_state:expr, $padding_begin_row:expr, $padding_end_row:expr) => {{
+            let gadget: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> = new();
+            let mut witness = gadget.gen_witness(&$trace, &mut $current_state);
+            assert_eq!(gadget.num_row(), witness.core.len());
+            for _ in 0..gadget.unusable_rows().0 {
+                witness.core.insert(0, $padding_begin_row.clone());
+            }
+            for _ in 0..gadget.unusable_rows().1 {
+                witness.core.push($padding_end_row.clone());
+            }
+            let k = 8;
+            let circuit = TestCircuit::<Fr>::new(witness.clone());
+            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            (witness, prover)
+        }};
+    }
+    pub(crate) use {generate_execution_gadget_test_circuit, prepare_witness_and_prover};
 }

@@ -69,14 +69,6 @@ pub fn log2_ceil(n: usize) -> u32 {
     u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32
 }
 
-#[macro_export]
-macro_rules! add_expression_to_constraints {
-    ($v:expr,$e:expr) => {
-        $v.into_iter()
-            .map(move |(name, constraint)| (name, $e * constraint))
-    };
-}
-
 pub fn assign_advice_or_fixed<F: Field, C: Into<Column<Any>>>(
     region: &mut Region<'_, F>,
     offset: usize,
