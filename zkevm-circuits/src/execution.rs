@@ -335,6 +335,31 @@ pub enum ExecutionState {
     STOP,
     ADD,
     PUSH,
+    ISZERO,
+    AND_OR_XOR,
+    NOT,
+    JUMP,
+    JUMPDEST,
+    //JUMP_ERR_OUTOFBOUND,
+    JUMPI,
+    PUBLIC_CONTEXT,
+    TX_CONTEXT,
+    MEMORY,
+    STORAGE,
+    CALL_CONTEXT,
+    CALLDATALOAD,
+    CALLDATACOPY,
+    //CALLDATA_FROMPUBLIC,
+    LOG_BYTES,
+    LOG_TOPIC,
+    EQ,
+    LT,
+    GT,
+    SLT,
+    SGT,
+    DUP,
+    SWAP,
+    BYTE,
 }
 
 impl ExecutionState {
@@ -373,48 +398,17 @@ impl ExecutionState {
             OpcodeId::SIGNEXTEND => {
                 todo!()
             }
-            OpcodeId::LT => {
-                todo!()
-            }
-            OpcodeId::GT => {
-                todo!()
-            }
-            OpcodeId::SLT => {
-                todo!()
-            }
-            OpcodeId::SGT => {
-                todo!()
-            }
-            OpcodeId::EQ => {
-                todo!()
-            }
-            OpcodeId::ISZERO => {
-                todo!()
-            }
-            OpcodeId::AND => {
-                todo!()
-            }
-            OpcodeId::OR => {
-                todo!()
-            }
-            OpcodeId::XOR => {
-                todo!()
-            }
-            OpcodeId::NOT => {
-                todo!()
-            }
-            OpcodeId::BYTE => {
-                todo!()
-            }
-            OpcodeId::CALLDATALOAD => {
-                todo!()
-            }
-            OpcodeId::CALLDATASIZE => {
-                todo!()
-            }
-            OpcodeId::CALLDATACOPY => {
-                todo!()
-            }
+            OpcodeId::LT => vec![Self::LT],
+            OpcodeId::GT => vec![Self::GT],
+            OpcodeId::SLT => vec![Self::SLT],
+            OpcodeId::SGT => vec![Self::SGT],
+            OpcodeId::EQ => vec![Self::EQ],
+            OpcodeId::ISZERO => vec![Self::ISZERO],
+            OpcodeId::AND | OpcodeId::OR | OpcodeId::XOR => vec![Self::AND_OR_XOR],
+            OpcodeId::NOT => vec![Self::NOT],
+            OpcodeId::BYTE => vec![Self::BYTE],
+            OpcodeId::CALLDATALOAD => vec![Self::CALLDATALOAD],
+            OpcodeId::CALLDATACOPY => vec![Self::CALLDATACOPY],
             OpcodeId::CODESIZE => {
                 todo!()
             }
@@ -433,30 +427,17 @@ impl ExecutionState {
             OpcodeId::POP => {
                 todo!()
             }
-            OpcodeId::MLOAD => {
-                todo!()
-            }
-            OpcodeId::MSTORE => {
-                todo!()
-            }
-            OpcodeId::MSTORE8 => {
-                todo!()
-            }
-            OpcodeId::JUMP => {
-                todo!()
-            }
-            OpcodeId::JUMPI => {
-                todo!()
-            }
+            OpcodeId::MLOAD | OpcodeId::MSTORE | OpcodeId::MSTORE8 => vec![Self::MEMORY],
+            OpcodeId::JUMP => vec![Self::JUMP],
+            OpcodeId::JUMPI => vec![Self::JUMPI],
             OpcodeId::PC => {
                 todo!()
             }
             OpcodeId::MSIZE => {
                 todo!()
             }
-            OpcodeId::JUMPDEST => {
-                todo!()
-            }
+            OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
+
             OpcodeId::PUSH1
             | OpcodeId::PUSH2
             | OpcodeId::PUSH3
@@ -490,102 +471,40 @@ impl ExecutionState {
             | OpcodeId::PUSH31
             | OpcodeId::PUSH32 => vec![Self::PUSH],
 
-            OpcodeId::DUP1 => {
-                todo!()
-            }
-            OpcodeId::DUP2 => {
-                todo!()
-            }
-            OpcodeId::DUP3 => {
-                todo!()
-            }
-            OpcodeId::DUP4 => {
-                todo!()
-            }
-            OpcodeId::DUP5 => {
-                todo!()
-            }
-            OpcodeId::DUP6 => {
-                todo!()
-            }
-            OpcodeId::DUP7 => {
-                todo!()
-            }
-            OpcodeId::DUP8 => {
-                todo!()
-            }
-            OpcodeId::DUP9 => {
-                todo!()
-            }
-            OpcodeId::DUP10 => {
-                todo!()
-            }
-            OpcodeId::DUP11 => {
-                todo!()
-            }
-            OpcodeId::DUP12 => {
-                todo!()
-            }
-            OpcodeId::DUP13 => {
-                todo!()
-            }
-            OpcodeId::DUP14 => {
-                todo!()
-            }
-            OpcodeId::DUP15 => {
-                todo!()
-            }
-            OpcodeId::DUP16 => {
-                todo!()
-            }
-            OpcodeId::SWAP1 => {
-                todo!()
-            }
-            OpcodeId::SWAP2 => {
-                todo!()
-            }
-            OpcodeId::SWAP3 => {
-                todo!()
-            }
-            OpcodeId::SWAP4 => {
-                todo!()
-            }
-            OpcodeId::SWAP5 => {
-                todo!()
-            }
-            OpcodeId::SWAP6 => {
-                todo!()
-            }
-            OpcodeId::SWAP7 => {
-                todo!()
-            }
-            OpcodeId::SWAP8 => {
-                todo!()
-            }
-            OpcodeId::SWAP9 => {
-                todo!()
-            }
-            OpcodeId::SWAP10 => {
-                todo!()
-            }
-            OpcodeId::SWAP11 => {
-                todo!()
-            }
-            OpcodeId::SWAP12 => {
-                todo!()
-            }
-            OpcodeId::SWAP13 => {
-                todo!()
-            }
-            OpcodeId::SWAP14 => {
-                todo!()
-            }
-            OpcodeId::SWAP15 => {
-                todo!()
-            }
-            OpcodeId::SWAP16 => {
-                todo!()
-            }
+            OpcodeId::DUP1
+            | OpcodeId::DUP2
+            | OpcodeId::DUP3
+            | OpcodeId::DUP4
+            | OpcodeId::DUP5
+            | OpcodeId::DUP6
+            | OpcodeId::DUP7
+            | OpcodeId::DUP8
+            | OpcodeId::DUP9
+            | OpcodeId::DUP10
+            | OpcodeId::DUP11
+            | OpcodeId::DUP12
+            | OpcodeId::DUP13
+            | OpcodeId::DUP14
+            | OpcodeId::DUP15
+            | OpcodeId::DUP16 => vec![Self::DUP],
+
+            OpcodeId::SWAP1
+            | OpcodeId::SWAP2
+            | OpcodeId::SWAP3
+            | OpcodeId::SWAP4
+            | OpcodeId::SWAP5
+            | OpcodeId::SWAP6
+            | OpcodeId::SWAP7
+            | OpcodeId::SWAP8
+            | OpcodeId::SWAP9
+            | OpcodeId::SWAP10
+            | OpcodeId::SWAP11
+            | OpcodeId::SWAP12
+            | OpcodeId::SWAP13
+            | OpcodeId::SWAP14
+            | OpcodeId::SWAP15
+            | OpcodeId::SWAP16 => vec![Self::SWAP],
+
             OpcodeId::RETURN => {
                 todo!()
             }
@@ -604,18 +523,11 @@ impl ExecutionState {
             OpcodeId::BALANCE => {
                 todo!()
             }
-            OpcodeId::ORIGIN => {
-                todo!()
+            OpcodeId::ORIGIN | OpcodeId::GASPRICE => vec![Self::TX_CONTEXT],
+            OpcodeId::CALLER | OpcodeId::CALLVALUE | OpcodeId::CALLDATASIZE => {
+                vec![Self::CALL_CONTEXT]
             }
-            OpcodeId::CALLER => {
-                todo!()
-            }
-            OpcodeId::CALLVALUE => {
-                todo!()
-            }
-            OpcodeId::GASPRICE => {
-                todo!()
-            }
+
             OpcodeId::EXTCODESIZE => {
                 todo!()
             }
@@ -634,53 +546,25 @@ impl ExecutionState {
             OpcodeId::BLOCKHASH => {
                 todo!()
             }
-            OpcodeId::COINBASE => {
-                todo!()
-            }
-            OpcodeId::TIMESTAMP => {
-                todo!()
-            }
-            OpcodeId::NUMBER => {
-                todo!()
-            }
+            OpcodeId::COINBASE
+            | OpcodeId::TIMESTAMP
+            | OpcodeId::NUMBER
+            | OpcodeId::GASLIMIT
+            | OpcodeId::CHAINID
+            | OpcodeId::BASEFEE => vec![Self::PUBLIC_CONTEXT],
             OpcodeId::DIFFICULTY => {
-                todo!()
-            }
-            OpcodeId::GASLIMIT => {
-                todo!()
-            }
-            OpcodeId::CHAINID => {
                 todo!()
             }
             OpcodeId::SELFBALANCE => {
                 todo!()
             }
-            OpcodeId::BASEFEE => {
-                todo!()
-            }
-            OpcodeId::SLOAD => {
-                todo!()
-            }
-            OpcodeId::SSTORE => {
-                todo!()
-            }
+            OpcodeId::SLOAD | OpcodeId::SSTORE => vec![Self::STORAGE],
             OpcodeId::GAS => {
                 todo!()
             }
-            OpcodeId::LOG0 => {
-                todo!()
-            }
-            OpcodeId::LOG1 => {
-                todo!()
-            }
-            OpcodeId::LOG2 => {
-                todo!()
-            }
-            OpcodeId::LOG3 => {
-                todo!()
-            }
-            OpcodeId::LOG4 => {
-                todo!()
+            //LOG TOPIC LOG BYTES
+            OpcodeId::LOG0 | OpcodeId::LOG1 | OpcodeId::LOG2 | OpcodeId::LOG3 | OpcodeId::LOG4 => {
+                vec![Self::LOG_BYTES]
             }
             OpcodeId::CREATE => {
                 todo!()
