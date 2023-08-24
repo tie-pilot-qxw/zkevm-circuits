@@ -606,10 +606,12 @@ mod test {
             use gadgets::dynamic_selector::DynamicSelectorChip;
             use gadgets::is_zero::IsZeroInstruction;
             use gadgets::is_zero_with_rotation::IsZeroWithRotationChip;
+            use gadgets::util::Expr;
             use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
             use halo2_proofs::dev::MockProver;
             use halo2_proofs::halo2curves::bn256::Fr;
             use halo2_proofs::plonk::{Advice, Circuit, Column, Error, Selector};
+            use halo2_proofs::poly::Rotation;
             use std::collections::HashMap;
             #[derive(Clone, Default, Debug)]
             struct TestCircuit<F> {
@@ -664,6 +666,9 @@ mod test {
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {
                         let constraints = gadget.get_constraints(&config, meta);
+                        if constraints.is_empty() {
+                            return vec![("placeholder due to no constraint".into(), 0u8.expr())];
+                        }
                         let q_enable = meta.query_selector(q_enable);
                         let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
                         let condition = q_enable * cnt_is_zero;
