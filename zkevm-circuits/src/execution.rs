@@ -334,6 +334,12 @@ pub enum ExecutionState {
     // opcode/operation successful states
     STOP,
     ADD,
+    MUL,
+    SUB,
+    DIV,
+    MOD,
+    ADDMOD,
+    MULMOD,
     PUSH,
     ISZERO,
     AND_OR_XOR,
@@ -368,30 +374,18 @@ impl ExecutionState {
         match opcode {
             OpcodeId::STOP => vec![Self::STOP],
             OpcodeId::ADD => vec![Self::ADD],
-            OpcodeId::MUL => {
-                todo!()
-            }
-            OpcodeId::SUB => {
-                todo!()
-            }
-            OpcodeId::DIV => {
-                todo!()
-            }
+            OpcodeId::MUL => vec![Self::MUL],
+            OpcodeId::SUB => vec![Self::SUB],
+            OpcodeId::DIV => vec![Self::DIV],
             OpcodeId::SDIV => {
                 todo!()
             }
-            OpcodeId::MOD => {
-                todo!()
-            }
+            OpcodeId::MOD => vec![Self::MOD],
             OpcodeId::SMOD => {
                 todo!()
             }
-            OpcodeId::ADDMOD => {
-                todo!()
-            }
-            OpcodeId::MULMOD => {
-                todo!()
-            }
+            OpcodeId::ADDMOD => vec![Self::ADDMOD],
+            OpcodeId::MULMOD => vec![Self::MULMOD],
             OpcodeId::EXP => {
                 todo!()
             }
