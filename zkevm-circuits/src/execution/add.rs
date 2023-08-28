@@ -1,4 +1,4 @@
-use crate::execution::{Auxiliary, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{arithmetic, CurrentState};
@@ -13,7 +13,7 @@ use trace_parser::Trace;
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
-const STACK_POINTER_DELTA: i64 = -1;
+const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
 
 pub struct AddGadget<F: Field> {
@@ -60,61 +60,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let Auxiliary {
-            state_stamp,
-            stack_pointer,
-            log_stamp,
-            gas_left,
-            refund,
-            memory_chunk,
-            read_only,
-            ..
-        } = config.get_auxiliary();
-        let state_stamp_cur = meta.query_advice(state_stamp, Rotation::cur());
-        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
-        let stack_pointer_cur = meta.query_advice(stack_pointer, Rotation::cur());
-        let stack_pointer_prev = meta.query_advice(stack_pointer, Rotation(-1 * NUM_ROW as i32));
-        let log_stamp_cur = meta.query_advice(log_stamp, Rotation::cur());
-        let log_stamp_prev = meta.query_advice(log_stamp, Rotation(-1 * NUM_ROW as i32));
-        let read_only_cur = meta.query_advice(read_only, Rotation::cur());
-        let read_only_prev = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
-        let mut constraints = vec![];
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let mut arithmetic_operands = vec![];
         for i in 0..3 {
-            let (tag, stamp, value_hi, value_lo, call_id_contract_addr, _, pointer_lo, is_write) =
-                extract_lookup_expression!(state, config.get_state_lookup(meta, i));
-            constraints.extend_from_slice(&[
-                (
-                    "state lookup tag = stack".into(),
-                    tag - (state::Tag::Stack as u8).expr(),
-                ),
-                (
-                    format!("state stamp for state lookup[{}]", i),
-                    stamp - state_stamp_prev.clone() - i.expr(),
-                ),
-                (
-                    "state lookup call id".into(),
-                    call_id_contract_addr - call_id.clone(),
-                ),
-                (
-                    "pointer_lo".into(),
-                    if i != 0 {
-                        pointer_lo - stack_pointer_cur.clone()
-                    } else {
-                        pointer_lo - stack_pointer_cur.clone() - 1.expr() // first stack operand has +1 pointer
-                    },
-                ),
-                (
-                    "is_write".into(),
-                    if i != 2 {
-                        is_write // first and second stack are read
-                    } else {
-                        is_write - 1.expr() // third stack is write
-                    },
-                ),
-            ]);
-            arithmetic_operands.extend_from_slice(&[value_hi, value_lo]);
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                if i == 0 { 0 } else { -1 }.expr(),
+                i == 2,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            arithmetic_operands.extend([value_hi, value_lo]);
         }
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
@@ -125,23 +89,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
             )
         }));
-        constraints.extend_from_slice(&[
+        constraints.extend([
             ("opcode".into(), opcode - OpcodeId::ADD.as_u8().expr()),
             ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
-            (
-                "state stamp".into(),
-                state_stamp_cur - state_stamp_prev - STATE_STAMP_DELTA.expr(),
-            ),
-            (
-                "stack pointer".into(),
-                if STACK_POINTER_DELTA >= 0 {
-                    stack_pointer_cur - stack_pointer_prev - (STACK_POINTER_DELTA as u64).expr()
-                } else {
-                    stack_pointer_cur - stack_pointer_prev + (-STACK_POINTER_DELTA as u64).expr()
-                },
-            ),
-            ("log stamp".into(), log_stamp_cur - log_stamp_prev),
-            ("read only".into(), read_only_cur - read_only_prev),
             (
                 "arithmetic tag".into(),
                 tag - (arithmetic::Tag::Add as u8).expr(),

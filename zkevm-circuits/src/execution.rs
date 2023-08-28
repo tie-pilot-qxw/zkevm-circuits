@@ -29,9 +29,9 @@ pub mod sub;
 pub mod tx_context;
 
 use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs, NUM_VERS};
-use crate::table::{BytecodeTable, LookupEntry};
+use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry};
 use crate::witness::core::Row as CoreRow;
-use crate::witness::Witness;
+use crate::witness::{state, Witness};
 use crate::{execution::add::AddGadget, witness::CurrentState};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
@@ -111,7 +111,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
 #[derive(Clone)]
-pub(crate) struct Auxiliary<F> {
+pub(crate) struct Auxiliary {
     /// State stamp (counter) at the end of the execution state
     pub(crate) state_stamp: Column<Advice>,
     /// Stack pointer at the end of the execution state
@@ -126,7 +126,38 @@ pub(crate) struct Auxiliary<F> {
     pub(crate) memory_chunk: Column<Advice>,
     /// Read only indicator (0/1) at the end of the execution state
     pub(crate) read_only: Column<Advice>,
-    _marker: PhantomData<F>,
+}
+
+/// Delta for `Auxiliary`. That is, we have constraint of `X_cur - X_prev - X_delta = 0`
+pub(crate) struct AuxiliaryDelta<F> {
+    /// Delta of state stamp (counter) at the end of the execution state and the previous state
+    pub(crate) state_stamp: Expression<F>,
+    /// Delta of stack pointer at the end of the execution state and the previous state
+    pub(crate) stack_pointer: Expression<F>,
+    /// Delta of log stamp (counter) at the end of the execution state and the previous state
+    pub(crate) log_stamp: Expression<F>,
+    /// Delta of gas left at the end of the execution state and the previous state
+    pub(crate) gas_left: Expression<F>,
+    /// Delta of refund at the end of the execution state and the previous state
+    pub(crate) refund: Expression<F>,
+    /// Delta of memory usage in chunk at the end of the execution state and the previous state
+    pub(crate) memory_chunk: Expression<F>,
+    /// Delta of read only indicator (0/1) at the end of the execution state and the previous state
+    pub(crate) read_only: Expression<F>,
+}
+
+impl<F: Field> Default for AuxiliaryDelta<F> {
+    fn default() -> Self {
+        Self {
+            state_stamp: 0.expr(),
+            stack_pointer: 0.expr(),
+            log_stamp: 0.expr(),
+            gas_left: 0.expr(),
+            refund: 0.expr(),
+            memory_chunk: 0.expr(),
+            read_only: 0.expr(),
+        }
+    }
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
@@ -173,6 +204,50 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_stack_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        stack_pointer_delta: Expression<F>, // compare to that of previous state
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
+        let (tag, stamp, _, _, call_id_contract_addr, _, pointer_lo, is_write) =
+            extract_lookup_expression!(state, entry);
+        let Auxiliary {
+            state_stamp,
+            stack_pointer,
+            ..
+        } = self.get_auxiliary();
+        vec![
+            (
+                format!("state lookup tag[{}] = stack", index),
+                tag - (state::Tag::Stack as u8).expr(),
+            ),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                stamp
+                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - index.expr(),
+            ),
+            (
+                format!("state lookup call id[{}]", index),
+                call_id_contract_addr - meta.query_advice(self.call_id, Rotation::cur()),
+            ),
+            (
+                format!("pointer_lo (stack pointer)[{}]", index),
+                pointer_lo
+                    - meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
+                    - stack_pointer_delta,
+            ),
+            (
+                format!("is_write[{}]", index),
+                is_write - (write as u8).expr(), // third stack is write
+            ),
+        ]
+    }
+
     pub(crate) fn get_bytecode_full_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push) = (
             meta.query_advice(self.vers[24], Rotation::prev()),
@@ -214,7 +289,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_auxiliary(&self) -> Auxiliary<F> {
+    pub(crate) fn get_auxiliary(&self) -> Auxiliary {
         Auxiliary {
             state_stamp: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 0],
             stack_pointer: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 1],
@@ -223,8 +298,52 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 4],
             memory_chunk: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 5],
             read_only: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 6],
-            _marker: PhantomData,
         }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn get_auxiliary_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        prev_exec_state_row: usize,
+        delta: AuxiliaryDelta<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let Auxiliary {
+            state_stamp,
+            stack_pointer,
+            log_stamp,
+            gas_left,
+            refund,
+            memory_chunk,
+            read_only,
+        } = self.get_auxiliary();
+        vec![
+            (
+                "state stamp cur - prev - delta".into(),
+                meta.query_advice(state_stamp, Rotation::cur())
+                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - delta.state_stamp,
+            ),
+            (
+                "stack pointer cur - prev - delta".into(),
+                meta.query_advice(stack_pointer, Rotation::cur())
+                    - meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
+                    - delta.stack_pointer,
+            ),
+            (
+                "log stamp cur - prev - delta".into(),
+                meta.query_advice(log_stamp, Rotation::cur())
+                    - meta.query_advice(log_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - delta.log_stamp,
+            ),
+            (
+                "read only cur - prev - delta".into(),
+                meta.query_advice(read_only, Rotation::cur())
+                    - meta.query_advice(read_only, Rotation(-1 * prev_exec_state_row as i32))
+                    - delta.read_only,
+            ),
+            //todo other auxiliary
+        ]
     }
 }
 

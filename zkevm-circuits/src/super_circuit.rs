@@ -84,8 +84,8 @@ impl<
 
     fn instance(&self) -> Vec<Vec<F>> {
         let mut instance = Vec::new();
-        instance.extend_from_slice(&self.core_circuit.instance());
-        instance.extend_from_slice(&self.bytecode_circuit.instance());
+        instance.extend(self.core_circuit.instance());
+        instance.extend(self.bytecode_circuit.instance());
 
         instance
     }

@@ -1,4 +1,4 @@
-use crate::execution::{Auxiliary, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::CurrentState;
@@ -12,7 +12,7 @@ use trace_parser::Trace;
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
-const STACK_POINTER_DELTA: i64 = 1;
+const STACK_POINTER_DELTA: i32 = 1;
 
 pub struct PushGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -57,69 +57,34 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let Auxiliary {
-            state_stamp,
-            stack_pointer,
-            log_stamp,
-            gas_left,
-            refund,
-            memory_chunk,
-            read_only,
-            ..
-        } = config.get_auxiliary();
-        let state_stamp_cur = meta.query_advice(state_stamp, Rotation::cur());
-        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
-        let stack_pointer_cur = meta.query_advice(stack_pointer, Rotation::cur());
-        let stack_pointer_prev = meta.query_advice(stack_pointer, Rotation(-1 * NUM_ROW as i32));
-        let log_stamp_cur = meta.query_advice(log_stamp, Rotation::cur());
-        let log_stamp_prev = meta.query_advice(log_stamp, Rotation(-1 * NUM_ROW as i32));
-        let read_only_cur = meta.query_advice(read_only, Rotation::cur());
-        let read_only_prev = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
-        let (tag, stamp, value_hi, value_lo, call_id_contract_addr, _, pointer_lo, is_write) =
-            extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let state_entry = config.get_state_lookup(meta, 0);
+        constraints.append(&mut config.get_stack_constraints(
+            meta,
+            state_entry.clone(),
+            0,
+            NUM_ROW,
+            1.expr(),
+            true,
+        ));
+        let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
         let (addr, pc, _, not_code, push_value_hi, push_value_lo, cnt, is_push) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
-        vec![
+        constraints.extend([
             ("opcode is one of push".into(), is_push - 1.expr()),
             ("next pc".into(), pc_next - pc_cur.clone() - cnt - 1.expr()),
-            (
-                "state stamp".into(),
-                state_stamp_cur - state_stamp_prev.clone() - STATE_STAMP_DELTA.expr(),
-            ),
-            (
-                "stack pointer".into(),
-                if STACK_POINTER_DELTA >= 0 {
-                    stack_pointer_cur.clone()
-                        - stack_pointer_prev
-                        - (STACK_POINTER_DELTA as u64).expr()
-                } else {
-                    stack_pointer_cur.clone() - stack_pointer_prev
-                        + (-STACK_POINTER_DELTA as u64).expr()
-                },
-            ),
-            ("log stamp".into(), log_stamp_cur - log_stamp_prev),
-            ("read only".into(), read_only_cur - read_only_prev),
             ("value_hi = push_value".into(), push_value_hi - value_hi),
             ("value_lo = push_value".into(), push_value_lo - value_lo),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             ("bytecode lookup pc = pc".into(), pc_cur - pc),
             ("bytecode lookup not_code = 0".into(), not_code),
-            (
-                "state lookup tag = stack".into(),
-                tag - (state::Tag::Stack as u8).expr(),
-            ),
-            (
-                "state stamp for stack push".into(),
-                stamp - state_stamp_prev,
-            ),
-            (
-                "state lookup call id".into(),
-                call_id_contract_addr - call_id,
-            ),
-            ("pointer_lo".into(), pointer_lo - stack_pointer_cur),
-            ("is_write".into(), is_write - 1.expr()),
-        ]
+        ]);
+        constraints
     }
 
     fn get_lookups(
