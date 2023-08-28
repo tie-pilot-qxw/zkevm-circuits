@@ -1,7 +1,32 @@
 pub mod add;
+pub mod addmod;
+pub mod and_or_xor;
+pub mod byte;
+pub mod call_context;
+pub mod calldatacopy;
+pub mod calldataload;
+pub mod div_mod;
+pub mod dup;
 pub mod end_block;
+pub mod eq;
+pub mod gt;
+pub mod iszero;
+pub mod jump;
+pub mod jumpdest;
+pub mod jumpi;
+pub mod lt;
+pub mod memory;
+pub mod mul;
+pub mod mulmod;
+pub mod not;
+pub mod public_context;
 pub mod push;
+pub mod sgt;
+pub mod slt;
 pub mod stop;
+pub mod storage;
+pub mod sub;
+pub mod tx_context;
 
 use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs, NUM_VERS};
 use crate::table::{BytecodeTable, LookupEntry};
@@ -28,6 +53,31 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::push::new(),
             crate::execution::stop::new(),
             crate::execution::end_block::new(),
+            crate::execution::iszero::new(),
+            crate::execution::and_or_xor::new(),
+            crate::execution::not::new(),
+            crate::execution::jump::new(),
+            crate::execution::jumpi::new(),
+            crate::execution::jumpdest::new(),
+            crate::execution::public_context::new(),
+            crate::execution::tx_context::new(),
+            crate::execution::memory::new(),
+            crate::execution::storage::new(),
+            crate::execution::call_context::new(),
+            crate::execution::calldataload::new(),
+            crate::execution::calldatacopy::new(),
+            crate::execution::eq::new(),
+            crate::execution::lt::new(),
+            crate::execution::gt::new(),
+            crate::execution::slt::new(),
+            crate::execution::sgt::new(),
+            crate::execution::byte::new(),
+            crate::execution::dup::new(),
+            crate::execution::mul::new(),
+            crate::execution::sub::new(),
+            crate::execution::div_mod::new(),
+            crate::execution::addmod::new(),
+            crate::execution::mulmod::new(),
         ]
     }};
 }
@@ -336,8 +386,7 @@ pub enum ExecutionState {
     ADD,
     MUL,
     SUB,
-    DIV,
-    MOD,
+    DIV_MOD,
     ADDMOD,
     MULMOD,
     PUSH,
@@ -376,11 +425,10 @@ impl ExecutionState {
             OpcodeId::ADD => vec![Self::ADD],
             OpcodeId::MUL => vec![Self::MUL],
             OpcodeId::SUB => vec![Self::SUB],
-            OpcodeId::DIV => vec![Self::DIV],
+            OpcodeId::DIV | OpcodeId::MOD => vec![Self::DIV_MOD],
             OpcodeId::SDIV => {
                 todo!()
             }
-            OpcodeId::MOD => vec![Self::MOD],
             OpcodeId::SMOD => {
                 todo!()
             }

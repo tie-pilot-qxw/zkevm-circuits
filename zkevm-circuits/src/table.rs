@@ -2,9 +2,8 @@ use crate::witness::arithmetic;
 use eth_types::Field;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector, VirtualCells,
+    Advice, Column, ConstraintSystem, Expression, Fixed, Selector, VirtualCells,
 };
 use halo2_proofs::poly::Rotation;
 
@@ -25,16 +24,6 @@ impl StackTable {
             is_write: meta.advice_column(),
             address: meta.advice_column(),
         }
-    }
-
-    pub fn assign<F: Field>(
-        &self,
-        _region: &mut Region<'_, F>,
-        _offset: usize,
-        _the_values: Value<F>,
-    ) -> Result<(), Error> {
-        todo!();
-        panic!("see region.assign_advice")
     }
 }
 

@@ -17,7 +17,6 @@ use eth_types::evm_types::Stack;
 use eth_types::U256;
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
-use std::cmp::max;
 use std::collections::HashMap;
 use trace_parser::Trace;
 
@@ -105,6 +104,26 @@ impl CurrentState {
         };
         self.state_stamp += 1;
         (res, value)
+    }
+
+    pub fn get_peek_stack_row_value(&mut self, postfix: usize) -> (state::Row, U256) {
+        let value = self
+            .stack
+            .0
+            .get(self.stack.0.len() - postfix)
+            .expect("error in current_state.get_peek_stack_row_value");
+        let res = state::Row {
+            tag: Some(state::Tag::Stack),
+            stamp: Some((self.state_stamp).into()),
+            value_hi: Some((value >> 128).as_u128().into()),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((self.stack.0.len() - postfix + 1).into()), // stack pointer starts with 1, and we already pop, so +1
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, *value)
     }
 
     pub fn get_push_stack_row(&mut self, value: U256) -> state::Row {

@@ -7,7 +7,7 @@ use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance, Selector};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Instance, Selector};
 use halo2_proofs::poly::Rotation;
 use std::iter::zip;
 use std::marker::PhantomData;
@@ -523,6 +523,7 @@ mod test {
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::{CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::Fr;
+    use halo2_proofs::plonk::Circuit;
 
     /// A standalone circuit for testing
     #[derive(Clone, Default, Debug)]

@@ -1,10 +1,8 @@
 // use crate::util::{, SubCircuitConfig};
 
-use crate::execution::{
-    get_every_execution_gadgets, ExecutionConfig, ExecutionGadget, ExecutionGadgets, ExecutionState,
-};
+use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
 use crate::table::{BytecodeTable, StackTable};
-use crate::util::{self, assign_advice_or_fixed};
+use crate::util::assign_advice_or_fixed;
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::core::Row;
 use crate::witness::Witness;
@@ -349,7 +347,6 @@ mod test {
     use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::util::log2_ceil;
     use eth_types::U256;
-    use halo2_proofs::halo2curves::ff::FromUniformBytes;
     use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
 
     #[derive(Clone, Default, Debug)]
@@ -457,7 +454,7 @@ mod test {
             vers_10: Some(1.into()), // dynamic selector low is correct
             ..Default::default()
         };
-        let mut witness = Witness {
+        let witness = Witness {
             core: vec![row_0, row_1, row_2, row_3],
             ..Default::default()
         };
@@ -499,7 +496,7 @@ mod test {
             vers_18: Some(2.into()), // dynamic selector low is false
             ..Default::default()
         };
-        let mut witness = Witness {
+        let witness = Witness {
             core: vec![row_0, row_1, row_2],
             ..Default::default()
         };

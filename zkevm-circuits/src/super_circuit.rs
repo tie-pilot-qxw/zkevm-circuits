@@ -7,7 +7,6 @@ use crate::witness::Witness;
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
-use halo2_proofs::poly::Rotation;
 
 #[derive(Clone)]
 pub struct SuperCircuitConfig<

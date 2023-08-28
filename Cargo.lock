@@ -3298,6 +3298,7 @@ dependencies = [
  "gadgets",
  "genco",
  "halo2_proofs",
+ "hex",
  "itertools",
  "lazy_static",
  "log",

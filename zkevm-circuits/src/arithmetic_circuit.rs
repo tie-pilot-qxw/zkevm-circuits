@@ -1,4 +1,6 @@
 // Toy example
+#![allow(dead_code)]
+#![allow(unused)]
 
 mod operation;
 

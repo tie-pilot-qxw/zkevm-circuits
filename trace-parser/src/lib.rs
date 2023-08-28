@@ -1,6 +1,7 @@
 use eth_types::evm_types::OpcodeId;
 use eth_types::U256;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::process::Command;
 use std::{
     fs::File,
@@ -67,6 +68,13 @@ struct JsonResult {
     stack: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct JsonResultOpString {
+    pc: u64,
+    op: String,
+    stack: Vec<String>,
+}
+
 #[derive(Debug)]
 pub struct Trace {
     pub pc: u64,
@@ -111,6 +119,28 @@ pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
         if OpcodeId::from(t.op) == OpcodeId::STOP {
             break;
         }
+    }
+    res
+}
+
+pub fn read_trace_from_jsonl<P: AsRef<Path>>(path: P) -> Vec<Trace> {
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let mut res: Vec<Trace> = vec![];
+    for line in reader.lines() {
+        let mut t: JsonResultOpString = serde_json::from_str(line.unwrap().as_str()).unwrap();
+        let back = t.stack.pop();
+        let push_value = if let Some(a) = back {
+            Some(U256::from_str_radix(&a[2..], 16).unwrap())
+        } else {
+            None
+        };
+        res.last_mut().map(|x| x.push_value = push_value);
+        res.push(Trace {
+            pc: t.pc,
+            op: OpcodeId::from_str(t.op.as_str()).unwrap(),
+            push_value: None,
+        });
     }
     res
 }

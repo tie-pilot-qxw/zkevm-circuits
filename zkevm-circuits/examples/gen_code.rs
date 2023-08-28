@@ -1,8 +1,6 @@
 // To run the example, enable feature gen_code.
 // Also cargo nightly is recommended.
 
-use std::collections::HashMap;
-
 #[cfg(feature = "gen_code")]
 fn main() {
     use convert_case::{Case, Casing};
@@ -15,7 +13,32 @@ fn main() {
     //num_row
     //stack_pop_num
     //stack_push_num
-    let states = [("GoodBye", 2, 0, 1)];
+    let states = [
+        // ("Iszero", 2, 1, 1),
+        // ("AndOrXor", 5, 2, 1),
+        // ("Not", 2, 1, 1),
+        // ("Jump", 2, 1, 0),
+        // ("Jumpi", 2, 2, 0),
+        // ("Jumpdest", 1, 0, 0),
+        // ("PublicContext", 2, 0, 1),
+        // ("TxContext", 2, 2, 1),
+        // ("Memory", 3, 2, 0),
+        // ("Storage", 2, 2, 0),
+        // ("CallContext", 2, 0, 1),
+        // ("Calldataload", 3, 1, 1),
+        // ("Calldatacopy", 3, 3, 0),
+        // ("Eq", 2, 2, 1),
+        // ("Lt", 3, 2, 1),
+        // ("Gt", 3, 2, 1),
+        // ("Slt", 3, 2, 1),
+        // ("Sgt", 3, 2, 1),
+        // ("Byte", 4, 2, 1),
+        ("Mul", 3, 2, 1),
+        ("Sub", 3, 2, 1),
+        ("DivMod", 3, 2, 1),
+        ("Addmod", 5, 3, 1),
+        ("Mulmod", 5, 3, 1),
+    ];
 
     let path: std::path::PathBuf = [".", "zkevm-circuits", "src", "execution_bak.txt"]
         .iter()
@@ -84,15 +107,15 @@ fn main() {
             fn execution_state(&self) -> ExecutionState { ExecutionState::$(state_name_uppercase.as_str()) }
             fn num_row(&self) -> usize { NUM_ROW }
             fn unusable_rows(&self) -> (usize, usize) { (NUM_ROW, 1) }
-            fn get_constraints( &self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut VirtualCells<F>) -> Vec<(String, Expression<F>)> { vec![] }
-            fn get_lookups( &self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut ConstraintSystem<F>) -> Vec<(String, LookupEntry<F>)> { vec![] }
+            fn get_constraints(&self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut VirtualCells<F>) -> Vec<(String, Expression<F>)> { vec![] }
+            fn get_lookups(&self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut ConstraintSystem<F>) -> Vec<(String, LookupEntry<F>)> { vec![] }
             fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
                 $(for i in 0..stack_pop_num =>
                     let (stack_pop_$i, _) = current_state.get_pop_stack_row_value();$['\n'])
                 $(for i in 0..stack_push_num =>
                     let stack_push_$i = current_state.get_push_stack_row(trace.push_value.unwrap_or_default());$['\n'])
                 $(for i in (1..num_row).rev() =>
-                    let mut core_row_$i = current_state.get_core_row_without_versatile($i);)
+                    let mut core_row_$i = current_state.get_core_row_without_versatile($i);$['\n'])
                 $(if stack_pop_num+stack_push_num>0 =>
                     core_row_1.insert_state_lookups([$(for i in 0..stack_pop_num join (, ) => &stack_pop_$i)$(if stack_pop_num*stack_push_num>0 =>,$[' '])$(for i in 0..stack_push_num join (, ) => &stack_push_$i)]));
                 let core_row_0 = ExecutionState::$(state_name_uppercase.as_str()).into_exec_state_core_row(current_state, NUM_STATE_HI_COL, NUM_STATE_LO_COL);

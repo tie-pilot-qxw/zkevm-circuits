@@ -1,7 +1,17 @@
 # How to run test
 
-```
+```shell
 cargo test super_circuit::tests::test_super_circuit
+```
+
+or 
+```shell
+cargo test
+```
+
+# How to run gen_code
+```shell
+cargo run --package zkevm-circuits --example gen_code --features gen_code
 ```
 
 # Resources
