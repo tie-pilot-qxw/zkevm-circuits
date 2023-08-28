@@ -196,7 +196,7 @@ pub enum LookupEntry<F> {
         is_push: Expression<F>,
     },
     /// Lookup to copy table.
-    CopyTable {
+    Copy {
         /// The source type for the copy event.
         src_type: Expression<F>,
         /// The source ID for the copy event.
@@ -234,17 +234,60 @@ impl<F: Field> LookupEntry<F> {
     }
 }
 
-// used to extract inner of lookup entry
-// from https://stackoverflow.com/questions/34953711/unwrap-inner-type-when-enum-variant-is-known
-#[macro_export]
-macro_rules! extract_enum_value {
-    ($value:expr, $pattern:pat => $extracted_value:expr) => {
+macro_rules! extract_lookup_expression {
+    (state, $value:expr) => {
         match $value {
-            $pattern => $extracted_value,
+            LookupEntry::State {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                pointer_hi,
+                pointer_lo,
+                is_write,
+            } => (
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                pointer_hi,
+                pointer_lo,
+                is_write,
+            ),
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (bytecode, $value:expr) => {
+        match $value {
+            LookupEntry::BytecodeFull {
+                addr,
+                pc,
+                opcode,
+                not_code,
+                value_hi,
+                value_lo,
+                cnt,
+                is_push,
+            } => (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (arithmetic, $value:expr) => {
+        match $value {
+            LookupEntry::Arithmetic { tag, values } => (tag, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (fixed, $value:expr) => {
+        todo!()
+    };
+    (copy, $value:expr) => {
+        todo!()
+    };
 }
+pub(crate) use extract_lookup_expression;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ArithmeticTable {

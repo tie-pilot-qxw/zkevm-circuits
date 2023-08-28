@@ -1,6 +1,5 @@
 use crate::execution::{Auxiliary, ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::extract_enum_value;
-use crate::table::LookupEntry;
+use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::CurrentState;
 use crate::witness::{core, state, Witness};
@@ -77,13 +76,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let log_stamp_prev = meta.query_advice(log_stamp, Rotation(-1 * NUM_ROW as i32));
         let read_only_cur = meta.query_advice(read_only, Rotation::cur());
         let read_only_prev = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
-        let (tag, stamp, value_hi, value_lo, call_id_contract_addr, _, pointer_lo, is_write) = extract_enum_value!(config.get_state_lookup(meta,  0), LookupEntry::State {
-            tag, stamp, value_hi, value_lo, call_id_contract_addr, pointer_hi, pointer_lo, is_write,
-        } => (tag, stamp, value_hi, value_lo, call_id_contract_addr, pointer_hi, pointer_lo, is_write));
-        let (addr, pc, _, not_code, push_value_hi, push_value_lo, cnt, is_push) = extract_enum_value!(
-            config.get_bytecode_full_lookup(meta), LookupEntry::BytecodeFull {
-                addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push,
-            } => (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push));
+        let (tag, stamp, value_hi, value_lo, call_id_contract_addr, _, pointer_lo, is_write) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
+        let (addr, pc, _, not_code, push_value_hi, push_value_lo, cnt, is_push) =
+            extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
         vec![
             ("opcode is one of push".into(), is_push - 1.expr()),
             ("next pc".into(), pc_next - pc_cur.clone() - cnt - 1.expr()),

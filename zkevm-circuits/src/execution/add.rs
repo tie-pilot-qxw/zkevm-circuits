@@ -1,6 +1,5 @@
 use crate::execution::{Auxiliary, ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::extract_enum_value;
-use crate::table::LookupEntry;
+use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{arithmetic, CurrentState};
 use crate::witness::{core, state, Witness};
@@ -83,9 +82,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         let mut arithmetic_operands = vec![];
         for i in 0..3 {
-            let (tag, stamp, value_hi, value_lo, call_id_contract_addr, _, pointer_lo, is_write) = extract_enum_value!(
-                config.get_state_lookup(meta,  i), LookupEntry::State { tag, stamp, value_hi, value_lo, call_id_contract_addr, pointer_hi, pointer_lo, is_write} =>
-                (tag, stamp, value_hi, value_lo, call_id_contract_addr, pointer_hi, pointer_lo, is_write));
+            let (tag, stamp, value_hi, value_lo, call_id_contract_addr, _, pointer_lo, is_write) =
+                extract_lookup_expression!(state, config.get_state_lookup(meta, i));
             constraints.extend_from_slice(&[
                 (
                     "state lookup tag = stack".into(),
@@ -118,8 +116,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ]);
             arithmetic_operands.extend_from_slice(&[value_hi, value_lo]);
         }
-        let (tag, arithmetic_operands_full) = extract_enum_value!(
-            config.get_arithmetic_lookup(meta), LookupEntry::Arithmetic { tag, values } => (tag, values));
+        let (tag, arithmetic_operands_full) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
         // iterate over three operands (0..6), since we don't need constraint on the fourth
         constraints.extend((0..6).map(|i| {
             (
