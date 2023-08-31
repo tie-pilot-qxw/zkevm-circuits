@@ -1,7 +1,6 @@
-// use crate::util::{, SubCircuitConfig};
-
+use crate::constant::NUM_VERS;
 use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
-use crate::table::{BytecodeTable, StackTable};
+use crate::table::{BytecodeTable, StateTable};
 use crate::util::assign_advice_or_fixed;
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::core::Row;
@@ -11,15 +10,11 @@ use gadgets::dynamic_selector::{DynamicSelectorChip, DynamicSelectorConfig};
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Value};
-use halo2_proofs::circuit::{Region, SimpleFloorPlanner};
-use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use strum::EnumCount;
-
-/// Number of versatile columns in core circuit
-pub(crate) const NUM_VERS: usize = 32;
 
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
@@ -48,12 +43,13 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     execution_gadgets: ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
+    state_table: StateTable,
 }
 
 pub struct CoreCircuitConfigArgs<F> {
-    pub q_enable: Selector,
     pub bytecode_table: BytecodeTable<F>,
-} // todo change this
+    pub state_table: StateTable,
+}
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
     for CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
@@ -63,10 +59,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     fn new(
         meta: &mut ConstraintSystem<F>,
         Self::ConfigArgs {
-            q_enable,
             bytecode_table,
+            state_table,
         }: Self::ConfigArgs,
     ) -> Self {
+        let q_enable = meta.complex_selector();
         let tx_idx = meta.advice_column();
         let call_id = meta.advice_column();
         let code_addr = meta.advice_column();
@@ -104,26 +101,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             cnt_is_zero,
             execution_state_selector,
             bytecode_table,
+            state_table,
         };
         // all execution gadgets are created here
         let execution_gadgets = ExecutionGadgets::configure(meta, execution_config);
-
-        meta.create_gate("Core Circuit counter", |meta| {
-            let q_enable = meta.query_selector(q_enable);
-            let cnt_cur = meta.query_advice(cnt, Rotation::cur());
-            let cnt_prev = meta.query_advice(cnt, Rotation::prev());
-            let cnt_is_zero_prev = cnt_is_zero.expr_at(meta, Rotation::prev());
-            vec![q_enable * (1.expr() - cnt_is_zero_prev) * (cnt_prev - cnt_cur - 1.expr())]
-        });
-
-        meta.create_gate("Program, Counter", |meta| {
-            let q_enable = meta.query_selector(q_enable);
-            let pc_cur = meta.query_advice(pc, Rotation::cur());
-            let pc_prev = meta.query_advice(pc, Rotation::prev());
-            let cnt_is_zero_prev = cnt_is_zero.expr_at(meta, Rotation::prev());
-            vec![q_enable * (1.expr() - cnt_is_zero_prev) * (pc_prev - pc_cur)]
-        });
-
         let config = Self {
             q_enable,
             tx_idx,
@@ -137,7 +118,59 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             execution_state_selector,
             execution_gadgets,
             bytecode_table,
+            state_table,
         };
+
+        meta.create_gate("CORE_cnt_decrement_unless_0", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let cnt_prev = meta.query_advice(config.cnt, Rotation::prev());
+            let cnt_is_zero_prev = config.cnt_is_zero.expr_at(meta, Rotation::prev());
+            vec![q_enable * (1.expr() - cnt_is_zero_prev) * (cnt_prev - cnt - 1.expr())]
+        });
+
+        meta.create_gate("CORE_same_value_in_one_state", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let pc = meta.query_advice(config.pc, Rotation::cur());
+            let pc_prev = meta.query_advice(config.pc, Rotation::prev());
+            let opcode = meta.query_advice(config.opcode, Rotation::cur());
+            let opcode_prev = meta.query_advice(config.opcode, Rotation::prev());
+            let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+            let tx_idx_prev = meta.query_advice(config.tx_idx, Rotation::prev());
+            let call_id = meta.query_advice(config.call_id, Rotation::cur());
+            let call_id_prev = meta.query_advice(config.call_id, Rotation::prev());
+            let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
+            let code_addr_prev = meta.query_advice(config.code_addr, Rotation::prev());
+            let cnt_is_zero_prev = config.cnt_is_zero.expr_at(meta, Rotation::prev());
+            vec![
+                (
+                    "pc",
+                    q_enable.clone() * (1.expr() - cnt_is_zero_prev.clone()) * (pc_prev - pc),
+                ),
+                (
+                    "opcode",
+                    q_enable.clone()
+                        * (1.expr() - cnt_is_zero_prev.clone())
+                        * (opcode_prev - opcode),
+                ),
+                (
+                    "tx_idx",
+                    q_enable.clone()
+                        * (1.expr() - cnt_is_zero_prev.clone())
+                        * (tx_idx_prev - tx_idx),
+                ),
+                (
+                    "call_id",
+                    q_enable.clone()
+                        * (1.expr() - cnt_is_zero_prev.clone())
+                        * (call_id_prev - call_id),
+                ),
+                (
+                    "code_addr",
+                    q_enable * (1.expr() - cnt_is_zero_prev) * (code_addr_prev - code_addr),
+                ),
+            ]
+        });
 
         // tx_id, call_id, code_addr constraints?
         config
@@ -314,40 +347,24 @@ impl<
         ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows()
         //todo add other values
     }
-    // copy from bytecode circuit, may need to be modified
+
     fn num_rows(witness: &Witness) -> usize {
         // bytecode witness length plus must-have padding in the end
         Self::unusable_rows().1 + witness.core.len()
     }
 }
 
-impl<
-        F: Field,
-        const MAX_NUM_ROW: usize,
-        const NUM_STATE_HI_COL: usize,
-        const NUM_STATE_LO_COL: usize,
-    > CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
-{
-    pub fn new(witness: Witness) -> Self {
-        Self {
-            witness,
-            _marker: PhantomData,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::core_circuit::CoreCircuit;
-    use crate::witness::core::Row;
-    use crate::witness::Witness;
-    use eth_types::evm_types::OpcodeId;
-
     use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+    use crate::core_circuit::CoreCircuit;
     use crate::util::log2_ceil;
-    use eth_types::U256;
-    use halo2_proofs::{dev::MockProver, halo2curves::bn256::Fr as Fp};
+    use crate::witness::Witness;
+    use halo2_proofs::circuit::SimpleFloorPlanner;
+    use halo2_proofs::dev::MockProver;
+    use halo2_proofs::halo2curves::bn256::Fr as Fp;
+    use halo2_proofs::plonk::Circuit;
 
     #[derive(Clone, Default, Debug)]
     pub struct CoreTestCircuit<F: Field>(
@@ -363,12 +380,13 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
-            let q_enable = meta.complex_selector();
+            let q_enable_state = meta.complex_selector();
+            let state_table = StateTable::construct(meta, q_enable_state);
             Self::Config::new(
                 meta,
                 CoreCircuitConfigArgs {
-                    q_enable,
                     bytecode_table,
+                    state_table,
                 },
             )
         }
@@ -385,130 +403,22 @@ mod test {
         pub fn new(witness: Witness) -> Self {
             Self(CoreCircuit::new_from_witness(&witness))
         }
-
-        pub fn instance(&self) -> Vec<Vec<F>> {
-            self.0.instance()
-        }
     }
 
     fn test_simple_core_circuit(witness: Witness) -> MockProver<Fp> {
-        let (num_padding_begin, _num_padding_end) =
-            CoreCircuit::<Fp, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows();
-        let mut witness = witness;
-        // insert padding rows (rows with all 0)
-        for _ in 0..num_padding_begin {
-            witness.core.insert(0, Default::default());
-        }
-
         let k = log2_ceil(MAX_NUM_ROW);
         let circuit = CoreTestCircuit::<Fp>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         prover
     }
 
-    #[ignore] //todo remove this test
-    #[test]
-    fn test_core_circuit_with_three_correct_rows() {
-        let row_0: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 1.into(),
-            opcode: OpcodeId::ADD,
-            cnt: 2.into(),
-            vers_0: Some(U256::from(0)),
-            ..Default::default()
-        };
-
-        let row_1: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 1.into(),
-            opcode: OpcodeId::ADD,
-            cnt: 1.into(),
-            ..Default::default()
-        };
-
-        let row_2: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 1.into(),
-            opcode: OpcodeId::ADD,
-            cnt: 0.into(),
-            vers_0: Some(1.into()),  // dynamic selector high is correct
-            vers_11: Some(1.into()), // dynamic selector low is correct
-            vers_20: Some(3.into()), // state stamp after add is 3
-            vers_21: Some(3.into()), // state stamp after add is 3
-            ..Default::default()
-        };
-        let row_3: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 2.into(),
-            opcode: OpcodeId::STOP,
-            cnt: 0.into(),
-            vers_0: Some(1.into()),  // dynamic selector high is correct
-            vers_10: Some(1.into()), // dynamic selector low is correct
-            ..Default::default()
-        };
-        let witness = Witness {
-            core: vec![row_0, row_1, row_2, row_3],
-            ..Default::default()
-        };
-        let prover = test_simple_core_circuit(witness);
-        prover.assert_satisfied_par();
-    }
-
-    #[test]
-    fn test_core_circuit_with_three_false_rows() {
-        let row_0: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 1.into(),
-            opcode: OpcodeId::ADD,
-            cnt: 2.into(),
-            vers_0: Some(U256::from(0)),
-            ..Default::default()
-        };
-
-        let row_1: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 1.into(),
-            opcode: OpcodeId::ADD,
-            cnt: 1.into(),
-            ..Default::default()
-        };
-
-        let row_2: Row = Row {
-            tx_idx: 1.into(),
-            call_id: 1.into(),
-            code_addr: U256::from_str_radix("ffffffffff", 16).unwrap(),
-            pc: 1.into(),
-            opcode: OpcodeId::ADD,
-            cnt: 0.into(),
-            vers_0: Some(1.into()),  // dynamic seletor high is correct
-            vers_18: Some(2.into()), // dynamic selector low is false
-            ..Default::default()
-        };
-        let witness = Witness {
-            core: vec![row_0, row_1, row_2],
-            ..Default::default()
-        };
-        let prover = test_simple_core_circuit(witness);
-        assert!(prover.verify_par().is_err());
-    }
-
+    #[cfg(feature = "no_intersubcircuit_lookup")]
     #[test]
     fn test_core_parser() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
         let witness: Witness = Witness::new(&trace, &machine_code);
-        test_simple_core_circuit(witness);
+        let prover = test_simple_core_circuit(witness);
+        prover.assert_satisfied_par();
     }
 }

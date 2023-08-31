@@ -1,5 +1,7 @@
-use crate::witness::arithmetic;
+use crate::constant::LOG_NUM_STATE_TAG;
+use crate::witness::{arithmetic, state};
 use eth_types::Field;
+use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{
@@ -7,23 +9,130 @@ use halo2_proofs::plonk::{
 };
 use halo2_proofs::poly::Rotation;
 
+macro_rules! extract_lookup_expression {
+    (state, $value:expr) => {
+        match $value {
+            LookupEntry::State {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                pointer_hi,
+                pointer_lo,
+                is_write,
+            } => (
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                pointer_hi,
+                pointer_lo,
+                is_write,
+            ),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (bytecode, $value:expr) => {
+        match $value {
+            LookupEntry::BytecodeFull {
+                addr,
+                pc,
+                opcode,
+                not_code,
+                value_hi,
+                value_lo,
+                cnt,
+                is_push,
+            } => (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (arithmetic, $value:expr) => {
+        match $value {
+            LookupEntry::Arithmetic { tag, values } => (tag, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (fixed, $value:expr) => {
+        todo!()
+    };
+    (copy, $value:expr) => {
+        todo!()
+    };
+}
+pub(crate) use extract_lookup_expression;
+
 /// The table shared between Core Circuit and Stack Circuit
 #[derive(Clone, Copy, Debug)]
-pub struct StackTable {
-    pub stack_stamp: Column<Advice>,
-    pub value: Column<Advice>,
-    pub is_write: Column<Advice>,
-    pub address: Column<Advice>,
+pub struct StateTable {
+    pub(crate) tag: BinaryNumberConfig<state::Tag, LOG_NUM_STATE_TAG>,
+    pub(crate) stamp: Column<Advice>,
+    pub(crate) value_hi: Column<Advice>,
+    pub(crate) value_lo: Column<Advice>,
+    pub(crate) call_id_contract_addr: Column<Advice>,
+    pub(crate) pointer_hi: Column<Advice>,
+    pub(crate) pointer_lo: Column<Advice>,
+    pub(crate) is_write: Column<Advice>,
 }
 
-impl StackTable {
-    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+impl StateTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
+        let stamp = meta.advice_column();
+        let value_hi = meta.advice_column();
+        let value_lo = meta.advice_column();
+        let call_id_contract_addr = meta.advice_column();
+        let pointer_hi = meta.advice_column();
+        let pointer_lo = meta.advice_column();
+        let is_write = meta.advice_column();
+        let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         Self {
-            stack_stamp: meta.advice_column(),
-            value: meta.advice_column(),
-            is_write: meta.advice_column(),
-            address: meta.advice_column(),
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
         }
+    }
+
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = self.tag.value(Rotation::cur())(meta);
+        let table_stamp = meta.query_advice(self.stamp, Rotation::cur());
+        let table_value_hi = meta.query_advice(self.value_hi, Rotation::cur());
+        let table_value_lo = meta.query_advice(self.value_lo, Rotation::cur());
+        let table_call_id_contract_addr =
+            meta.query_advice(self.call_id_contract_addr, Rotation::cur());
+        let table_pointer_hi = meta.query_advice(self.pointer_hi, Rotation::cur());
+        let table_pointer_lo = meta.query_advice(self.pointer_lo, Rotation::cur());
+        let table_is_write = meta.query_advice(self.is_write, Rotation::cur());
+        let (
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        ) = extract_lookup_expression!(state, entry);
+        vec![
+            (tag, table_tag),
+            (stamp, table_stamp),
+            (value_hi, table_value_hi),
+            (value_lo, table_value_lo),
+            (call_id_contract_addr, table_call_id_contract_addr),
+            (pointer_hi, table_pointer_hi),
+            (pointer_lo, table_pointer_lo),
+            (is_write, table_is_write),
+        ]
     }
 }
 
@@ -65,7 +174,7 @@ impl<F: Field> BytecodeTable<F> {
     pub fn get_lookup_vector(
         &self,
         meta: &mut VirtualCells<F>,
-        lookup: LookupEntry<F>,
+        entry: LookupEntry<F>,
     ) -> Vec<(Expression<F>, Expression<F>)> {
         let table_addr = meta.query_advice(self.addr, Rotation::cur());
         let table_pc = meta.query_advice(self.pc, Rotation::cur());
@@ -75,7 +184,16 @@ impl<F: Field> BytecodeTable<F> {
         let table_value_lo = meta.query_advice(self.value_lo, Rotation::cur());
         let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
         let table_is_push = 1.expr() - self.cnt_is_zero.expr_at(meta, Rotation::cur());
-        match lookup {
+        match entry {
+            LookupEntry::Bytecode { addr, pc, opcode } => {
+                let not_code = 0.expr();
+                vec![
+                    (addr, table_addr),
+                    (pc, table_pc),
+                    (opcode, table_bytecode),
+                    (not_code, table_not_code),
+                ]
+            }
             LookupEntry::BytecodeFull {
                 addr,
                 pc,
@@ -222,61 +340,6 @@ impl<F: Field> LookupEntry<F> {
         Self::Conditional(condition, self.into())
     }
 }
-
-macro_rules! extract_lookup_expression {
-    (state, $value:expr) => {
-        match $value {
-            LookupEntry::State {
-                tag,
-                stamp,
-                value_hi,
-                value_lo,
-                call_id_contract_addr,
-                pointer_hi,
-                pointer_lo,
-                is_write,
-            } => (
-                tag,
-                stamp,
-                value_hi,
-                value_lo,
-                call_id_contract_addr,
-                pointer_hi,
-                pointer_lo,
-                is_write,
-            ),
-            _ => panic!("Pattern doesn't match!"),
-        }
-    };
-    (bytecode, $value:expr) => {
-        match $value {
-            LookupEntry::BytecodeFull {
-                addr,
-                pc,
-                opcode,
-                not_code,
-                value_hi,
-                value_lo,
-                cnt,
-                is_push,
-            } => (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push),
-            _ => panic!("Pattern doesn't match!"),
-        }
-    };
-    (arithmetic, $value:expr) => {
-        match $value {
-            LookupEntry::Arithmetic { tag, values } => (tag, values),
-            _ => panic!("Pattern doesn't match!"),
-        }
-    };
-    (fixed, $value:expr) => {
-        todo!()
-    };
-    (copy, $value:expr) => {
-        todo!()
-    };
-}
-pub(crate) use extract_lookup_expression;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ArithmeticTable {

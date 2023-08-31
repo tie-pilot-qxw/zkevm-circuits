@@ -8,6 +8,7 @@ pub mod calldataload;
 pub mod div_mod;
 pub mod dup;
 pub mod end_block;
+pub mod end_padding;
 pub mod eq;
 pub mod gt;
 pub mod iszero;
@@ -28,8 +29,8 @@ pub mod storage;
 pub mod sub;
 pub mod tx_context;
 
-use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs, NUM_VERS};
-use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry};
+use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs};
+use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
 use crate::witness::core::Row as CoreRow;
 use crate::witness::{state, Witness};
 use crate::{execution::add::AddGadget, witness::CurrentState};
@@ -81,6 +82,7 @@ macro_rules! get_every_execution_gadgets {
         ]
     }};
 }
+use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
 pub(crate) use get_every_execution_gadgets;
 
 #[derive(Clone)]
@@ -107,6 +109,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
         DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     // Tables used for lookup
     pub(crate) bytecode_table: BytecodeTable<F>,
+    pub(crate) state_table: StateTable,
 }
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
@@ -459,9 +462,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // todo
         // merge lookups from all gadgets
         // currently there is no merge
+        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
         for (string, lookup, execution_state) in lookups_to_merge {
             match lookup {
-                LookupEntry::BytecodeFull { .. } => {
+                LookupEntry::BytecodeFull { .. } | LookupEntry::State { .. } => {
                     meta.lookup_any(string, |meta| {
                         let q_enable = meta.query_selector(config.q_enable);
                         let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
@@ -471,7 +475,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                             Rotation::cur(),
                         );
                         let condition = q_enable.clone() * cnt_is_zero * execution_state_selector;
-                        let v = config.bytecode_table.get_lookup_vector(meta, lookup);
+                        let v = match lookup {
+                            LookupEntry::BytecodeFull { .. } => {
+                                config.bytecode_table.get_lookup_vector(meta, lookup)
+                            }
+                            LookupEntry::State { .. } => {
+                                config.state_table.get_lookup_vector(meta, lookup)
+                            }
+                            _ => unreachable!(),
+                        };
                         v.into_iter()
                             .map(|(left, right)| (condition.clone() * left, right))
                             .collect()
@@ -498,7 +510,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 #[derive(Clone, Copy, Debug, EnumCountMacro, Eq, Hash, PartialEq)]
 pub enum ExecutionState {
     // zkevm internal states
-    /// State that ends a block of transactions
+    /// State that is padding at the end
+    END_PADDING, // it has to be the first state as it is the default padding state
     END_BLOCK, // it has to be the first state as it is the default padding state
     // opcode/operation successful states
     STOP,
@@ -759,10 +772,9 @@ mod test {
     macro_rules! generate_execution_gadget_test_circuit {
         () => {
             use super::*;
-            use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
-            use crate::core_circuit::NUM_VERS;
-            use crate::table::BytecodeTable;
-            use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuitConfig};
+            use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
+            use crate::table::{BytecodeTable, StateTable};
+            use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             use gadgets::dynamic_selector::DynamicSelectorChip;
             use gadgets::is_zero::IsZeroInstruction;
@@ -771,9 +783,8 @@ mod test {
             use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
             use halo2_proofs::dev::MockProver;
             use halo2_proofs::halo2curves::bn256::Fr;
-            use halo2_proofs::plonk::{Advice, Circuit, Column, Error, Selector};
+            use halo2_proofs::plonk::{Advice, Circuit, Column, Error};
             use halo2_proofs::poly::Rotation;
-            use std::collections::HashMap;
             #[derive(Clone, Default, Debug)]
             struct TestCircuit<F> {
                 witness: Witness,
@@ -811,6 +822,8 @@ mod test {
                     );
                     let q_enable_bytecode = meta.complex_selector();
                     let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+                    let q_enable_state = meta.complex_selector();
+                    let state_table = StateTable::construct(meta, q_enable_state);
                     let config = ExecutionConfig {
                         q_enable,
                         tx_idx: meta.advice_column(),
@@ -823,6 +836,7 @@ mod test {
                         cnt_is_zero,
                         execution_state_selector,
                         bytecode_table,
+                        state_table,
                     };
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {

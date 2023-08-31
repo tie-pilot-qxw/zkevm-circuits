@@ -1,7 +1,7 @@
 use crate::witness::Witness;
 use eth_types::{Field, U256};
 pub use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Fixed, VirtualCells};
 
 pub(crate) fn query_expression<F: Field, T>(
@@ -74,42 +74,38 @@ pub fn assign_advice_or_fixed<F: Field, C: Into<Column<Any>>>(
     offset: usize,
     value: &U256,
     column: C,
-) -> Result<(), Error> {
+) -> Result<Cell, Error> {
     let column_any = column.into();
-    match column_any.column_type() {
-        Any::Advice(_) => {
-            region.assign_advice(
-                || {
-                    format!(
-                        "Column {:?} at offset={}, value={} ",
-                        column_any, offset, value
-                    )
-                },
-                Column::<Advice>::try_from(column_any)
-                    .expect("should convert to Advice column successfully"),
-                offset,
-                || Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
-            )?;
-        }
-        Any::Fixed => {
-            region.assign_fixed(
-                || {
-                    format!(
-                        "Column {:?} at offset={}, value={} ",
-                        column_any, offset, value
-                    )
-                },
-                Column::<Fixed>::try_from(column_any)
-                    .expect("should convert to Fixed column successfully"),
-                offset,
-                || Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
-            )?;
-        }
+    let assigned_cell = match column_any.column_type() {
+        Any::Advice(_) => region.assign_advice(
+            || {
+                format!(
+                    "Column {:?} at offset={}, value={} ",
+                    column_any, offset, value
+                )
+            },
+            Column::<Advice>::try_from(column_any)
+                .expect("should convert to Advice column successfully"),
+            offset,
+            || Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
+        )?,
+        Any::Fixed => region.assign_fixed(
+            || {
+                format!(
+                    "Column {:?} at offset={}, value={} ",
+                    column_any, offset, value
+                )
+            },
+            Column::<Fixed>::try_from(column_any)
+                .expect("should convert to Fixed column successfully"),
+            offset,
+            || Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
+        )?,
         _ => {
             panic!("should not call this on Instance column")
         }
-    }
-    Ok(())
+    };
+    Ok(assigned_cell.cell())
 }
 
 pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {

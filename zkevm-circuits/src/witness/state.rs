@@ -22,15 +22,19 @@ pub struct Row {
     pub is_write: Option<U256>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, EnumIter, EnumString)]
+#[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
 pub enum Tag {
-    Stack,
+    // in case for padding zeros, we make default = memory. memory read of unused pointer is 0.
+    #[default]
     Memory,
+    Stack,
     Storage,
     CallContext,
     CallData,
     ReturnData,
+    EndPadding,
 }
+
 impl From<Tag> for usize {
     fn from(t: Tag) -> Self {
         t as usize

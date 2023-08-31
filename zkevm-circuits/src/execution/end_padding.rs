@@ -1,88 +1,116 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    Auxiliary, AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::LookupEntry;
 use crate::witness::{CurrentState, Witness};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use trace_parser::Trace;
 
-const NUM_ROW: usize = 2;
+pub(crate) const NUM_ROW: usize = 1;
 
-pub struct PublicContextGadget<F: Field> {
+pub struct EndPaddingGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PublicContextGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for EndPaddingGadget<F>
 {
     fn name(&self) -> &'static str {
-        "PUBLIC_CONTEXT"
+        "END_PADDING"
     }
+
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::PUBLIC_CONTEXT
+        ExecutionState::END_PADDING
     }
+
     fn num_row(&self) -> usize {
         NUM_ROW
     }
+
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, 1)
+        (NUM_ROW, NUM_ROW)
     }
+
     fn get_constraints(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        // prev state should be end_block or self
+        let prev_is_end_block = config.execution_state_selector.selector(
+            meta,
+            ExecutionState::END_BLOCK as usize,
+            Rotation(-1 * NUM_ROW as i32),
+        );
+        let prev_is_end_padding = config.execution_state_selector.selector(
+            meta,
+            ExecutionState::END_PADDING as usize,
+            Rotation(-1 * NUM_ROW as i32),
+        );
+        let delta = AuxiliaryDelta::default();
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend([
+            ("special next pc = 0".into(), pc_next),
+            (
+                "prev is end_block or self".into(),
+                prev_is_end_block + prev_is_end_padding - 1.expr(),
+            ),
+        ]);
+        constraints
     }
+
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut ConstraintSystem<F>,
+        _: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let stack_push_0 = current_state.get_push_stack_row(trace.push_value.unwrap_or_default());
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
-
-        core_row_1.insert_state_lookups([&stack_push_0]);
-        let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
+    fn gen_witness(&self, _: &Trace, current_state: &mut CurrentState) -> Witness {
+        let core_row = ExecutionState::END_PADDING.into_exec_state_core_row(
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+
         Witness {
-            core: vec![core_row_1, core_row_0],
-            state: vec![stack_push_0],
+            core: vec![core_row],
             ..Default::default()
         }
     }
 }
+
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(PublicContextGadget {
+    Box::new(EndPaddingGadget {
         _marker: PhantomData,
     })
 }
+
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
+
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
-            stack,
-            ..CurrentState::new()
-        };
-
+        // prepare a state to generate witness
+        let stack = Stack::new();
+        let mut current_state = CurrentState::new();
+        // prepare a trace
         let trace = Trace {
             pc: 0,
             op: OpcodeId::STOP,
-            push_value: Some(0xff.into()),
+            push_value: None,
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -90,16 +118,13 @@ mod test {
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        padding_begin_row.vers_21 = Some(stack_pointer.into());
         let mut padding_end_row = ExecutionState::END_PADDING.into_exec_state_core_row(
             &mut current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        padding_end_row.pc = 1.into();
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
         prover.assert_satisfied_par();
     }
 }

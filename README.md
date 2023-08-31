@@ -9,6 +9,12 @@ or
 cargo test
 ```
 
+also we have tests that ignore intersubcircuit lookups
+
+```shell
+cargo test --features no_intersubcircuit_lookup
+```
+
 # How to run gen_code
 ```shell
 cargo run --package zkevm-circuits --example gen_code --features gen_code

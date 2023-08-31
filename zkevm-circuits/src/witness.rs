@@ -11,6 +11,7 @@ use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
+use crate::state_circuit::StateCircuit;
 use crate::util::SubCircuit;
 use eth_types::evm_types::OpcodeId;
 use eth_types::evm_types::Stack;
@@ -245,7 +246,7 @@ impl Witness {
     fn get_next_witness(
         trace: &Trace,
         current_state: &mut CurrentState,
-        execution_gadget_map: &HashMap<
+        execution_gadgets_map: &HashMap<
             ExecutionState,
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
@@ -253,7 +254,7 @@ impl Witness {
         let mut res = Witness::default();
         let execution_states = ExecutionState::from_opcode(trace.op);
         for execution_state in execution_states {
-            if let Some(gadget) = execution_gadget_map.get(&execution_state) {
+            if let Some(gadget) = execution_gadgets_map.get(&execution_state) {
                 res.append(gadget.gen_witness(trace, current_state));
             } else {
                 panic!("execution state {:?} not supported yet", execution_state);
@@ -383,18 +384,19 @@ impl Witness {
                 &execution_gadgets_map,
             ))
         }
-        // add END_BLOCK to the end of core
-        res.core
-            .push(ExecutionState::END_BLOCK.into_exec_state_core_row(
-                &mut current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            ));
+        // padding: add END_BLOCK to the end of core and
+        // add EndPadding to the end of state (more will be assigned automatically)
+        let end_block_gadget = execution_gadgets_map
+            .get(&ExecutionState::END_BLOCK)
+            .unwrap();
+        res.append(end_block_gadget.gen_witness(trace.last().unwrap(), &mut current_state));
         // padding zero in the front
         (0..CoreCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)
             .for_each(|_| res.core.insert(0, Default::default()));
         (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
             .for_each(|_| res.bytecode.insert(0, Default::default()));
+        (0..StateCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| res.state.insert(0, Default::default()));
         res
     }
 

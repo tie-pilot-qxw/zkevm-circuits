@@ -1,5 +1,4 @@
-use crate::execution::{Auxiliary, ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::extract_enum_value;
+use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::util::query_expression;
 use crate::witness::CurrentState;
@@ -122,13 +121,13 @@ mod test {
             push_value: Some(0xcc.into()),
         };
         current_state.copy_from_trace(&trace);
-        let mut padding_begin_row = ExecutionState::END_BLOCK.into_exec_state_core_row(
+        let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
             &mut current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
         padding_begin_row.vers_21 = Some(stack_pointer.into());
-        let mut padding_end_row = ExecutionState::END_BLOCK.into_exec_state_core_row(
+        let mut padding_end_row = ExecutionState::END_PADDING.into_exec_state_core_row(
             &mut current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,

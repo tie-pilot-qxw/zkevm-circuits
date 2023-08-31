@@ -1,7 +1,8 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-use crate::table::{BytecodeTable, FixedTable, StackTable};
+use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
+use crate::table::{BytecodeTable, FixedTable, StateTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -16,6 +17,7 @@ pub struct SuperCircuitConfig<
 > {
     core_circuit: CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     bytecode_circuit: BytecodeCircuitConfig<F>,
+    state_circuit: StateCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -26,12 +28,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     fn new(meta: &mut ConstraintSystem<F>, _: Self::ConfigArgs) -> Self {
         let q_enable_bytecode = meta.complex_selector();
         let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
-        let q_enable_core = meta.complex_selector();
+        let q_enable_state = meta.complex_selector();
+        let state_table = StateTable::construct(meta, q_enable_state);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
-                q_enable: q_enable_core,
                 bytecode_table,
+                state_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
@@ -41,9 +44,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 bytecode_table,
             },
         );
+        let state_circuit = StateCircuitConfig::new(
+            meta,
+            StateCircuitConfigArgs {
+                q_enable: q_enable_state,
+                state_table,
+            },
+        );
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
+            state_circuit,
         }
     }
 }
@@ -58,6 +69,7 @@ pub struct SuperCircuit<
 > {
     pub core_circuit: CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+    pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -76,9 +88,11 @@ impl<
         assert!(Self::num_rows(witness) <= MAX_NUM_ROW);
         let core_circuit = CoreCircuit::new_from_witness(witness);
         let bytecode_circuit = BytecodeCircuit::new_from_witness(witness);
+        let state_circuit = StateCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
+            state_circuit,
         }
     }
 
@@ -86,6 +100,7 @@ impl<
         let mut instance = Vec::new();
         instance.extend(self.core_circuit.instance());
         instance.extend(self.bytecode_circuit.instance());
+        instance.extend(self.state_circuit.instance());
 
         instance
     }
@@ -97,23 +112,30 @@ impl<
     ) -> Result<(), Error> {
         self.core_circuit
             .synthesize_sub(&config.core_circuit, layouter)?;
-        // self.state_circuit.synthesize_sub(&config.state_circuit, layouter)?;
         self.bytecode_circuit
             .synthesize_sub(&config.bytecode_circuit, layouter)?;
+        self.state_circuit
+            .synthesize_sub(&config.state_circuit, layouter)?;
         Ok(())
     }
 
     fn unusable_rows() -> (usize, usize) {
-        let unusable_rows = [BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows()];
-        let begin = itertools::max(unusable_rows.iter().map(|(begin, end)| *begin)).unwrap();
-        let end = itertools::max(unusable_rows.iter().map(|(begin, end)| *end)).unwrap();
+        let unusable_rows = [
+            CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows(),
+            BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows(),
+            StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+        ];
+        let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
+        let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
         (begin, end)
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let num_rows = [BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(
-            witness,
-        )];
+        let num_rows = [
+            CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
+            BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
+            StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+        ];
         itertools::max(num_rows).unwrap()
     }
 }

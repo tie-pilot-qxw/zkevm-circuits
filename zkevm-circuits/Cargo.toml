@@ -34,6 +34,7 @@ hex = "0.4.3"
 default = []
 plot = ["dep:plotters", "halo2_proofs/dev-graph"]
 gen_code = ["dep:genco", "dep:convert_case"]
+no_intersubcircuit_lookup = []
 
 [[bench]]
 name = "super_circuit"

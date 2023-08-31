@@ -95,13 +95,13 @@ mod test {
             push_value: None,
         };
         current_state.copy_from_trace(&trace);
-        let mut padding_begin_row = ExecutionState::END_BLOCK.into_exec_state_core_row(
+        let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
             &mut current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
         padding_begin_row.vers_21 = Some(stack_pointer.into());
-        let mut padding_end_row = ExecutionState::END_BLOCK.into_exec_state_core_row(
+        let mut padding_end_row = ExecutionState::END_PADDING.into_exec_state_core_row(
             &mut current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
