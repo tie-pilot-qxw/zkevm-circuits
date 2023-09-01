@@ -10,6 +10,7 @@ pub mod state;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::core_circuit::CoreCircuit;
+use crate::execution::not::NotGadget;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::StateCircuit;
 use crate::util::SubCircuit;
@@ -35,8 +36,9 @@ pub struct Witness {
 // todo consider move to trace_parser
 pub struct CurrentState {
     pub stack: Stack,
-    pub memory: HashMap<u64, u8>,
+    pub memory: HashMap<usize, u8>,
     pub storage: HashMap<u128, u8>,
+    pub call_data: HashMap<u64, Vec<u8>>,
     pub tx_idx: u64,
     pub call_id: u64,
     pub code_addr: u64,
@@ -56,6 +58,7 @@ impl CurrentState {
             stack: Stack::new(),
             memory: HashMap::new(),
             storage: HashMap::new(),
+            call_data: HashMap::new(),
             tx_idx: 0,
             call_id: 0,
             code_addr: 0,
@@ -145,6 +148,58 @@ impl CurrentState {
         };
         self.state_stamp += 1;
         res
+    }
+
+    pub fn get_call_data_copy_rows(
+        &mut self,
+        dst: usize,
+        src: usize,
+        len: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let call_data = &self.call_data[&self.tx_idx];
+        for i in 0..len {
+            let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Type::Calldata,
+                src_id: self.call_id.into(),
+                src_pointer: (src + i).into(),
+                src_stamp: Some(self.state_stamp.into()),
+                dst_type: copy::Type::Memory,
+                dst_id: self.call_id.into(),
+                dst_pointer: (dst + i).into(),
+                dst_stamp: (self.state_stamp + 1).into(),
+                cnt: i.into(),
+                len: len.into(),
+            });
+            state_rows.push(state::Row {
+                tag: Some(state::Tag::CallData),
+                stamp: Some(self.state_stamp.into()),
+                value_hi: None,
+                value_lo: Some(byte.into()),
+                call_id_contract_addr: Some(self.call_id.into()),
+                pointer_hi: None,
+                pointer_lo: Some((src + i).into()),
+                is_write: Some(0.into()),
+            });
+            self.state_stamp += 1;
+            self.memory.insert(dst + i, byte);
+            state_rows.push(state::Row {
+                tag: Some(state::Tag::Memory),
+                stamp: Some(self.state_stamp.into()),
+                value_hi: None,
+                value_lo: Some(byte.into()),
+                call_id_contract_addr: Some(self.call_id.into()),
+                pointer_hi: None,
+                pointer_lo: Some((dst + i).into()),
+                is_write: Some(1.into()),
+            });
+            self.state_stamp += 1;
+        }
+
+        (copy_rows, state_rows)
     }
 }
 
@@ -379,7 +434,7 @@ impl Witness {
         for t in trace {
             current_state.copy_from_trace(t);
             res.append(Self::get_next_witness(
-                &t,
+                t,
                 &mut current_state,
                 &execution_gadgets_map,
             ))
