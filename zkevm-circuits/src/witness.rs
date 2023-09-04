@@ -50,6 +50,7 @@ pub struct CurrentState {
     pub refund: u64,
     pub memory_chunk: u64,
     pub read_only: u64,
+    pub machine_code: Vec<u8>,
 }
 
 impl CurrentState {
@@ -70,6 +71,7 @@ impl CurrentState {
             refund: 0,
             memory_chunk: 0,
             read_only: 0,
+            machine_code: vec![],
         }
     }
 
@@ -148,6 +150,46 @@ impl CurrentState {
         };
         self.state_stamp += 1;
         res
+    }
+
+    pub fn get_code_copy_rows(
+        &mut self,
+        dst: usize,
+        src: usize,
+        len: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let code = &self.machine_code;
+        for i in 0..len {
+            let byte = code.get(src + i).map(|x| x.clone()).unwrap();
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Type::Bytecode,
+                src_id: self.code_addr.into(),
+                src_pointer: (src + i).into(),
+                src_stamp: None,
+                dst_type: copy::Type::Memory,
+                dst_id: self.call_id.into(),
+                dst_pointer: (dst + i).into(),
+                dst_stamp: self.state_stamp.into(),
+                cnt: i.into(),
+                len: len.into(),
+            });
+            self.memory.insert(dst + i, byte);
+            state_rows.push(state::Row {
+                tag: Some(state::Tag::Memory),
+                stamp: Some(self.state_stamp.into()),
+                value_hi: None,
+                value_lo: Some(byte.into()),
+                call_id_contract_addr: Some(self.call_id.into()),
+                pointer_hi: None,
+                pointer_lo: Some((dst + i).into()),
+                is_write: Some(1.into()),
+            });
+            self.state_stamp += 1;
+        }
+        (copy_rows, state_rows)
     }
 
     pub fn get_call_data_copy_rows(
@@ -422,6 +464,7 @@ impl Witness {
         };
         let mut current_state = CurrentState {
             code_addr: 0xff, //replace with real addr
+            machine_code: machine_code.clone(),
             ..CurrentState::new()
         };
         let execution_gadgets: Vec<
