@@ -495,6 +495,7 @@ impl ExecutionState {
         );
         let (selector_hi, selector_lo) = get_dynamic_selector_assignments(state, num_hi, num_lo);
         let mut row = current_state.get_core_row_without_versatile(0);
+        row.exec_state = Some(self);
         #[rustfmt::skip]
         let vec = [
             &mut row.vers_0, &mut row.vers_1, &mut row.vers_2, &mut row.vers_3, &mut row.vers_4,

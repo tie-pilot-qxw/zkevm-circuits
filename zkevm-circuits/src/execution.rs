@@ -41,6 +41,7 @@ use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
+use serde::Serialize;
 use std::marker::PhantomData;
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
@@ -507,12 +508,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug, EnumCountMacro, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, EnumCountMacro, Eq, Hash, PartialEq, Serialize)]
 pub enum ExecutionState {
     // zkevm internal states
     /// State that is padding at the end
-    END_PADDING, // it has to be the first state as it is the default padding state
-    END_BLOCK, // it has to be the first state as it is the default padding state
+    END_PADDING, // it has to be the first state as it is the padding state
+    END_BLOCK,
     // opcode/operation successful states
     STOP,
     ADD,
@@ -521,6 +522,7 @@ pub enum ExecutionState {
     DIV_MOD,
     ADDMOD,
     MULMOD,
+    POP,
     PUSH,
     ISZERO,
     AND_OR_XOR,

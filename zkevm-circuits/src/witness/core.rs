@@ -1,3 +1,4 @@
+use crate::execution::ExecutionState;
 use eth_types::evm_types::OpcodeId;
 use eth_types::U256;
 use serde::Serialize;
@@ -19,6 +20,8 @@ pub struct Row {
     pub opcode: OpcodeId,
     // counter for multi-row operation
     pub cnt: U256,
+    // show the execution state to be human-readable, no used in circuit
+    pub exec_state: Option<ExecutionState>,
     // 32 versatile columns used in all occasions
     pub vers_0: Option<U256>,
     pub vers_1: Option<U256>,
@@ -56,10 +59,12 @@ pub struct Row {
 
 #[cfg(test)]
 mod test {
+    use crate::execution::ExecutionState;
     use crate::witness::core::Row;
     use eth_types::evm_types::OpcodeId;
     use eth_types::U256;
     use serde::Serialize;
+
     #[test]
     fn print_csv() {
         let row0 = Row {
@@ -87,6 +92,7 @@ mod test {
             pc: 1.into(),
             opcode: OpcodeId::ADD,
             cnt: 0.into(),
+            exec_state: Some(ExecutionState::ADD),
             ..Default::default()
         };
         let row3 = Row {
@@ -94,6 +100,7 @@ mod test {
             call_id: 1.into(),
             code_addr: U256::from_str_radix("ffffffffffffffff", 16).unwrap(),
             pc: 2.into(),
+            exec_state: Some(ExecutionState::STOP),
             ..Default::default()
         };
         let mut wtr = csv::Writer::from_writer(std::io::stdout());
