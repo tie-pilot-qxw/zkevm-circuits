@@ -80,6 +80,8 @@ pub struct Trace {
     pub pc: u64,
     pub op: OpcodeId,
     pub push_value: Option<U256>,
+    #[cfg(feature = "check_stack")]
+    pub stack_for_test: Option<Vec<U256>>,
 }
 
 pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
@@ -115,6 +117,8 @@ pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
             pc: t.pc,
             op: OpcodeId::from(t.op),
             push_value: None,
+            #[cfg(feature = "check_stack")]
+            stack_for_test: None,
         });
         if OpcodeId::from(t.op) == OpcodeId::STOP {
             break;
@@ -128,19 +132,27 @@ pub fn read_trace_from_jsonl<P: AsRef<Path>>(path: P) -> Vec<Trace> {
     let reader = BufReader::new(file);
     let mut res: Vec<Trace> = vec![];
     for line in reader.lines() {
-        let mut t: JsonResultOpString = serde_json::from_str(line.unwrap().as_str()).unwrap();
-        let back = t.stack.pop();
+        let t: JsonResultOpString = serde_json::from_str(line.unwrap().as_str()).unwrap();
+        let back = t.stack.last().cloned();
         let push_value = if let Some(a) = back {
-            Some(U256::from_str_radix(&a[2..], 16).unwrap())
+            Some(U256::from_str_radix(&a[..], 16).unwrap())
         } else {
             None
         };
         res.last_mut().map(|x| x.push_value = push_value);
-        res.push(Trace {
+        let trace = Trace {
             pc: t.pc,
             op: OpcodeId::from_str(t.op.as_str()).unwrap(),
             push_value: None,
-        });
+            #[cfg(feature = "check_stack")]
+            stack_for_test: Some(
+                t.stack
+                    .iter()
+                    .map(|x| U256::from_str_radix(x.as_str(), 16).unwrap())
+                    .collect(),
+            ),
+        };
+        res.push(trace);
     }
     res
 }

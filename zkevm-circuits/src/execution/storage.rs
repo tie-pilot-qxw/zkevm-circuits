@@ -1,6 +1,7 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::witness::{CurrentState, Witness};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
@@ -41,13 +42,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value();
-
-        let (stack_pop_1, _) = current_state.get_pop_stack_row_value();
-
+        assert!(
+            current_state.opcode == OpcodeId::SLOAD || current_state.opcode == OpcodeId::SSTORE
+        );
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
-
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1]);
+        let (stack_0, stack_1) = if current_state.opcode == OpcodeId::SLOAD {
+            let (stack_0, ost) = current_state.get_pop_stack_row_value();
+            let stack_1 = current_state.get_push_stack_row(trace.push_value.unwrap());
+            (stack_0, stack_1)
+        } else {
+            let (stack_0, ost) = current_state.get_pop_stack_row_value();
+            let (stack_1, val) = current_state.get_pop_stack_row_value();
+            (stack_0, stack_1)
+        };
+        core_row_1.insert_state_lookups([&stack_0, &stack_1]);
         let core_row_0 = ExecutionState::STORAGE.into_exec_state_core_row(
             current_state,
             NUM_STATE_HI_COL,
@@ -55,7 +63,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         Witness {
             core: vec![core_row_1, core_row_0],
-            state: vec![stack_pop_0, stack_pop_1],
+            state: vec![stack_0, stack_1],
             ..Default::default()
         }
     }
@@ -83,7 +91,7 @@ mod test {
 
         let trace = Trace {
             pc: 0,
-            op: OpcodeId::STOP,
+            op: OpcodeId::SSTORE,
             push_value: None,
         };
         current_state.copy_from_trace(&trace);

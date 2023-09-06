@@ -11,3 +11,6 @@ hex = "0.4"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 uint = "0.9"
+
+[features]
+check_stack = []

@@ -112,11 +112,11 @@ impl CurrentState {
         (res, value)
     }
 
-    pub fn get_peek_stack_row_value(&mut self, postfix: usize) -> (state::Row, U256) {
+    pub fn get_peek_stack_row_value(&mut self, index_start_at_1: usize) -> (state::Row, U256) {
         let value = self
             .stack
             .0
-            .get(self.stack.0.len() - postfix)
+            .get(self.stack.0.len() - index_start_at_1)
             .expect("error in current_state.get_peek_stack_row_value");
         let res = state::Row {
             tag: Some(state::Tag::Stack),
@@ -125,7 +125,7 @@ impl CurrentState {
             value_lo: Some(value.low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((self.stack.0.len() - postfix + 1).into()), // stack pointer starts with 1, and we already pop, so +1
+            pointer_lo: Some((self.stack.0.len() - index_start_at_1 + 1).into()), // stack pointer starts with 1, and we already pop, so +1
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
@@ -146,6 +146,28 @@ impl CurrentState {
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
             pointer_lo: Some((self.stack.0.len()).into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_overwrite_stack_row(&mut self, index_start_at_1: usize, value: U256) -> state::Row {
+        let len = self.stack.0.len();
+        let value_in_stack = self
+            .stack
+            .0
+            .get_mut(len - index_start_at_1)
+            .expect("error in current_state.get_overwrite_stack_row");
+        *value_in_stack = value;
+        let res = state::Row {
+            tag: Some(state::Tag::Stack),
+            stamp: Some((self.state_stamp).into()),
+            value_hi: Some((value >> 128).as_u128().into()),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((self.stack.0.len() - index_start_at_1).into()),
             is_write: Some(1.into()),
         };
         self.state_stamp += 1;
@@ -476,6 +498,14 @@ impl Witness {
             .collect();
         for t in trace {
             current_state.copy_from_trace(t);
+            #[cfg(feature = "check_stack")]
+            if let Some(stack) = &t.stack_for_test {
+                assert_eq!(
+                    stack, &current_state.stack.0,
+                    "stack in trace mismatch with current state in trace at pc {}",
+                    t.pc
+                );
+            }
             res.append(Self::get_next_witness(
                 t,
                 &mut current_state,

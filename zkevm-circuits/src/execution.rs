@@ -5,28 +5,36 @@ pub mod byte;
 pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
+pub mod codecopy;
 pub mod div_mod;
 pub mod dup;
 pub mod end_block;
 pub mod end_padding;
 pub mod eq;
+pub mod exp;
+pub mod extcodecopy;
 pub mod gt;
 pub mod iszero;
 pub mod jump;
 pub mod jumpdest;
 pub mod jumpi;
+pub mod keccak;
 pub mod lt;
 pub mod memory;
 pub mod mul;
 pub mod mulmod;
 pub mod not;
+pub mod pop;
 pub mod public_context;
 pub mod push;
+pub mod return_revert;
 pub mod sgt;
+pub mod shr;
 pub mod slt;
 pub mod stop;
 pub mod storage;
 pub mod sub;
+pub mod swap;
 pub mod tx_context;
 
 use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs};
@@ -80,6 +88,14 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::div_mod::new(),
             crate::execution::addmod::new(),
             crate::execution::mulmod::new(),
+            crate::execution::keccak::new(),
+            crate::execution::pop::new(),
+            crate::execution::shr::new(),
+            crate::execution::codecopy::new(),
+            crate::execution::extcodecopy::new(),
+            crate::execution::swap::new(),
+            crate::execution::return_revert::new(),
+            crate::execution::exp::new(),
         ]
     }};
 }
@@ -519,6 +535,7 @@ pub enum ExecutionState {
     ADD,
     MUL,
     SUB,
+    EXP,
     DIV_MOD,
     ADDMOD,
     MULMOD,
@@ -549,6 +566,11 @@ pub enum ExecutionState {
     DUP,
     SWAP,
     BYTE,
+    RETURN_REVERT,
+    SHR,
+    KECCAK,
+    CODECOPY,
+    EXTCODECOPY,
 }
 
 impl ExecutionState {
@@ -569,7 +591,7 @@ impl ExecutionState {
             OpcodeId::ADDMOD => vec![Self::ADDMOD],
             OpcodeId::MULMOD => vec![Self::MULMOD],
             OpcodeId::EXP => {
-                todo!()
+                vec![Self::EXP]
             }
             OpcodeId::SIGNEXTEND => {
                 todo!()
@@ -589,19 +611,19 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::CODECOPY => {
-                todo!()
+                vec![Self::CODECOPY]
             }
             OpcodeId::SHL => {
                 todo!()
             }
             OpcodeId::SHR => {
-                todo!()
+                vec![Self::SHR]
             }
             OpcodeId::SAR => {
                 todo!()
             }
             OpcodeId::POP => {
-                todo!()
+                vec![Self::POP]
             }
             OpcodeId::MLOAD | OpcodeId::MSTORE | OpcodeId::MSTORE8 => vec![Self::MEMORY],
             OpcodeId::JUMP => vec![Self::JUMP],
@@ -681,17 +703,14 @@ impl ExecutionState {
             | OpcodeId::SWAP15
             | OpcodeId::SWAP16 => vec![Self::SWAP],
 
-            OpcodeId::RETURN => {
-                todo!()
-            }
-            OpcodeId::REVERT => {
-                todo!()
+            OpcodeId::RETURN | OpcodeId::REVERT => {
+                vec![Self::RETURN_REVERT]
             }
             OpcodeId::INVALID(_) => {
                 todo!()
             }
             OpcodeId::SHA3 => {
-                todo!()
+                vec![Self::KECCAK]
             }
             OpcodeId::ADDRESS => {
                 todo!()
@@ -708,7 +727,7 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::EXTCODECOPY => {
-                todo!()
+                vec![Self::EXTCODECOPY]
             }
             OpcodeId::EXTCODEHASH => {
                 todo!()

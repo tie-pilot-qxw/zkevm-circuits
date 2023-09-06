@@ -17,8 +17,9 @@ cargo test --features no_intersubcircuit_lookup
 
 # How to run gen_code
 ```shell
-cargo run --package zkevm-circuits --example gen_code --features gen_code
+cargo +nightly-2023-04-24 run --package zkevm-circuits --example gen_code --features gen_code
 ```
+(You can try different nightly version, but latest nightly version cannot produce correct line breaks.)
 
 # Resources
 

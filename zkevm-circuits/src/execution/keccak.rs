@@ -1,25 +1,27 @@
+// Code generated - COULD HAVE BUGS!
+// This file is a generated execution gadget definition.
+
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::witness::{CurrentState, Witness};
-use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 use trace_parser::Trace;
 
-const NUM_ROW: usize = 3;
+const NUM_ROW: usize = 2;
 
-pub struct MemoryGadget<F: Field> {
+pub struct KeccakGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for MemoryGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for KeccakGadget<F>
 {
     fn name(&self) -> &'static str {
-        "MEMORY"
+        "KECCAK"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::MEMORY
+        ExecutionState::KECCAK
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -42,40 +44,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        assert!(
-            current_state.opcode == OpcodeId::MLOAD
-                || current_state.opcode == OpcodeId::MSTORE
-                || current_state.opcode == OpcodeId::MSTORE8
-        );
-        let mut core_row_2 = current_state.get_core_row_without_versatile(2);
+        let (stack_pop_0, _) = current_state.get_pop_stack_row_value();
+
+        let (stack_pop_1, _) = current_state.get_pop_stack_row_value();
+
+        let stack_push_0 = current_state.get_push_stack_row(trace.push_value.unwrap_or_default());
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
 
-        let (stack_0, stack_1) = if current_state.opcode == OpcodeId::MLOAD {
-            let (stack_0, ost) = current_state.get_pop_stack_row_value();
-            let stack_1 = current_state.get_push_stack_row(trace.push_value.unwrap());
-            (stack_0, stack_1)
-        } else {
-            let (stack_0, ost) = current_state.get_pop_stack_row_value();
-            let (stack_1, val) = current_state.get_pop_stack_row_value();
-            (stack_0, stack_1)
-        };
-        core_row_1.insert_state_lookups([&stack_0, &stack_1]);
-        let core_row_0 = ExecutionState::MEMORY.into_exec_state_core_row(
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+        let core_row_0 = ExecutionState::KECCAK.into_exec_state_core_row(
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
         Witness {
-            core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_0, stack_1],
+            core: vec![core_row_1, core_row_0],
+            state: vec![stack_pop_0, stack_pop_1, stack_push_0],
             ..Default::default()
         }
     }
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(MemoryGadget {
+    Box::new(KeccakGadget {
         _marker: PhantomData,
     })
 }
@@ -96,8 +88,8 @@ mod test {
 
         let trace = Trace {
             pc: 0,
-            op: OpcodeId::MSTORE,
-            push_value: None,
+            op: OpcodeId::STOP,
+            push_value: Some(0xff.into()),
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(

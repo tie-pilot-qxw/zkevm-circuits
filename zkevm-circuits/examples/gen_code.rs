@@ -33,11 +33,19 @@ fn main() {
         // ("Slt", 3, 2, 1),
         // ("Sgt", 3, 2, 1),
         // ("Byte", 4, 2, 1),
-        ("Mul", 3, 2, 1),
-        ("Sub", 3, 2, 1),
-        ("DivMod", 3, 2, 1),
-        ("Addmod", 5, 3, 1),
-        ("Mulmod", 5, 3, 1),
+        // ("Mul", 3, 2, 1),
+        // ("Sub", 3, 2, 1),
+        // ("DivMod", 3, 2, 1),
+        // ("Addmod", 5, 3, 1),
+        // ("Mulmod", 5, 3, 1),
+        // ("Keccak", 2, 2, 1),
+        // ("Pop", 2, 1, 0),
+        // ("Shr", 2, 2, 1),
+        // ("Codecopy", 3, 3, 0),
+        // ("Extcodecopy", 3, 4, 0),
+        // ("Swap", 2, 2, 1),
+        // ("ReturnRevert", 3, 2, 0),
+        ("Exp", 2, 2, 1),
     ];
 
     let path: std::path::PathBuf = [".", "zkevm-circuits", "src", "execution_bak.txt"]
@@ -85,9 +93,7 @@ fn main() {
         let mut stream = BufWriter::new(file);
         let state_name_uppercase = state_name.to_case(Case::ScreamingSnake);
         let tokens: rust::Tokens = quote! {
-        // Code generated - COULD HAVE BUGS!
-        // This file is a generated execution gadget definition.
-
+        $("// Code generated - COULD HAVE BUGS!\n// This file is a generated execution gadget definition.\n")
         use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
         use crate::table::LookupEntry;
         use crate::witness::{CurrentState, Witness};

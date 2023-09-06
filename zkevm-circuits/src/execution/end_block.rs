@@ -22,7 +22,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for EndBlockGadget<F>
 {
     fn name(&self) -> &'static str {
-        "END_CALL"
+        "END_BLOCK"
     }
 
     fn execution_state(&self) -> ExecutionState {
@@ -43,10 +43,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        // prev state should be stop, temporarily todo
+        // prev state should be stop, or return_revert. temporarily todo
         let prev_is_stop = config.execution_state_selector.selector(
             meta,
             ExecutionState::STOP as usize,
+            Rotation(-1 * NUM_ROW as i32),
+        );
+        let prev_is_return_revert = config.execution_state_selector.selector(
+            meta,
+            ExecutionState::RETURN_REVERT as usize,
             Rotation(-1 * NUM_ROW as i32),
         );
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
@@ -57,7 +62,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0)); // after state circuit has sorting, this may change todo
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
-            ("prev is stop".into(), prev_is_stop - 1.expr()),
+            (
+                "prev is stop or return_revert".into(),
+                prev_is_stop + prev_is_return_revert - 1.expr(),
+            ),
             (
                 "last stamp in state circuit = current stamp - 1".into(),
                 state_stamp - state_circuit_stamp - 1.expr(),
