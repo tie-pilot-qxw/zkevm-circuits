@@ -32,6 +32,7 @@ pub enum Tag {
     #[default]
     Nil,
     Add,
+    AddMod,
     Mul,
 }
 

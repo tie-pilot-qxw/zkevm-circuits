@@ -192,6 +192,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
         num: usize,
     ) -> LookupEntry<F> {
+        assert!(num < 4);
         const WIDTH: usize = 8;
         let (
             tag,

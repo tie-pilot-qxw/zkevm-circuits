@@ -110,8 +110,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let arithmetic = query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
         vec![
-            ("stack pop b".into(), stack_lookup_0),
-            ("stack pop a".into(), stack_lookup_1),
+            ("stack pop a".into(), stack_lookup_0),
+            ("stack pop b".into(), stack_lookup_1),
             ("stack push".into(), stack_lookup_2),
             ("arithmetic lookup".into(), arithmetic),
         ]
