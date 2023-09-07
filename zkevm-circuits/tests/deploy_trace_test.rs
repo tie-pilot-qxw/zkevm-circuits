@@ -1,4 +1,3 @@
-#![ignore]
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
 use std::fs::File;
@@ -9,6 +8,7 @@ use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
+#[ignore]
 #[test]
 fn test_deploy_trace() {
     const LONG_TEST_ROWS: usize = 4080;
@@ -21,7 +21,8 @@ fn test_deploy_trace() {
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
     let witness = Witness::new(&trace, &bytecodes);
-    witness.print_csv();
+    let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
+    witness.write_html(&mut buf);
     let witness_length = SuperCircuit::<
         Fr,
         LONG_TEST_ROWS,

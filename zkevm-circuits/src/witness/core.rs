@@ -2,6 +2,7 @@ use crate::execution::ExecutionState;
 use eth_types::evm_types::OpcodeId;
 use eth_types::U256;
 use serde::Serialize;
+use std::collections::HashMap;
 
 /// core row has a few single-purpose columns (tx_idx, call_id, code_addr, pc, opcode, cnt)
 /// and 32 versatile columns
@@ -55,6 +56,8 @@ pub struct Row {
     pub vers_29: Option<U256>,
     pub vers_30: Option<U256>,
     pub vers_31: Option<U256>,
+    #[serde(skip_serializing)]
+    pub comments: HashMap<String, String>,
 }
 
 #[cfg(test)]

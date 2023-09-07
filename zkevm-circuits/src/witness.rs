@@ -8,10 +8,14 @@ pub mod public;
 pub mod state;
 
 use crate::bytecode_circuit::BytecodeCircuit;
-use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+use crate::constant::{
+    DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+};
 use crate::core_circuit::CoreCircuit;
 use crate::execution::not::NotGadget;
-use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    get_every_execution_gadgets, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::state_circuit::StateCircuit;
 use crate::util::SubCircuit;
 use eth_types::evm_types::OpcodeId;
@@ -19,7 +23,9 @@ use eth_types::evm_types::Stack;
 use eth_types::U256;
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
+use serde::Serialize;
 use std::collections::HashMap;
+use std::io::Write;
 use trace_parser::Trace;
 
 #[derive(Debug, Default, Clone)]
@@ -528,8 +534,8 @@ impl Witness {
         res
     }
 
-    pub fn print_csv(&self) {
-        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    pub fn write_all_as_csv<W: Write>(&self, writer: W) {
+        let mut wtr = csv::Writer::from_writer(writer);
         let max_length = itertools::max([
             self.core.len(),
             self.bytecode.len(),
@@ -548,6 +554,84 @@ impl Witness {
             let bytecode = self.bytecode.get(i).map(|x| x.clone()).unwrap_or_default();
             wtr.serialize((core, state, arithmetic, bytecode)).unwrap()
         }
+        wtr.flush().unwrap();
+    }
+
+    pub fn write_one_as_csv<W: Write, T: Serialize>(&self, writer: W, table: &Vec<T>) {
+        let mut wtr = csv::Writer::from_writer(writer);
+        table.iter().for_each(|row| {
+            wtr.serialize(row).unwrap();
+        });
+        wtr.flush().unwrap();
+    }
+
+    pub fn print_csv(&self) {
+        self.write_all_as_csv(std::io::stdout());
+    }
+
+    fn write_one_table<W: Write, T: Serialize, S: AsRef<str>>(
+        &self,
+        writer: &mut W,
+        table: &Vec<T>,
+        title: S,
+        comments: Option<Vec<&HashMap<String, String>>>,
+    ) {
+        if table.is_empty() {
+            println!("{} is empty!", title.as_ref());
+            return;
+        }
+        let mut buf = Vec::new();
+        self.write_one_as_csv(&mut buf, table);
+        let csv_string = String::from_utf8(buf).unwrap();
+
+        writer.write(csv2html::start("").as_ref()).unwrap();
+        writer.write(csv2html::caption(title).as_ref()).unwrap();
+        let column_names: Vec<&str> = csv_string
+            .lines()
+            .next()
+            .unwrap()
+            .split(',')
+            .into_iter()
+            .collect();
+        for (i_row, line) in csv_string.lines().enumerate() {
+            let vec: Vec<String> = line.split(',').into_iter().map(|x| x.to_string()).collect();
+            let mut col_attrs = vec![];
+            if i_row > 0 {
+                comments.as_ref().map(|x| {
+                    let comments = x.get(i_row - 1).unwrap();
+                    for i in 0..column_names.len() {
+                        let comment = comments
+                            .get(&column_names[i].to_string())
+                            .map(|x| format!("title=\"{}\"", x))
+                            .unwrap_or_default();
+                        col_attrs.push(comment);
+                    }
+                });
+            }
+            writer
+                .write(csv2html::row(&vec, i_row == 0, "".to_string(), &col_attrs).as_ref())
+                .unwrap();
+        }
+        writer.write(csv2html::end().as_ref()).unwrap();
+    }
+
+    pub fn write_html<W: Write>(&self, mut writer: W) {
+        writer
+            .write(csv2html::prologue("Witness Table").as_ref())
+            .unwrap();
+        self.write_one_table(
+            &mut writer,
+            &self.core,
+            "Core",
+            Some(self.core.iter().map(|x| &x.comments).collect()),
+        );
+        self.write_one_table(&mut writer, &self.state, "State", None);
+        self.write_one_table(&mut writer, &self.bytecode, "Bytecode", None);
+        self.write_one_table(&mut writer, &self.public, "Public", None);
+        self.write_one_table(&mut writer, &self.copy, "Copy", None);
+        self.write_one_table(&mut writer, &self.exp, "Exp", None);
+        self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
+        writer.write(csv2html::epilogue().as_ref()).unwrap();
     }
 }
 
@@ -592,6 +676,20 @@ impl ExecutionState {
             ]))
         {
             *cell = Some(value.into());
+        }
+        for i in 0..num_hi {
+            row.comments
+                .insert(format!("vers_{}", i), format!("dynamic selector hi {}", i));
+        }
+        for i in 0..num_lo {
+            row.comments.insert(
+                format!("vers_{}", num_hi + i),
+                format!("dynamic selector lo {}", i),
+            );
+        }
+        for (i, text) in DESCRIPTION_AUXILIARY.iter().enumerate() {
+            row.comments
+                .insert(format!("vers_{}", num_hi + num_lo + i), text.to_string());
         }
         row
     }

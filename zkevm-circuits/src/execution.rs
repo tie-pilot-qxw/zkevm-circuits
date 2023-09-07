@@ -183,10 +183,6 @@ impl<F: Field> Default for AuxiliaryDelta<F> {
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
-    /// The number of columns used by auxiliary
-    /// this+NUM_STATE_HI_COL+NUM_STATE_LO_COL should be no greater than 32
-    pub(crate) const NUM_AUXILIARY: usize = 7;
-
     pub(crate) fn get_state_lookup(
         &self,
         meta: &mut VirtualCells<F>,
