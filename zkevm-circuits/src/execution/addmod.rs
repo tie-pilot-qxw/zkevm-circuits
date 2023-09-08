@@ -104,9 +104,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_2, c) = current_state.get_pop_stack_row_value();
         let d = trace.push_value.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(d);
-        let exp_d: U256 = ((U512::from(a) + U512::from(b)) % U512::from(c))
-            .try_into()
-            .unwrap();
+        let exp_d: U256 = if c.is_zero() {
+            0.into()
+        } else {
+            (U512::from(a) + U512::from(b)) % U512::from(c)
+        }
+        .try_into()
+        .unwrap();
         assert_eq!(exp_d, d);
         let arithmetic_rows =
             Witness::gen_arithmetic_witness(arithmetic::Tag::AddMod, [a, b, c, d]);
@@ -143,7 +147,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into(), 1.into(), 2.into()]);
+        let stack = Stack::from_slice(&[0x100.into(), 1.into(), 0xfe.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = CurrentState {
             stack,
@@ -152,7 +156,7 @@ mod test {
 
         let trace = Trace {
             pc: 0,
-            op: OpcodeId::STOP,
+            op: OpcodeId::ADDMOD,
             push_value: Some(0xff.into()),
         };
         current_state.copy_from_trace(&trace);
