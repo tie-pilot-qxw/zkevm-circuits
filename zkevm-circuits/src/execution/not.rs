@@ -43,7 +43,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
         let (stack_pop_0, _) = current_state.get_pop_stack_row_value();
 
-        let stack_push_0 = current_state.get_push_stack_row(trace.push_value.unwrap_or_default());
+        let stack_push_0 = current_state.get_push_stack_row(trace.stack_top.unwrap_or_default());
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
 
@@ -84,7 +84,7 @@ mod test {
         let trace = Trace {
             pc: 0,
             op: OpcodeId::STOP,
-            push_value: Some(0xff.into()),
+            stack_top: Some(0xff.into()),
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(

@@ -79,7 +79,7 @@ struct JsonResultOpString {
 pub struct Trace {
     pub pc: u64,
     pub op: OpcodeId,
-    pub push_value: Option<U256>,
+    pub stack_top: Option<U256>,
     #[cfg(feature = "check_stack")]
     pub stack_for_test: Option<Vec<U256>>,
 }
@@ -96,27 +96,26 @@ pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
     }
     let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
 
-    let mut res = vec![];
+    let mut res: Vec<Trace> = vec![];
     for line in s {
         let mut t: JsonResult = serde_json::from_str(line).unwrap();
 
         let back = t.stack.pop();
-        let push_value = if let Some(a) = back {
-            Some(U256::from_str_radix(&a[2..], 16).unwrap())
+        let stack_top = if let Some(a) = back {
+            let v = if a.len() > 2 && a[..2].eq("0x") {
+                U256::from_str_radix(&a[2..], 16).unwrap()
+            } else {
+                U256::from_str_radix(&a, 16).unwrap()
+            };
+            Some(v)
         } else {
             None
         };
-        if res
-            .last()
-            .map(|x: &Trace| x.op.is_push())
-            .unwrap_or_default()
-        {
-            res.last_mut().unwrap().push_value = push_value;
-        }
+        res.last_mut().map(|x| x.stack_top = stack_top);
         res.push(Trace {
             pc: t.pc,
             op: OpcodeId::from(t.op),
-            push_value: None,
+            stack_top: None,
             #[cfg(feature = "check_stack")]
             stack_for_test: None,
         });
@@ -134,16 +133,16 @@ pub fn read_trace_from_jsonl<P: AsRef<Path>>(path: P) -> Vec<Trace> {
     for line in reader.lines() {
         let t: JsonResultOpString = serde_json::from_str(line.unwrap().as_str()).unwrap();
         let back = t.stack.last().cloned();
-        let push_value = if let Some(a) = back {
+        let stack_top = if let Some(a) = back {
             Some(U256::from_str_radix(&a[..], 16).unwrap())
         } else {
             None
         };
-        res.last_mut().map(|x| x.push_value = push_value);
+        res.last_mut().map(|x| x.stack_top = stack_top);
         let trace = Trace {
             pc: t.pc,
             op: OpcodeId::from_str(t.op.as_str()).unwrap(),
-            push_value: None,
+            stack_top: None,
             #[cfg(feature = "check_stack")]
             stack_for_test: Some(
                 t.stack

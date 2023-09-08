@@ -68,7 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assert!(current_state.opcode.is_dup());
         let (stack_read, value) = current_state
             .get_peek_stack_row_value(current_state.opcode.postfix().unwrap() as usize);
-        assert_eq!(value, trace.push_value.unwrap());
+        assert_eq!(value, trace.stack_top.unwrap());
         let stack_push = current_state.get_push_stack_row(value);
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
         core_row_1.insert_state_lookups([&stack_read, &stack_push]);
@@ -118,7 +118,7 @@ mod test {
         let trace = Trace {
             pc: 0,
             op: OpcodeId::DUP1,
-            push_value: Some(0xcc.into()),
+            stack_top: Some(0xcc.into()),
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(

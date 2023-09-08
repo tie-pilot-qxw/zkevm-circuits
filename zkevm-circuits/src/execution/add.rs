@@ -178,7 +178,7 @@ mod test {
         let trace = Trace {
             pc: 0,
             op: OpcodeId::ADD,
-            push_value: None,
+            stack_top: None,
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(

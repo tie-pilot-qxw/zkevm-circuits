@@ -109,7 +109,7 @@ mod test {
         let trace = Trace {
             pc: 0,
             op: OpcodeId::SWAP2,
-            push_value: Some(0xff.into()),
+            stack_top: Some(0xff.into()),
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
