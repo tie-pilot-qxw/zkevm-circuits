@@ -75,7 +75,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
             (
                 "arithmetic tag".into(),
-                tag - (arithmetic::Tag::AddMod as u8).expr(),
+                tag - (arithmetic::Tag::Addmod as u8).expr(),
             ),
         ]);
         constraints
@@ -113,7 +113,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         .unwrap();
         assert_eq!(exp_d, d);
         let arithmetic_rows =
-            Witness::gen_arithmetic_witness(arithmetic::Tag::AddMod, [a, b, c, d]);
+            Witness::gen_arithmetic_witness(arithmetic::Tag::Addmod, [a, b, c, d]);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(2);
         core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);

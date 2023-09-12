@@ -32,8 +32,10 @@ pub enum Tag {
     #[default]
     Nil,
     Add,
-    AddMod,
+    Addmod,
     Mul,
+    Lt,
+    Gt,
 }
 
 impl From<Tag> for usize {

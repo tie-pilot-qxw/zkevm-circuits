@@ -119,7 +119,7 @@ fn main() {
                 $(for i in 0..stack_pop_num =>
                     let (stack_pop_$i, _) = current_state.get_pop_stack_row_value();$['\n'])
                 $(for i in 0..stack_push_num =>
-                    let stack_push_$i = current_state.get_push_stack_row(trace.push_value.unwrap_or_default());$['\n'])
+                    let stack_push_$i = current_state.get_push_stack_row(trace.stack_top.unwrap_or_default());$['\n'])
                 $(for i in (1..num_row).rev() =>
                     let mut core_row_$i = current_state.get_core_row_without_versatile($i);$['\n'])
                 $(if stack_pop_num+stack_push_num>0 =>
@@ -154,7 +154,7 @@ fn main() {
                 let trace = Trace {
                     pc: 0,
                     op: OpcodeId::STOP, // just a placeholder
-                    push_value: $(if stack_push_num == 0 {None} else {Some(0xff.into())}),
+                    stack_top: $(if stack_push_num == 0 {None} else {Some(0xff.into())}),
                 };
                 current_state.copy_from_trace(&trace);
                 let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
