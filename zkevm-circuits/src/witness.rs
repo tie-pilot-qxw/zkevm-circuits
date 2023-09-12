@@ -18,8 +18,8 @@ use crate::execution::{
 };
 use crate::state_circuit::StateCircuit;
 use crate::util::SubCircuit;
-use eth_types::evm_types::OpcodeId;
-use eth_types::evm_types::Stack;
+use eth_types::evm_types::{Memory, OpcodeId};
+use eth_types::evm_types::{Stack, Storage};
 use eth_types::U256;
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -42,8 +42,8 @@ pub struct Witness {
 // todo consider move to trace_parser
 pub struct CurrentState {
     pub stack: Stack,
-    pub memory: HashMap<usize, u8>,
-    pub storage: HashMap<u128, u8>,
+    pub memory: Memory,
+    pub storage: Storage,
     pub call_data: HashMap<u64, Vec<u8>>,
     pub tx_idx: u64,
     pub call_id: u64,
@@ -63,8 +63,8 @@ impl CurrentState {
     pub fn new() -> Self {
         Self {
             stack: Stack::new(),
-            memory: HashMap::new(),
-            storage: HashMap::new(),
+            memory: Memory::new(),
+            storage: Storage::new(HashMap::new()),
             call_data: HashMap::new(),
             tx_idx: 0,
             call_id: 0,
@@ -138,6 +138,88 @@ impl CurrentState {
         (res, *value)
     }
 
+    pub fn get_memory_read_row(&mut self, dst: usize) -> state::Row {
+        let value = self
+            .memory
+            .0
+            .get(dst)
+            .map(|x| x.clone())
+            .unwrap_or_default();
+        let res = state::Row {
+            tag: Some(state::Tag::Memory),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some(value.into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some(dst.into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_memory_write_row(&mut self, dst: usize, value: u8) -> state::Row {
+        if self.memory.len() - 1 < dst {
+            self.memory.extend_at_least(dst + 1);
+        }
+        self.memory[dst] = value;
+        let res = state::Row {
+            tag: Some(state::Tag::Memory),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some(value.into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some(dst.into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_storage_read_row(&mut self, key: U256, contract_addr: U256) -> state::Row {
+        let value = self
+            .storage
+            .0
+            .get(&key)
+            .map(|x| x.clone())
+            .unwrap_or_default();
+        let res = state::Row {
+            tag: Some(state::Tag::Storage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some(value >> 128),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(key >> 128),
+            pointer_lo: Some(key.low_u128().into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_storage_write_row(
+        &mut self,
+        key: U256,
+        value: U256,
+        contract_addr: U256,
+    ) -> state::Row {
+        self.storage.0.insert(key, value);
+        let res = state::Row {
+            tag: Some(state::Tag::Storage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some(value >> 128),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(key >> 128),
+            pointer_lo: Some(key.low_u128().into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
     pub fn get_push_stack_row(&mut self, value: U256) -> state::Row {
         self.stack.0.push(value);
         assert!(
@@ -188,8 +270,8 @@ impl CurrentState {
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        let code = &self.machine_code;
         for i in 0..len {
+            let code = &self.machine_code;
             let byte = code.get(src + i).map(|x| x.clone()).unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
@@ -204,18 +286,7 @@ impl CurrentState {
                 cnt: i.into(),
                 len: len.into(),
             });
-            self.memory.insert(dst + i, byte);
-            state_rows.push(state::Row {
-                tag: Some(state::Tag::Memory),
-                stamp: Some(self.state_stamp.into()),
-                value_hi: None,
-                value_lo: Some(byte.into()),
-                call_id_contract_addr: Some(self.call_id.into()),
-                pointer_hi: None,
-                pointer_lo: Some((dst + i).into()),
-                is_write: Some(1.into()),
-            });
-            self.state_stamp += 1;
+            state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
         (copy_rows, state_rows)
     }
@@ -228,8 +299,8 @@ impl CurrentState {
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        let call_data = &self.call_data[&self.tx_idx];
         for i in 0..len {
+            let call_data = &self.call_data[&self.tx_idx];
             let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
@@ -255,18 +326,7 @@ impl CurrentState {
                 is_write: Some(0.into()),
             });
             self.state_stamp += 1;
-            self.memory.insert(dst + i, byte);
-            state_rows.push(state::Row {
-                tag: Some(state::Tag::Memory),
-                stamp: Some(self.state_stamp.into()),
-                value_hi: None,
-                value_lo: Some(byte.into()),
-                call_id_contract_addr: Some(self.call_id.into()),
-                pointer_hi: None,
-                pointer_lo: Some((dst + i).into()),
-                is_write: Some(1.into()),
-            });
-            self.state_stamp += 1;
+            state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 
         (copy_rows, state_rows)
