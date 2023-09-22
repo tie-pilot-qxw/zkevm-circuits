@@ -3,7 +3,7 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{CurrentState, Witness};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
+use eth_types::{Field, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -143,21 +143,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let a_hi = F::from_u128((a >> 128).as_u128());
         let b_hi = F::from_u128((b >> 128).as_u128());
-        let hi_inv = (a_hi - b_hi)
-            .invert()
-            .unwrap_or(F::ZERO)
-            .to_repr()
-            .as_ref()
-            .into();
+        let hi_inv =
+            U256::from_little_endian((a_hi - b_hi).invert().unwrap_or(F::ZERO).to_repr().as_ref());
         core_row_1.vers_24 = Some(hi_inv);
         let a_lo = F::from_u128(a.low_u128());
-        let b_lo = F::from_u128(a.low_u128());
-        let lo_inv = (a_lo - b_lo)
-            .invert()
-            .unwrap_or(F::ZERO)
-            .to_repr()
-            .as_ref()
-            .into();
+        let b_lo = F::from_u128(b.low_u128());
+
+        let lo_inv =
+            U256::from_little_endian((a_lo - b_lo).invert().unwrap_or(F::ZERO).to_repr().as_ref());
         core_row_1.vers_25 = Some(lo_inv);
         let hi_eq = if a_hi == b_hi { 1 } else { 0 };
         core_row_1.vers_26 = Some(hi_eq.into());
@@ -198,8 +191,8 @@ mod test {
 
         let trace = Trace {
             pc: 0,
-            op: OpcodeId::STOP,
-            stack_top: Some(0xff.into()),
+            op: OpcodeId::EQ,
+            stack_top: Some(0.into()),
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
