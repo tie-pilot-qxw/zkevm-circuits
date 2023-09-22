@@ -56,7 +56,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
         let c = trace.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(c);
-        let exp_c: U256 = if a < b { 1.into() } else { 0.into() };
+        let exp_c: U256 = if a < b { 1 } else { 0 }.into();
         let d = 0.into();
         assert_eq!(exp_c, c);
         let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Lt, [a, b, c, d]);

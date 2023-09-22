@@ -36,6 +36,8 @@ pub enum Tag {
     Mul,
     Lt,
     Gt,
+    Slt,
+    Sgt,
 }
 
 impl From<Tag> for usize {
