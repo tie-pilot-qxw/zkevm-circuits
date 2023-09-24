@@ -37,11 +37,9 @@ pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
-use crate::core_circuit::{CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
-use crate::witness::core::Row as CoreRow;
+use crate::witness::CurrentState;
 use crate::witness::{state, Witness};
-use crate::{execution::add::AddGadget, witness::CurrentState};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use gadgets::dynamic_selector::DynamicSelectorConfig;
@@ -50,7 +48,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use serde::Serialize;
-use std::marker::PhantomData;
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 use trace_parser::Trace;
@@ -183,6 +180,24 @@ impl<F: Field> Default for AuxiliaryDelta<F> {
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
+    pub(crate) fn get_exp_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let (base, index, power) = (
+            [
+                meta.query_advice(self.vers[26], Rotation::prev()),
+                meta.query_advice(self.vers[27], Rotation::prev()),
+            ],
+            [
+                meta.query_advice(self.vers[28], Rotation::prev()),
+                meta.query_advice(self.vers[29], Rotation::prev()),
+            ],
+            [
+                meta.query_advice(self.vers[30], Rotation::prev()),
+                meta.query_advice(self.vers[31], Rotation::prev()),
+            ],
+        );
+        LookupEntry::Exp { base, index, power }
+    }
+
     pub(crate) fn get_state_lookup(
         &self,
         meta: &mut VirtualCells<F>,

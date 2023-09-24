@@ -333,7 +333,26 @@ impl CurrentState {
     }
 }
 
+macro_rules! assign_or_panic {
+    ($opt: expr, $value: expr) => {
+        match $opt {
+            None => $opt = Some($value),
+            Some(_) => panic!("Trying to assign to an already set Option!"),
+        }
+    };
+}
+
 impl core::Row {
+    pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
+        assert_eq!(base.pow(index), power);
+        assign_or_panic!(self.vers_26, base >> 128);
+        assign_or_panic!(self.vers_27, base.low_u128().into());
+        assign_or_panic!(self.vers_28, index >> 128);
+        assign_or_panic!(self.vers_29, index.low_u128().into());
+        assign_or_panic!(self.vers_30, power >> 128);
+        assign_or_panic!(self.vers_31, power.low_u128().into());
+    }
+
     pub fn insert_state_lookups<const NUM_LOOKUP: usize>(
         &mut self,
         state_rows: [&state::Row; NUM_LOOKUP],

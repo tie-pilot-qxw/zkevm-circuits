@@ -16,8 +16,8 @@ pub struct Row {
     // whether count is equal or large than 2**128
     pub is_high: U256,
     // exp res
-    pub value_hi: U256,
-    pub value_lo: U256,
+    pub power_hi: U256,
+    pub power_lo: U256,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -27,6 +27,20 @@ pub enum Tag {
     One,
     Base2,
     Arbitrary,
+}
+
+impl Row {
+    pub fn from_operands(base: U256, index: U256, power: U256) -> Vec<Self> {
+        vec![Row {
+            base_hi: base >> 128,
+            base_lo: base.low_u128().into(),
+            index_hi: index >> 128,
+            index_lo: index.low_u128().into(),
+            power_hi: power >> 128,
+            power_lo: power.low_u128().into(),
+            ..Default::default()
+        }]
+    }
 }
 
 #[cfg(test)]
@@ -39,7 +53,7 @@ mod test {
         let row1 = Row {
             tag: Tag::Zero,
             base_lo: 2.into(),
-            value_lo: 1.into(),
+            power_lo: 1.into(),
             ..Default::default()
         };
         let row2 = Row {
@@ -47,7 +61,7 @@ mod test {
             base_lo: 2.into(),
             index_lo: 1.into(),
             count: Some(0.into()),
-            value_lo: 2.into(),
+            power_lo: 2.into(),
             ..Default::default()
         };
         let row3 = Row {
@@ -55,7 +69,7 @@ mod test {
             base_lo: 2.into(),
             index_lo: 0.into(),
             count: Some(0.into()),
-            value_lo: 1.into(),
+            power_lo: 1.into(),
             ..Default::default()
         };
         let row4 = Row {
@@ -63,7 +77,7 @@ mod test {
             base_lo: 2.into(),
             index_lo: 2.into(),
             count: Some(1.into()),
-            value_lo: 4.into(),
+            power_lo: 4.into(),
             ..Default::default()
         };
         let mut wtr = csv::Writer::from_writer(io::stdout());

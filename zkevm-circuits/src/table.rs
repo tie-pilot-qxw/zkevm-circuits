@@ -61,6 +61,12 @@ macro_rules! extract_lookup_expression {
     (copy, $value:expr) => {
         todo!()
     };
+    (exp, $value:expr) => {
+        match $value {
+            LookupEntry::Exp { base, index, power } => (base, index, power),
+            _ => panic!(""),
+        }
+    };
 }
 pub(crate) use extract_lookup_expression;
 
@@ -332,6 +338,12 @@ pub enum LookupEntry<F> {
     },
     /// Conditional lookup enabled by the first element.
     Conditional(Expression<F>, Box<LookupEntry<F>>),
+    /// Lookup to exp table
+    Exp {
+        base: [Expression<F>; 2],
+        index: [Expression<F>; 2],
+        power: [Expression<F>; 2],
+    },
 }
 
 // todo code copied from scroll
