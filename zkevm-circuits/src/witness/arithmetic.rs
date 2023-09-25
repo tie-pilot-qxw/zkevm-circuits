@@ -34,6 +34,7 @@ pub enum Tag {
     Add,
     Addmod,
     Mul,
+    Mulmod,
     Lt,
     Gt,
     Slt,
