@@ -54,14 +54,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value();
         //right shift 255 to get sign
-        let a_sign = (a >> 255).as_u32();
+        let a_is_pos = (a >> 255).as_u32() == 0;
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
-        let b_sign = (b >> 255).as_u32();
+        let b_is_pos = (b >> 255).as_u32() == 0;
         let c = trace.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(c);
-        let exp_c: U256 = if a_sign >= 0 && b_sign < 0 {
+        let exp_c: U256 = if a_is_pos && !b_is_pos {
             1
-        } else if a_sign < 0 && b_sign >= 0 {
+        } else if !a_is_pos && b_is_pos {
             0
         } else {
             if a > b {
