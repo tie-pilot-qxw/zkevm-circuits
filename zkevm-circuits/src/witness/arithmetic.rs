@@ -39,6 +39,7 @@ pub enum Tag {
     Gt,
     Slt,
     Sgt,
+    Sub,
     DivMod,
 }
 

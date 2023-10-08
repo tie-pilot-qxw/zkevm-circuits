@@ -1,7 +1,8 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
+use crate::util::query_expression;
 use crate::witness::{CurrentState, Witness};
-use eth_types::Field;
+use eth_types::{Field, U256};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 use trace_parser::Trace;
@@ -38,13 +39,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        vec![
+            ("stack pop a".into(), stack_lookup_0),
+            ("stack push b".into(), stack_lookup_1),
+        ]
     }
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value();
-
-        let stack_push_0 = current_state.get_push_stack_row(trace.stack_top.unwrap_or_default());
-
+        let (stack_pop_0, a) = current_state.get_pop_stack_row_value();
+        let b = trace.stack_top.unwrap_or_default();
+        let stack_push_0 = current_state.get_push_stack_row(b);
+        let exp_b = !a;
+        assert_eq!(exp_b, b);
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
@@ -80,11 +87,12 @@ mod test {
             stack,
             ..CurrentState::new()
         };
-
+        let ones = [255; 32];
+        let result = U256::from_big_endian(ones.as_ref());
         let trace = Trace {
             pc: 0,
-            op: OpcodeId::STOP,
-            stack_top: Some(0xff.into()),
+            op: OpcodeId::NOT,
+            stack_top: Some(result),
         };
         current_state.copy_from_trace(&trace);
         let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
