@@ -1,6 +1,7 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
+use crate::public_circuit::{PublicCircuit, PublicCircuitConfig};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{BytecodeTable, FixedTable, StateTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -18,6 +19,7 @@ pub struct SuperCircuitConfig<
     core_circuit: CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     bytecode_circuit: BytecodeCircuitConfig<F>,
     state_circuit: StateCircuitConfig<F>,
+    public_circuit: PublicCircuitConfig,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -51,10 +53,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 state_table,
             },
         );
+        let public_circuit = PublicCircuitConfig::new(meta, ());
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
             state_circuit,
+            public_circuit,
         }
     }
 }
@@ -70,6 +74,7 @@ pub struct SuperCircuit<
     pub core_circuit: CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
     pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
+    pub public_circuit: PublicCircuit<F>,
 }
 
 impl<
@@ -89,10 +94,12 @@ impl<
         let core_circuit = CoreCircuit::new_from_witness(witness);
         let bytecode_circuit = BytecodeCircuit::new_from_witness(witness);
         let state_circuit = StateCircuit::new_from_witness(witness);
+        let public_circuit = PublicCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
             state_circuit,
+            public_circuit,
         }
     }
 
@@ -101,6 +108,7 @@ impl<
         instance.extend(self.core_circuit.instance());
         instance.extend(self.bytecode_circuit.instance());
         instance.extend(self.state_circuit.instance());
+        instance.extend(self.public_circuit.instance());
 
         instance
     }
@@ -116,6 +124,8 @@ impl<
             .synthesize_sub(&config.bytecode_circuit, layouter)?;
         self.state_circuit
             .synthesize_sub(&config.state_circuit, layouter)?;
+        self.public_circuit
+            .synthesize_sub(&config.public_circuit, layouter)?;
         Ok(())
     }
 
@@ -124,6 +134,7 @@ impl<
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows(),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows(),
             StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+            PublicCircuit::<F>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -135,6 +146,7 @@ impl<
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+            PublicCircuit::<F>::num_rows(witness),
         ];
         itertools::max(num_rows).unwrap()
     }
@@ -174,7 +186,7 @@ impl<
 mod tests {
     use super::*;
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
-    use crate::util::log2_ceil;
+    use crate::util::{geth_data_test, log2_ceil};
     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::{Fr, G1};
 
@@ -199,7 +211,7 @@ mod tests {
     fn test_from_test_data() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&trace, &machine_code);
+        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
         let (k, circuit, prover) = test_super_circuit(witness);
         prover.assert_satisfied_par();
     }
@@ -210,7 +222,7 @@ mod tests {
     fn test_draw() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&trace, &machine_code);
+        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
 
         let (k, circuit, prover) = test_super_circuit(witness);
         // draw picture
@@ -257,7 +269,7 @@ mod tests {
         );
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&trace, &machine_code);
+        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
 
         let (k, circuit, prover) = test_super_circuit(witness);
         let circuit_cost: CircuitCost<

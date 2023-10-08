@@ -105,18 +105,24 @@ mod test {
             stack_top: Some(1.into()),
         };
         current_state.copy_from_trace(&trace);
-        let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
-            &mut current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
-        padding_begin_row.vers_21 = Some(stack_pointer.into());
-        let mut padding_end_row = ExecutionState::END_PADDING.into_exec_state_core_row(
-            &mut current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
-        padding_end_row.pc = 1.into();
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 1.into();
+            row
+        };
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();

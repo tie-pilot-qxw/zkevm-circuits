@@ -3,6 +3,7 @@ pub mod bytecode_circuit;
 pub mod constant;
 pub mod core_circuit;
 pub mod execution;
+pub mod public_circuit;
 pub mod state_circuit;
 pub mod super_circuit;
 pub mod table;

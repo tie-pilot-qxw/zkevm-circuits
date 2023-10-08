@@ -16,7 +16,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::SubCircuit;
+use zkevm_circuits::util::{geth_data_test, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 fn criterion_benchmark(c: &mut Criterion) {
@@ -25,7 +25,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let machine_code = trace_parser::assemble_file("test_data/1.txt");
     let trace = trace_parser::trace_program(&machine_code);
-    let witness = Witness::new(&trace, &machine_code);
+    let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance: Vec<Vec<Fr>> = circuit.instance();

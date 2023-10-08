@@ -1,8 +1,12 @@
+use crate::constant::ADDRESS_HI_FOR_CREATE;
 use crate::witness::Witness;
-use eth_types::{Field, U256};
+use eth_types::geth_types::{Account, GethData};
+use eth_types::{Address, Block, Field, Transaction, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Any, Column, ConstraintSystem, Error, Fixed, VirtualCells};
+use halo2_proofs::plonk::{
+    Advice, Any, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells,
+};
 
 pub(crate) fn query_expression<F: Field, T>(
     meta: &mut ConstraintSystem<F>,
@@ -112,6 +116,70 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     let mut bytes = [0u8; 64];
     value.to_little_endian(&mut bytes[..32]);
     bytes
+}
+
+/// Generate the code address for create-contract transaction of index `idx`
+pub fn create_contract_temp_addr(idx: usize) -> U256 {
+    let hi: U256 = ADDRESS_HI_FOR_CREATE.into();
+    let lo: U256 = idx.into();
+    (hi << 128) + lo
+}
+
+pub fn geth_data_test(bytecode: &[u8], input: &[u8], is_create: bool) -> GethData {
+    let mut history_hashes = vec![];
+    for i in 0..256 {
+        history_hashes.push(i.into())
+    }
+    let mut tx = Transaction::default();
+    let to: Address = [0xaa; 20].into();
+    if !is_create {
+        tx.input = input.to_vec().into();
+        tx.to = Some(to);
+    }
+    let eth_block = Block {
+        author: Some(Default::default()),
+        number: Some(1.into()),
+        base_fee_per_gas: Some(20000.into()),
+        transactions: vec![tx],
+        ..Default::default()
+    };
+    let account_addr = if is_create {
+        create_contract_temp_addr(1)
+    } else {
+        to.as_bytes().into()
+    };
+    let account = Account {
+        address: account_addr,
+        code: bytecode.to_vec().into(),
+        ..Default::default()
+    };
+    GethData {
+        chain_id: 42.into(),
+        history_hashes,
+        eth_block,
+        accounts: vec![account],
+    }
+}
+
+/// A place to hold one of two outcomes:
+/// Delta: current cell increases from previous cell by this expression
+/// To: current cell becomes this expression
+pub enum ExpressionOutcome<F> {
+    Delta(Expression<F>),
+    To(Expression<F>),
+}
+
+impl<F: Field> ExpressionOutcome<F> {
+    pub(crate) fn into_constraint(
+        self,
+        minuend: Expression<F>,
+        subtrahend: Expression<F>,
+    ) -> Expression<F> {
+        match self {
+            ExpressionOutcome::Delta(delta) => minuend - subtrahend - delta,
+            ExpressionOutcome::To(to) => minuend - to,
+        }
+    }
 }
 
 #[cfg(test)]

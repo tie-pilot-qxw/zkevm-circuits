@@ -5,7 +5,7 @@ use std::io::Read;
 use trace_parser::read_trace_from_jsonl;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{log2_ceil, SubCircuit};
+use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 #[ignore]
@@ -20,7 +20,7 @@ fn test_deploy_trace() {
         bytecodes = bytecodes.split_off(2);
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
-    let witness = Witness::new(&trace, &bytecodes);
+    let witness = Witness::new(&vec![trace], &geth_data_test(&bytecodes, &[], true));
     let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
     witness.write_html(&mut buf);
     let witness_length = SuperCircuit::<

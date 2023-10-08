@@ -59,7 +59,30 @@ macro_rules! extract_lookup_expression {
         todo!()
     };
     (copy, $value:expr) => {
-        todo!()
+        match $value {
+            LookupEntry::Copy {
+                src_type,
+                src_id,
+                src_pointer,
+                src_stamp,
+                dst_type,
+                dst_id,
+                dst_pointer,
+                dst_stamp,
+                len,
+            } => (
+                src_type,
+                src_id,
+                src_pointer,
+                src_stamp,
+                dst_type,
+                dst_id,
+                dst_pointer,
+                dst_stamp,
+                len,
+            ),
+            _ => panic!("Pattern doesn't match!"),
+        }
     };
     (exp, $value:expr) => {
         match $value {

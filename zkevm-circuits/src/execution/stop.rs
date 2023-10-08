@@ -66,6 +66,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecutionState::END_BLOCK as usize,
             Rotation(super::end_block::NUM_ROW as i32),
         );
+        let next_end_block_cnt_is_zero = config
+            .cnt_is_zero
+            .expr_at(meta, Rotation(super::end_block::NUM_ROW as i32));
 
         vec![
             ("opcode".into(), opcode - OpcodeId::STOP.as_u8().expr()),
@@ -77,7 +80,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("log stamp".into(), log_stamp_cur - log_stamp_prev),
             ("read only".into(), read_only_cur - read_only_prev),
-            ("next is end_block".into(), next_is_end_block - 1.expr()),
+            (
+                "next is END_BLOCK".into(),
+                next_end_block_cnt_is_zero * next_is_end_block - 1.expr(),
+            ),
         ]
     }
 
@@ -130,16 +136,20 @@ mod test {
             stack_top: None,
         };
         current_state.copy_from_trace(&trace);
-        let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
-            &mut current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
-        let mut padding_end_row = ExecutionState::END_BLOCK.into_exec_state_core_row(
-            &mut current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
+        let padding_begin_row = |current_state| {
+            ExecutionState::END_PADDING.into_exec_state_core_row(
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            )
+        };
+        let padding_end_row = |current_state| {
+            ExecutionState::END_BLOCK.into_exec_state_core_row(
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            )
+        };
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();

@@ -17,9 +17,10 @@ use crate::execution::{
     get_every_execution_gadgets, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::state_circuit::StateCircuit;
-use crate::util::SubCircuit;
+use crate::util::{create_contract_temp_addr, SubCircuit};
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::evm_types::{Stack, Storage};
+use eth_types::geth_types::GethData;
 use eth_types::U256;
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -39,15 +40,16 @@ pub struct Witness {
     pub arithmetic: Vec<arithmetic::Row>,
 }
 
-// todo consider move to trace_parser
 pub struct CurrentState {
     pub stack: Stack,
     pub memory: Memory,
     pub storage: Storage,
     pub call_data: HashMap<u64, Vec<u8>>,
-    pub tx_idx: u64,
+    pub value: HashMap<u64, U256>,
+    pub sender: HashMap<u64, U256>,
+    pub tx_idx: usize,
     pub call_id: u64,
-    pub code_addr: u64,
+    pub code_addr: U256,
     pub pc: u64,
     pub opcode: OpcodeId,
     pub state_stamp: u64,
@@ -66,9 +68,11 @@ impl CurrentState {
             memory: Memory::new(),
             storage: Storage::new(HashMap::new()),
             call_data: HashMap::new(),
+            value: HashMap::new(),
+            sender: HashMap::new(),
             tx_idx: 0,
             call_id: 0,
-            code_addr: 0,
+            code_addr: 0.into(),
             pc: 0,
             opcode: OpcodeId::default(),
             state_stamp: 0,
@@ -86,11 +90,111 @@ impl CurrentState {
         self.pc = trace.pc;
     }
 
+    /// Generate witness of one transaction's trace
+    fn generate_trace_witness(
+        &mut self,
+        trace: &Vec<Trace>,
+        geth_data: &GethData,
+        tx_idx: usize,
+        execution_gadgets_map: &HashMap<
+            ExecutionState,
+            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
+    ) -> Witness {
+        let tx = geth_data
+            .eth_block
+            .transactions
+            .get(tx_idx)
+            .expect("tx_idx out of bounds");
+        let call_id = self.state_stamp + 1;
+        assert_eq!(
+            tx_idx, self.tx_idx,
+            "the tx idx should match that in current_state"
+        );
+        // due to we decide to start idx at 1 in witness
+        let tx_idx = tx_idx + 1;
+        // if contract-create tx, calculate `to`, else convert `to`
+        let to = tx.to.map_or_else(
+            || create_contract_temp_addr(tx_idx),
+            |to| to.as_bytes().into(),
+        );
+        // get bytecode: if contract-create tx, input; else find the account.code
+        let bytecode = geth_data
+            .accounts
+            .iter()
+            .filter_map(|account| {
+                if account.address == to {
+                    Some(account.code.to_vec())
+                } else {
+                    None
+                }
+            })
+            .next()
+            .unwrap_or_default();
+        // add calldata to current_state
+        if tx.to.is_some() {
+            self.call_data.insert(call_id, tx.input.to_vec());
+        }
+        self.value.insert(call_id, tx.value);
+        self.sender.insert(call_id, tx.from.as_bytes().into());
+        self.code_addr = to;
+        self.machine_code = bytecode;
+
+        let mut res: Witness = Default::default();
+        let first_trace = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
+        self.copy_from_trace(first_trace);
+        res.append(
+            execution_gadgets_map
+                .get(&ExecutionState::BEGIN_TX_1)
+                .unwrap()
+                .gen_witness(first_trace, self),
+        );
+        res.append(
+            execution_gadgets_map
+                .get(&ExecutionState::BEGIN_TX_2)
+                .unwrap()
+                .gen_witness(first_trace, self),
+        );
+        for t in trace {
+            self.copy_from_trace(t);
+            #[cfg(feature = "check_stack")]
+            if let Some(stack) = &t.stack_for_test {
+                assert_eq!(
+                    stack, &self.stack.0,
+                    "stack in trace mismatch with current state in trace at pc {}",
+                    t.pc
+                );
+            }
+            res.append(self.generate_execution_witness(t, &execution_gadgets_map))
+        }
+        res
+    }
+
+    fn generate_execution_witness(
+        &mut self,
+        trace: &Trace,
+        execution_gadgets_map: &HashMap<
+            ExecutionState,
+            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
+    ) -> Witness {
+        let mut res = Witness::default();
+        let execution_states = ExecutionState::from_opcode(trace.op);
+        for execution_state in execution_states {
+            if let Some(gadget) = execution_gadgets_map.get(&execution_state) {
+                res.append(gadget.gen_witness(trace, self));
+            } else {
+                panic!("execution state {:?} not supported yet", execution_state);
+            }
+        }
+        res
+    }
+
     pub fn get_core_row_without_versatile(&self, multi_row_cnt: usize) -> core::Row {
         core::Row {
             tx_idx: self.tx_idx.into(),
             call_id: self.call_id.into(),
-            code_addr: self.code_addr.into(),
+            code_addr: self.code_addr,
             pc: self.pc.into(),
             opcode: self.opcode,
             cnt: multi_row_cnt.into(),
@@ -276,7 +380,7 @@ impl CurrentState {
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Bytecode,
-                src_id: self.code_addr.into(),
+                src_id: self.code_addr,
                 src_pointer: (src + i).into(),
                 src_stamp: None,
                 dst_type: copy::Type::Memory,
@@ -291,7 +395,7 @@ impl CurrentState {
         (copy_rows, state_rows)
     }
 
-    pub fn get_call_data_copy_rows(
+    pub fn get_calldata_copy_rows(
         &mut self,
         dst: usize,
         src: usize,
@@ -300,7 +404,7 @@ impl CurrentState {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         for i in 0..len {
-            let call_data = &self.call_data[&self.tx_idx];
+            let call_data = &self.call_data[&self.call_id];
             let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
@@ -330,6 +434,63 @@ impl CurrentState {
         }
 
         (copy_rows, state_rows)
+    }
+
+    /// Load calldata from public table to state table
+    pub fn get_load_calldata_copy_rows(&mut self) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let calldata = &self.call_data[&self.call_id];
+        let len = calldata.len();
+        let stamp_start = self.state_stamp;
+        for (i, &byte) in calldata.iter().enumerate() {
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Type::PublicCalldata,
+                src_id: self.tx_idx.into(),
+                src_pointer: 0.into(),
+                src_stamp: None,
+                dst_type: copy::Type::Calldata,
+                dst_id: self.call_id.into(),
+                dst_pointer: 0.into(),
+                dst_stamp: stamp_start.into(),
+                cnt: i.into(),
+                len: len.into(),
+            });
+            state_rows.push(state::Row {
+                tag: Some(state::Tag::CallData),
+                stamp: Some(self.state_stamp.into()),
+                value_hi: None,
+                value_lo: Some(byte.into()),
+                call_id_contract_addr: Some(self.call_id.into()),
+                pointer_hi: None,
+                pointer_lo: Some(i.into()),
+                is_write: Some(1.into()),
+            });
+            self.state_stamp += 1;
+        }
+        (copy_rows, state_rows)
+    }
+
+    /// Load calldata from public table to state table
+    pub fn get_write_call_context_row(
+        &mut self,
+        value_hi: Option<U256>,
+        value_lo: Option<U256>,
+        context_tag: state::CallContextTag,
+    ) -> state::Row {
+        let res = state::Row {
+            tag: Some(state::Tag::CallContext),
+            stamp: Some((self.state_stamp).into()),
+            value_hi,
+            value_lo,
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((context_tag as u8).into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
     }
 }
 
@@ -368,7 +529,7 @@ impl core::Row {
             [&mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23],
             [&mut self.vers_24, &mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29, &mut self.vers_30, &mut self.vers_31]
         ];
-        for (state_row, core_row) in state_rows.into_iter().zip(vec) {
+        for (n, (state_row, core_row)) in state_rows.into_iter().zip(vec).enumerate() {
             for i in 0..8 {
                 // before inserting, these columns must be none
                 assert!(core_row[i].is_none());
@@ -381,6 +542,17 @@ impl core::Row {
             *core_row[5] = state_row.pointer_hi;
             *core_row[6] = state_row.pointer_lo;
             *core_row[7] = state_row.is_write;
+            #[rustfmt::skip]
+            self.comments.extend([
+                (format!("vers_{}", n * 8), format!("tag={:?}", state_row.tag)),
+                (format!("vers_{}", n * 8 + 1), format!("stamp")),
+                (format!("vers_{}", n * 8 + 2), format!("value_hi")),
+                (format!("vers_{}", n * 8 + 3), format!("value_lo")),
+                (format!("vers_{}", n * 8 + 4), format!("call_id")),
+                (format!("vers_{}", n * 8 + 5), format!("not used")),
+                (format!("vers_{}", n * 8 + 6), format!("stack pointer")),
+                (format!("vers_{}", n * 8 + 7), format!("is_write: read=0, write=1")),
+            ]);
         }
     }
 
@@ -418,6 +590,17 @@ impl core::Row {
             assert!(own.is_none());
             *own = value;
         }
+        #[rustfmt::skip]
+        self.comments.extend([
+            (format!("vers_{}", 24), format!("code_addr")),
+            (format!("vers_{}", 25), format!("pc")),
+            (format!("vers_{}", 26), format!("opcode={}", opcode)),
+            (format!("vers_{}", 27), format!("non_code must be 0")),
+            (format!("vers_{}", 28), format!("push_value_hi")),
+            (format!("vers_{}", 29), format!("push_value_lo")),
+            (format!("vers_{}", 30), format!("X for PUSHX")),
+            (format!("vers_{}", 31), format!("is_push")),
+        ]);
     }
 
     pub fn insert_arithmetic_lookup(&mut self, arithmetic: &arithmetic::Row) {
@@ -443,31 +626,49 @@ impl core::Row {
             assert!(own.is_none());
             *own = value;
         }
+        #[rustfmt::skip]
+        self.comments.extend([
+            (format!("vers_{}", 8), format!("{:?}", arithmetic.tag)),
+        ]);
+    }
+
+    pub fn insert_copy_lookup(&mut self, copy: &copy::Row) {
+        // this lookup must be in the row with this cnt
+        assert_eq!(self.cnt, 2.into());
+
+        for (own, value) in [
+            (&mut self.vers_0, Some((copy.src_type as u8).into())),
+            (&mut self.vers_1, Some(copy.src_id)),
+            (&mut self.vers_2, Some(copy.src_pointer)),
+            (&mut self.vers_3, copy.src_stamp),
+            (&mut self.vers_4, Some((copy.dst_type as u8).into())),
+            (&mut self.vers_5, Some(copy.dst_id)),
+            (&mut self.vers_6, Some(copy.dst_pointer)),
+            (&mut self.vers_7, Some(copy.dst_stamp)),
+            (&mut self.vers_8, Some(copy.len)),
+        ] {
+            // before inserting, these columns must be none
+            assert!(own.is_none());
+            *own = value;
+        }
+        #[rustfmt::skip]
+        self.comments.extend([
+            (format!("vers_{}", 0), format!("src_type={:?}", copy.src_type)),
+            (format!("vers_{}", 1), format!("src_id")),
+            (format!("vers_{}", 2), format!("src_pointer")),
+            (format!("vers_{}", 3), format!("src_stamp")),
+            (format!("vers_{}", 4), format!("dst_type={:?}", copy.dst_type)),
+            (format!("vers_{}", 5), format!("dst_id")),
+            (format!("vers_{}", 6), format!("dst_pointer")),
+            (format!("vers_{}", 7), format!("dst_stamp")),
+            (format!("vers_{}", 8), format!("len")),
+            (format!("vers_{}", 9), format!("push_value_lo")),
+        ]);
     }
 }
 
 impl Witness {
-    fn get_next_witness(
-        trace: &Trace,
-        current_state: &mut CurrentState,
-        execution_gadgets_map: &HashMap<
-            ExecutionState,
-            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
-        >,
-    ) -> Witness {
-        let mut res = Witness::default();
-        let execution_states = ExecutionState::from_opcode(trace.op);
-        for execution_state in execution_states {
-            if let Some(gadget) = execution_gadgets_map.get(&execution_state) {
-                res.append(gadget.gen_witness(trace, current_state));
-            } else {
-                panic!("execution state {:?} not supported yet", execution_state);
-            }
-        }
-        res
-    }
-
-    fn append(&mut self, mut witness: Witness) {
+    pub fn append(&mut self, mut witness: Witness) {
         self.bytecode.append(&mut witness.bytecode);
         self.copy.append(&mut witness.copy);
         self.core.append(&mut witness.core);
@@ -477,7 +678,7 @@ impl Witness {
         self.arithmetic.append(&mut witness.arithmetic);
     }
 
-    fn gen_bytecode_witness(addr: U256, machine_code: &Vec<u8>) -> Vec<bytecode::Row> {
+    fn gen_bytecode_witness(addr: U256, machine_code: &[u8]) -> Vec<bytecode::Row> {
         let mut res = vec![];
         let mut pc = 0;
         while pc < machine_code.len() {
@@ -564,16 +765,49 @@ impl Witness {
         vec![row_0]
     }
 
-    pub fn new(trace: &Vec<Trace>, machine_code: &Vec<u8>) -> Self {
-        let mut res = Witness {
-            bytecode: Self::gen_bytecode_witness(0xff.into(), machine_code),
-            ..Default::default()
-        };
-        let mut current_state = CurrentState {
-            code_addr: 0xff, //replace with real addr
-            machine_code: machine_code.clone(),
-            ..CurrentState::new()
-        };
+    /// Generate witness of block related data, such as bytecode and public table
+    fn insert_block_related(&mut self, geth_data: &GethData) {
+        self.public
+            .append(&mut public::Row::from_geth_data(&geth_data).unwrap());
+        for account in &geth_data.accounts {
+            if !account.code.is_empty() {
+                let mut bytcode_table =
+                    Self::gen_bytecode_witness(account.address, account.code.as_ref());
+                self.bytecode.append(&mut bytcode_table);
+            }
+        }
+    }
+
+    /// Generate begin padding of a witness of one block
+    fn insert_begin_padding(&mut self) {
+        // padding zero in the front
+        (0..CoreCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)
+            .for_each(|_| self.core.insert(0, Default::default()));
+        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
+            .for_each(|_| self.bytecode.insert(0, Default::default()));
+        (0..StateCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| self.state.insert(0, Default::default()));
+    }
+
+    /// Generate end padding of a witness of one block
+    fn insert_end_padding(
+        &mut self,
+        last_trace: &Trace,
+        current_state: &mut CurrentState,
+        execution_gadgets_map: &HashMap<
+            ExecutionState,
+            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
+    ) {
+        // padding: add END_BLOCK to the end of core and (END_PADDING will be assigned automatically)
+        let end_block_gadget = execution_gadgets_map
+            .get(&ExecutionState::END_BLOCK)
+            .unwrap();
+        self.append(end_block_gadget.gen_witness(last_trace, current_state));
+    }
+
+    /// Generate witness of one transaction's trace
+    pub fn new(trace: &Vec<Vec<Trace>>, geth_data: &GethData) -> Self {
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         > = get_every_execution_gadgets!();
@@ -581,36 +815,25 @@ impl Witness {
             .into_iter()
             .map(|gadget| (gadget.execution_state(), gadget))
             .collect();
-        for t in trace {
-            current_state.copy_from_trace(t);
-            #[cfg(feature = "check_stack")]
-            if let Some(stack) = &t.stack_for_test {
-                assert_eq!(
-                    stack, &current_state.stack.0,
-                    "stack in trace mismatch with current state in trace at pc {}",
-                    t.pc
-                );
-            }
-            res.append(Self::get_next_witness(
-                t,
-                &mut current_state,
-                &execution_gadgets_map,
-            ))
+        let mut witness = Witness::default();
+        // step 1: insert block related witness: bytecode and public
+        witness.insert_block_related(&geth_data);
+        // step 2: insert padding to core, bytecode, state
+        witness.insert_begin_padding();
+        // step 3: create witness trace by trace, and append them
+        let mut current_state = CurrentState::new();
+        for (i, trace) in trace.iter().enumerate() {
+            let trace_related_witness =
+                current_state.generate_trace_witness(trace, geth_data, i, &execution_gadgets_map);
+            witness.append(trace_related_witness);
         }
-        // padding: add END_BLOCK to the end of core and
-        // add EndPadding to the end of state (more will be assigned automatically)
-        let end_block_gadget = execution_gadgets_map
-            .get(&ExecutionState::END_BLOCK)
-            .unwrap();
-        res.append(end_block_gadget.gen_witness(trace.last().unwrap(), &mut current_state));
-        // padding zero in the front
-        (0..CoreCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)
-            .for_each(|_| res.core.insert(0, Default::default()));
-        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
-            .for_each(|_| res.bytecode.insert(0, Default::default()));
-        (0..StateCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
-            .for_each(|_| res.state.insert(0, Default::default()));
-        res
+        // step 4: insert end padding (END_BLOCK)
+        witness.insert_end_padding(
+            trace.last().unwrap().last().unwrap(),
+            &mut current_state,
+            &execution_gadgets_map,
+        );
+        witness
     }
 
     pub fn write_all_as_csv<W: Write>(&self, writer: W) {
@@ -619,19 +842,22 @@ impl Witness {
             self.core.len(),
             self.bytecode.len(),
             self.state.len(),
+            self.public.len(),
             self.arithmetic.len(),
         ])
         .unwrap();
         for i in 0..max_length {
             let core = self.core.get(i).map(|x| x.clone()).unwrap_or_default();
             let state = self.state.get(i).map(|x| x.clone()).unwrap_or_default();
+            let bytecode = self.bytecode.get(i).map(|x| x.clone()).unwrap_or_default();
+            let public = self.public.get(i).map(|x| x.clone()).unwrap_or_default();
             let arithmetic = self
                 .arithmetic
                 .get(i)
                 .map(|x| x.clone())
                 .unwrap_or_default();
-            let bytecode = self.bytecode.get(i).map(|x| x.clone()).unwrap_or_default();
-            wtr.serialize((core, state, arithmetic, bytecode)).unwrap()
+            wtr.serialize((core, state, bytecode, public, arithmetic))
+                .unwrap()
         }
         wtr.flush().unwrap();
     }
@@ -777,12 +1003,13 @@ impl ExecutionState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::geth_data_test;
 
     #[test]
     fn test_data_print_csv() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness_table = Witness::new(&trace, &machine_code);
-        witness_table.print_csv();
+        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
+        witness.print_csv();
     }
 }

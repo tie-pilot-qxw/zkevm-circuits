@@ -23,7 +23,7 @@ use std::collections::HashMap;
 #[derive(PartialEq, Eq, Debug, Default, Clone, Serialize)]
 pub struct Account {
     /// Address
-    pub address: Address,
+    pub address: Word, // extend address to Word, to let create-contract tx has special address
     /// nonce
     pub nonce: Word,
     /// Balance
@@ -300,8 +300,10 @@ pub struct GethData {
     pub history_hashes: Vec<Word>,
     /// Block from geth
     pub eth_block: Block<crate::Transaction>,
+    /* removed in this project
     /// Execution Trace from geth
     pub geth_traces: Vec<GethExecTrace>,
+    */
     /// Accounts
     pub accounts: Vec<Account>,
 }

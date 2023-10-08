@@ -1,6 +1,6 @@
 use crate::constant::NUM_VERS;
 use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
-use crate::table::{BytecodeTable, StateTable};
+use crate::table::{BytecodeTable, LookupEntry, StateTable};
 use crate::util::assign_advice_or_fixed;
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::core::Row;
@@ -173,6 +173,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         });
 
         // tx_id, call_id, code_addr constraints?
+
+        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        meta.lookup_any("CORE_bytecode", |meta| {
+            let entry = LookupEntry::Bytecode {
+                addr: meta.query_advice(config.code_addr, Rotation::cur()),
+                pc: meta.query_advice(config.pc, Rotation::cur()),
+                opcode: meta.query_advice(config.opcode, Rotation::cur()),
+            };
+            let lookup_vec = config.bytecode_table.get_lookup_vector(meta, entry);
+            lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(config.q_enable);
+                    (q_enable * left, right)
+                })
+                .collect()
+        });
         config
     }
 }
@@ -359,7 +376,7 @@ mod test {
     use super::*;
     use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::core_circuit::CoreCircuit;
-    use crate::util::log2_ceil;
+    use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -417,7 +434,8 @@ mod test {
     fn test_core_parser() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness: Witness = Witness::new(&trace, &machine_code);
+        let witness: Witness =
+            Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
         let prover = test_simple_core_circuit(witness);
         prover.assert_satisfied_par();
     }

@@ -1,6 +1,6 @@
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{FixedTable, StateTable};
-use crate::util::{self, assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
+use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{Row, Tag};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -176,7 +176,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
 mod test {
     use super::*;
     use crate::constant::MAX_NUM_ROW;
-    use crate::util::log2_ceil;
+    use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -229,7 +229,8 @@ mod test {
     fn test_state_parser() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness: Witness = Witness::new(&trace, &machine_code);
+        let witness: Witness =
+            Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
         let prover = test_state_circuit(witness);
         prover.assert_satisfied_par();
     }

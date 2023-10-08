@@ -42,13 +42,14 @@ impl From<Tag> for usize {
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
-enum CallContextTag {
+pub enum CallContextTag {
     #[default]
     ParentCallId,
-    ProgramCounter,
-    StackPointer,
-    CodeContractAddr,
+    ParentCodeContractAddr,
+    ParentProgramCounter,
+    ParentStackPointer,
     StorageContractAddr,
+    SenderAddr,
     Value,
     CallDataSize,
     ReturnDataCallId,
@@ -74,7 +75,7 @@ mod test {
         let row2 = Row {
             tag: Some(Tag::CallContext),
             value_lo: Some(10.into()),
-            pointer_lo: Some((CallContextTag::ProgramCounter as u8).into()),
+            pointer_lo: Some((CallContextTag::ParentProgramCounter as u8).into()),
             call_id_contract_addr: Some(3.into()),
             ..Default::default()
         };

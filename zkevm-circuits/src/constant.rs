@@ -1,7 +1,7 @@
 pub const NUM_STATE_HI_COL: usize = 10;
 pub const NUM_STATE_LO_COL: usize = 10;
-pub const MAX_NUM_ROW: usize = 245;
-pub const MAX_CODESIZE: usize = 200;
+pub const MAX_NUM_ROW: usize = 501;
+pub const MAX_CODESIZE: usize = 500;
 
 /// Index of vers[] column in core circuit for state stamp in execution gadgets
 /// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here
@@ -26,4 +26,9 @@ pub(crate) const DESCRIPTION_AUXILIARY: [&'static str; NUM_AUXILIARY] = [
     "refund",
     "memory_chunk",
     "read_only",
+];
+
+pub(crate) const ADDRESS_HI_FOR_CREATE: [u8; 32] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0,
 ];

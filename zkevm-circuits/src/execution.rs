@@ -1,6 +1,8 @@
 pub mod add;
 pub mod addmod;
 pub mod and_or_xor;
+pub mod begin_tx_1;
+pub mod begin_tx_2;
 pub mod byte;
 pub mod call_context;
 pub mod calldatacopy;
@@ -93,10 +95,13 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::swap::new(),
             crate::execution::return_revert::new(),
             crate::execution::exp::new(),
+            crate::execution::begin_tx_1::new(),
+            crate::execution::begin_tx_2::new(),
         ]
     }};
 }
 use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
+use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
 #[derive(Clone)]
@@ -177,6 +182,25 @@ impl<F: Field> Default for AuxiliaryDelta<F> {
     }
 }
 
+/// Outcome for single-purpose (SP) columns in core circuit. That is, we have constraint of `X_next - X_cur - delta = 0`
+pub(crate) struct CoreSinglePurposeOutcome<F> {
+    /// Delta of pc (program counter) at the next execution state and current execution state
+    pub(crate) pc: ExpressionOutcome<F>,
+    pub(crate) tx_idx: ExpressionOutcome<F>,
+    pub(crate) call_id: ExpressionOutcome<F>,
+    pub(crate) code_addr: ExpressionOutcome<F>,
+}
+
+impl<F: Field> Default for CoreSinglePurposeOutcome<F> {
+    fn default() -> Self {
+        Self {
+            pc: ExpressionOutcome::Delta(0.expr()),
+            tx_idx: ExpressionOutcome::Delta(0.expr()),
+            call_id: ExpressionOutcome::Delta(0.expr()),
+            code_addr: ExpressionOutcome::Delta(0.expr()),
+        }
+    }
+}
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
@@ -321,6 +345,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_copy_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let (
+            src_type,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            len,
+        ) = (
+            meta.query_advice(self.vers[0], Rotation(-2)),
+            meta.query_advice(self.vers[1], Rotation(-2)),
+            meta.query_advice(self.vers[2], Rotation(-2)),
+            meta.query_advice(self.vers[3], Rotation(-2)),
+            meta.query_advice(self.vers[4], Rotation(-2)),
+            meta.query_advice(self.vers[5], Rotation(-2)),
+            meta.query_advice(self.vers[6], Rotation(-2)),
+            meta.query_advice(self.vers[7], Rotation(-2)),
+            meta.query_advice(self.vers[8], Rotation(-2)),
+        );
+        LookupEntry::Copy {
+            src_type,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            len,
+        }
+    }
+
     pub(crate) fn get_auxiliary(&self) -> Auxiliary {
         Auxiliary {
             state_stamp: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 0],
@@ -375,6 +434,43 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     - delta.read_only,
             ),
             //todo other auxiliary
+        ]
+    }
+
+    pub(crate) fn get_core_single_purpose_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        delta: CoreSinglePurposeOutcome<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        vec![
+            (
+                "pc next".into(),
+                delta.pc.into_constraint(
+                    meta.query_advice(self.pc, Rotation::next()),
+                    meta.query_advice(self.pc, Rotation::cur()),
+                ),
+            ),
+            (
+                "tx_idx next".into(),
+                delta.tx_idx.into_constraint(
+                    meta.query_advice(self.tx_idx, Rotation::next()),
+                    meta.query_advice(self.tx_idx, Rotation::cur()),
+                ),
+            ),
+            (
+                "call_id next".into(),
+                delta.call_id.into_constraint(
+                    meta.query_advice(self.call_id, Rotation::next()),
+                    meta.query_advice(self.call_id, Rotation::cur()),
+                ),
+            ),
+            (
+                "code_addr next".into(),
+                delta.code_addr.into_constraint(
+                    meta.query_advice(self.code_addr, Rotation::next()),
+                    meta.query_advice(self.code_addr, Rotation::cur()),
+                ),
+            ),
         ]
     }
 }
@@ -541,6 +637,8 @@ pub enum ExecutionState {
     // zkevm internal states
     /// State that is padding at the end
     END_PADDING, // it has to be the first state as it is the padding state
+    BEGIN_TX_1, // start a tx, part one
+    BEGIN_TX_2, // start a tx, part two
     END_BLOCK,
     // opcode/operation successful states
     STOP,
@@ -1015,13 +1113,15 @@ mod test {
     macro_rules! prepare_witness_and_prover {
         ($trace:expr, $current_state:expr, $padding_begin_row:expr, $padding_end_row:expr) => {{
             let gadget: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> = new();
-            let mut witness = gadget.gen_witness(&$trace, &mut $current_state);
-            assert_eq!(gadget.num_row(), witness.core.len());
+            let mut witness = Witness::default();
             for _ in 0..gadget.unusable_rows().0 {
-                witness.core.insert(0, $padding_begin_row.clone());
+                witness.core.insert(0, $padding_begin_row(&$current_state));
             }
+            let mut this_witness = gadget.gen_witness(&$trace, &mut $current_state);
+            assert_eq!(gadget.num_row(), this_witness.core.len());
+            witness.append(this_witness);
             for _ in 0..gadget.unusable_rows().1 {
-                witness.core.push($padding_end_row.clone());
+                witness.core.push($padding_end_row(&$current_state));
             }
             let k = 8;
             let circuit = TestCircuit::<Fr>::new(witness.clone());

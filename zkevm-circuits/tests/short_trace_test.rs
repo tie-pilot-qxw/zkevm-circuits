@@ -5,7 +5,7 @@ use std::io::Read;
 use trace_parser::read_trace_from_jsonl;
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::SubCircuit;
+use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 #[test]
@@ -18,13 +18,19 @@ fn test_short_trace() {
         bytecodes = bytecodes.split_off(2);
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
-    let witness = Witness::new(&trace, &bytecodes);
+    let witness = Witness::new(&vec![trace], &geth_data_test(&bytecodes, &[], false));
     witness.print_csv();
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
 
-    let k = 8;
+    let k = log2_ceil(SuperCircuit::<
+        Fr,
+        MAX_NUM_ROW,
+        MAX_CODESIZE,
+        NUM_STATE_HI_COL,
+        NUM_STATE_LO_COL,
+    >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
     prover.assert_satisfied_par();
 }

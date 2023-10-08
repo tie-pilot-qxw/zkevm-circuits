@@ -11,7 +11,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use trace_parser::Trace;
 
-pub(crate) const NUM_ROW: usize = 1;
+const NUM_ROW: usize = 1;
 
 pub struct EndPaddingGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -113,16 +113,20 @@ mod test {
             stack_top: None,
         };
         current_state.copy_from_trace(&trace);
-        let mut padding_begin_row = ExecutionState::END_PADDING.into_exec_state_core_row(
-            &mut current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
-        let mut padding_end_row = ExecutionState::END_PADDING.into_exec_state_core_row(
-            &mut current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
+        let padding_begin_row = |current_state| {
+            ExecutionState::END_PADDING.into_exec_state_core_row(
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            )
+        };
+        let padding_end_row = |current_state| {
+            ExecutionState::END_PADDING.into_exec_state_core_row(
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            )
+        };
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();

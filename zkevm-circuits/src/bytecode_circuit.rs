@@ -517,7 +517,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 mod test {
     use super::*;
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
-    use crate::util::log2_ceil;
+    use crate::util::{geth_data_test, log2_ceil};
     use eth_types::evm_types::OpcodeId;
     use eth_types::Bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
@@ -636,7 +636,7 @@ mod test {
         bytecode.push(x, u128::MAX);
         let machine_code = bytecode.code();
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&trace, &machine_code);
+        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
 
         let prover = test_bytecode_circuit(witness);
         prover.assert_satisfied_par();
@@ -649,7 +649,7 @@ mod test {
         bytecode.push(x, u128::MAX);
         let machine_code = bytecode.code();
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&trace, &machine_code);
+        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
 
         {
             let mut witness = witness.clone();

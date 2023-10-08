@@ -1,3 +1,4 @@
+use crate::util::create_contract_temp_addr;
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{ToBigEndian, U256};
 use serde::Serialize;
@@ -16,9 +17,7 @@ pub struct Row {
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub enum Tag {
-    // Nil=0, in case for padding zeros, we make meaningful tag > 0
     #[default]
-    Nil,
     BlockCoinbase,
     BlockTimestamp,
     BlockNumber,
@@ -34,7 +33,7 @@ pub enum Tag {
     TxIsCreate,
     TxGasLimit,
     TxGasPrice,
-    TxCallData,
+    TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
 }
 
@@ -98,47 +97,49 @@ impl Row {
             ..Default::default()
         });
         for (tx_idx, tx) in geth_data.eth_block.transactions.iter().enumerate() {
+            // due to we decide to start idx at 1 in witness
+            let tx_idx = tx_idx + 1;
             result.push(Row {
                 tag: Tag::TxFromValue,
-                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(tx.from.as_fixed_bytes()[..4].into()),
                 value_1: Some(tx.from.as_fixed_bytes()[4..].into()),
                 value_2: Some(tx.value.to_be_bytes()[..16].into()),
                 value_3: Some(tx.value.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
-            // to is 0xffffffff00000000...idx if tx is create
-            let to = tx.to.unwrap_or(
-                <&[u8] as TryInto<[u8; 20]>>::try_into(
-                    u32::MAX
-                        .to_be_bytes()
-                        .into_iter()
-                        .chain(((tx_idx + 1) as u128).to_be_bytes())
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                )
-                .unwrap()
-                .into(),
+            // to is 0x00ffffffff00000000...idx if tx is create (first 0x00 is to prevent visiting outside of Fr)
+            let (to_hi, to_lo): (U256, U256) = tx.to.map_or_else(
+                || {
+                    let to = create_contract_temp_addr(tx_idx);
+                    (to >> 128, to.low_u128().into())
+                },
+                |to| {
+                    (
+                        to.as_fixed_bytes()[..4].into(),
+                        to.as_fixed_bytes()[4..].into(),
+                    )
+                },
             );
             result.push(Row {
                 tag: Tag::TxToCallDataSize,
-                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
-                value_0: Some(to.as_fixed_bytes()[..4].into()),
-                value_1: Some(to.as_fixed_bytes()[4..].into()),
+                tx_idx_or_number_diff: Some(tx_idx.into()),
+                value_0: Some(to_hi),
+                value_1: Some(to_lo),
                 value_2: Some(0.into()), //len won't > u128
                 value_3: Some(tx.input.len().into()),
                 ..Default::default()
             });
             result.push(Row {
                 tag: Tag::TxIsCreate,
-                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(0.into()),
                 value_1: Some((tx.to.is_none() as u8).into()),
                 ..Default::default()
             });
             result.push(Row {
                 tag: Tag::TxGasLimit,
-                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(tx.gas.to_be_bytes()[..16].into()),
                 value_1: Some(tx.gas.to_be_bytes()[16..].into()),
                 ..Default::default()
@@ -146,15 +147,15 @@ impl Row {
             let gas_price = tx.gas_price.unwrap_or(0.into());
             result.push(Row {
                 tag: Tag::TxGasPrice,
-                tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(gas_price.to_be_bytes()[..16].into()),
                 value_1: Some(gas_price.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
             for (idx, byte) in tx.input.iter().enumerate() {
                 result.push(Row {
-                    tag: Tag::TxCallData,
-                    tx_idx_or_number_diff: Some((tx_idx + 1).into()),
+                    tag: Tag::TxCalldata,
+                    tx_idx_or_number_diff: Some(tx_idx.into()),
                     value_0: Some(idx.into()),
                     value_1: Some(tx.input.len().into()),
                     value_2: Some((*byte).into()),
@@ -211,7 +212,6 @@ mod test {
             chain_id: 42.into(),
             history_hashes,
             eth_block,
-            geth_traces: vec![],
             accounts: vec![],
         }
     }
