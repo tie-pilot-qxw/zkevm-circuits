@@ -21,6 +21,7 @@ pub mod is_zero_with_rotation;
 pub mod less_than;
 pub mod monotone;
 pub mod mul_add;
+pub mod seletor;
 pub mod util;
 
 use eth_types::Field;

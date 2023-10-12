@@ -502,6 +502,7 @@ macro_rules! assign_or_panic {
         }
     };
 }
+pub(crate) use assign_or_panic;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
@@ -512,6 +513,23 @@ impl core::Row {
         assign_or_panic!(self.vers_29, index.low_u128().into());
         assign_or_panic!(self.vers_30, power >> 128);
         assign_or_panic!(self.vers_31, power.low_u128().into());
+    }
+
+    pub fn fill_versatile_with_values(&mut self, values: &[U256]) {
+        #[rustfmt::skip]
+            let rows = [
+            &mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7,
+            &mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15,
+            &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23,
+            &mut self.vers_24, &mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29, &mut self.vers_30, &mut self.vers_31
+        ];
+        for (row, v) in rows.into_iter().zip(values) {
+            *row = Some(v.clone());
+        }
+    }
+
+    pub fn insert_bitwise_op_tag(&mut self, tag: usize) {
+        assign_or_panic!(self.vers_25, tag.into());
     }
 
     pub fn insert_state_lookups<const NUM_LOOKUP: usize>(
