@@ -1,10 +1,16 @@
 # How to run test
 
+## Preparation
+Prepare the official `evm` binary. You can compile it from [Geth source code](https://github.com/ethereum/go-ethereum) and use `make evm`. You can also download it from [official website](https://geth.ethereum.org/downloads) with "Geth & Tools". Put the binary in directory `zkevm-circuits`.
+
+After preparation, you can run all tests.
+
+Run one test
 ```shell
 cargo test super_circuit::tests::test_super_circuit
 ```
 
-or 
+or run all tests
 ```shell
 cargo test
 ```
@@ -23,8 +29,5 @@ cargo +nightly-2023-04-24 run --package zkevm-circuits --example gen_code --feat
 
 # Resources
 
-Ding Excel:
-https://alidocs.dingtalk.com/i/nodes/amweZ92PV6w9mPBQiy7QmAXeJxEKBD6p
-
-Ding Word:
-https://alidocs.dingtalk.com/i/nodes/Obva6QBXJw0B4LqYI1qpOYxY8n4qY5Pr
+- Wiki of this repository.
+- https://git.code.tencent.com/chainmaker-zk/knowledgebase

@@ -9,21 +9,21 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
     // the following columns are single purpose, non-versatile
-    // transaction index of present opcode
+    /// transaction index, the index inside the block, repeated for rows in one execution state
     pub tx_idx: U256,
-    // call id of present opcode
+    /// call id, unique for each call, repeated for rows in one execution state
     pub call_id: U256,
-    // contract address of the opcode
+    /// contract code address, repeated for rows in one execution state
     pub code_addr: U256,
-    // program counter of present opcode
+    /// program counter, repeated for rows in one execution state
     pub pc: U256,
-    // opcode of present row
+    /// the opcode, repeated for rows in one execution state
     pub opcode: OpcodeId,
-    // counter for multi-row operation
+    /// row counter, decremented for rows in one execution state
     pub cnt: U256,
     // show the execution state to be human-readable, no used in circuit
     pub exec_state: Option<ExecutionState>,
-    // 32 versatile columns used in all occasions
+    /// versatile columns that serve multiple purposes
     pub vers_0: Option<U256>,
     pub vers_1: Option<U256>,
     pub vers_2: Option<U256>,
@@ -56,6 +56,7 @@ pub struct Row {
     pub vers_29: Option<U256>,
     pub vers_30: Option<U256>,
     pub vers_31: Option<U256>,
+    /// comments to show in html table that explain the purpose of each cell
     #[serde(skip_serializing)]
     pub comments: HashMap<String, String>,
 }

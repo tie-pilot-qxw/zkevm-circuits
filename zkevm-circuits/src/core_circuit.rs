@@ -20,26 +20,26 @@ use strum::EnumCount;
 pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 {
     pub q_enable: Selector,
-    // witness column of transaction index
+    /// Transaction index, the index inside the block, repeated for rows in one execution state
     pub tx_idx: Column<Advice>,
-    // witness column of call id
+    /// Call id, unique for each call, repeated for rows in one execution state
     pub call_id: Column<Advice>,
-    // witness column of contract address
+    /// Contract code address, repeated for rows in one execution state
     pub code_addr: Column<Advice>,
-    // witness column of program counter
+    /// Program counter, repeated for rows in one execution state
     pub pc: Column<Advice>,
-    // witness columns of opcode
+    /// The opcode, repeated for rows in one execution state
     pub opcode: Column<Advice>,
-    // witness column of opcode counter
+    /// Row counter, decremented for rows in one execution state
     pub cnt: Column<Advice>,
-    // witness columns of 32 versatile purposes
+    /// Versatile columns that serve multiple purposes
     pub vers: [Column<Advice>; NUM_VERS],
-    // IsZero chip for witness column cnt
+    /// IsZero chip for column cnt
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
-    // Selector of execution state
+    /// Dynamic selector for execution state
     pub execution_state_selector:
         DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-    // Execution gadgets to constraint execution states
+    /// Execution gadgets to constraint execution states
     execution_gadgets: ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
