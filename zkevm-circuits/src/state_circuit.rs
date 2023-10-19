@@ -14,13 +14,23 @@ use std::marker::PhantomData;
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
     q_enable: Selector,
+    /// Type of value, one of stack, memory, storage, call context, call data or return data
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
     tag: BinaryNumberConfig<Tag, LOG_NUM_STATE_TAG>,
+    /// Stamp that increments for each state operation, unique for each row
     stamp: Column<Advice>,
+    /// High 128-bit value of the row
     value_hi: Column<Advice>,
+    /// Low 128-bit value of the row
     value_lo: Column<Advice>,
+    /// Call id (other types) or contract address (storage type only)
     call_id_contract_addr: Column<Advice>,
+    /// High 128-bit of the key (storage type only)
     pointer_hi: Column<Advice>,
+    /// Low 128-bit of the key (storage type only) or call context tag
+    /// Or stack pointer or memory address or data index (call data and return data)
     pointer_lo: Column<Advice>,
+    /// Whether it is write or read, binary value
     is_write: Column<Advice>,
     _marker: PhantomData<F>,
 }

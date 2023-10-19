@@ -3,22 +3,22 @@ use serde::Serialize;
 use strum_macros::{EnumIter, EnumString};
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
-    // Type of value, one of stack, memory, storage, call context, call data or return data
+    /// Type of value, one of stack, memory, storage, call context, call data or return data
     pub tag: Option<Tag>,
-    // auto increment stamp, unique for each row
+    /// Stamp that increments for each state operation, unique for each row
     pub stamp: Option<U256>,
-    // hi 128 bit value of each row
+    /// High 128-bit value of the row
     pub value_hi: Option<U256>,
-    // low 128 bit value of each row
+    /// Low 128-bit value of the row
     pub value_lo: Option<U256>,
-    // call id or contract address (storage type only)
+    /// Call id (other types) or contract address (storage type only)
     pub call_id_contract_addr: Option<U256>,
-    // size of call data or hi 128 bit of pointer (storage type only)
+    /// High 128-bit of the key (storage type only)
     pub pointer_hi: Option<U256>,
-    // low 128 pointer or call context tag, one of parent call id, program counter,
-    // code contract addr, storage contract addr, value, call data size or return data call id
+    /// Low 128-bit of the key (storage type only) or call context tag
+    /// Or stack pointer or memory address or data index (call data and return data)
     pub pointer_lo: Option<U256>,
-    // whether the value is write, especially for stack, memory or storage
+    /// Whether it is write or read, binary value
     pub is_write: Option<U256>,
 }
 
