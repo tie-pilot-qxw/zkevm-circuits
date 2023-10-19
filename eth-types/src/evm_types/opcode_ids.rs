@@ -8,7 +8,7 @@ use std::{fmt, matches, str::FromStr};
 use strum_macros::EnumIter;
 
 /// Opcode enum. One-to-one corresponding to an `u8` value.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Hash, EnumIter, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Hash, EnumIter)]
 pub enum OpcodeId {
     #[default]
     /// `STOP`
@@ -515,7 +515,7 @@ impl OpcodeId {
     }
 
     /// Returns the constant gas cost of `OpcodeId`
-    pub const fn constant_gas_cost(&self) -> GasCost {
+    pub const fn constant_gas_cost(&self) -> u64 {
         match self {
             OpcodeId::STOP => GasCost::ZERO,
             OpcodeId::ADD => GasCost::FASTEST,
