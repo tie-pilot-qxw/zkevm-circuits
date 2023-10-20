@@ -1,4 +1,4 @@
-use crate::util::create_contract_temp_addr;
+use crate::util::create_contract_addr_with_prefix;
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{ToBigEndian, U256};
 use serde::Serialize;
@@ -108,10 +108,10 @@ impl Row {
                 value_3: Some(tx.value.to_be_bytes()[16..].into()),
                 ..Default::default()
             });
-            // to is 0x00ffffffff00000000...idx if tx is create (first 0x00 is to prevent visiting outside of Fr)
+            // to is 0x00ffffffffabcd... if tx is create (0xff... is prefix and first 0x00 is to prevent visiting outside of Fr)
             let (to_hi, to_lo): (U256, U256) = tx.to.map_or_else(
                 || {
-                    let to = create_contract_temp_addr(tx_idx);
+                    let to = create_contract_addr_with_prefix(&tx);
                     (to >> 128, to.low_u128().into())
                 },
                 |to| {

@@ -17,7 +17,7 @@ use crate::execution::{
     get_every_execution_gadgets, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::state_circuit::StateCircuit;
-use crate::util::{create_contract_temp_addr, SubCircuit};
+use crate::util::{create_contract_addr_with_prefix, SubCircuit};
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::evm_types::{Stack, Storage};
 use eth_types::geth_types::GethData;
@@ -115,7 +115,7 @@ impl CurrentState {
         let tx_idx = tx_idx + 1;
         // if contract-create tx, calculate `to`, else convert `to`
         let to = tx.to.map_or_else(
-            || create_contract_temp_addr(tx_idx),
+            || create_contract_addr_with_prefix(&tx),
             |to| to.as_bytes().into(),
         );
         // get bytecode: if contract-create tx, input; else find the account.code

@@ -1,4 +1,4 @@
-use crate::constant::ADDRESS_HI_FOR_CREATE;
+use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::geth_types::{Account, GethData};
 use eth_types::{Address, Block, Field, Transaction, U256};
@@ -118,11 +118,25 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     bytes
 }
 
-/// Generate the code address for create-contract transaction of index `idx`
-pub fn create_contract_temp_addr(idx: usize) -> U256 {
-    let hi: U256 = ADDRESS_HI_FOR_CREATE.into();
-    let lo: U256 = idx.into();
-    (hi << 128) + lo
+/// Generate the code address for create-contract transaction
+pub fn create_contract_addr(tx: &Transaction) -> U256 {
+    if tx.to.is_some() {
+        panic!("should not use tx with `tx.to` non-empty");
+    }
+    let mut stream = ethers_core::utils::rlp::RlpStream::new();
+    stream.begin_list(2);
+    stream.append(&tx.from);
+    stream.append(&tx.nonce.as_u64());
+    let result = stream.out().to_vec();
+    let hash = ethers_core::utils::keccak256(result);
+    (&hash[12..]).into()
+}
+
+/// Generate the code address for create-contract transaction with prefix 0xff...ff
+pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
+    let prefix: U256 = CREATE_ADDRESS_PREFIX.into();
+    let created_addr = create_contract_addr(tx);
+    prefix + created_addr
 }
 
 pub fn geth_data_test(bytecode: &[u8], input: &[u8], is_create: bool) -> GethData {
@@ -136,17 +150,17 @@ pub fn geth_data_test(bytecode: &[u8], input: &[u8], is_create: bool) -> GethDat
         tx.input = input.to_vec().into();
         tx.to = Some(to);
     }
+    let account_addr = if is_create {
+        create_contract_addr_with_prefix(&tx)
+    } else {
+        to.as_bytes().into()
+    };
     let eth_block = Block {
         author: Some(Default::default()),
         number: Some(1.into()),
         base_fee_per_gas: Some(20000.into()),
         transactions: vec![tx],
         ..Default::default()
-    };
-    let account_addr = if is_create {
-        create_contract_temp_addr(1)
-    } else {
-        to.as_bytes().into()
     };
     let account = Account {
         address: account_addr,
