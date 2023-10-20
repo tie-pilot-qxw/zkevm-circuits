@@ -68,11 +68,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "arithmetic operand 0 hi".into(),
-                operands[0].clone() - arithmetic_operands_full[0].clone(),
+                operands[2].clone() - arithmetic_operands_full[0].clone(),
             ),
             (
                 "arithmetic operand 0 lo".into(),
-                operands[1].clone() - arithmetic_operands_full[1].clone(),
+                operands[3].clone() - arithmetic_operands_full[1].clone(),
             ),
             (
                 "arithmetic operand 2 lo".into(),
@@ -88,8 +88,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             ("base hi".into(), base[0].clone()),
             ("base lo".into(), base[1].clone() - 2.expr()),
-            ("index hi".into(), index[0].clone() - operands[2].clone()),
-            ("index lo".into(), index[1].clone() - operands[3].clone()),
+            ("index hi".into(), index[0].clone() - operands[0].clone()),
+            ("index lo".into(), index[1].clone() - operands[1].clone()),
             (
                 "power equals div num hi".into(),
                 power[0].clone() - arithmetic_operands_full[2].clone(),
@@ -131,27 +131,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value();
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
         let c = trace.stack_top.unwrap_or_default();
-        assert_eq!(a >> b, c);
+        assert_eq!(if a > 256.into() { 0.into() } else { b >> a }, c);
 
         let stack_push_0 = current_state.get_push_stack_row(c);
-        let div_num = U256::from(1) << b;
+        let div_num = if a > 256.into() {
+            0.into()
+        } else {
+            U256::from(1) << a
+        };
 
         let arithmetic_rows = Witness::gen_arithmetic_witness(
             arithmetic::Tag::DivMod,
-            [a, div_num, c, a - div_num * c],
+            [b, div_num, c, b - div_num * c],
         );
         let mut core_row_2 = current_state.get_core_row_without_versatile(2);
         core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
-        core_row_1.insert_exp_lookup(U256::from(2), b, div_num);
+        core_row_1.insert_exp_lookup(U256::from(2), a, div_num);
         let core_row_0 = ExecutionState::SHR.into_exec_state_core_row(
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
 
-        let exp_rows = exp::Row::from_operands(U256::from(2), b, div_num);
+        let exp_rows = exp::Row::from_operands(U256::from(2), a, div_num);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
@@ -174,7 +178,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[4.into(), 0x20.into()]);
+        let stack = Stack::from_slice(&[0x20.into(), 4.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = CurrentState {
             stack,
