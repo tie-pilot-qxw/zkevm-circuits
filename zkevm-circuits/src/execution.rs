@@ -1143,5 +1143,23 @@ mod test {
             (witness, prover)
         }};
     }
-    pub(crate) use {generate_execution_gadget_test_circuit, prepare_witness_and_prover};
+    macro_rules! prepare_trace_step {
+        ($pc:expr, $op:expr, $stack:expr) => {{
+            Trace {
+                pc: $pc,
+                op: $op,
+                gas: 100,
+                gas_cost: 1,
+                refund: 0,
+                depth: 1,
+                error: None,
+                stack: $stack,
+                memory: Default::default(),
+                storage: Default::default(),
+            }
+        }};
+    }
+    pub(crate) use {
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
+    };
 }

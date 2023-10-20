@@ -57,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let a_is_pos = (a >> 255).as_u32() == 0;
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
         let b_is_pos = (b >> 255).as_u32() == 0;
-        let c = trace.stack_top.unwrap_or_default();
+        let c = current_state.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(c);
         let exp_c: U256 = if a_is_pos && !b_is_pos {
             1
@@ -118,7 +118,7 @@ mod test {
             op: OpcodeId::SGT,
             stack_top: Some(1.into()),
         };
-        current_state.copy_from_trace(&trace);
+        current_state.update(&trace);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 current_state,

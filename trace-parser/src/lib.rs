@@ -1,5 +1,5 @@
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::{Bytes, GethExecStep, GethExecTrace, U256};
+use eth_types::{Bytes, GethExecStep, GethExecTrace, ResultGethExecTrace, U256};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -21,11 +21,11 @@ fn parse_u256(s: &str) -> Result<U256, FromStrRadixErr> {
 }
 
 // parse assembly in file_path to machine code
-pub fn assemble_file(file_path: &str) -> Vec<u8> {
-    let file = match File::open(file_path) {
+pub fn assemble_file<P: AsRef<Path>>(file_path: P) -> Vec<u8> {
+    let file = match File::open(&file_path) {
         Ok(f) => f,
         Err(e) => {
-            panic!("Error occurs on openning {}, {}", file_path, e);
+            panic!("Error occurs on openning {:?}, {}", file_path.as_ref(), e);
         }
     };
     let reader = BufReader::new(file);
@@ -122,17 +122,19 @@ struct JsonResultOpString {
     stack: Vec<String>,
 }
 
-#[derive(Debug)]
-pub struct Trace {
-    pub pc: u64,
-    pub op: OpcodeId,
-    pub stack_top: Option<U256>,
-    #[cfg(feature = "check_stack")]
-    pub stack_for_test: Option<Vec<U256>>,
-}
+// #[derive(Debug)]
+// pub struct Trace {
+//     pub pc: u64,
+//     pub op: OpcodeId,
+//     pub stack_top: Option<U256>,
+//     #[cfg(feature = "check_stack")]
+//     pub stack_for_test: Option<Vec<U256>>,
+// }
 
-pub fn tmp_trace_program(machine_code: &Vec<u8>) -> GethExecTrace {
-    let cmd_string = format!("./evm --code {} --json run", hex::encode(machine_code)).to_string();
+pub type Trace = GethExecStep;
+
+pub fn trace_program(bytecode: &[u8]) -> GethExecTrace {
+    let cmd_string = format!("./evm --code {} --json run", hex::encode(bytecode)).to_string();
     let res = Command::new("sh")
         .arg("-c")
         .arg(cmd_string)
@@ -165,76 +167,84 @@ pub fn tmp_trace_program(machine_code: &Vec<u8>) -> GethExecTrace {
     unreachable!("function trace_program cannot reach here")
 }
 
-pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
-    let cmd_string = format!("./evm --code {} --json run", hex::encode(machine_code)).to_string();
-    let res = Command::new("sh")
-        .arg("-c")
-        .arg(cmd_string)
-        .output()
-        .expect("error");
-    if !res.status.success() {
-        panic!("Tracing machine code FAILURE")
-    }
-    let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
+// pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
+//     let cmd_string = format!("./evm --code {} --json run", hex::encode(machine_code)).to_string();
+//     let res = Command::new("sh")
+//         .arg("-c")
+//         .arg(cmd_string)
+//         .output()
+//         .expect("error");
+//     if !res.status.success() {
+//         panic!("Tracing machine code FAILURE")
+//     }
+//     let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
 
-    let mut res: Vec<Trace> = vec![];
-    for line in s {
-        let mut t: JsonResult = serde_json::from_str(line).unwrap();
+//     let mut res: Vec<Trace> = vec![];
+//     for line in s {
+//         let mut t: JsonResult = serde_json::from_str(line).unwrap();
 
-        let back = t.stack.pop();
-        let stack_top = if let Some(a) = back {
-            let v = if a.len() > 2 && a[..2].eq("0x") {
-                U256::from_str_radix(&a[2..], 16).unwrap()
-            } else {
-                U256::from_str_radix(&a, 16).unwrap()
-            };
-            Some(v)
-        } else {
-            None
-        };
-        res.last_mut().map(|x| x.stack_top = stack_top);
-        res.push(Trace {
-            pc: t.pc,
-            op: OpcodeId::from(t.op),
-            stack_top: None,
-            #[cfg(feature = "check_stack")]
-            stack_for_test: None,
-        });
-        if OpcodeId::from(t.op) == OpcodeId::STOP {
-            break;
-        }
-    }
-    res
-}
+//         let back = t.stack.pop();
+//         let stack_top = if let Some(a) = back {
+//             let v = if a.len() > 2 && a[..2].eq("0x") {
+//                 U256::from_str_radix(&a[2..], 16).unwrap()
+//             } else {
+//                 U256::from_str_radix(&a, 16).unwrap()
+//             };
+//             Some(v)
+//         } else {
+//             None
+//         };
+//         res.last_mut().map(|x| x.stack_top = stack_top);
+//         res.push(Trace {
+//             pc: t.pc,
+//             op: OpcodeId::from(t.op),
+//             stack_top: None,
+//             #[cfg(feature = "check_stack")]
+//             stack_for_test: None,
+//         });
+//         if OpcodeId::from(t.op) == OpcodeId::STOP {
+//             break;
+//         }
+//     }
+//     res
+// }
 
-pub fn read_trace_from_jsonl<P: AsRef<Path>>(path: P) -> Vec<Trace> {
+// URGENT TODO: don't use old parse function, use the new one.
+// pub fn read_trace_from_jsonl<P: AsRef<Path>>(path: P) -> Vec<Trace> {
+//     let file = File::open(path).unwrap();
+//     let reader = BufReader::new(file);
+//     let mut res: Vec<Trace> = vec![];
+//     for line in reader.lines() {
+//         let t: JsonResultOpString = serde_json::from_str(line.unwrap().as_str()).unwrap();
+//         let back = t.stack.last().cloned();
+//         let stack_top = if let Some(a) = back {
+//             Some(U256::from_str_radix(&a[..], 16).unwrap())
+//         } else {
+//             None
+//         };
+//         res.last_mut().map(|x| x.stack_top = stack_top);
+//         let trace = Trace {
+//             pc: t.pc,
+//             op: OpcodeId::from_str(t.op.as_str()).unwrap(),
+//             stack_top: None,
+//             #[cfg(feature = "check_stack")]
+//             stack_for_test: Some(
+//                 t.stack
+//                     .iter()
+//                     .map(|x| U256::from_str_radix(x.as_str(), 16).unwrap())
+//                     .collect(),
+//             ),
+//         };
+//         res.push(trace);
+//     }
+//     res
+// }
+
+pub fn read_trace_from_api_result_file<P: AsRef<Path>>(path: P) -> GethExecTrace {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
-    let mut res: Vec<Trace> = vec![];
-    for line in reader.lines() {
-        let t: JsonResultOpString = serde_json::from_str(line.unwrap().as_str()).unwrap();
-        let back = t.stack.last().cloned();
-        let stack_top = if let Some(a) = back {
-            Some(U256::from_str_radix(&a[..], 16).unwrap())
-        } else {
-            None
-        };
-        res.last_mut().map(|x| x.stack_top = stack_top);
-        let trace = Trace {
-            pc: t.pc,
-            op: OpcodeId::from_str(t.op.as_str()).unwrap(),
-            stack_top: None,
-            #[cfg(feature = "check_stack")]
-            stack_for_test: Some(
-                t.stack
-                    .iter()
-                    .map(|x| U256::from_str_radix(x.as_str(), 16).unwrap())
-                    .collect(),
-            ),
-        };
-        res.push(trace);
-    }
-    res
+    let x: ResultGethExecTrace = serde_json::from_reader(reader).unwrap();
+    x.result
 }
 
 #[cfg(test)]
@@ -243,10 +253,9 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn it_works() {
-        let machine_code = assemble_file("debug/1.txt");
-        println!("machine code: {:?}", machine_code);
-        let trace = tmp_trace_program(&machine_code);
-        println!("{:?}", trace);
+    fn trace_and_parse() {
+        let bytecode = assemble_file("debug/1.txt");
+        let trace = trace_program(&bytecode);
+        assert_eq!(4, trace.struct_logs.len());
     }
 }

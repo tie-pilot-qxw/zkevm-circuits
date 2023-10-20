@@ -119,7 +119,7 @@ fn main() {
                 $(for i in 0..stack_pop_num =>
                     let (stack_pop_$i, _) = current_state.get_pop_stack_row_value();$['\n'])
                 $(for i in 0..stack_push_num =>
-                    let stack_push_$i = current_state.get_push_stack_row(trace.stack_top.unwrap_or_default());$['\n'])
+                    let stack_push_$i = current_state.get_push_stack_row(current_state.stack_top.unwrap_or_default());$['\n'])
                 $(for i in (1..num_row).rev() =>
                     let mut core_row_$i = current_state.get_core_row_without_versatile($i);$['\n'])
                 $(if stack_pop_num+stack_push_num>0 =>

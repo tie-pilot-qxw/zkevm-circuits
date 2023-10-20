@@ -86,7 +86,7 @@ mod test {
             op: OpcodeId::STOP,
             stack_top: None,
         };
-        current_state.copy_from_trace(&trace);
+        current_state.update(&trace);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 current_state,

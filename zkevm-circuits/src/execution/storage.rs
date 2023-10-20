@@ -48,7 +48,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
         let (stack_0, stack_1) = if current_state.opcode == OpcodeId::SLOAD {
             let (stack_0, ost) = current_state.get_pop_stack_row_value();
-            let stack_1 = current_state.get_push_stack_row(trace.stack_top.unwrap());
+            let stack_1 = current_state.get_push_stack_row(current_state.stack_top.unwrap());
             (stack_0, stack_1)
         } else {
             let (stack_0, ost) = current_state.get_pop_stack_row_value();
@@ -94,7 +94,7 @@ mod test {
             op: OpcodeId::SSTORE,
             stack_top: None,
         };
-        current_state.copy_from_trace(&trace);
+        current_state.update(&trace);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 current_state,

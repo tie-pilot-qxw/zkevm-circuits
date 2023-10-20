@@ -183,7 +183,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value();
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
-        let c = trace.stack_top.unwrap_or_default();
+        let c = current_state.stack_top.unwrap_or_default();
         let tag = match trace.op {
             OpcodeId::AND => {
                 assert_eq!(c, a & b);

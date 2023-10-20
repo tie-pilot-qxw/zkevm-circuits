@@ -21,7 +21,7 @@ use crate::util::{create_contract_addr_with_prefix, SubCircuit};
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::evm_types::{Stack, Storage};
 use eth_types::geth_types::GethData;
-use eth_types::U256;
+use eth_types::{GethExecTrace, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -40,6 +40,7 @@ pub struct Witness {
     pub arithmetic: Vec<arithmetic::Row>,
 }
 
+// TODO: change to ExecutionGadgetHelper
 pub struct CurrentState {
     pub stack: Stack,
     pub memory: Memory,
@@ -59,6 +60,8 @@ pub struct CurrentState {
     pub memory_chunk: u64,
     pub read_only: u64,
     pub machine_code: Vec<u8>,
+    /// The stack top of the next step, also the result of this step
+    pub stack_top: Option<U256>,
 }
 
 impl CurrentState {
@@ -82,18 +85,23 @@ impl CurrentState {
             memory_chunk: 0,
             read_only: 0,
             machine_code: vec![],
+            stack_top: None,
         }
     }
 
-    pub fn copy_from_trace(&mut self, trace: &Trace) {
+    pub fn update(&mut self, trace: &Trace) {
         self.opcode = trace.op;
         self.pc = trace.pc;
+    }
+
+    pub fn update_from_next_step(&mut self, trace: &Trace) {
+        //TODO call this func in where
+        self.stack_top = trace.stack.0.last().cloned();
     }
 
     /// Generate witness of one transaction's trace
     fn generate_trace_witness(
         &mut self,
-        trace: &Vec<Trace>,
         geth_data: &GethData,
         tx_idx: usize,
         execution_gadgets_map: &HashMap<
@@ -101,6 +109,7 @@ impl CurrentState {
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
     ) -> Witness {
+        let trace = &geth_data.geth_traces.get(tx_idx).unwrap().struct_logs;
         let tx = geth_data
             .eth_block
             .transactions
@@ -142,7 +151,11 @@ impl CurrentState {
 
         let mut res: Witness = Default::default();
         let first_trace = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
-        self.copy_from_trace(first_trace);
+
+        // URGENT TODO: make a clear split between trace and current_state
+        // trace should just use GethExecStep (type alias), c_state we can process this and next trace, and get next_stack_top
+        // then all functions who used current_state.stack_top should now use current_state.next_stack_top
+        self.update(first_trace); // TODO: this could be removed
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -155,34 +168,36 @@ impl CurrentState {
                 .unwrap()
                 .gen_witness(first_trace, self),
         );
-        for t in trace {
-            self.copy_from_trace(t);
-            #[cfg(feature = "check_stack")]
-            if let Some(stack) = &t.stack_for_test {
+        let mut iter_for_next_step = trace.iter();
+        iter_for_next_step.next();
+        for step in trace {
+            self.update(step);
+            if let Some(next_step) = iter_for_next_step.next() {
+                self.update_from_next_step(next_step);
                 assert_eq!(
-                    stack, &self.stack.0,
+                    step.stack, self.stack,
                     "stack in trace mismatch with current state in trace at pc {}",
-                    t.pc
+                    step.pc
                 );
             }
-            res.append(self.generate_execution_witness(t, &execution_gadgets_map))
+            res.append(self.generate_execution_witness(step, &execution_gadgets_map))
         }
         res
     }
 
     fn generate_execution_witness(
         &mut self,
-        trace: &Trace,
+        step: &Trace,
         execution_gadgets_map: &HashMap<
             ExecutionState,
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
     ) -> Witness {
         let mut res = Witness::default();
-        let execution_states = ExecutionState::from_opcode(trace.op);
+        let execution_states = ExecutionState::from_opcode(step.op);
         for execution_state in execution_states {
             if let Some(gadget) = execution_gadgets_map.get(&execution_state) {
-                res.append(gadget.gen_witness(trace, self));
+                res.append(gadget.gen_witness(step, self));
             } else {
                 panic!("execution state {:?} not supported yet", execution_state);
             }
@@ -824,8 +839,9 @@ impl Witness {
         self.append(end_block_gadget.gen_witness(last_trace, current_state));
     }
 
+    // URGENT TODO: don't need trace. This is the entry point!
     /// Generate witness of one transaction's trace
-    pub fn new(trace: &Vec<Vec<Trace>>, geth_data: &GethData) -> Self {
+    pub fn new(geth_data: &GethData) -> Self {
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         > = get_every_execution_gadgets!();
@@ -840,14 +856,20 @@ impl Witness {
         witness.insert_begin_padding();
         // step 3: create witness trace by trace, and append them
         let mut current_state = CurrentState::new();
-        for (i, trace) in trace.iter().enumerate() {
+        for (i, trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =
-                current_state.generate_trace_witness(trace, geth_data, i, &execution_gadgets_map);
+                current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
             witness.append(trace_related_witness);
         }
         // step 4: insert end padding (END_BLOCK)
         witness.insert_end_padding(
-            trace.last().unwrap().last().unwrap(),
+            geth_data
+                .geth_traces
+                .last()
+                .unwrap()
+                .struct_logs
+                .last()
+                .unwrap(),
             &mut current_state,
             &execution_gadgets_map,
         );
@@ -1027,7 +1049,7 @@ mod tests {
     fn test_data_print_csv() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&vec![trace], &geth_data_test(&machine_code, &[], false));
+        let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
         witness.print_csv();
     }
 }

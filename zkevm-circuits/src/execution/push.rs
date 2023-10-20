@@ -103,13 +103,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
         assert!(trace.op.is_push());
 
-        let stack_push = current_state.get_push_stack_row(trace.stack_top.unwrap());
+        let stack_push = current_state.get_push_stack_row(current_state.stack_top.unwrap());
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
         core_row_1.insert_state_lookups([&stack_push]);
         core_row_1.insert_bytecode_full_lookup(
             current_state.pc,
             current_state.opcode,
-            trace.stack_top,
+            current_state.stack_top,
         );
         let core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
             current_state,
@@ -159,7 +159,7 @@ mod test {
             op: OpcodeId::PUSH1,
             stack_top: Some(0xcc.into()),
         };
-        current_state.copy_from_trace(&trace);
+        current_state.update(&trace);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 current_state,
