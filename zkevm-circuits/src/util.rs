@@ -171,6 +171,7 @@ pub fn geth_data_test(bytecode: &[u8], input: &[u8], is_create: bool) -> GethDat
         chain_id: 42.into(),
         history_hashes,
         eth_block,
+        geth_traces: vec![],
         accounts: vec![account],
     }
 }

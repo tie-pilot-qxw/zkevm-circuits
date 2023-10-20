@@ -1,6 +1,7 @@
-use eth_types::evm_types::OpcodeId;
-use eth_types::U256;
+use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
+use eth_types::{Bytes, GethExecStep, GethExecTrace, U256};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 use std::{
@@ -68,6 +69,52 @@ struct JsonResult {
     stack: Vec<String>,
 }
 
+#[derive(Deserialize)]
+struct EVMExecStep {
+    pc: u64,
+    #[serde(rename = "opName")]
+    op_name: OpcodeId,
+    gas: U256,
+    #[serde(default)]
+    refund: u64,
+    #[serde(rename = "gasCost")]
+    gas_cost: U256,
+    depth: u16,
+    error: Option<String>,
+    stack: Vec<U256>,
+    // memory is in chunks of 32 bytes, in hex
+    #[serde(default)]
+    memory: Vec<U256>,
+    // storage is hex -> hex
+    #[serde(default)]
+    storage: HashMap<U256, U256>,
+}
+
+impl From<EVMExecStep> for GethExecStep {
+    fn from(s: EVMExecStep) -> Self {
+        Self {
+            pc: s.pc,
+            op: s.op_name,
+            gas: s.gas.as_u64(),
+            refund: s.refund,
+            gas_cost: s.gas_cost.as_u64(),
+            depth: s.depth,
+            error: s.error,
+            stack: Stack(s.stack),
+            memory: Memory::from(s.memory),
+            storage: Storage(s.storage),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct EVMExecResult {
+    output: Bytes,
+    #[serde(rename = "gasUsed")]
+    gas_used: U256,
+    error: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct JsonResultOpString {
     pc: u64,
@@ -82,6 +129,40 @@ pub struct Trace {
     pub stack_top: Option<U256>,
     #[cfg(feature = "check_stack")]
     pub stack_for_test: Option<Vec<U256>>,
+}
+
+pub fn tmp_trace_program(machine_code: &Vec<u8>) -> GethExecTrace {
+    let cmd_string = format!("./evm --code {} --json run", hex::encode(machine_code)).to_string();
+    let res = Command::new("sh")
+        .arg("-c")
+        .arg(cmd_string)
+        .output()
+        .expect("error");
+    if !res.status.success() {
+        panic!("Tracing machine code FAILURE")
+    }
+    let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
+
+    let mut struct_logs: Vec<GethExecStep> = vec![];
+    for line in s {
+        let result = serde_json::from_str::<EVMExecStep>(line);
+        if let Ok(step) = result {
+            struct_logs.push(step.into());
+            continue;
+        }
+        let result = serde_json::from_str::<EVMExecResult>(line);
+        if let Ok(result) = result {
+            return GethExecTrace {
+                gas: result.gas_used.as_u64(),
+                failed: result.error.is_some(),
+                return_value: result.output.to_string(),
+                struct_logs,
+            };
+        } else {
+            unreachable!("function trace_program cannot reach here")
+        }
+    }
+    unreachable!("function trace_program cannot reach here")
 }
 
 pub fn trace_program(machine_code: &Vec<u8>) -> Vec<Trace> {
@@ -165,7 +246,7 @@ mod tests {
     fn it_works() {
         let machine_code = assemble_file("debug/1.txt");
         println!("machine code: {:?}", machine_code);
-        let trace = trace_program(&machine_code);
+        let trace = tmp_trace_program(&machine_code);
         println!("{:?}", trace);
     }
 }
