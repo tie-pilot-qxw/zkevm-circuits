@@ -87,12 +87,12 @@ mod test {
 
     #[test]
     fn test_start_1() {
-        assert_eq!(start("x=y"), "<table x=y>\n");
+        assert_eq!(start("x=y"), "<div>\n<table x=y>\n");
     }
 
     #[test]
     fn test_end() {
-        assert_eq!(end(), "</table>\n");
+        assert_eq!(end(), "</table>\n</div>\n");
     }
 
     #[test]
