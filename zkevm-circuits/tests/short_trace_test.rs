@@ -10,7 +10,7 @@ use zkevm_circuits::witness::Witness;
 
 #[test]
 fn test_short_trace() {
-    let trace = read_trace_from_api_result_file("test_data/short-trace.jsonl");
+    let trace = read_trace_from_api_result_file("test_data/short-trace.json");
     let mut hex_file = File::open("test_data/short-bytecode.txt").unwrap();
     let mut bytecodes = String::new();
     hex_file.read_to_string(&mut bytecodes).unwrap();

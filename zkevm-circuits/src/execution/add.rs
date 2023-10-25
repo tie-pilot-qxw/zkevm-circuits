@@ -1,7 +1,7 @@
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{arithmetic, CurrentState};
+use crate::witness::{arithmetic, WitnessExecHelper};
 use crate::witness::{core, state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
@@ -117,22 +117,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::ADD);
 
-        let (stack_pop_a, a) = current_state.get_pop_stack_row_value();
-        let (stack_pop_b, b) = current_state.get_pop_stack_row_value();
+        let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
         // todo another carry_lo ?
         let (c, carry_hi) = a.overflowing_add(b);
-        let stack_push_c = current_state.get_push_stack_row(c);
+        let stack_push_c = current_state.get_push_stack_row(trace, c);
         let mut d = (carry_hi as u128).into();
         d <<= 128; // todo check this line
         let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Add, [a, b, c, d]);
-        let mut core_row_2 = current_state.get_core_row_without_versatile(2);
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push_c]);
         let core_row_0 = ExecutionState::ADD.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -161,7 +162,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
 
@@ -170,19 +171,15 @@ mod test {
         // prepare a state to generate witness
         let stack = Stack::from_slice(&[1.into(), 2.into()]);
         let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
-            stack,
-            ..CurrentState::new()
-        };
-        // prepare a trace
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::ADD,
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
             stack_top: None,
+            ..WitnessExecHelper::new()
         };
-        current_state.update(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::ADD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -192,6 +189,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

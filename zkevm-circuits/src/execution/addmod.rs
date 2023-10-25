@@ -1,7 +1,7 @@
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{arithmetic, CurrentState, Witness};
+use crate::witness::{arithmetic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, U256, U512};
 use gadgets::util::Expr;
@@ -98,12 +98,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("arithmetic lookup".into(), arithmetic),
         ]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let (stack_pop_0, a) = current_state.get_pop_stack_row_value();
-        let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
-        let (stack_pop_2, c) = current_state.get_pop_stack_row_value();
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+        let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_2, c) = current_state.get_pop_stack_row_value(&trace);
         let d = current_state.stack_top.unwrap_or_default();
-        let stack_push_0 = current_state.get_push_stack_row(d);
+        let stack_push_0 = current_state.get_push_stack_row(trace, d);
         let exp_d: U256 = if c.is_zero() {
             0.into()
         } else {
@@ -115,12 +115,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let arithmetic_rows =
             Witness::gen_arithmetic_witness(arithmetic::Tag::Addmod, [a, b, c, d]);
 
-        let mut core_row_2 = current_state.get_core_row_without_versatile(2);
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_push_0]);
         let core_row_0 = ExecutionState::ADDMOD.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -149,15 +150,16 @@ mod test {
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0x100.into(), 1.into(), 0xfe.into()]);
         let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
-            ..CurrentState::new()
+            ..WitnessExecHelper::new()
         };
 
         let trace = prepare_trace_step!(0, OpcodeId::ADDMOD, stack);
-        current_state.update(&trace);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -167,6 +169,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

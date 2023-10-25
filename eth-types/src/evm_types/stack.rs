@@ -93,6 +93,7 @@ impl Stack {
     pub const fn new() -> Stack {
         Stack(vec![])
     }
+    //TODO: write a len() function
 
     /// Generates a `Stack` instance from the given slice.
     pub fn from_slice(words: &[Word]) -> Self {

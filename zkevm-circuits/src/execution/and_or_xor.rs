@@ -1,7 +1,7 @@
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, CurrentState, Witness};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, U256};
 use gadgets::seletor::SimpleSelector;
@@ -180,9 +180,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         });
         lookups
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let (stack_pop_0, a) = current_state.get_pop_stack_row_value();
-        let (stack_pop_1, b) = current_state.get_pop_stack_row_value();
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+        let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
         let c = current_state.stack_top.unwrap_or_default();
         let tag = match trace.op {
             OpcodeId::AND => {
@@ -200,30 +200,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             _ => panic!("not and or xor"),
         };
 
-        let stack_push_0 = current_state.get_push_stack_row(c);
+        let stack_push_0 = current_state.get_push_stack_row(trace, c);
 
-        let mut core_row_4 = current_state.get_core_row_without_versatile(4);
+        let mut core_row_4 = current_state.get_core_row_without_versatile(&trace, 4);
         let mut v_c = [0u8; 32];
         c.to_little_endian(&mut v_c);
         core_row_4.fill_versatile_with_values(
             &v_c.into_iter().map(|x| U256::from(x)).collect::<Vec<_>>(),
         );
 
-        let mut core_row_3 = current_state.get_core_row_without_versatile(3);
+        let mut core_row_3 = current_state.get_core_row_without_versatile(&trace, 3);
         let mut v_b = [0u8; 32];
         b.to_little_endian(&mut v_b);
         core_row_3.fill_versatile_with_values(
             &v_b.into_iter().map(|x| U256::from(x)).collect::<Vec<_>>(),
         );
 
-        let mut core_row_2 = current_state.get_core_row_without_versatile(2);
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         let mut v_a = [0u8; 32];
         a.to_little_endian(&mut v_a);
         core_row_2.fill_versatile_with_values(
             &v_a.into_iter().map(|x| U256::from(x)).collect::<Vec<_>>(),
         );
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
         core_row_1.insert_bitwise_op_tag(tag as usize);
         let mut v = [U256::from(0); 3];
@@ -233,6 +233,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_1.vers_31, v[2]);
 
         let core_row_0 = ExecutionState::AND_OR_XOR.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -253,26 +254,22 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0xffff.into(), 0xff00.into()]);
         let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
-            stack,
-            ..CurrentState::new()
-        };
-
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::XOR,
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            ..WitnessExecHelper::new()
         };
-        current_state.copy_from_trace(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::XOR, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -282,6 +279,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

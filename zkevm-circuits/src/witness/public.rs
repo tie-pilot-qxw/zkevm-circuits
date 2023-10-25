@@ -179,11 +179,17 @@ impl Row {
 mod test {
     use crate::util::geth_data_test;
     use crate::witness::public::{LogTag, Row, Tag};
-    use eth_types::U256;
+    use eth_types::{GethExecTrace, U256};
 
     #[test]
     fn from_geth_data() {
         let geth_data = geth_data_test(
+            GethExecTrace {
+                gas: 26809,
+                failed: false,
+                return_value: "".to_owned(),
+                struct_logs: vec![],
+            },
             &[12, 34, 56, 78],
             &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99],
             false,

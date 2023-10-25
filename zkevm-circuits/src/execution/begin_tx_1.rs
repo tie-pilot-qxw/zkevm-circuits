@@ -4,7 +4,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, copy, CurrentState};
+use crate::witness::{arithmetic, copy, WitnessExecHelper};
 use crate::witness::{core, state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
@@ -95,7 +95,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
         let tx_idx = current_state.tx_idx + 1;
         let call_id = current_state.state_stamp + 1;
         // todo: lookup addr from public table
@@ -130,7 +130,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             (vec![], vec![])
         };
-        let mut core_row_2 = current_state.get_core_row_without_versatile(2);
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if calldata_size > 0 {
             core_row_2.insert_copy_lookup(copy_rows.first().unwrap());
         } else {
@@ -150,7 +150,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             });
         }
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &write_addr_row,
             &write_calldata_size_row,
@@ -158,6 +158,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &write_parent_code_addr_row,
         ]);
         let core_row_0 = ExecutionState::BEGIN_TX_1.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -191,7 +192,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     use std::collections::HashMap;
     generate_execution_gadget_test_circuit!();
@@ -203,21 +204,17 @@ mod test {
         let stack_pointer = stack.0.len();
         let call_id = 1;
         let call_data = HashMap::from([(call_id, vec![0xa, 0xb])]);
-        let mut current_state = CurrentState {
-            stack,
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: None,
             call_id,
             call_data,
-            ..CurrentState::new()
+            ..WitnessExecHelper::new()
         };
-        // prepare a trace
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::PUSH1,
-            stack_top: None,
-        };
-        current_state.update(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -227,6 +224,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             ExecutionState::BEGIN_TX_2.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

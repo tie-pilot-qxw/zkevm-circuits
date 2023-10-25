@@ -3,7 +3,7 @@
 
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
-use crate::witness::{CurrentState, Witness};
+use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::Field;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
@@ -43,18 +43,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value();
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+        let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
 
-        let (stack_pop_1, _) = current_state.get_pop_stack_row_value();
+        let (stack_pop_1, _) = current_state.get_pop_stack_row_value(&trace);
 
         let stack_push_0 =
-            current_state.get_push_stack_row(current_state.stack_top.unwrap_or_default());
+            current_state.get_push_stack_row(trace, current_state.stack_top.unwrap_or_default());
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
         let core_row_0 = ExecutionState::KECCAK.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -75,26 +76,22 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0.into(), 1.into()]);
         let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
-            stack,
-            ..CurrentState::new()
-        };
-
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::STOP,
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            ..WitnessExecHelper::new()
         };
-        current_state.update(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -104,6 +101,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

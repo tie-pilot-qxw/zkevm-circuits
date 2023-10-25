@@ -40,62 +40,47 @@ pub struct Witness {
     pub arithmetic: Vec<arithmetic::Row>,
 }
 
-// TODO: change to ExecutionGadgetHelper
-pub struct CurrentState {
-    pub stack: Stack,
-    pub memory: Memory,
-    pub storage: Storage,
+pub struct WitnessExecHelper {
+    pub stack_pointer: usize,
     pub call_data: HashMap<u64, Vec<u8>>,
     pub value: HashMap<u64, U256>,
     pub sender: HashMap<u64, U256>,
     pub tx_idx: usize,
     pub call_id: u64,
     pub code_addr: U256,
-    pub pc: u64,
-    pub opcode: OpcodeId,
     pub state_stamp: u64,
     pub log_stamp: u64,
     pub gas_left: u64,
     pub refund: u64,
     pub memory_chunk: u64,
     pub read_only: u64,
-    pub machine_code: Vec<u8>,
+    pub bytecode: Vec<u8>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
 }
 
-impl CurrentState {
+impl WitnessExecHelper {
     pub fn new() -> Self {
         Self {
-            stack: Stack::new(),
-            memory: Memory::new(),
-            storage: Storage::new(HashMap::new()),
+            stack_pointer: 0,
             call_data: HashMap::new(),
             value: HashMap::new(),
             sender: HashMap::new(),
             tx_idx: 0,
             call_id: 0,
             code_addr: 0.into(),
-            pc: 0,
-            opcode: OpcodeId::default(),
             state_stamp: 0,
             log_stamp: 0,
             gas_left: 0,
             refund: 0,
             memory_chunk: 0,
             read_only: 0,
-            machine_code: vec![],
+            bytecode: vec![],
             stack_top: None,
         }
     }
 
-    pub fn update(&mut self, trace: &Trace) {
-        self.opcode = trace.op;
-        self.pc = trace.pc;
-    }
-
     pub fn update_from_next_step(&mut self, trace: &Trace) {
-        //TODO call this func in where
         self.stack_top = trace.stack.0.last().cloned();
     }
 
@@ -147,15 +132,13 @@ impl CurrentState {
         self.value.insert(call_id, tx.value);
         self.sender.insert(call_id, tx.from.as_bytes().into());
         self.code_addr = to;
-        self.machine_code = bytecode;
+        self.bytecode = bytecode;
 
         let mut res: Witness = Default::default();
         let first_trace = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
 
-        // URGENT TODO: make a clear split between trace and current_state
         // trace should just use GethExecStep (type alias), c_state we can process this and next trace, and get next_stack_top
         // then all functions who used current_state.stack_top should now use current_state.next_stack_top
-        self.update(first_trace); // TODO: this could be removed
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -171,14 +154,8 @@ impl CurrentState {
         let mut iter_for_next_step = trace.iter();
         iter_for_next_step.next();
         for step in trace {
-            self.update(step);
             if let Some(next_step) = iter_for_next_step.next() {
                 self.update_from_next_step(next_step);
-                assert_eq!(
-                    step.stack, self.stack,
-                    "stack in trace mismatch with current state in trace at pc {}",
-                    step.pc
-                );
             }
             res.append(self.generate_execution_witness(step, &execution_gadgets_map))
         }
@@ -205,23 +182,27 @@ impl CurrentState {
         res
     }
 
-    pub fn get_core_row_without_versatile(&self, multi_row_cnt: usize) -> core::Row {
+    pub fn get_core_row_without_versatile(
+        &self,
+        trace_step: &Trace,
+        multi_row_cnt: usize,
+    ) -> core::Row {
         core::Row {
             tx_idx: self.tx_idx.into(),
             call_id: self.call_id.into(),
             code_addr: self.code_addr,
-            pc: self.pc.into(),
-            opcode: self.opcode,
+            pc: trace_step.pc.into(),
+            opcode: trace_step.op,
             cnt: multi_row_cnt.into(),
             ..Default::default()
         }
     }
 
-    pub fn get_pop_stack_row_value(&mut self) -> (state::Row, U256) {
-        let value = self
+    pub fn get_pop_stack_row_value(&mut self, trace_step: &Trace) -> (state::Row, U256) {
+        let value = *trace_step
             .stack
             .0
-            .pop()
+            .get(self.stack_pointer - 1)
             .expect("error in current_state.get_pop_stack_row");
         let res = state::Row {
             tag: Some(state::Tag::Stack),
@@ -230,18 +211,23 @@ impl CurrentState {
             value_lo: Some(value.low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((self.stack.0.len() + 1).into()), // stack pointer starts with 1, and we already pop, so +1
+            pointer_lo: Some(self.stack_pointer.into()),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
+        self.stack_pointer -= 1;
         (res, value)
     }
 
-    pub fn get_peek_stack_row_value(&mut self, index_start_at_1: usize) -> (state::Row, U256) {
-        let value = self
+    pub fn get_peek_stack_row_value(
+        &mut self,
+        trace_step: &Trace,
+        index_start_at_1: usize,
+    ) -> (state::Row, U256) {
+        let value = trace_step
             .stack
             .0
-            .get(self.stack.0.len() - index_start_at_1)
+            .get(trace_step.stack.0.len() - index_start_at_1)
             .expect("error in current_state.get_peek_stack_row_value");
         let res = state::Row {
             tag: Some(state::Tag::Stack),
@@ -250,15 +236,15 @@ impl CurrentState {
             value_lo: Some(value.low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((self.stack.0.len() - index_start_at_1 + 1).into()), // stack pointer starts with 1, and we already pop, so +1
+            pointer_lo: Some((self.stack_pointer - index_start_at_1 + 1).into()), // stack pointer start at 1, hence +1
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
         (res, *value)
     }
 
-    pub fn get_memory_read_row(&mut self, dst: usize) -> state::Row {
-        let value = self
+    pub fn get_memory_read_row(&mut self, trace_step: &Trace, dst: usize) -> state::Row {
+        let value = trace_step
             .memory
             .0
             .get(dst)
@@ -279,10 +265,6 @@ impl CurrentState {
     }
 
     pub fn get_memory_write_row(&mut self, dst: usize, value: u8) -> state::Row {
-        if self.memory.len() - 1 < dst {
-            self.memory.extend_at_least(dst + 1);
-        }
-        self.memory[dst] = value;
         let res = state::Row {
             tag: Some(state::Tag::Memory),
             stamp: Some(self.state_stamp.into()),
@@ -298,24 +280,26 @@ impl CurrentState {
     }
 
     pub fn get_storage_read_row(&mut self, key: U256, contract_addr: U256) -> state::Row {
-        let value = self
-            .storage
-            .0
-            .get(&key)
-            .map(|x| x.clone())
-            .unwrap_or_default();
-        let res = state::Row {
-            tag: Some(state::Tag::Storage),
-            stamp: Some(self.state_stamp.into()),
-            value_hi: Some(value >> 128),
-            value_lo: Some(value.low_u128().into()),
-            call_id_contract_addr: Some(contract_addr),
-            pointer_hi: Some(key >> 128),
-            pointer_lo: Some(key.low_u128().into()),
-            is_write: Some(0.into()),
-        };
-        self.state_stamp += 1;
-        res
+        todo!()
+        //TODO add trace_step, use trace_step.storage
+        // let value = self
+        //     .storage
+        //     .0
+        //     .get(&key)
+        //     .map(|x| x.clone())
+        //     .unwrap_or_default();
+        // let res = state::Row {
+        //     tag: Some(state::Tag::Storage),
+        //     stamp: Some(self.state_stamp.into()),
+        //     value_hi: Some(value >> 128),
+        //     value_lo: Some(value.low_u128().into()),
+        //     call_id_contract_addr: Some(contract_addr),
+        //     pointer_hi: Some(key >> 128),
+        //     pointer_lo: Some(key.low_u128().into()),
+        //     is_write: Some(0.into()),
+        // };
+        // self.state_stamp += 1;
+        // res
     }
 
     pub fn get_storage_write_row(
@@ -324,25 +308,25 @@ impl CurrentState {
         value: U256,
         contract_addr: U256,
     ) -> state::Row {
-        self.storage.0.insert(key, value);
-        let res = state::Row {
-            tag: Some(state::Tag::Storage),
-            stamp: Some(self.state_stamp.into()),
-            value_hi: Some(value >> 128),
-            value_lo: Some(value.low_u128().into()),
-            call_id_contract_addr: Some(contract_addr),
-            pointer_hi: Some(key >> 128),
-            pointer_lo: Some(key.low_u128().into()),
-            is_write: Some(1.into()),
-        };
-        self.state_stamp += 1;
-        res
+        todo!()
+        //TODO add trace_step, use trace_step.storage
+        // let res = state::Row {
+        //     tag: Some(state::Tag::Storage),
+        //     stamp: Some(self.state_stamp.into()),
+        //     value_hi: Some(value >> 128),
+        //     value_lo: Some(value.low_u128().into()),
+        //     call_id_contract_addr: Some(contract_addr),
+        //     pointer_hi: Some(key >> 128),
+        //     pointer_lo: Some(key.low_u128().into()),
+        //     is_write: Some(1.into()),
+        // };
+        // self.state_stamp += 1;
+        // res
     }
 
-    pub fn get_push_stack_row(&mut self, value: U256) -> state::Row {
-        self.stack.0.push(value);
+    pub fn get_push_stack_row(&mut self, trace: &Trace, value: U256) -> state::Row {
         assert!(
-            self.stack.0.len() <= 1024,
+            trace.stack.0.len() <= 1024 - 1,
             "error in current_state.get_push_stack_row_value"
         );
         let res = state::Row {
@@ -352,21 +336,21 @@ impl CurrentState {
             value_lo: Some(value.low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((self.stack.0.len()).into()),
+            pointer_lo: Some((self.stack_pointer + 1).into()),
             is_write: Some(1.into()),
         };
         self.state_stamp += 1;
+        self.stack_pointer += 1;
         res
     }
 
-    pub fn get_overwrite_stack_row(&mut self, index_start_at_1: usize, value: U256) -> state::Row {
-        let len = self.stack.0.len();
-        let value_in_stack = self
-            .stack
-            .0
-            .get_mut(len - index_start_at_1)
-            .expect("error in current_state.get_overwrite_stack_row");
-        *value_in_stack = value;
+    pub fn get_overwrite_stack_row(
+        &mut self,
+        trace_step: &Trace,
+        index_start_at_1: usize,
+        value: U256,
+    ) -> state::Row {
+        let len = trace_step.stack.0.len();
         let res = state::Row {
             tag: Some(state::Tag::Stack),
             stamp: Some((self.state_stamp).into()),
@@ -374,7 +358,7 @@ impl CurrentState {
             value_lo: Some(value.low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((self.stack.0.len() - index_start_at_1).into()),
+            pointer_lo: Some((self.stack_pointer - index_start_at_1 + 1).into()), // stack pointer start at 1, hence +1
             is_write: Some(1.into()),
         };
         self.state_stamp += 1;
@@ -390,7 +374,7 @@ impl CurrentState {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         for i in 0..len {
-            let code = &self.machine_code;
+            let code = &self.bytecode;
             let byte = code.get(src + i).map(|x| x.clone()).unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
@@ -826,7 +810,7 @@ impl Witness {
     fn insert_end_padding(
         &mut self,
         last_trace: &Trace,
-        current_state: &mut CurrentState,
+        current_state: &mut WitnessExecHelper,
         execution_gadgets_map: &HashMap<
             ExecutionState,
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
@@ -839,7 +823,6 @@ impl Witness {
         self.append(end_block_gadget.gen_witness(last_trace, current_state));
     }
 
-    // URGENT TODO: don't need trace. This is the entry point!
     /// Generate witness of one transaction's trace
     pub fn new(geth_data: &GethData) -> Self {
         let execution_gadgets: Vec<
@@ -855,7 +838,7 @@ impl Witness {
         // step 2: insert padding to core, bytecode, state
         witness.insert_begin_padding();
         // step 3: create witness trace by trace, and append them
-        let mut current_state = CurrentState::new();
+        let mut current_state = WitnessExecHelper::new();
         for (i, trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
@@ -983,7 +966,8 @@ impl Witness {
 impl ExecutionState {
     pub fn into_exec_state_core_row(
         self,
-        current_state: &CurrentState,
+        trace: &Trace,
+        current_state: &WitnessExecHelper,
         num_hi: usize,
         num_lo: usize,
     ) -> core::Row {
@@ -996,7 +980,7 @@ impl ExecutionState {
             num_lo
         );
         let (selector_hi, selector_lo) = get_dynamic_selector_assignments(state, num_hi, num_lo);
-        let mut row = current_state.get_core_row_without_versatile(0);
+        let mut row = current_state.get_core_row_without_versatile(&trace, 0);
         row.exec_state = Some(self);
         #[rustfmt::skip]
         let vec = [
@@ -1012,10 +996,10 @@ impl ExecutionState {
             .into_iter()
             .zip(selector_hi.into_iter().chain(selector_lo).chain([
                 current_state.state_stamp,
-                current_state.stack.0.len() as u64,
+                current_state.stack_pointer as u64,
                 current_state.log_stamp,
-                current_state.gas_left,
-                current_state.refund,
+                trace.gas,
+                trace.refund,
                 current_state.memory_chunk,
                 current_state.read_only,
             ]))

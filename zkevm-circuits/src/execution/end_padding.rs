@@ -2,7 +2,7 @@ use crate::execution::{
     Auxiliary, AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
-use crate::witness::{CurrentState, Witness};
+use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use gadgets::util::Expr;
@@ -73,8 +73,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
 
-    fn gen_witness(&self, _: &Trace, current_state: &mut CurrentState) -> Witness {
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
         let core_row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -97,7 +98,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
 
@@ -105,16 +106,12 @@ mod test {
     fn assign_and_constraint() {
         // prepare a state to generate witness
         let stack = Stack::new();
-        let mut current_state = CurrentState::new();
+        let mut current_state = WitnessExecHelper::new();
         // prepare a trace
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::STOP,
-            stack_top: None,
-        };
-        current_state.update(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
             ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -122,6 +119,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

@@ -40,7 +40,7 @@ pub mod swap;
 pub mod tx_context;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
-use crate::witness::CurrentState;
+use crate::witness::WitnessExecHelper;
 use crate::witness::{state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
@@ -520,7 +520,7 @@ pub(crate) trait ExecutionGadget<
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)>;
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness;
+    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness;
 }
 
 #[derive(Clone)]
