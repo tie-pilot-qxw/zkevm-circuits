@@ -21,13 +21,13 @@ use crate::util::{create_contract_addr_with_prefix, SubCircuit};
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::evm_types::{Stack, Storage};
 use eth_types::geth_types::GethData;
+use eth_types::GethExecStep;
 use eth_types::{GethExecTrace, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
-use trace_parser::Trace;
 
 #[derive(Debug, Default, Clone)]
 pub struct Witness {
@@ -80,7 +80,7 @@ impl WitnessExecHelper {
         }
     }
 
-    pub fn update_from_next_step(&mut self, trace: &Trace) {
+    pub fn update_from_next_step(&mut self, trace: &GethExecStep) {
         self.stack_top = trace.stack.0.last().cloned();
     }
 
@@ -164,7 +164,7 @@ impl WitnessExecHelper {
 
     fn generate_execution_witness(
         &mut self,
-        step: &Trace,
+        step: &GethExecStep,
         execution_gadgets_map: &HashMap<
             ExecutionState,
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
@@ -184,7 +184,7 @@ impl WitnessExecHelper {
 
     pub fn get_core_row_without_versatile(
         &self,
-        trace_step: &Trace,
+        trace_step: &GethExecStep,
         multi_row_cnt: usize,
     ) -> core::Row {
         core::Row {
@@ -198,7 +198,7 @@ impl WitnessExecHelper {
         }
     }
 
-    pub fn get_pop_stack_row_value(&mut self, trace_step: &Trace) -> (state::Row, U256) {
+    pub fn get_pop_stack_row_value(&mut self, trace_step: &GethExecStep) -> (state::Row, U256) {
         let value = *trace_step
             .stack
             .0
@@ -221,7 +221,7 @@ impl WitnessExecHelper {
 
     pub fn get_peek_stack_row_value(
         &mut self,
-        trace_step: &Trace,
+        trace_step: &GethExecStep,
         index_start_at_1: usize,
     ) -> (state::Row, U256) {
         let value = trace_step
@@ -243,7 +243,7 @@ impl WitnessExecHelper {
         (res, *value)
     }
 
-    pub fn get_memory_read_row(&mut self, trace_step: &Trace, dst: usize) -> state::Row {
+    pub fn get_memory_read_row(&mut self, trace_step: &GethExecStep, dst: usize) -> state::Row {
         let value = trace_step
             .memory
             .0
@@ -324,7 +324,7 @@ impl WitnessExecHelper {
         // res
     }
 
-    pub fn get_push_stack_row(&mut self, trace: &Trace, value: U256) -> state::Row {
+    pub fn get_push_stack_row(&mut self, trace: &GethExecStep, value: U256) -> state::Row {
         assert!(
             trace.stack.0.len() <= 1024 - 1,
             "error in current_state.get_push_stack_row_value"
@@ -346,7 +346,7 @@ impl WitnessExecHelper {
 
     pub fn get_overwrite_stack_row(
         &mut self,
-        trace_step: &Trace,
+        trace_step: &GethExecStep,
         index_start_at_1: usize,
         value: U256,
     ) -> state::Row {
@@ -809,7 +809,7 @@ impl Witness {
     /// Generate end padding of a witness of one block
     fn insert_end_padding(
         &mut self,
-        last_trace: &Trace,
+        last_trace: &GethExecStep,
         current_state: &mut WitnessExecHelper,
         execution_gadgets_map: &HashMap<
             ExecutionState,
@@ -966,7 +966,7 @@ impl Witness {
 impl ExecutionState {
     pub fn into_exec_state_core_row(
         self,
-        trace: &Trace,
+        trace: &GethExecStep,
         current_state: &WitnessExecHelper,
         num_hi: usize,
         num_lo: usize,

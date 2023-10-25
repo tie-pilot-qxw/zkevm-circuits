@@ -4,11 +4,11 @@ use crate::util::query_expression;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{core, state, Witness};
 use eth_types::Field;
+use eth_types::GethExecStep;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
@@ -64,7 +64,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert!(trace.op.is_dup());
         let (stack_read, value) =
             current_state.get_peek_stack_row_value(trace, trace.op.postfix().unwrap() as usize);

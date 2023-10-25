@@ -122,17 +122,6 @@ struct JsonResultOpString {
     stack: Vec<String>,
 }
 
-// #[derive(Debug)]
-// pub struct Trace {
-//     pub pc: u64,
-//     pub op: OpcodeId,
-//     pub stack_top: Option<U256>,
-//     #[cfg(feature = "check_stack")]
-//     pub stack_for_test: Option<Vec<U256>>,
-// }
-
-pub type Trace = GethExecStep;
-
 pub fn trace_program(bytecode: &[u8]) -> GethExecTrace {
     let cmd_string = format!("./evm --code {} --json run", hex::encode(bytecode)).to_string();
     let res = Command::new("sh")

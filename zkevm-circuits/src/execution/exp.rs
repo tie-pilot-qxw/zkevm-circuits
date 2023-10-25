@@ -4,11 +4,11 @@ use crate::util::query_expression;
 use crate::witness::{exp, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use eth_types::GethExecStep;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 3;
@@ -99,7 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("exp lookup".into(), exp_lookup),
         ]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
         let c = current_state.stack_top.unwrap_or_default();

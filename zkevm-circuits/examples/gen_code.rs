@@ -97,10 +97,9 @@ fn main() {
         use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
         use crate::table::LookupEntry;
         use crate::witness::{CurrentState, Witness};
-        use eth_types::Field;
+        use eth_types::{Field, GethExecStep};
         use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
         use std::marker::PhantomData;
-        use trace_parser::Trace;
 
         const NUM_ROW: usize = $num_row;
 
@@ -115,7 +114,7 @@ fn main() {
             fn unusable_rows(&self) -> (usize, usize) { (NUM_ROW, 1) }
             fn get_constraints(&self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut VirtualCells<F>) -> Vec<(String, Expression<F>)> { vec![] }
             fn get_lookups(&self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut ConstraintSystem<F>) -> Vec<(String, LookupEntry<F>)> { vec![] }
-            fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
+            fn gen_witness(&self, trace: &GethExecStep, current_state: &mut CurrentState) -> Witness {
                 $(for i in 0..stack_pop_num =>
                     let (stack_pop_$i, _) = current_state.get_pop_stack_row_value(&trace);$['\n'])
                 $(for i in 0..stack_push_num =>
@@ -141,7 +140,7 @@ fn main() {
         #[cfg(test)]
         mod test {
             use crate::execution::test::{
-                generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+                generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
             };
             generate_execution_gadget_test_circuit!();
             #[test]
@@ -149,13 +148,13 @@ fn main() {
                 // prepare a state to generate witness
                 let stack = Stack::from_slice(&[$(for i in 0..stack_pop_num join(, ) => $i.into())]);
                 let stack_pointer = stack.0.len();
-                let mut current_state = CurrentState {stack_pointer: stack.0.len(), ..CurrentState::new()};
-                // prepare a trace
-                let trace = Trace {
-                    pc: 0,
-                    op: OpcodeId::STOP, // just a placeholder
+                let mut current_state = CurrentState {
+                    stack_pointer: stack.0.len(),
                     stack_top: $(if stack_push_num == 0 {None} else {Some(0xff.into())}),
+                    ..CurrentState::new()
                 };
+                // prepare a trace
+                let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
                 current_state.copy_from_trace(&trace);
                 let padding_begin_row = |current_state| {
                     let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(trace,

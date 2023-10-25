@@ -2,10 +2,10 @@ use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::util::query_expression;
 use crate::witness::{arithmetic, Witness, WitnessExecHelper};
+use eth_types::GethExecStep;
 use eth_types::{Field, U256, U512};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 const NUM_ROW: usize = 5;
 
@@ -52,7 +52,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("arithmetic lookup".into(), arithmetic),
         ]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
 
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);

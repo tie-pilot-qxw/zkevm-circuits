@@ -6,11 +6,11 @@ use crate::util::query_expression;
 use crate::witness::{state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use eth_types::GethExecStep;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 pub(super) const NUM_ROW: usize = 2;
 
@@ -92,7 +92,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         )]
     }
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let state_circuit_end_padding = state::Row {
             tag: Some(state::Tag::EndPadding),
             stamp: Some((current_state.state_stamp - 1).into()),

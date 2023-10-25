@@ -3,9 +3,9 @@ use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use eth_types::GethExecStep;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 const NUM_ROW: usize = 2;
 
@@ -41,7 +41,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert!(trace.op == OpcodeId::SLOAD || trace.op == OpcodeId::SSTORE);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         let (stack_0, stack_1) = if trace.op == OpcodeId::SLOAD {

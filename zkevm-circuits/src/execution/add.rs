@@ -5,11 +5,11 @@ use crate::witness::{arithmetic, WitnessExecHelper};
 use crate::witness::{core, state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use eth_types::GethExecStep;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
@@ -117,7 +117,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::ADD);
 
         let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);

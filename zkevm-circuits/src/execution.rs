@@ -44,6 +44,7 @@ use crate::witness::WitnessExecHelper;
 use crate::witness::{state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use eth_types::GethExecStep;
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::util::Expr;
@@ -52,7 +53,6 @@ use halo2_proofs::poly::Rotation;
 use serde::Serialize;
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
-use trace_parser::Trace;
 
 /// Get all execution gadgets by using this
 macro_rules! get_every_execution_gadgets {
@@ -520,7 +520,7 @@ pub(crate) trait ExecutionGadget<
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)>;
 
-    fn gen_witness(&self, trace: &Trace, current_state: &mut WitnessExecHelper) -> Witness;
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness;
 }
 
 #[derive(Clone)]
@@ -921,6 +921,7 @@ mod test {
             use crate::table::{BytecodeTable, StateTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
+            use eth_types::GethExecStep;
             use gadgets::dynamic_selector::DynamicSelectorChip;
             use gadgets::is_zero::IsZeroInstruction;
             use gadgets::is_zero_with_rotation::IsZeroWithRotationChip;
@@ -1145,7 +1146,7 @@ mod test {
     }
     macro_rules! prepare_trace_step {
         ($pc:expr, $op:expr, $stack:expr) => {{
-            Trace {
+            GethExecStep {
                 pc: $pc,
                 op: $op,
                 gas: 100,
