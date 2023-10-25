@@ -12,7 +12,7 @@ use zkevm_circuits::witness::Witness;
 #[test]
 fn test_deploy_trace() {
     const LONG_TEST_ROWS: usize = 4080;
-    let trace = read_trace_from_api_result_file("test_data/deploy-trace.jsonl");
+    let trace = read_trace_from_api_result_file("test_data/deploy-trace.json");
     let mut hex_file = File::open("test_data/deploy-bytecode.txt").unwrap();
     let mut bytecodes = String::new();
     hex_file.read_to_string(&mut bytecodes).unwrap();

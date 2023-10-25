@@ -12,17 +12,12 @@ use crate::constant::{
     DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
 };
 use crate::core_circuit::CoreCircuit;
-use crate::execution::not::NotGadget;
-use crate::execution::{
-    get_every_execution_gadgets, ExecutionConfig, ExecutionGadget, ExecutionState,
-};
+use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::StateCircuit;
 use crate::util::{create_contract_addr_with_prefix, SubCircuit};
-use eth_types::evm_types::{Memory, OpcodeId};
-use eth_types::evm_types::{Stack, Storage};
+use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
-use eth_types::GethExecStep;
-use eth_types::{GethExecTrace, U256};
+use eth_types::{GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -135,21 +130,19 @@ impl WitnessExecHelper {
         self.bytecode = bytecode;
 
         let mut res: Witness = Default::default();
-        let first_trace = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
+        let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
 
-        // trace should just use GethExecStep (type alias), c_state we can process this and next trace, and get next_stack_top
-        // then all functions who used current_state.stack_top should now use current_state.next_stack_top
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
                 .unwrap()
-                .gen_witness(first_trace, self),
+                .gen_witness(first_step, self),
         );
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_2)
                 .unwrap()
-                .gen_witness(first_trace, self),
+                .gen_witness(first_step, self),
         );
         let mut iter_for_next_step = trace.iter();
         iter_for_next_step.next();
@@ -164,17 +157,17 @@ impl WitnessExecHelper {
 
     fn generate_execution_witness(
         &mut self,
-        step: &GethExecStep,
+        trace_step: &GethExecStep,
         execution_gadgets_map: &HashMap<
             ExecutionState,
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
     ) -> Witness {
         let mut res = Witness::default();
-        let execution_states = ExecutionState::from_opcode(step.op);
+        let execution_states = ExecutionState::from_opcode(trace_step.op);
         for execution_state in execution_states {
             if let Some(gadget) = execution_gadgets_map.get(&execution_state) {
-                res.append(gadget.gen_witness(step, self));
+                res.append(gadget.gen_witness(trace_step, self));
             } else {
                 panic!("execution state {:?} not supported yet", execution_state);
             }
@@ -809,7 +802,7 @@ impl Witness {
     /// Generate end padding of a witness of one block
     fn insert_end_padding(
         &mut self,
-        last_trace: &GethExecStep,
+        last_step: &GethExecStep,
         current_state: &mut WitnessExecHelper,
         execution_gadgets_map: &HashMap<
             ExecutionState,
@@ -820,7 +813,7 @@ impl Witness {
         let end_block_gadget = execution_gadgets_map
             .get(&ExecutionState::END_BLOCK)
             .unwrap();
-        self.append(end_block_gadget.gen_witness(last_trace, current_state));
+        self.append(end_block_gadget.gen_witness(last_step, current_state));
     }
 
     /// Generate witness of one transaction's trace
