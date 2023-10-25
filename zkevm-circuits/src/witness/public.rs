@@ -177,48 +177,23 @@ impl Row {
 }
 #[cfg(test)]
 mod test {
+    use crate::util::geth_data_test;
     use crate::witness::public::{LogTag, Row, Tag};
-    use eth_types::geth_types::GethData;
-    use eth_types::{Block, Transaction, U256};
-    use serde::Serialize;
-
-    fn get_test_geth_data() -> GethData {
-        let mut history_hashes = vec![];
-        for i in 0..256 {
-            history_hashes.push(i.into())
-        }
-        let tx1 = Transaction {
-            value: 400000.into(),
-            from: [5, 6, 7, 8, 5, 6, 7, 8, 5, 6, 7, 8, 5, 6, 7, 8, 5, 6, 7, 8].into(),
-            to: Some(
-                [
-                    9, 10, 11, 12, 9, 10, 11, 12, 9, 10, 11, 12, 9, 10, 11, 12, 9, 10, 11, 12,
-                ]
-                .into(),
-            ),
-            gas: 0x10000.into(),
-            input: vec![99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99].into(),
-            ..Default::default()
-        };
-        let eth_block = Block {
-            author: Some([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4].into()),
-            number: Some(12345.into()),
-            base_fee_per_gas: Some(1.into()),
-            gas_limit: 0x200000.into(),
-            transactions: vec![tx1],
-            ..Default::default()
-        };
-        GethData {
-            chain_id: 42.into(),
-            history_hashes,
-            eth_block,
-            accounts: vec![],
-        }
-    }
+    use eth_types::{GethExecTrace, U256};
 
     #[test]
     fn from_geth_data() {
-        let geth_data = get_test_geth_data();
+        let geth_data = geth_data_test(
+            GethExecTrace {
+                gas: 26809,
+                failed: false,
+                return_value: "".to_owned(),
+                struct_logs: vec![],
+            },
+            &[12, 34, 56, 78],
+            &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99],
+            false,
+        );
         let rows = Row::from_geth_data(&geth_data).unwrap();
         let mut wtr = csv::Writer::from_writer(std::io::stdout());
         for row in &rows {

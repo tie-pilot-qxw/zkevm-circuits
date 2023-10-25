@@ -96,11 +96,10 @@ fn main() {
         $("// Code generated - COULD HAVE BUGS!\n// This file is a generated execution gadget definition.\n")
         use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
         use crate::table::LookupEntry;
-        use crate::witness::{CurrentState, Witness};
-        use eth_types::Field;
+        use crate::witness::{Witness, WitnessExecHelper};
+        use eth_types::{Field, GethExecStep};
         use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
         use std::marker::PhantomData;
-        use trace_parser::Trace;
 
         const NUM_ROW: usize = $num_row;
 
@@ -115,16 +114,16 @@ fn main() {
             fn unusable_rows(&self) -> (usize, usize) { (NUM_ROW, 1) }
             fn get_constraints(&self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut VirtualCells<F>) -> Vec<(String, Expression<F>)> { vec![] }
             fn get_lookups(&self, config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>, meta: &mut ConstraintSystem<F>) -> Vec<(String, LookupEntry<F>)> { vec![] }
-            fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
+            fn gen_witness(&self, trace: &GethExecStep, current_state: &mut CurrentState) -> Witness {
                 $(for i in 0..stack_pop_num =>
-                    let (stack_pop_$i, _) = current_state.get_pop_stack_row_value();$['\n'])
+                    let (stack_pop_$i, _) = current_state.get_pop_stack_row_value(trace);$['\n'])
                 $(for i in 0..stack_push_num =>
-                    let stack_push_$i = current_state.get_push_stack_row(trace.stack_top.unwrap_or_default());$['\n'])
+                    let stack_push_$i = current_state.get_push_stack_row(trace, current_state.stack_top.unwrap_or_default());$['\n'])
                 $(for i in (1..num_row).rev() =>
-                    let mut core_row_$i = current_state.get_core_row_without_versatile($i);$['\n'])
+                    let mut core_row_$i = current_state.get_core_row_without_versatile(trace, $i);$['\n'])
                 $(if stack_pop_num+stack_push_num>0 =>
                     core_row_1.insert_state_lookups([$(for i in 0..stack_pop_num join (, ) => &stack_pop_$i)$(if stack_pop_num*stack_push_num>0 =>,$[' '])$(for i in 0..stack_push_num join (, ) => &stack_push_$i)]));
-                let core_row_0 = ExecutionState::$(state_name_uppercase.as_str()).into_exec_state_core_row(current_state, NUM_STATE_HI_COL, NUM_STATE_LO_COL);
+                let core_row_0 = ExecutionState::$(state_name_uppercase.as_str()).into_exec_state_core_row(trace,current_state, NUM_STATE_HI_COL, NUM_STATE_LO_COL);
                 Witness {
                     core: vec![$(for i in (0..num_row).rev() join (, ) => core_row_$i)],
                     state: vec![$(for i in 0..stack_pop_num join (, ) => stack_pop_$i)$(if stack_pop_num*stack_push_num>0 =>,$[' '])$(for i in 0..stack_push_num join (, ) => stack_push_$i)],
@@ -141,7 +140,7 @@ fn main() {
         #[cfg(test)]
         mod test {
             use crate::execution::test::{
-                generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+                generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
             };
             generate_execution_gadget_test_circuit!();
             #[test]
@@ -149,16 +148,15 @@ fn main() {
                 // prepare a state to generate witness
                 let stack = Stack::from_slice(&[$(for i in 0..stack_pop_num join(, ) => $i.into())]);
                 let stack_pointer = stack.0.len();
-                let mut current_state = CurrentState {stack, ..CurrentState::new()};
-                // prepare a trace
-                let trace = Trace {
-                    pc: 0,
-                    op: OpcodeId::STOP, // just a placeholder
+                let mut current_state = CurrentState {
+                    stack_pointer,
                     stack_top: $(if stack_push_num == 0 {None} else {Some(0xff.into())}),
+                    ..CurrentState::new()
                 };
-                current_state.copy_from_trace(&trace);
+                // prepare a trace
+                let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
                 let padding_begin_row = |current_state| {
-                    let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                    let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(trace,
                         current_state,
                         NUM_STATE_HI_COL,
                         NUM_STATE_LO_COL,
@@ -167,7 +165,7 @@ fn main() {
                     row
                 };
                 let padding_end_row = |current_state| {
-                    let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                    let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(trace,
                         current_state,
                         NUM_STATE_HI_COL,
                         NUM_STATE_LO_COL,

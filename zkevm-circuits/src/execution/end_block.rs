@@ -3,14 +3,14 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{state, CurrentState, Witness};
+use crate::witness::{state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
+use eth_types::GethExecStep;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 pub(super) const NUM_ROW: usize = 2;
 
@@ -92,7 +92,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         )]
     }
 
-    fn gen_witness(&self, _: &Trace, current_state: &mut CurrentState) -> Witness {
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let state_circuit_end_padding = state::Row {
             tag: Some(state::Tag::EndPadding),
             stamp: Some((current_state.state_stamp - 1).into()),
@@ -103,9 +103,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_lo: None,
             is_write: None,
         };
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&state_circuit_end_padding]);
         let core_row_0 = ExecutionState::END_BLOCK.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -129,7 +130,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
 
@@ -137,17 +138,15 @@ mod test {
     fn assign_and_constraint() {
         // prepare a state to generate witness
         let stack = Stack::new();
-        let mut current_state = CurrentState::new();
-        current_state.state_stamp = 1;
-        // prepare a trace
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::STOP,
-            stack_top: None,
+        let mut current_state = WitnessExecHelper {
+            state_stamp: 1,
+            ..WitnessExecHelper::new()
         };
-        current_state.copy_from_trace(&trace);
+        // prepare a trace
+        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
             ExecutionState::STOP.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -155,6 +154,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,

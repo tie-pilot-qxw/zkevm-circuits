@@ -304,10 +304,8 @@ pub struct GethData {
     pub history_hashes: Vec<Word>,
     /// Block from geth
     pub eth_block: Block<crate::Transaction>,
-    /* removed in this project
     /// Execution Trace from geth
     pub geth_traces: Vec<GethExecTrace>,
-    */
     /// Accounts
     pub accounts: Vec<Account>,
 }
