@@ -1,16 +1,38 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::witness::{CurrentState, Witness};
-use eth_types::Field;
+use eth_types::{Field,U256};
+use ethers_core::k256::schnorr::signature::Keypair;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 use trace_parser::Trace;
+use eth_types::evm_types::OpcodeId;
 
 const NUM_ROW: usize = 3;
+const LOAD_SIZE: usize = 32;
 
 pub struct CalldataloadGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
+/// Calldataload read word from msg data at index idx in EVM,
+/// idx in stack and will retrive data from msg.data[idx:idx+32] to stack.
+/// data[idx]: 32-byte value starting from the given offset of the calldata.
+/// All bytes after the end of the calldata are set to 0.
+///
+/// Calldataload Execution State layout is as follows
+/// CONTENT means the word is retrived from msg.data,
+/// where STATE means state table lookup,
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | not used |
+/// +---+-------+-------+-------+----------+
+/// | 2 | CONTENT  |      |       |          |
+/// | 1 | STATE | STATE | STATE |          |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for CalldataloadGadget<F>
 {
@@ -41,20 +63,34 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![]
     }
     fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value();
+        assert_eq!(trace.op, OpcodeId::CALLDATALOAD);
 
-        let stack_push_0 = current_state.get_push_stack_row(trace.stack_top.unwrap_or_default());
-
+        // pop index from stack to point msg.call_data
+        let (stack_pop_0, index) = current_state.get_pop_stack_row_value();
+        // load value from msg.call_data with index
+        let call_data = &current_state.call_data[&current_state.call_id];
+        let len = call_data.len() ;
+        let mut data:Vec<u8> = vec![];
+        data.extend(&call_data[index.as_usize()..len]);    
+        if data.len() < LOAD_SIZE{
+            let  padding = vec!(0 as u8;LOAD_SIZE-data.len());
+            data.extend(&mut padding[0..].iter());
+        }
+        // then push the retrived value to stack
+        let stack_push_0 = current_state.get_push_stack_row(U256::from(&data[0..]));
+        let state_rows = current_state.get_calldata_load_rows(index.as_usize());
+        // generate Witness with call_data
+        // Witness::new(Tag, geth_data)
         let mut core_row_2 = current_state.get_core_row_without_versatile(2);
-
+        core_row_2.insert_state_lookups(state_rows);
         let mut core_row_1 = current_state.get_core_row_without_versatile(1);
-
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
         let core_row_0 = ExecutionState::CALLDATALOAD.into_exec_state_core_row(
-            current_state,
+            current_state, 
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_push_0],

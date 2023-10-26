@@ -436,6 +436,26 @@ impl CurrentState {
         (copy_rows, state_rows)
     }
 
+    pub fn get_calldata_load_rows(&mut self, idx: usize) -> Vec<state::Row> {
+        let mut state_rows = vec![];
+        let call_data = &self.call_data[&self.call_id];
+        let len = call_data.len();
+        for (i, &byte) in call_data[idx..len].iter().enumerate() {        
+            state_rows.push(state::Row{
+                    tag: Some(state::Tag::CallData),
+                    stamp: Some(self.state_stamp.into()),
+                    value_hi:None,
+                    value_lo:Some(byte.into()),
+                    call_id_contract_addr: Some(self.call_id.into()),
+                    pointer_hi: None,
+                    pointer_lo: Some(i.into()),
+                    is_write:Some(0.into()),
+            });
+            self.state_stamp += 1;
+        }    
+        state_rows
+    }
+
     /// Load calldata from public table to state table
     pub fn get_load_calldata_copy_rows(&mut self) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
