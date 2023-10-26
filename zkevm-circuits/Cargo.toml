@@ -38,7 +38,6 @@ default = []
 plot = ["dep:plotters", "halo2_proofs/dev-graph"]
 gen_code = ["dep:genco", "dep:convert_case", "dep:proc-macro2"]
 no_intersubcircuit_lookup = []
-check_stack = ["trace-parser/check_stack"]
 
 [[bench]]
 name = "super_circuit"

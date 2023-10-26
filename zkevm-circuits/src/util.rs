@@ -1,7 +1,7 @@
 use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::geth_types::{Account, GethData};
-use eth_types::{Address, Block, Field, Transaction, U256};
+use eth_types::{Address, Block, Field, GethExecTrace, Transaction, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
@@ -139,7 +139,12 @@ pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
     prefix + created_addr
 }
 
-pub fn geth_data_test(bytecode: &[u8], input: &[u8], is_create: bool) -> GethData {
+pub fn geth_data_test(
+    trace: GethExecTrace,
+    bytecode: &[u8],
+    input: &[u8],
+    is_create: bool,
+) -> GethData {
     let mut history_hashes = vec![];
     for i in 0..256 {
         history_hashes.push(i.into())
@@ -171,6 +176,7 @@ pub fn geth_data_test(bytecode: &[u8], input: &[u8], is_create: bool) -> GethDat
         chain_id: 42.into(),
         history_hashes,
         eth_block,
+        geth_traces: vec![trace],
         accounts: vec![account],
     }
 }

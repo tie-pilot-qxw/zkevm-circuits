@@ -3,11 +3,11 @@
 
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
-use crate::witness::{CurrentState, Witness};
+use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::Field;
+use eth_types::GethExecStep;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
-use trace_parser::Trace;
 
 const NUM_ROW: usize = 2;
 
@@ -54,18 +54,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
-        assert!(current_state.opcode.is_swap());
-        let (stack_read_1, value_1) = current_state
-            .get_peek_stack_row_value(current_state.opcode.postfix().unwrap() as usize + 1);
-        let (stack_read_2, value_2) = current_state.get_peek_stack_row_value(1);
-        let stack_write_1 = current_state.get_overwrite_stack_row(1, value_1);
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        assert!(trace.op.is_swap());
+        let (stack_read_1, value_1) =
+            current_state.get_peek_stack_row_value(trace, trace.op.postfix().unwrap() as usize + 1);
+        let (stack_read_2, value_2) = current_state.get_peek_stack_row_value(trace, 1);
+        let stack_write_1 = current_state.get_overwrite_stack_row(&trace, 1, value_1);
         let stack_write_2 = current_state.get_overwrite_stack_row(
-            current_state.opcode.postfix().unwrap() as usize + 1,
+            &trace,
+            trace.op.postfix().unwrap() as usize + 1,
             value_2,
         );
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &stack_read_1,
             &stack_read_2,
@@ -74,6 +75,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         let core_row_0 = ExecutionState::SWAP.into_exec_state_core_row(
+            trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -94,26 +96,22 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0.into(), 10.into(), 1.into()]);
         let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
-            stack,
-            ..CurrentState::new()
-        };
-
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::SWAP2,
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            ..WitnessExecHelper::new()
         };
-        current_state.copy_from_trace(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::SWAP2, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -123,6 +121,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -132,11 +131,6 @@ mod test {
         };
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        assert_eq!(
-            Stack::from_slice(&[1.into(), 10.into(), 0.into()]),
-            current_state.stack,
-            "stack is not swapped!"
-        );
         witness.print_csv();
         prover.assert_satisfied_par();
     }

@@ -1,8 +1,9 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
-use crate::witness::{CurrentState, Witness};
+use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::{Field,U256};
 use ethers_core::k256::schnorr::signature::Keypair;
+use eth_types::GethExecStep;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 use trace_parser::Trace;
@@ -62,11 +63,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
-    fn gen_witness(&self, trace: &Trace, current_state: &mut CurrentState) -> Witness {
+
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::CALLDATALOAD);
 
         // pop index from stack to point msg.call_data
-        let (stack_pop_0, index) = current_state.get_pop_stack_row_value();
+        let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
         // load value from msg.call_data with index
         let call_data = &current_state.call_data[&current_state.call_id];
         let len = call_data.len() ;
@@ -77,15 +79,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             data.extend(&mut padding[0..].iter());
         }
         // then push the retrived value to stack
-        let stack_push_0 = current_state.get_push_stack_row(U256::from(&data[0..]));
+        let stack_push_0 = current_state.get_push_stack_row(trace,U256::from(&data[0..]));
         let state_rows = current_state.get_calldata_load_rows(index.as_usize());
         // generate Witness with call_data
         // Witness::new(Tag, geth_data)
-        let mut core_row_2 = current_state.get_core_row_without_versatile(2);
+        let mut core_row_2 = current_state.get_core_row_without_versatile(trace,2);
         core_row_2.insert_state_lookups(state_rows);
-        let mut core_row_1 = current_state.get_core_row_without_versatile(1);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(trace,1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
         let core_row_0 = ExecutionState::CALLDATALOAD.into_exec_state_core_row(
+            trace,
             current_state, 
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
@@ -107,26 +110,22 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 #[cfg(test)]
 mod test {
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0.into()]);
         let stack_pointer = stack.0.len();
-        let mut current_state = CurrentState {
-            stack,
-            ..CurrentState::new()
-        };
-
-        let trace = Trace {
-            pc: 0,
-            op: OpcodeId::STOP,
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            ..WitnessExecHelper::new()
         };
-        current_state.copy_from_trace(&trace);
+        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
@@ -136,6 +135,7 @@ mod test {
         };
         let padding_end_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
