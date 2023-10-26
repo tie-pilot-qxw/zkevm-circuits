@@ -5,7 +5,7 @@ use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::seletor::SimpleSelector;
+use gadgets::simple_seletor::SimpleSelector;
 use gadgets::util::{expr_from_bytes, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -76,12 +76,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.extend([value_hi, value_lo]);
         }
-        let selector = SimpleSelector::new_selector(&[
+        let selector = SimpleSelector::new(&[
             meta.query_advice(config.vers[29], Rotation::prev()),
             meta.query_advice(config.vers[30], Rotation::prev()),
             meta.query_advice(config.vers[31], Rotation::prev()),
         ]);
-        constraints.extend(selector.gen_constraints());
+        constraints.extend(selector.get_constraints());
         let bit_op = meta.query_advice(config.vers[25], Rotation::prev());
         constraints.push((
             "bit op is correct".into(),
