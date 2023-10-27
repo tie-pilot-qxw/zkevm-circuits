@@ -428,10 +428,11 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
-    pub fn get_calldata_load_rows(&mut self, idx: usize) -> Vec<state::Row> {
+    pub fn get_calldata_load_rows(&mut self, idx: usize, length: usize) -> Vec<state::Row> {
         let mut state_rows = vec![];
         let call_data = &self.call_data[&self.call_id];
-        let len = call_data.len();
+        let len = if idx + length <= call_data.len() { idx+length } else { call_data.len()};
+        // data
         for (i, &byte) in call_data[idx..len].iter().enumerate() {        
             state_rows.push(state::Row{
                     tag: Some(state::Tag::CallData),
@@ -445,6 +446,21 @@ impl WitnessExecHelper {
             });
             self.state_stamp += 1;
         }    
+        // padding
+        if call_data.len() < length{
+            for i in call_data.len()..length{
+                state_rows.push(state::Row{
+                    tag: Some(state::Tag::CallData),
+                    stamp: Some(self.state_stamp.into()),
+                    value_hi:None,
+                    value_lo:None,
+                    call_id_contract_addr: Some(self.call_id.into()),
+                    pointer_hi: None,
+                    pointer_lo: None,
+                    is_write:Some(0.into()),
+                });
+            }
+        }
         state_rows
     }
 

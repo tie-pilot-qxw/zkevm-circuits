@@ -236,6 +236,39 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_calldata_load_lookup(
+        &self, 
+        meta: &mut VirtualCells<F>,
+        index: Expression<F>,
+        stamp: Expression<F>,
+    ) -> Vec<LookupEntry<F>>{
+        let mut entrys = vec![];
+        for i in 0..32{
+            entrys.push(LookupEntry::State{
+                    tag: (state::Tag::CallData as u8).expr(),
+                    value_lo: meta.query_advice(self.vers[i],Rotation(-2)),
+                    value_hi: 0.expr(),
+                    stamp: stamp+i.expr(),
+                    call_id_contract_addr:meta.query_advice(self.call_id, Rotation(-2)),
+                    is_write:0.expr(),
+                    pointer_hi: 0.expr(),
+                    pointer_lo: index+i.expr(),
+            });
+        }
+        entrys
+    }
+
+    pub(crate) fn get_calldata_load_constains(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: Vec<LookupEntry<F>>,
+        state_entry: LookupEntry<F>,
+    ) -> Vec<(String, Expression<F>)> {
+
+         vec![]   
+    }
+
+
     pub(crate) fn get_state_lookup(
         &self,
         meta: &mut VirtualCells<F>,
@@ -738,7 +771,7 @@ impl ExecutionState {
                 vec![Self::CODECOPY]
             }
             OpcodeId::SHL => {
-                todo!()
+                vec![Self::SHL]
             }
             OpcodeId::SHR => {
                 vec![Self::SHR]

@@ -1,16 +1,21 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState, AuxiliaryDelta};
+use crate::table::{LookupEntry,extract_lookup_expression};
+use crate::witness::{Witness, WitnessExecHelper, state};
 use eth_types::{Field,U256};
-use ethers_core::k256::schnorr::signature::Keypair;
 use eth_types::GethExecStep;
+use gadgets::util::{Expr};
+use crate::util::query_expression;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use trace_parser::Trace;
 use eth_types::evm_types::OpcodeId;
+
+use super::push;
 
 const NUM_ROW: usize = 3;
 const LOAD_SIZE: usize = 32;
+const STATE_STAMP_DELTA: usize = 2;
+const PC_DELTA: usize =1;
 
 pub struct CalldataloadGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -49,19 +54,64 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn unusable_rows(&self) -> (usize, usize) {
         (NUM_ROW, 1)
     }
+
     fn get_constraints(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let op_code = meta.query_advice(config.opcode, Rotation::cur());
+        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
+        let pc_next = meta.query_advice(config.pc,Rotation::next());
+        let delta = AuxiliaryDelta{
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: 0.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // state_entry in cow_1 
+        let pop_entry = config.get_state_lookup(meta, 0);
+        let push_entry = config.get_state_lookup(meta, 1);        
+        let (_, stamp, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, pop_entry.clone());
+        let new_stamp = stamp + 1.expr(); // because calldataload will push one data to stack
+        let data_entry = config.get_calldata_load_lookup(meta, value_lo, new_stamp);
+        constraints.append(&mut config.get_stack_constraints(
+            meta,
+            pop_entry.clone(),
+            0,
+            NUM_ROW,
+            1.expr(),
+            false));
+        constraints.append(&mut config.get_stack_constraints(
+            meta,
+            push_entry.clone(),
+            1,
+            NUM_ROW,
+            1.expr(), 
+            true));
+        constraints.append(&mut config.get_calldata_load_constains(meta, data_entry, push_entry));    
+        constraints.extend([
+            ("opcode".into(), op_code-OpcodeId::CALLDATALOAD.as_u8().expr()),
+            ("next pc".into(), pc_next-pc_cur-PC_DELTA.expr())        
+        ]);
+        
+        constraints
     }
+
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let stack_pop = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        // todo. need check and argue
+        // let data_entry = query_expression(meta, |meta| config.get_calldata_load_lookup(meta, 0.expr()));
+        
+        vec![
+            ("stack pop index".into(), stack_pop),
+            ("stack push call_data".into(), stack_push)
+        ]    
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -71,7 +121,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
         // load value from msg.call_data with index
         let call_data = &current_state.call_data[&current_state.call_id];
-        let len = call_data.len() ;
+        let len = if index.as_usize() + LOAD_SIZE <= call_data.len() { index.as_usize() + LOAD_SIZE }else{ call_data.len()} ;
         let mut data:Vec<u8> = vec![];
         data.extend(&call_data[index.as_usize()..len]);    
         if data.len() < LOAD_SIZE{
@@ -80,11 +130,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         // then push the retrived value to stack
         let stack_push_0 = current_state.get_push_stack_row(trace,U256::from(&data[0..]));
-        let state_rows = current_state.get_calldata_load_rows(index.as_usize());
+        let state_rows:Vec<state::Row> = current_state.get_calldata_load_rows(index.as_usize(), LOAD_SIZE);
         // generate Witness with call_data
-        // Witness::new(Tag, geth_data)
-        let mut core_row_2 = current_state.get_core_row_without_versatile(trace,2);
-        core_row_2.insert_state_lookups(state_rows);
+        let mut core_row_2 = current_state.get_core_row_without_versatile(trace,2);    
+        let values = data.into_iter().map(|x| x.into()).collect::<Vec<U256>>();
+        core_row_2.fill_versatile_with_values(&values);
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace,1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
         let core_row_0 = ExecutionState::CALLDATALOAD.into_exec_state_core_row(
@@ -93,10 +143,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-
+    
+        let mut v: Vec<state::Row> = vec![stack_pop_0, stack_push_0];     
+        v.append(&mut state_rows.clone());
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_pop_0, stack_push_0],
+            state: v,
             ..Default::default()
         }
     }
