@@ -16,7 +16,6 @@ use gadgets::util::Expr;
 /// | 1 | STATE |       |       |  Bytecode LookUp         |
 /// | 0 | DYNA_SELECTOR   | AUX                            |
 /// +---+-------+-------+-------+--------------------------+
-// cnt:1 | <tag, stamp, value_hi, value_lo, call_id, pointer_hi, pointer_hi, is_write> | <> |  <>  | <addr, pc, bytecode, 0, 0, 0, 0, 0>
 
 
 const NUM_ROW: usize = 2;
