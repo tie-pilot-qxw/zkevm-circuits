@@ -8,6 +8,7 @@ use eth_types::{GethExecStep,U256};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+use sha3::digest::consts::U25;
 use eth_types::evm_types::OpcodeId;
 
 const NUM_ROW: usize = 2;
@@ -73,11 +74,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 false,
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            arithmetic_operands.extend([value_hi, value_lo]);
+            arithmetic_operands.extend([value_hi.clone(), value_lo.clone()]);
             if i == 0 {
                 //value_a_hi = 0
                 constraints.extend([
-                    ("operand0hi =0 ".into(),value_hi.clone())]);
+                    ("operand0hi =0 ".into(),value_hi.clone())])
             }
         }
 
@@ -94,17 +95,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("opcode is JumpI".into(), opcode - OpcodeId::JUMPI.as_u8().expr()),
 
             ("inv of operand1hi".into(), arithmetic_operands[2].clone() * (1.expr() - arithmetic_operands[2].clone() * hi_inv.clone()),),
-            ("inv of operand1lo".into(), arithmetic_operands[3].clone() * (1.expr() - arithmetic_operands[3].clone() * hi_inv.clone()),),
+            ("inv of operand1lo".into(), arithmetic_operands[3].clone() * (1.expr() - arithmetic_operands[3].clone() * lo_inv.clone()),),
             ("is_zero of operand1hi".into(),  1.expr() - arithmetic_operands[2].clone() * hi_inv - hi_eq.clone(),),
             ("is_zero of operand1lo".into(), 1.expr() - arithmetic_operands[3].clone() * lo_inv - lo_eq.clone(),),
             ("is_zero of operand1".into(), is_zero.clone() - hi_eq * lo_eq,),
 
-            ("next pc".into(), pc_next.clone() -  is_zero.clone() * (pc_cur.clone() + 1.expr()) + (1 - is_zero.clone()) * arithmetic_operands[1].clone(),),
+            ("next pc".into(), pc_next.clone() -  (is_zero.clone() * (pc_cur.clone() + 1.expr()) + (1.expr() - is_zero.clone()) * arithmetic_operands[1].clone()),),
 
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             ("bytecode lookup pc = next_pc".into(), pc - pc_next,),
             ("bytecode lookup opcode = JUMPDEST".into(), next_op - OpcodeId::JUMPDEST.as_u8().expr(),),
-            ("bytecode lookup is code".into(), 1.expr() - not_code,),
+            ("bytecode lookup is code".into(), not_code,),
         ]);
         constraints
     }
@@ -133,7 +134,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1]);
 
         let b_hi = F::from_u128((b >> 128).as_u128());
-        let b_lo = F::from_u128((b >> 128).as_u128());
+        let b_lo = F::from_u128(b.low_u128());
         let lo_inv =
             U256::from_little_endian(b_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         let hi_inv =
@@ -144,10 +145,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.vers_17 = Some(lo_inv);
 
         //hi_inv
-        let hi_is_zero = 1 - b_hi.into() * hi_inv;
+        let hi_is_zero = U256::from(1u32) - U256::from(b_hi.get_lower_128()) * hi_inv;
         core_row_1.vers_18 = Some(hi_is_zero);
         //lo_inv
-        let lo_is_zero = 1 - b_lo.into() * lo_inv;
+        let lo_is_zero =  U256::from(1u32) - U256::from(b_lo.get_lower_128()) * lo_inv;
         core_row_1.vers_19 = Some(lo_is_zero);
 
         //is_zero
@@ -155,9 +156,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.vers_20 = Some(is_zero);
 
         //dest pc
-        let dest = is_zero *(trace.pc.into() - 1) + (1 - is_zero) * a;
+        let dest = is_zero * U256::from((trace.pc + 1u64)) + (U256::from(1u32) - is_zero) * a;
         let next_pc = trace.pc + dest.as_u64();
-        core_row_1.insert_bytecode_full_lookup(next_pc , OpcodeId::JUMPDEST, 0.into());
+        core_row_1.insert_bytecode_full_lookup(next_pc , OpcodeId::JUMPDEST, Some(0.into()));
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,
@@ -186,14 +187,14 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into(), 1.into()]);
+        let stack = Stack::from_slice(&[1.into(), 1.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::JUMPI, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
