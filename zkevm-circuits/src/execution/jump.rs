@@ -1,14 +1,14 @@
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::query_expression;
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use eth_types::evm_types::OpcodeId;
-use crate::util::query_expression;
-use gadgets::util::Expr;
 
 /// +---+-------+-------+-------+--------------------------+
 /// |cnt| 8 col | 8 col | 8 col |             8col         |
@@ -16,7 +16,6 @@ use gadgets::util::Expr;
 /// | 1 | STATE |       |       |  Bytecode LookUp         |
 /// | 0 | DYNA_SELECTOR   | AUX                            |
 /// +---+-------+-------+-------+--------------------------+
-
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
@@ -60,8 +59,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-       
-       // set stack constraints
+
+        // set stack constraints
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
             meta,
@@ -71,20 +70,38 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0.expr(),
             false,
         ));
-    
+
         // get state value
         let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
-        let (lookup_addr, expect_next_pc, expect_next_opcode, _, _, _, _, _) = extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
+        let (lookup_addr, expect_next_pc, expect_next_opcode, _, _, _, _, _) =
+            extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
-        constraints.extend(
-            [
-                ("opcode is JUMP".into(), opcode - OpcodeId::JUMP.as_u8().expr()),
-                ("next pc is stack top".into(), pc_next.clone() - value_lo.clone()),
-                ("bytecode lookup pc == stack top".into(), value_lo - expect_next_pc.clone()),
-                ("bytecode lookup opcode == JUMPDEST".into(), expect_next_opcode.clone() - OpcodeId::JUMPDEST.as_u8().expr()),
-                ("next opcode is JUMPDEST".into(), opcode_next - expect_next_opcode),
-                ("bytecode lookup addr = code addr".into(), code_addr - lookup_addr),
-            ]);
+        constraints.extend([
+            (
+                "opcode is JUMP".into(),
+                opcode - OpcodeId::JUMP.as_u8().expr(),
+            ),
+            (
+                "next pc is stack top".into(),
+                pc_next.clone() - value_lo.clone(),
+            ),
+            (
+                "bytecode lookup pc == stack top".into(),
+                value_lo - expect_next_pc.clone(),
+            ),
+            (
+                "bytecode lookup opcode == JUMPDEST".into(),
+                expect_next_opcode.clone() - OpcodeId::JUMPDEST.as_u8().expr(),
+            ),
+            (
+                "next opcode is JUMPDEST".into(),
+                opcode_next - expect_next_opcode,
+            ),
+            (
+                "bytecode lookup addr = code addr".into(),
+                code_addr - lookup_addr,
+            ),
+        ]);
         constraints
     }
 
@@ -93,7 +110,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-
         // look up stack pop
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
 
@@ -107,7 +123,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-
         // get stack top
         let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
 
@@ -120,7 +135,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // look up jumdest
         let next_pc = stack_pop_0.value_lo.unwrap_or_default().as_u64();
         core_row_1.insert_bytecode_full_lookup(next_pc, OpcodeId::JUMPDEST, Some(0.into()));
-
 
         let core_row_0 = ExecutionState::JUMP.into_exec_state_core_row(
             trace,
