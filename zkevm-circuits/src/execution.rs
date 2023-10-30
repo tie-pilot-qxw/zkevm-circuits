@@ -248,11 +248,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     tag: (state::Tag::CallData as u8).expr(),
                     value_lo: meta.query_advice(self.vers[i],Rotation(-2)),
                     value_hi: 0.expr(),
-                    stamp: stamp+i.expr(),
+                    stamp: stamp.clone()+i.expr(),
                     call_id_contract_addr:meta.query_advice(self.call_id, Rotation(-2)),
                     is_write:0.expr(),
                     pointer_hi: 0.expr(),
-                    pointer_lo: index+i.expr(),
+                    pointer_lo: index.clone()+i.expr(),
             });
         }
         entrys
@@ -771,7 +771,7 @@ impl ExecutionState {
                 vec![Self::CODECOPY]
             }
             OpcodeId::SHL => {
-                vec![Self::SHL]
+                todo!()
             }
             OpcodeId::SHR => {
                 vec![Self::SHR]
