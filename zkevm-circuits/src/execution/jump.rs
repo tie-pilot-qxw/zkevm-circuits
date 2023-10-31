@@ -47,9 +47,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         // get col
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        //let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        let opcode_next = meta.query_advice(config.opcode, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
 
         // set auxiliary constraints
@@ -73,7 +71,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // get state value
         let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
-        let (lookup_addr, expect_next_pc, expect_next_opcode, _, _, _, _, _) =
+
+        // get lookup value
+        let (lookup_addr, expect_next_pc, _, not_code, _, _, _, _) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
         constraints.extend([
@@ -82,25 +82,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode - OpcodeId::JUMP.as_u8().expr(),
             ),
             (
-                "next pc is stack top".into(),
+                "next pc = stack top".into(),
                 pc_next.clone() - value_lo.clone(),
             ),
             (
-                "bytecode lookup pc == stack top".into(),
+                "bytecode lookup pc = stack top".into(),
                 value_lo - expect_next_pc.clone(),
-            ),
-            (
-                "bytecode lookup opcode == JUMPDEST".into(),
-                expect_next_opcode.clone() - OpcodeId::JUMPDEST.as_u8().expr(),
-            ),
-            (
-                "next opcode is JUMPDEST".into(),
-                opcode_next - expect_next_opcode,
             ),
             (
                 "bytecode lookup addr = code addr".into(),
                 code_addr - lookup_addr,
             ),
+            ("bytecode lookup not_code = 0".into(), not_code),
         ]);
         constraints
     }
