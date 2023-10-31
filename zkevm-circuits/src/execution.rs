@@ -237,22 +237,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     pub(crate) fn get_calldata_load_lookup(
-        &self, 
+        &self,
         meta: &mut VirtualCells<F>,
         index: Expression<F>,
         stamp: Expression<F>,
-    ) -> Vec<LookupEntry<F>>{
+    ) -> Vec<LookupEntry<F>> {
         let mut entrys = vec![];
-        for i in 0..32{
-            entrys.push(LookupEntry::State{
-                    tag: (state::Tag::CallData as u8).expr(),
-                    value_lo: meta.query_advice(self.vers[i],Rotation(-2)),
-                    value_hi: 0.expr(),
-                    stamp: stamp.clone()+i.expr(),
-                    call_id_contract_addr:meta.query_advice(self.call_id, Rotation(-2)),
-                    is_write:0.expr(),
-                    pointer_hi: 0.expr(),
-                    pointer_lo: index.clone()+i.expr(),
+        for i in 0..32 {
+            entrys.push(LookupEntry::State {
+                tag: (state::Tag::CallData as u8).expr(),
+                value_lo: meta.query_advice(self.vers[i], Rotation(-2)),
+                value_hi: 0.expr(),
+                stamp: stamp.clone() + i.expr(),
+                call_id_contract_addr: meta.query_advice(self.call_id, Rotation(-2)),
+                is_write: 0.expr(),
+                pointer_hi: 0.expr(),
+                pointer_lo: index.clone() + i.expr(),
             });
         }
         entrys
@@ -264,10 +264,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         entry: Vec<LookupEntry<F>>,
         state_entry: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
-
-         vec![]   
+        vec![]
     }
-
 
     pub(crate) fn get_state_lookup(
         &self,

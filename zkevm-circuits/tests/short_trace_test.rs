@@ -36,7 +36,7 @@ fn test_short_trace() {
 }
 
 #[test]
-fn test_buy_friendtech_contract_trace(){
+fn test_buy_friendtech_contract_trace() {
     let trace = read_trace_from_api_result_file("test_data/friend_tech.json");
     let mut bytecodes = String::from(&trace.return_value);
     if bytecodes.starts_with("0x") {
