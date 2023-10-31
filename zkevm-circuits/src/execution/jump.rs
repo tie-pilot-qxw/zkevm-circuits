@@ -107,13 +107,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_0, next_pc) = current_state.get_pop_stack_row_value(&trace);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0]);
 
-        let next_pc = stack_pop_0.value_lo.unwrap_or_default().as_u64();
-        core_row_1.insert_bytecode_full_lookup(next_pc, OpcodeId::JUMPDEST, Some(0.into()));
+        core_row_1.insert_bytecode_full_lookup(
+            next_pc.as_u64(),
+            OpcodeId::JUMPDEST,
+            Some(0.into()),
+        );
 
         let core_row_0 = ExecutionState::JUMP.into_exec_state_core_row(
             trace,
