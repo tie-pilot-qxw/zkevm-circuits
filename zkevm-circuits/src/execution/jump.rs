@@ -1,16 +1,30 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::query_expression;
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+/// +---+-------+-------+-------+--------------------------+
+/// |cnt| 8 col | 8 col | 8 col |             8col         |
+/// +---+-------+-------+-------+--------------------------+
+/// | 1 | STATE |       |       |  Bytecode LookUp         |
+/// | 0 | DYNA_SELECTOR   | AUX                            |
+/// +---+-------+-------+-------+--------------------------+
+
 const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: u64 = 1;
+const STACK_POINTER_DELTA: i32 = -1;
 
 pub struct JumpGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for JumpGadget<F>
 {
@@ -31,27 +45,86 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
+
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let state_entry = config.get_state_lookup(meta, 0);
+        constraints.append(&mut config.get_stack_constraints(
+            meta,
+            state_entry.clone(),
+            0,
+            NUM_ROW,
+            0.expr(),
+            false,
+        ));
+
+        let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
+
+        let (lookup_addr, expect_next_pc, _, not_code, _, _, _, _) =
+            extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
+
+        constraints.extend([
+            (
+                "opcode is JUMP".into(),
+                opcode - OpcodeId::JUMP.as_u8().expr(),
+            ),
+            (
+                "next pc = stack top".into(),
+                pc_next.clone() - value_lo.clone(),
+            ),
+            (
+                "bytecode lookup pc = stack top".into(),
+                value_lo - expect_next_pc.clone(),
+            ),
+            (
+                "bytecode lookup addr = code addr".into(),
+                code_addr - lookup_addr,
+            ),
+            ("bytecode lookup not_code = 0".into(), not_code),
+        ]);
+        constraints
     }
+
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let bytecode_loopup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
+        vec![
+            ("jump_lookup_stack".into(), stack_lookup),
+            ("jump_lookup_bytecode".into(), bytecode_loopup),
+        ]
     }
+
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_0, next_pc) = current_state.get_pop_stack_row_value(&trace);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
         core_row_1.insert_state_lookups([&stack_pop_0]);
+
+        core_row_1.insert_bytecode_full_lookup(
+            next_pc.as_u64(),
+            OpcodeId::JUMPDEST,
+            Some(0.into()),
+        );
+
         let core_row_0 = ExecutionState::JUMP.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+
         Witness {
             core: vec![core_row_1, core_row_0],
             state: vec![stack_pop_0],
