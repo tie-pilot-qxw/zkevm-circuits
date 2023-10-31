@@ -45,12 +45,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        // get col
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
 
-        // set auxiliary constraints
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -58,7 +56,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        // set stack constraints
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
             meta,
@@ -69,10 +66,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             false,
         ));
 
-        // get state value
         let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
-        // get lookup value
         let (lookup_addr, expect_next_pc, _, not_code, _, _, _, _) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
@@ -103,12 +98,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        // look up stack pop
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-
-        // look up bytecode
         let bytecode_loopup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
-
         vec![
             ("jump_lookup_stack".into(), stack_lookup),
             ("jump_lookup_bytecode".into(), bytecode_loopup),
@@ -116,16 +107,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        // get stack top
         let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
 
-        // get cnt1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
-        // insert state loop up
         core_row_1.insert_state_lookups([&stack_pop_0]);
 
-        // look up jumdest
         let next_pc = stack_pop_0.value_lo.unwrap_or_default().as_u64();
         core_row_1.insert_bytecode_full_lookup(next_pc, OpcodeId::JUMPDEST, Some(0.into()));
 
