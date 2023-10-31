@@ -1,15 +1,15 @@
-use crate::execution::{AuxiliaryDelta,ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::{extract_lookup_expression,LookupEntry};
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use gadgets::util::Expr;
+use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
-use eth_types::{GethExecStep,U256};
+use eth_types::{GethExecStep, U256};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-use std::marker::PhantomData;
 use sha3::digest::consts::U25;
-use eth_types::evm_types::OpcodeId;
+use std::marker::PhantomData;
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
@@ -50,10 +50,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        let expect_next_pc = meta.query_advice(config.pc, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
@@ -77,8 +76,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             arithmetic_operands.extend([value_hi.clone(), value_lo.clone()]);
             if i == 0 {
                 //value_a_hi = 0
-                constraints.extend([
-                    ("operand0hi =0 ".into(),value_hi.clone())])
+                constraints.extend([("operand0hi =0 ".into(), value_hi.clone())])
             }
         }
 
@@ -92,20 +90,48 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_zero = meta.query_advice(config.vers[20], Rotation::prev());
 
         constraints.extend([
-            ("opcode is JumpI".into(), opcode - OpcodeId::JUMPI.as_u8().expr()),
-
-            ("inv of operand1hi".into(), arithmetic_operands[2].clone() * (1.expr() - arithmetic_operands[2].clone() * hi_inv.clone()),),
-            ("inv of operand1lo".into(), arithmetic_operands[3].clone() * (1.expr() - arithmetic_operands[3].clone() * lo_inv.clone()),),
-            ("is_zero of operand1hi".into(),  1.expr() - arithmetic_operands[2].clone() * hi_inv - hi_eq.clone(),),
-            ("is_zero of operand1lo".into(), 1.expr() - arithmetic_operands[3].clone() * lo_inv - lo_eq.clone(),),
-            ("is_zero of operand1".into(), is_zero.clone() - hi_eq * lo_eq,),
-
-            ("next pc".into(), pc_next.clone() -  (is_zero.clone() * (pc_cur.clone() + 1.expr()) + (1.expr() - is_zero.clone()) * arithmetic_operands[1].clone()),),
-
+            (
+                "opcode is JumpI".into(),
+                opcode - OpcodeId::JUMPI.as_u8().expr(),
+            ),
+            (
+                "inv of operand1hi".into(),
+                arithmetic_operands[2].clone()
+                    * (1.expr() - arithmetic_operands[2].clone() * hi_inv.clone()),
+            ),
+            (
+                "inv of operand1lo".into(),
+                arithmetic_operands[3].clone()
+                    * (1.expr() - arithmetic_operands[3].clone() * lo_inv.clone()),
+            ),
+            (
+                "is_zero of operand1hi".into(),
+                1.expr() - arithmetic_operands[2].clone() * hi_inv - hi_eq.clone(),
+            ),
+            (
+                "is_zero of operand1lo".into(),
+                1.expr() - arithmetic_operands[3].clone() * lo_inv - lo_eq.clone(),
+            ),
+            (
+                "is_zero of operand1".into(),
+                is_zero.clone() - hi_eq * lo_eq,
+            ),
+            (
+                "expect next pc".into(),
+                expect_next_pc.clone()
+                    - (is_zero.clone() * (pc_cur.clone() + 1.expr())
+                        + (1.expr() - is_zero.clone()) * arithmetic_operands[1].clone()),
+            ),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
-            ("bytecode lookup pc = next_pc".into(), pc - pc_next,),
-            ("bytecode lookup opcode = JUMPDEST".into(), next_op - OpcodeId::JUMPDEST.as_u8().expr(),),
-            ("bytecode lookup is code".into(), not_code,),
+            (
+                "bytecode lookup pc = expect_next_pc".into(),
+                pc - expect_next_pc,
+            ),
+            (
+                "bytecode lookup opcode = JUMPDEST".into(),
+                next_op - OpcodeId::JUMPDEST.as_u8().expr(),
+            ),
+            ("bytecode lookup is code".into(), not_code),
         ]);
         constraints
     }
@@ -122,7 +148,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("push_lookup_stack".into(), stack_lookup_1),
             ("push_lookup_bytecode_full".into(), bytecode_lookup),
         ]
-
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
@@ -135,10 +160,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let b_hi = F::from_u128((b >> 128).as_u128());
         let b_lo = F::from_u128(b.low_u128());
-        let lo_inv =
-            U256::from_little_endian(b_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        let hi_inv =
-            U256::from_little_endian(b_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        let lo_inv = U256::from_little_endian(b_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        let hi_inv = U256::from_little_endian(b_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         //hi_inv
         core_row_1.vers_16 = Some(hi_inv);
         //lo_inv
@@ -148,7 +171,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let hi_is_zero = U256::from(1u32) - U256::from(b_hi.get_lower_128()) * hi_inv;
         core_row_1.vers_18 = Some(hi_is_zero);
         //lo_inv
-        let lo_is_zero =  U256::from(1u32) - U256::from(b_lo.get_lower_128()) * lo_inv;
+        let lo_is_zero = U256::from(1u32) - U256::from(b_lo.get_lower_128()) * lo_inv;
         core_row_1.vers_19 = Some(lo_is_zero);
 
         //is_zero
@@ -157,8 +180,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         //dest pc
         let dest = is_zero * U256::from((trace.pc + 1u64)) + (U256::from(1u32) - is_zero) * a;
-        let next_pc = trace.pc + dest.as_u64();
-        core_row_1.insert_bytecode_full_lookup(next_pc , OpcodeId::JUMPDEST, Some(0.into()));
+        let expect_next_pc = trace.pc + dest.as_u64();
+        core_row_1.insert_bytecode_full_lookup(expect_next_pc, OpcodeId::JUMPDEST, Some(0.into()));
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,
