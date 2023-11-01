@@ -1,10 +1,10 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState, AuxiliaryDelta};
-use crate::table::{LookupEntry, extract_lookup_expression};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
-use eth_types::evm_types::OpcodeId;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -26,10 +26,10 @@ pub struct PopGadget<F: Field> {
 /// +---+-------+-------+-------+
 /// |cnt| 8 col | 8 col | 8 col |  
 /// +---+-------+-------+-------+
-/// | 1 | STATE |       |       | 
+/// | 1 | STATE |       |       |
 /// | 0 | DYNA_SELECTOR | AUX   |
 /// +---+-------+-------+-------+
-/// 
+///
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PopGadget<F>
 {
@@ -50,12 +50,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
 
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        
+
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -73,11 +72,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             false,
         ));
 
-    
         constraints.extend([
-            ("opcode is pop".into(), opcode - OpcodeId::POP.as_u8().expr()),
+            (
+                "opcode is pop".into(),
+                opcode - OpcodeId::POP.as_u8().expr(),
+            ),
             ("next pc".into(), pc_next - pc_cur.clone() - 1.expr()),
-
         ]);
         constraints
     }
@@ -88,9 +88,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        vec![
-            ("pop_lookup_stack".into(), stack_lookup),
-        ]
+        vec![("pop_lookup_stack".into(), stack_lookup)]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -140,7 +138,6 @@ mod test {
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-
 
         let trace = prepare_trace_step!(0, OpcodeId::POP, stack);
         let padding_begin_row = |current_state| {
