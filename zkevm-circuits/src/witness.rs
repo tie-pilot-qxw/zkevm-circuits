@@ -509,14 +509,14 @@ impl core::Row {
 
     pub fn fill_versatile_with_values(&mut self, values: &[U256]) {
         #[rustfmt::skip]
-            let rows = [
+        let cells = [
             &mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7,
             &mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15,
             &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23,
             &mut self.vers_24, &mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29, &mut self.vers_30, &mut self.vers_31
         ];
-        for (row, v) in rows.into_iter().zip(values) {
-            *row = Some(v.clone());
+        for (cell, v) in cells.into_iter().zip(values) {
+            assign_or_panic!(*cell, *v);
         }
     }
 
@@ -575,7 +575,7 @@ impl core::Row {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
 
-        for (own, value) in [
+        for (cell, value) in [
             &mut self.vers_24,
             &mut self.vers_25,
             &mut self.vers_26,
@@ -597,8 +597,8 @@ impl core::Row {
             Some((opcode.is_push() as u8).into()),
         ]) {
             // before inserting, these columns must be none
-            assert!(own.is_none());
-            *own = value;
+            assert!(cell.is_none());
+            *cell = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -618,7 +618,7 @@ impl core::Row {
         assert_eq!(self.cnt, 2.into());
         assert_eq!(arithmetic.cnt, Some(0.into()));
 
-        for (own, value) in [
+        for (cell, value) in [
             (&mut self.vers_0, arithmetic.operand0_hi),
             (&mut self.vers_1, arithmetic.operand0_lo),
             (&mut self.vers_2, arithmetic.operand1_hi),
@@ -633,8 +633,8 @@ impl core::Row {
             ),
         ] {
             // before inserting, these columns must be none
-            assert!(own.is_none());
-            *own = value;
+            assert!(cell.is_none());
+            *cell = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -646,7 +646,7 @@ impl core::Row {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 2.into());
 
-        for (own, value) in [
+        for (cell, value) in [
             (&mut self.vers_0, Some((copy.src_type as u8).into())),
             (&mut self.vers_1, Some(copy.src_id)),
             (&mut self.vers_2, Some(copy.src_pointer)),
@@ -658,8 +658,8 @@ impl core::Row {
             (&mut self.vers_8, Some(copy.len)),
         ] {
             // before inserting, these columns must be none
-            assert!(own.is_none());
-            *own = value;
+            assert!(cell.is_none());
+            *cell = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -672,7 +672,6 @@ impl core::Row {
             (format!("vers_{}", 6), format!("dst_pointer")),
             (format!("vers_{}", 7), format!("dst_stamp")),
             (format!("vers_{}", 8), format!("len")),
-            (format!("vers_{}", 9), format!("push_value_lo")),
         ]);
     }
 }
