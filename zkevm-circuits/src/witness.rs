@@ -17,7 +17,7 @@ use crate::state_circuit::StateCircuit;
 use crate::util::{create_contract_addr_with_prefix, SubCircuit};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
-use eth_types::{GethExecStep, U256};
+use eth_types::{Bytecode, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -49,7 +49,7 @@ pub struct WitnessExecHelper {
     pub refund: u64,
     pub memory_chunk: u64,
     pub read_only: u64,
-    pub bytecode: Vec<u8>,
+    pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
 }
@@ -70,7 +70,7 @@ impl WitnessExecHelper {
             refund: 0,
             memory_chunk: 0,
             read_only: 0,
-            bytecode: vec![],
+            bytecode: HashMap::new(),
             stack_top: None,
         }
     }
@@ -107,19 +107,11 @@ impl WitnessExecHelper {
             || create_contract_addr_with_prefix(&tx),
             |to| to.as_bytes().into(),
         );
-        // get bytecode: if contract-create tx, input; else find the account.code
-        let bytecode = geth_data
-            .accounts
-            .iter()
-            .filter_map(|account| {
-                if account.address == to {
-                    Some(account.code.to_vec())
-                } else {
-                    None
-                }
-            })
-            .next()
-            .unwrap_or_default();
+        // get bytecode: find all account.code and its address and create a map for them
+        let mut bytecode = HashMap::new();
+        for account in geth_data.accounts.iter() {
+            bytecode.insert(account.address, Bytecode::from(account.code.to_vec()));
+        }
         // add calldata to current_state
         if tx.to.is_some() {
             self.call_data.insert(call_id, tx.input.to_vec());
@@ -360,6 +352,7 @@ impl WitnessExecHelper {
 
     pub fn get_code_copy_rows(
         &mut self,
+        address: U256,
         dst: usize,
         src: usize,
         len: usize,
@@ -367,12 +360,13 @@ impl WitnessExecHelper {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         for i in 0..len {
-            let code = &self.bytecode;
-            let byte = code.get(src + i).map(|x| x.clone()).unwrap();
+            // todo situations to deal: 1. if according to address ,get no code ;2. or code is not long enough
+            let code = self.bytecode.get(&address).unwrap();
+            let byte = code.get(src + i).unwrap().value;
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Bytecode,
-                src_id: self.code_addr,
+                src_id: address, // fn argument,
                 src_pointer: (src + i).into(),
                 src_stamp: None,
                 dst_type: copy::Type::Memory,
