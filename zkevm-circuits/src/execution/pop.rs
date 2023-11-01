@@ -23,12 +23,12 @@ pub struct PopGadget<F: Field> {
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-------+-------+
-/// |cnt| 8 col | 8 col | 8 col |  
-/// +---+-------+-------+-------+
-/// | 1 | STATE |       |       |
-/// | 0 | DYNA_SELECTOR | AUX   |
-/// +---+-------+-------+-------+
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col |  8 col   |
+/// +---+-------+-------+-------+----------+
+/// | 1 | STATE |       |       |          |
+/// | 0 | DYNA_SELECTOR | AUX              |
+/// +---+-------+-------+-------+----------+
 ///
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PopGadget<F>
