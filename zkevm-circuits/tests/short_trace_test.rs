@@ -45,10 +45,10 @@ fn test_buy_friendtech_contract_trace() {
     let bytecodes = hex::decode(bytecodes).unwrap();
     let witness = Witness::new(&geth_data_test(trace, &bytecodes, &[], false));
     witness.print_csv();
-    let mut csv_file: File = File::create("test_data/friend_tech.csv").unwrap();
-    witness.write_all_as_csv(csv_file);
-    let mut html_file = File::create("test_data/friend_tech.html").unwrap();
-    witness.write_html(html_file);
+    // let mut csv_file: File = File::create("test_data/friend_tech.csv").unwrap();
+    // witness.write_all_as_csv(csv_file);
+    // let mut html_file = File::create("test_data/friend_tech.html").unwrap();
+    // witness.write_html(html_file);
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();

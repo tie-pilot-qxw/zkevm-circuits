@@ -1,3 +1,4 @@
+use super::push;
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
@@ -5,17 +6,18 @@ use crate::witness::{state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
+use gadgets::util::expr_from_bytes;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::push;
-
 const NUM_ROW: usize = 3;
-const LOAD_SIZE: usize = 32;
-const STATE_STAMP_DELTA: usize = 2;
+pub const LOAD_SIZE: usize = 32;
+const STATE_STAMP_DELTA: usize = 34;
 const PC_DELTA: usize = 1;
+const STACK_POINTER_DELTA: usize = 0;
+const HIGH_END_INDEX: usize = 16;
 
 pub struct CalldataloadGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -33,7 +35,7 @@ pub struct CalldataloadGadget<F: Field> {
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | not used |
+/// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+----------+
 /// | 2 | CONTENT  |      |       |          |
 /// | 1 | STATE | STATE | STATE |          |
@@ -60,47 +62,53 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let op_code = meta.query_advice(config.opcode, Rotation::cur());
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: 0.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        // state_entry in cow_1
-        let pop_entry = config.get_state_lookup(meta, 0);
+        for i in 0..2 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                0,
+                NUM_ROW,
+                STACK_POINTER_DELTA.expr(),
+                i == 1,
+            ));
+        }
+
         let push_entry = config.get_state_lookup(meta, 1);
-        let (_, stamp, _, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, pop_entry.clone());
-        let new_stamp = stamp + 1.expr(); // because calldataload will push one data to stack
-        let data_entry = config.get_calldata_load_lookup(meta, value_lo, new_stamp);
-        constraints.append(&mut config.get_stack_constraints(
-            meta,
-            pop_entry.clone(),
-            0,
-            NUM_ROW,
-            1.expr(),
-            false,
-        ));
-        constraints.append(&mut config.get_stack_constraints(
-            meta,
-            push_entry.clone(),
-            1,
-            NUM_ROW,
-            1.expr(),
-            true,
-        ));
-        constraints.append(&mut config.get_calldata_load_constains(meta, data_entry, push_entry));
+        let (_, stamp, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, push_entry.clone());
+        let calldata_high_value: Vec<Expression<F>> = config.vers[..HIGH_END_INDEX]
+            .iter()
+            .map(|s| meta.query_advice(*s, Rotation(-2)))
+            .collect();
+        let calldata_low_value: Vec<Expression<F>> = config.vers[HIGH_END_INDEX..]
+            .iter()
+            .map(|s| meta.query_advice(*s, Rotation(-2)))
+            .collect();
         constraints.extend([
             (
                 "opcode".into(),
-                op_code - OpcodeId::CALLDATALOAD.as_u8().expr(),
+                opcode - OpcodeId::CALLDATALOAD.as_u8().expr(),
             ),
             ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
+            (
+                "call data high".into(),
+                value_hi - expr_from_bytes(calldata_high_value.as_slice()),
+            ),
+            (
+                "call data low".into(),
+                value_lo - expr_from_bytes(calldata_low_value.as_slice()),
+            ),
         ]);
-
         constraints
     }
 
@@ -134,13 +142,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut data: Vec<u8> = vec![];
         data.extend(&call_data[index.as_usize()..len]);
-        if data.len() < LOAD_SIZE {
-            let padding = vec![0 as u8; LOAD_SIZE - data.len()];
-            data.extend(&mut padding[0..].iter());
-        }
+        data.resize(LOAD_SIZE, 0);
+
         // then push the retrived value to stack
         let stack_push_0 = current_state.get_push_stack_row(trace, U256::from(&data[0..]));
-        let state_rows: Vec<state::Row> =
+        let mut state_rows: Vec<state::Row> =
             current_state.get_calldata_load_rows(index.as_usize(), LOAD_SIZE);
         // generate Witness with call_data
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
@@ -156,7 +162,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let mut v: Vec<state::Row> = vec![stack_pop_0, stack_push_0];
-        v.append(&mut state_rows.clone());
+        v.append(&mut state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: v,
