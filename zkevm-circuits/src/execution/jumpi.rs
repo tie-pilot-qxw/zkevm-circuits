@@ -60,10 +60,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        let mut arithmetic_operands = vec![];
+        let mut operands = vec![];
 
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
+
             constraints.append(&mut config.get_stack_constraints(
                 meta,
                 entry.clone(),
@@ -72,8 +73,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 if i == 0 { 0 } else { -1 }.expr(),
                 false,
             ));
+
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            arithmetic_operands.extend([value_hi.clone(), value_lo.clone()]);
+
+            operands.extend([value_hi.clone(), value_lo.clone()]);
             if i == 0 {
                 //value_a_hi = 0
                 constraints.extend([("operand0hi =0 ".into(), value_hi.clone())])
@@ -96,21 +99,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "inv of operand1hi".into(),
-                arithmetic_operands[2].clone()
-                    * (1.expr() - arithmetic_operands[2].clone() * hi_inv.clone()),
+                operands[2].clone() * (1.expr() - operands[2].clone() * hi_inv.clone()),
             ),
             (
                 "inv of operand1lo".into(),
-                arithmetic_operands[3].clone()
-                    * (1.expr() - arithmetic_operands[3].clone() * lo_inv.clone()),
+                operands[3].clone() * (1.expr() - operands[3].clone() * lo_inv.clone()),
             ),
             (
                 "is_zero of operand1hi".into(),
-                1.expr() - arithmetic_operands[2].clone() * hi_inv - hi_eq.clone(),
+                1.expr() - operands[2].clone() * hi_inv - hi_eq.clone(),
             ),
             (
                 "is_zero of operand1lo".into(),
-                1.expr() - arithmetic_operands[3].clone() * lo_inv - lo_eq.clone(),
+                1.expr() - operands[3].clone() * lo_inv - lo_eq.clone(),
             ),
             (
                 "is_zero of operand1".into(),
@@ -120,7 +121,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "expect next pc".into(),
                 expect_next_pc.clone()
                     - (is_zero.clone() * (pc_cur.clone() + 1.expr())
-                        + (1.expr() - is_zero.clone()) * arithmetic_operands[1].clone()),
+                        + (1.expr() - is_zero.clone()) * operands[1].clone()),
             ),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             (
@@ -129,7 +130,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "bytecode lookup opcode = JUMPDEST".into(),
-                next_op - OpcodeId::JUMPDEST.as_u8().expr(),
+                (1.expr() - is_zero.clone()) * (next_op - OpcodeId::JUMPDEST.as_u8().expr()),
             ),
             ("bytecode lookup is code".into(), not_code),
         ]);
