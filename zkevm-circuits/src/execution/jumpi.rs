@@ -5,10 +5,10 @@ use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::{GethExecStep, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-use sha3::digest::consts::U25;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 2;
@@ -92,6 +92,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let lo_eq = meta.query_advice(config.vers[19], Rotation::prev());
         let is_zero = meta.query_advice(config.vers[20], Rotation::prev());
 
+        let iszero_gadget_hi = SimpleIsZero::new(&operands[2], &hi_inv, String::from("hi"));
+        let iszero_gadget_lo = SimpleIsZero::new(&operands[3], &lo_inv, String::from("lo"));
+
         constraints.extend([
             (
                 "opcode is JumpI".into(),
@@ -99,19 +102,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "inv of operand1hi".into(),
-                operands[2].clone() * (1.expr() - operands[2].clone() * hi_inv.clone()),
+                operands[2].clone() * iszero_gadget_hi.expr(),
             ),
             (
                 "inv of operand1lo".into(),
-                operands[3].clone() * (1.expr() - operands[3].clone() * lo_inv.clone()),
+                operands[3].clone() * iszero_gadget_lo.expr(),
             ),
             (
                 "is_zero of operand1hi".into(),
-                1.expr() - operands[2].clone() * hi_inv - hi_eq.clone(),
+                iszero_gadget_hi.expr() - hi_eq.clone(),
             ),
             (
                 "is_zero of operand1lo".into(),
-                1.expr() - operands[3].clone() * lo_inv - lo_eq.clone(),
+                iszero_gadget_lo.expr() - lo_eq.clone(),
             ),
             (
                 "is_zero of operand1".into(),
@@ -145,9 +148,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let bytecode_lookup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
         vec![
-            ("push_lookup_stack 0".into(), stack_lookup_0),
-            ("push_lookup_stack 1".into(), stack_lookup_1),
-            ("push_lookup_bytecode_full".into(), bytecode_lookup),
+            ("pop_lookup_stack 0".into(), stack_lookup_0),
+            ("pop_lookup_stack 1".into(), stack_lookup_1),
+            ("lookup_bytecode_full".into(), bytecode_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -178,16 +181,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //is_zero
         let is_zero = hi_is_zero * lo_is_zero;
         core_row_1.vers_20 = Some(is_zero);
-        
+
+        let mut code_addr = Some(core_row_1.code_addr);
         //dest pc
         let pc = if is_zero.is_zero() {
-           trace.pc + a.as_u64()
-        }else {
+            trace.pc + a.as_u64()
+        } else {
+            code_addr = Some(U256::from(0));
             0_u64
         };
-        
-        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, Some(0.into()),Some(core_row_1.code_addr));
-        
+
+        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, Some(0.into()), code_addr);
+
         // current_state.bytecode.get(dest.as_usize())
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(

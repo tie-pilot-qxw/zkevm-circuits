@@ -560,6 +560,7 @@ impl core::Row {
         }
     }
 
+    /// We can skip the constraint by setting code_addr to 0
     pub fn insert_bytecode_full_lookup(
         &mut self,
         pc: u64,

@@ -106,7 +106,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push = current_state.get_push_stack_row(trace, current_state.stack_top.unwrap());
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push]);
-        core_row_1.insert_bytecode_full_lookup(trace.pc, trace.op, current_state.stack_top,Some(core_row_1.code_addr));
+        core_row_1.insert_bytecode_full_lookup(
+            trace.pc,
+            trace.op,
+            current_state.stack_top,
+            Some(core_row_1.code_addr),
+        );
         let core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
             trace,
             current_state,
