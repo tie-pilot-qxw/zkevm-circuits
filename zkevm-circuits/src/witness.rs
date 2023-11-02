@@ -17,7 +17,7 @@ use crate::state_circuit::StateCircuit;
 use crate::util::{create_contract_addr_with_prefix, SubCircuit};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
-use eth_types::{GethExecStep, U256};
+use eth_types::{Bytecode, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -49,7 +49,7 @@ pub struct WitnessExecHelper {
     pub refund: u64,
     pub memory_chunk: u64,
     pub read_only: u64,
-    pub bytecode: Vec<u8>,
+    pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
 }
@@ -70,7 +70,7 @@ impl WitnessExecHelper {
             refund: 0,
             memory_chunk: 0,
             read_only: 0,
-            bytecode: vec![],
+            bytecode: HashMap::new(),
             stack_top: None,
         }
     }
@@ -107,19 +107,11 @@ impl WitnessExecHelper {
             || create_contract_addr_with_prefix(&tx),
             |to| to.as_bytes().into(),
         );
-        // get bytecode: if contract-create tx, input; else find the account.code
-        let bytecode = geth_data
-            .accounts
-            .iter()
-            .filter_map(|account| {
-                if account.address == to {
-                    Some(account.code.to_vec())
-                } else {
-                    None
-                }
-            })
-            .next()
-            .unwrap_or_default();
+        // get bytecode: find all account.code and its address and create a map for them
+        let mut bytecode = HashMap::new();
+        for account in geth_data.accounts.iter() {
+            bytecode.insert(account.address, Bytecode::from(account.code.to_vec()));
+        }
         // add calldata to current_state
         if tx.to.is_some() {
             self.call_data.insert(call_id, tx.input.to_vec());
@@ -360,6 +352,7 @@ impl WitnessExecHelper {
 
     pub fn get_code_copy_rows(
         &mut self,
+        address: U256,
         dst: usize,
         src: usize,
         len: usize,
@@ -367,12 +360,13 @@ impl WitnessExecHelper {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         for i in 0..len {
-            let code = &self.bytecode;
-            let byte = code.get(src + i).map(|x| x.clone()).unwrap();
+            // todo situations to deal: 1. if according to address ,get no code ;2. or code is not long enough
+            let code = self.bytecode.get(&address).unwrap();
+            let byte = code.get(src + i).unwrap().value;
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Bytecode,
-                src_id: self.code_addr,
+                src_id: address, // fn argument,
                 src_pointer: (src + i).into(),
                 src_stamp: None,
                 dst_type: copy::Type::Memory,
@@ -509,14 +503,14 @@ impl core::Row {
 
     pub fn fill_versatile_with_values(&mut self, values: &[U256]) {
         #[rustfmt::skip]
-            let rows = [
+        let cells = [
             &mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7,
             &mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15,
             &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23,
             &mut self.vers_24, &mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29, &mut self.vers_30, &mut self.vers_31
         ];
-        for (row, v) in rows.into_iter().zip(values) {
-            *row = Some(v.clone());
+        for (cell, v) in cells.into_iter().zip(values) {
+            assign_or_panic!(*cell, *v);
         }
     }
 
@@ -576,7 +570,7 @@ impl core::Row {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
 
-        for (own, value) in [
+        for (cell, value) in [
             &mut self.vers_24,
             &mut self.vers_25,
             &mut self.vers_26,
@@ -598,8 +592,8 @@ impl core::Row {
             Some((opcode.is_push() as u8).into()),
         ]) {
             // before inserting, these columns must be none
-            assert!(own.is_none());
-            *own = value;
+            assert!(cell.is_none());
+            *cell = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -619,7 +613,7 @@ impl core::Row {
         assert_eq!(self.cnt, 2.into());
         assert_eq!(arithmetic.cnt, Some(0.into()));
 
-        for (own, value) in [
+        for (cell, value) in [
             (&mut self.vers_0, arithmetic.operand0_hi),
             (&mut self.vers_1, arithmetic.operand0_lo),
             (&mut self.vers_2, arithmetic.operand1_hi),
@@ -634,8 +628,8 @@ impl core::Row {
             ),
         ] {
             // before inserting, these columns must be none
-            assert!(own.is_none());
-            *own = value;
+            assert!(cell.is_none());
+            *cell = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -647,7 +641,7 @@ impl core::Row {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 2.into());
 
-        for (own, value) in [
+        for (cell, value) in [
             (&mut self.vers_0, Some((copy.src_type as u8).into())),
             (&mut self.vers_1, Some(copy.src_id)),
             (&mut self.vers_2, Some(copy.src_pointer)),
@@ -659,8 +653,8 @@ impl core::Row {
             (&mut self.vers_8, Some(copy.len)),
         ] {
             // before inserting, these columns must be none
-            assert!(own.is_none());
-            *own = value;
+            assert!(cell.is_none());
+            *cell = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -673,7 +667,6 @@ impl core::Row {
             (format!("vers_{}", 6), format!("dst_pointer")),
             (format!("vers_{}", 7), format!("dst_stamp")),
             (format!("vers_{}", 8), format!("len")),
-            (format!("vers_{}", 9), format!("push_value_lo")),
         ]);
     }
 }

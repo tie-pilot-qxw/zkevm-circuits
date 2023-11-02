@@ -1,38 +1,43 @@
+// Code generated - COULD HAVE BUGS!
+// This file is a generated execution gadget definition.
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::table::LookupEntry;
 use crate::util::query_expression;
 use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
-/// +---+-------+-------+-------+--------------------------+
-/// |cnt| 8 col | 8 col | 8 col |             8col         |
-/// +---+-------+-------+-------+--------------------------+
-/// | 1 | STATE |       |       |  Bytecode LookUp         |
-/// | 0 | DYNA_SELECTOR   | AUX                            |
-/// +---+-------+-------+-------+--------------------------+
-
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
-const STACK_POINTER_DELTA: i32 = -1;
+const STACK_POINTER_DELTA: i32 = 1;
+const PC_DELTA: u64 = 1;
 
-pub struct JumpGadget<F: Field> {
+/// Selfbalance Execution State layout is as follows
+/// where STATE means state table lookup,
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | not used |
+/// +---+-------+-------+-------+----------+
+/// | 1 | STATE |       |       |          |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
+
+pub struct SelfbalanceGadget<F: Field> {
     _marker: PhantomData<F>,
 }
-
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for JumpGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for SelfbalanceGadget<F>
 {
     fn name(&self) -> &'static str {
-        "JUMP"
+        "SELFBALANCE"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::JUMP
+        ExecutionState::SELFBALANCE
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -46,115 +51,91 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
-
-        let delta = AuxiliaryDelta {
+        let delta: AuxiliaryDelta<F> = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
+        // auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
-        let state_entry = config.get_state_lookup(meta, 0);
+        // stack constraints
+        let entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
             meta,
-            state_entry.clone(),
+            entry.clone(),
             0,
             NUM_ROW,
-            0.expr(),
-            false,
+            1.expr(),
+            true,
         ));
-
-        let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
-
-        let (lookup_addr, expect_next_pc, _, not_code, _, _, _, _) =
-            extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
-
+        // todo stack push data constraints
+        // opcode & next pc   constraints
         constraints.extend([
             (
-                "opcode is JUMP".into(),
-                opcode - OpcodeId::JUMP.as_u8().expr(),
+                "opcode".into(),
+                opcode - OpcodeId::SELFBALANCE.as_u8().expr(),
             ),
-            (
-                "next pc = stack top".into(),
-                pc_next.clone() - value_lo.clone(),
-            ),
-            (
-                "bytecode lookup pc = stack top".into(),
-                value_lo - expect_next_pc.clone(),
-            ),
-            (
-                "bytecode lookup addr = code addr".into(),
-                code_addr - lookup_addr,
-            ),
-            ("bytecode lookup not_code = 0".into(), not_code),
+            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
         ]);
         constraints
     }
-
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let bytecode_loopup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
-        vec![
-            ("jump_lookup_stack".into(), stack_lookup),
-            ("jump_lookup_bytecode".into(), bytecode_loopup),
-        ]
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        vec![("stack push".into(), stack_lookup_0)]
     }
-
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, next_pc) = current_state.get_pop_stack_row_value(&trace);
+        assert_eq!(trace.op, OpcodeId::SELFBALANCE);
+        // todo mock_pushed_value must be found from somewhere;
+        let mock_pushed_value: U256 = current_state.stack_top.unwrap_or_default();
+        let stack_push_0 = current_state.get_push_stack_row(trace, mock_pushed_value);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&stack_pop_0]);
 
-        core_row_1.insert_bytecode_full_lookup(
-            next_pc.as_u64(),
-            OpcodeId::JUMPDEST,
-            Some(0.into()),
-        );
+        core_row_1.insert_state_lookups([&stack_push_0]);
 
-        let core_row_0 = ExecutionState::JUMP.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::SELFBALANCE.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-
         Witness {
             core: vec![core_row_1, core_row_0],
-            state: vec![stack_pop_0],
+            state: vec![stack_push_0],
             ..Default::default()
         }
     }
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(JumpGadget {
+    Box::new(SelfbalanceGadget {
         _marker: PhantomData,
     })
 }
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let jump_to_pc = 0xabu8;
-        let stack = Stack::from_slice(&[jump_to_pc.into()]);
+        let stack = Stack::from_slice(&[]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
-            stack_pointer: stack.0.len(),
-            stack_top: None,
+            stack_pointer,
+            stack_top: Some(0xff.into()),
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::JUMP, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::SELFBALANCE, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -172,7 +153,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = jump_to_pc.into();
+            row.pc = 1.into();
             row
         };
         let (witness, prover) =

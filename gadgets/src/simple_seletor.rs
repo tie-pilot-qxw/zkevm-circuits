@@ -14,7 +14,7 @@ pub struct SimpleSelector<F, const N: usize> {
 
 impl<F: Field, const N: usize> SimpleSelector<F, N> {
     /// Todo Docs
-    pub fn new_selector(targets: &[Expression<F>; N]) -> Self {
+    pub fn new(targets: &[Expression<F>; N]) -> Self {
         Self {
             targets: targets.clone(),
             _marker: Default::default(),
@@ -22,7 +22,7 @@ impl<F: Field, const N: usize> SimpleSelector<F, N> {
     }
 
     /// Todo Docs
-    pub fn gen_constraints(&self) -> Vec<(String, Expression<F>)> {
+    pub fn get_constraints(&self) -> Vec<(String, Expression<F>)> {
         let mut res: Vec<(String, Expression<F>)> = self
             .targets
             .iter()
