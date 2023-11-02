@@ -145,8 +145,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let bytecode_lookup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
         vec![
-            ("push_lookup_stack".into(), stack_lookup_0),
-            ("push_lookup_stack".into(), stack_lookup_1),
+            ("push_lookup_stack 0".into(), stack_lookup_0),
+            ("push_lookup_stack 1".into(), stack_lookup_1),
             ("push_lookup_bytecode_full".into(), bytecode_lookup),
         ]
     }
@@ -178,11 +178,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //is_zero
         let is_zero = hi_is_zero * lo_is_zero;
         core_row_1.vers_20 = Some(is_zero);
-
+        
         //dest pc
-        let dest = is_zero * U256::from((trace.pc + 1u64)) + (U256::from(1u32) - is_zero) * a;
-        let expect_next_pc = trace.pc + dest.as_u64();
-        core_row_1.insert_bytecode_full_lookup(expect_next_pc, OpcodeId::JUMPDEST, Some(0.into()));
+        let pc = if is_zero.is_zero() {
+           trace.pc + a.as_u64()
+        }else {
+            0_u64
+        };
+        
+        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, Some(0.into()),Some(core_row_1.code_addr));
+        
+        // current_state.bytecode.get(dest.as_usize())
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,
