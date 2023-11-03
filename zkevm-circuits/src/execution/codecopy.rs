@@ -59,7 +59,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(copy, config.get_copy_lookup(meta));
 
         // code_copy will increase the stamp automatically
-        // STATE_STAMP_DELTA = STATE_STAMP_DELTA + len(copied code)
+        // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -160,6 +160,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             offset.as_usize(),
             length.as_usize(),
         );
+        // insert lookUp: Core ---> Copy
         core_row_2.insert_copy_lookup(&copy_rows[0]);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
@@ -170,7 +171,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &stack_pop_length,
         ]);
 
-        // insert lookUp: Core ---> Copy
         let core_row_0 = ExecutionState::CODECOPY.into_exec_state_core_row(
             trace,
             current_state,
