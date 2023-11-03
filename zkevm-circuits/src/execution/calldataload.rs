@@ -76,7 +76,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.append(&mut config.get_stack_constraints(
                 meta,
                 entry.clone(),
-                0,
+                i,
                 NUM_ROW,
                 STACK_POINTER_DELTA.expr(),
                 i == 1,
@@ -96,16 +96,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .collect();
         constraints.extend([
             (
-                "opcode".into(),
+                "CALLDATALOAD opcode".into(),
                 opcode - OpcodeId::CALLDATALOAD.as_u8().expr(),
             ),
-            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
             (
-                "call data high".into(),
+                "CALLDATALOAD next pc".into(),
+                pc_next - pc_cur - PC_DELTA.expr(),
+            ),
+            (
+                "CALLDATALOAD call data high value".into(),
                 value_hi - expr_from_bytes(calldata_high_value.as_slice()),
             ),
             (
-                "call data low".into(),
+                "CALLDATALOAD call data low value".into(),
                 value_lo - expr_from_bytes(calldata_low_value.as_slice()),
             ),
         ]);
