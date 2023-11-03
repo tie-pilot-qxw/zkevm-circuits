@@ -79,7 +79,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.extend([value_hi.clone(), value_lo.clone()]);
             if i == 0 {
                 //value_a_hi = 0
-                constraints.extend([("operand0hi =0 ".into(), value_hi.clone())])
+                constraints.extend([("operand0hi=0".into(), value_hi.clone())])
             }
         }
 
@@ -101,14 +101,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode - OpcodeId::JUMPI.as_u8().expr(),
             ),
             (
-                "inv of operand1hi".into(),
-                operands[2].clone() * iszero_gadget_hi.expr(),
-            ),
-            (
-                "inv of operand1lo".into(),
-                operands[3].clone() * iszero_gadget_lo.expr(),
-            ),
-            (
                 "is_zero of operand1hi".into(),
                 iszero_gadget_hi.expr() - hi_eq.clone(),
             ),
@@ -123,7 +115,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "expect next pc".into(),
                 expect_next_pc.clone()
-                    - (is_zero.clone() * (pc_cur.clone() + 1.expr())
+                    - pc_cur.clone()
+                    - (is_zero.clone() * 1.expr()
                         + (1.expr() - is_zero.clone()) * operands[1].clone()),
             ),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
@@ -137,6 +130,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("bytecode lookup is code".into(), not_code),
         ]);
+        //inv of operand1hi
+        constraints.extend(iszero_gadget_hi.get_constraints());
+
+        //inv of operand1lo
+        constraints.extend(iszero_gadget_lo.get_constraints());
+
         constraints
     }
     fn get_lookups(
