@@ -2,7 +2,6 @@
 // This file is a generated execution gadget definition.
 
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry::Copy;
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{copy, Witness, WitnessExecHelper};
@@ -54,8 +53,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let address = meta.query_advice(config.code_addr, Rotation::cur());
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
-        let (src_type, code_address, offset, _, dest_type, _, dest_offset, _, len) =
+        let (src_type, code_address, offset, _, dst_type, dst_id, dst_offset, det_stamp, len) =
             extract_lookup_expression!(copy, config.get_copy_lookup(meta));
 
         // code_copy will increase the stamp automatically
@@ -68,7 +68,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        // index0: dest_offset, index1: offset, index2: len
+        // index0: dst_offset, index1: offset, index2: len
+        let mut top2_stamp = 0.expr();
         let mut stack_pop_values = vec![];
         for i in 0..3 {
             let state_entry = config.get_state_lookup(meta, i);
@@ -80,8 +81,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (-1 * i as i32).expr(),
                 false,
             ));
-            let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
+            let (_, stamp, _, value_lo, _, _, _, _) =
+                extract_lookup_expression!(state, state_entry);
             stack_pop_values.push(value_lo);
+            if i == 2 {
+                top2_stamp = stamp;
+            }
         }
 
         constraints.extend([
@@ -94,8 +99,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 pc_next - pc_cur - PC_DELTA.expr(),
             ),
             (
-                "[code copy] lookup dest_offset = stack top 0".into(),
-                stack_pop_values[0].expr() - dest_offset,
+                "[code copy] lookup dst_offset = stack top 0".into(),
+                stack_pop_values[0].expr() - dst_offset,
             ),
             (
                 "[code copy] lookup offset = stack top 1".into(),
@@ -106,16 +111,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_pop_values[2].expr() - len,
             ),
             (
-                "[code copy] lookcode address = code address".into(),
+                "[code copy] lookup code address = code address".into(),
                 code_address - address,
+            ),
+            (
+                "[code copy] lookup dst_id = call id".into(),
+                dst_id - call_id,
+            ),
+            (
+                "[code copy] lookup dst_stamp = top2_stamp + 1".into(),
+                det_stamp - top2_stamp - 1.expr(),
             ),
             (
                 "[code copy] src_type is ByteCode".into(),
                 src_type - (copy::Type::Bytecode as u8).expr(),
             ),
             (
-                "[code copy] dest_type is Memory".into(),
-                dest_type - (copy::Type::Memory as u8).expr(),
+                "[code copy] dst_type is Memory".into(),
+                dst_type - (copy::Type::Memory as u8).expr(),
             ),
         ]);
 
@@ -131,7 +144,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         vec![
-            ("state lookup, stack pop dest_offset".into(), stack_lookup_0),
+            ("state lookup, stack pop dst_offset".into(), stack_lookup_0),
             (
                 "state lookup, stack pop lookup offset".into(),
                 stack_lookup_1,
@@ -146,8 +159,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::CODECOPY);
 
-        // get destOffset、offset、length from stack top
-        let (stack_pop_dest_offset, dest_offset) = current_state.get_pop_stack_row_value(&trace);
+        // get dstOffset、offset、length from stack top
+        let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
 
@@ -156,7 +169,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // generate copy rows and state rows(type: memory)
         let (copy_rows, memory_state_rows) = current_state.get_code_copy_rows(
             current_state.code_addr,
-            dest_offset.as_usize(),
+            dst_offset.as_usize(),
             offset.as_usize(),
             length.as_usize(),
         );
@@ -166,7 +179,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([
-            &stack_pop_dest_offset,
+            &stack_pop_dst_offset,
             &stack_pop_offset,
             &stack_pop_length,
         ]);
@@ -178,7 +191,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
-        let mut state_rows = vec![stack_pop_dest_offset, stack_pop_offset, stack_pop_length];
+        let mut state_rows = vec![stack_pop_dst_offset, stack_pop_offset, stack_pop_length];
         state_rows.extend(memory_state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
