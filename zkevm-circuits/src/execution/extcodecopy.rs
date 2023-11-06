@@ -95,10 +95,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (i).expr() * (-1).expr(),
                 false,
             ));
-            let (_, tmpStamp, value_hi, value_lo, _, _, _, _) =
+            let (_, tmp_stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, entry);
             if i == 3 {
-                first_state_stamps.push(tmpStamp);
+                first_state_stamps.push(tmp_stamp);
             }
             let tmp_expression = value_hi * pow_of_two::<F>(128) + value_lo;
             copy_operands.push(tmp_expression);
