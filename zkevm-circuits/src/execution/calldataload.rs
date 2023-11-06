@@ -1,4 +1,3 @@
-use super::push;
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
@@ -11,6 +10,7 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+use std::vec;
 
 const NUM_ROW: usize = 3;
 pub const LOAD_SIZE: usize = 32;
@@ -29,15 +29,15 @@ pub struct CalldataloadGadget<F: Field> {
 /// All bytes after the end of the calldata are set to 0.
 ///
 /// Calldataload Execution State layout is as follows
-/// CONTENT means the word is retrived from msg.data,
 /// where STATE means state table lookup,
+/// CONTENT means the bytes retrived from msg.data (calldata),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+----------+
-/// | 2 | CONTENT  |      |       |          |
+/// | 2 | CONTENT                          |
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -122,13 +122,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_pop = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        // todo. need check and argue
-        // let data_entry = query_expression(meta, |meta| config.get_calldata_load_lookup(meta, 0.expr()));
-
-        vec![
+        let (_, stamp, _, _, _, _, pointer, _) =
+            extract_lookup_expression!(state, stack_push.clone());
+        let mut calldata_load: Vec<(String, LookupEntry<F>)> = vec![];
+        for i in 0..LOAD_SIZE {
+            calldata_load.push((
+                format!("content with index{} in calldata", i),
+                query_expression(meta, |meta| {
+                    config.get_calldata_load_lookup(
+                        meta,
+                        i,
+                        pointer.clone(),
+                        stamp.clone(),
+                        &config.vers[i],
+                    )
+                }),
+            ))
+        }
+        calldata_load.extend([
             ("stack pop index".into(), stack_pop),
             ("stack push call_data".into(), stack_push),
-        ]
+        ]);
+        calldata_load
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -181,6 +196,8 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -192,9 +209,11 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            call_data: HashMap::new(),
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
+        current_state.call_data.insert(0, vec![0, 32]);
+        let trace = prepare_trace_step!(0, OpcodeId::CALLDATALOAD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,

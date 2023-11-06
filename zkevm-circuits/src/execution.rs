@@ -30,7 +30,6 @@ pub mod pop;
 pub mod public_context;
 pub mod push;
 pub mod return_revert;
-pub mod selfbalance;
 pub mod sgt;
 pub mod shr;
 pub mod slt;
@@ -99,7 +98,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::exp::new(),
             crate::execution::begin_tx_1::new(),
             crate::execution::begin_tx_2::new(),
-            crate::execution::selfbalance::new(),
         ]
     }};
 }
@@ -238,47 +236,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             tag: meta.query_advice(self.vers[25], Rotation(-1)),
         }
     }
-    // 32 列 ==》 一个值
-    pub(crate) fn get_calldata_expr(&self, meta: &mut VirtualCells<F>) -> Expression<F> {
-        let mut data_result: Expression<F> = 0.expr();
-        let mut multiplier: Expression<F> = 1.expr();
-
-        for v in self.vers.iter() {
-            data_result = data_result + meta.query_advice(*v, Rotation(-2)) * multiplier.clone();
-            multiplier = multiplier * U256::from(256).expr();
-        }
-        data_result
-    }
 
     pub(crate) fn get_calldata_load_lookup(
         &self,
         meta: &mut VirtualCells<F>,
-        index: Expression<F>,
-        stamp: Expression<F>,
-    ) -> Vec<LookupEntry<F>> {
-        let mut entrys = vec![];
-        for i in 0..LOAD_SIZE {
-            entrys.push(LookupEntry::State {
-                tag: (state::Tag::CallData as u8).expr(),
-                value_lo: meta.query_advice(self.vers[i], Rotation(-2)),
-                value_hi: 0.expr(),
-                stamp: stamp.clone() + i.expr(),
-                call_id_contract_addr: meta.query_advice(self.call_id, Rotation(-2)),
-                is_write: 0.expr(),
-                pointer_hi: 0.expr(),
-                pointer_lo: index.clone() + i.expr(),
-            });
+        index: usize, // 0..31
+        base_pointer: Expression<F>,
+        base_stamp: Expression<F>,
+        value: &Column<Advice>,
+    ) -> LookupEntry<F> {
+        assert!(index < 32);
+        LookupEntry::State {
+            tag: (state::Tag::CallData as u8).expr(),
+            stamp: base_stamp + index.expr(),
+            value_lo: meta.query_advice(*value, Rotation(-2)),
+            call_id_contract_addr: meta.query_advice(self.call_id, Rotation(-2)),
+            pointer_lo: base_pointer + index.expr(),
+            value_hi: 0.expr(),
+            pointer_hi: 0.expr(),
+            is_write: 0.expr(),
         }
-        entrys
-    }
-
-    pub(crate) fn get_calldata_load_constains(
-        &self,
-        meta: &mut VirtualCells<F>,
-        entry: Vec<LookupEntry<F>>,
-        state_entry: LookupEntry<F>,
-    ) -> Vec<(String, Expression<F>)> {
-        vec![]
     }
 
     pub(crate) fn get_state_lookup(
@@ -740,7 +717,6 @@ pub enum ExecutionState {
     KECCAK,
     CODECOPY,
     EXTCODECOPY,
-    SELFBALANCE,
 }
 
 impl ExecutionState {
@@ -921,7 +897,7 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::SELFBALANCE => {
-                vec![Self::SELFBALANCE]
+                todo!()
             }
             OpcodeId::SLOAD | OpcodeId::SSTORE => vec![Self::STORAGE],
             OpcodeId::GAS => {
