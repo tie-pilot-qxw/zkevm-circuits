@@ -83,7 +83,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let mut copy_operands = vec![];
-        let mut first_state_stamps = vec![];
+        let mut copy_code_length = 0.expr();
         // stack constraints
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -98,7 +98,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, tmp_stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, entry);
             if i == 3 {
-                first_state_stamps.push(tmp_stamp);
+                copy_code_length = tmp_stamp.clone();
             }
             let tmp_expression = value_hi * pow_of_two::<F>(128) + value_lo;
             copy_operands.push(tmp_expression);
@@ -116,7 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("copy dst_id".into(), copy_lookup_dst_id.clone() - call_id),
             (
                 "copy dst_stamp".into(),
-                copy_lookup_dst_stamp.clone() - first_state_stamps[0].clone() - 1.expr(),
+                copy_lookup_dst_stamp.clone() - copy_code_length.clone() - 1.expr(),
             ),
             (
                 "copy src_id".into(),
