@@ -7,4 +7,9 @@ JUMPDEST
 PUSH1 0x29
 JUMP
 JUMPDEST
+PUSH1 0x1E
+PUSH1 0x03
+PUSH1 0x00
+PUSH32 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EXTCODECOPY
 STOP
