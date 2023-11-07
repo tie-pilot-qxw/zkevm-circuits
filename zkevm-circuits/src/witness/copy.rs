@@ -46,34 +46,3 @@ pub enum Type {
     /// Bytecode in bytecode sub-circuit
     Bytecode,
 }
-
-#[cfg(test)]
-mod test {
-    use crate::witness::copy::{Row, Type};
-
-    #[test]
-    fn print_csv() {
-        let row0 = Row {
-            byte: 42.into(),
-            src_type: Type::PublicCalldata,
-            dst_type: Type::Calldata,
-            len: 3.into(),
-            ..Default::default()
-        };
-        let row1 = Row {
-            byte: 50.into(),
-            cnt: 1.into(),
-            ..row0
-        };
-        let row2 = Row {
-            byte: 66.into(),
-            cnt: 2.into(),
-            ..row0
-        };
-        let mut wtr = csv::Writer::from_writer(std::io::stdout());
-        wtr.serialize(&row0).unwrap();
-        wtr.serialize(&row1).unwrap();
-        wtr.serialize(&row2).unwrap();
-        wtr.flush().unwrap();
-    }
-}

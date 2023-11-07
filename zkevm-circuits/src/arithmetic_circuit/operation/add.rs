@@ -73,14 +73,13 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
             "carry lo is bool",
             carry_lo.clone() * (1.expr() - carry_lo.clone()),
         ));
-        let two_to_128: F = pow_of_two(128);
         constraints.push((
             "c lo + carry lo * 2^128 = a lo + b lo",
-            c_lo + carry_lo.clone() * two_to_128 - a_lo - b_lo,
+            c_lo + carry_lo.clone() * pow_of_two::<F>(128) - a_lo - b_lo,
         ));
         constraints.push((
             "c hi + carry hi * 2^128 = a hi + b hi + carry lo",
-            c_hi + carry_hi * two_to_128 - a_hi - b_hi - carry_lo,
+            c_hi + carry_hi * pow_of_two::<F>(128) - a_hi - b_hi - carry_lo,
         ));
         constraints
     }

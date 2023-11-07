@@ -880,7 +880,10 @@ impl Witness {
     }
 
     pub fn print_csv(&self) {
-        self.write_all_as_csv(std::io::stdout());
+        let mut buf = Vec::new();
+        self.write_all_as_csv(&mut buf);
+        let csv_string = String::from_utf8(buf).unwrap();
+        println!("{}", csv_string);
     }
 
     fn write_one_table<W: Write, T: Serialize, S: AsRef<str>>(
