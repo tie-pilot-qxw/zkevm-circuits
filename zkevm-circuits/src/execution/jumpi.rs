@@ -1,16 +1,35 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::query_expression;
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{GethExecStep, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 2;
-
+const STATE_STAMP_DELTA: u64 = 2;
+const STACK_POINTER_DELTA: i32 = -2;
 pub struct JumpiGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
+/// Jumpi Execution State layout is as follows
+/// where STATE means state table lookup,
+/// BYTEFULL means byte table lookup (full mode),
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col |  8 col   |
+/// +---+-------+-------+-------+----------+
+/// | 1 | STATE | STATE |STATE   | BYTEFULL |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for JumpiGadget<F>
 {
@@ -31,23 +50,149 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
+        let expect_next_pc = meta.query_advice(config.pc, Rotation::next());
+        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut operands = vec![];
+
+        for i in 0..2 {
+            let entry = config.get_state_lookup(meta, i);
+
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                if i == 0 { 0 } else { -1 }.expr(),
+                false,
+            ));
+
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+
+            operands.extend([value_hi.clone(), value_lo.clone()]);
+            if i == 0 {
+                //value_a_hi = 0
+                constraints.extend([("operand0hi=0".into(), value_hi.clone())])
+            }
+        }
+
+        let (addr, pc, next_op, not_code, _, _, _, _) =
+            extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
+
+        let hi_inv = meta.query_advice(config.vers[16], Rotation::prev());
+        let lo_inv = meta.query_advice(config.vers[17], Rotation::prev());
+        let hi_eq = meta.query_advice(config.vers[18], Rotation::prev());
+        let lo_eq = meta.query_advice(config.vers[19], Rotation::prev());
+        let is_zero = meta.query_advice(config.vers[20], Rotation::prev());
+
+        let iszero_gadget_hi = SimpleIsZero::new(&operands[2], &hi_inv, String::from("hi"));
+        let iszero_gadget_lo = SimpleIsZero::new(&operands[3], &lo_inv, String::from("lo"));
+
+        constraints.extend([
+            (
+                "opcode is JumpI".into(),
+                opcode - OpcodeId::JUMPI.as_u8().expr(),
+            ),
+            (
+                "is_zero of operand1hi".into(),
+                iszero_gadget_hi.expr() - hi_eq.clone(),
+            ),
+            (
+                "is_zero of operand1lo".into(),
+                iszero_gadget_lo.expr() - lo_eq.clone(),
+            ),
+            (
+                "is_zero of operand1".into(),
+                is_zero.clone() - hi_eq * lo_eq,
+            ),
+            (
+                "expect next pc".into(),
+                expect_next_pc.clone()
+                    - (pc_cur.clone() + 1.expr()) * is_zero.clone()
+                    - (1.expr() - is_zero.clone()) * operands[1].clone(),
+            ),
+            ("bytecode lookup addr = code_addr".into(), code_addr - addr),
+            (
+                "bytecode lookup pc = expect_next_pc".into(),
+                pc - expect_next_pc,
+            ),
+            (
+                "bytecode lookup opcode = JUMPDEST".into(),
+                (1.expr() - is_zero.clone()) * (next_op - OpcodeId::JUMPDEST.as_u8().expr()),
+            ),
+            ("bytecode lookup is code".into(), not_code),
+        ]);
+        //inv of operand1hi
+        constraints.extend(iszero_gadget_hi.get_constraints());
+
+        //inv of operand1lo
+        constraints.extend(iszero_gadget_lo.get_constraints());
+
+        constraints
     }
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let bytecode_lookup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
+        vec![
+            ("pop_lookup_stack 0".into(), stack_lookup_0),
+            ("pop_lookup_stack 1".into(), stack_lookup_1),
+            ("lookup_bytecode_full".into(), bytecode_lookup),
+        ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
 
-        let (stack_pop_1, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1]);
+
+        let b_hi = F::from_u128((b >> 128).as_u128());
+        let b_lo = F::from_u128(b.low_u128());
+        let lo_inv = U256::from_little_endian(b_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        let hi_inv = U256::from_little_endian(b_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        //hi_inv
+        core_row_1.vers_16 = Some(hi_inv);
+        //lo_inv
+        core_row_1.vers_17 = Some(lo_inv);
+
+        //hi_inv
+        let hi_is_zero = U256::from(1u32) - U256::from(b_hi.get_lower_128()) * hi_inv;
+        core_row_1.vers_18 = Some(hi_is_zero);
+        //lo_inv
+        let lo_is_zero = U256::from(1u32) - U256::from(b_lo.get_lower_128()) * lo_inv;
+        core_row_1.vers_19 = Some(lo_is_zero);
+
+        //is_zero
+        let is_zero = hi_is_zero * lo_is_zero;
+        core_row_1.vers_20 = Some(is_zero);
+
+        let mut code_addr = core_row_1.code_addr;
+        //dest pc
+        let pc = if is_zero.is_zero() {
+            trace.pc + a.as_u64()
+        } else {
+            code_addr = U256::from(0);
+            0_u64
+        };
+
+        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, code_addr, Some(0.into()));
+
+        // current_state.bytecode.get(dest.as_usize())
+
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,
             current_state,
@@ -75,14 +220,14 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into(), 1.into()]);
+        let stack = Stack::from_slice(&[1.into(), 1.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::JUMPI, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,

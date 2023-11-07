@@ -602,10 +602,12 @@ impl core::Row {
         }
     }
 
+    /// We can skip the constraint by setting code_addr to 0
     pub fn insert_bytecode_full_lookup(
         &mut self,
         pc: u64,
         opcode: OpcodeId,
+        code_addr: U256,
         push_value: Option<U256>,
     ) {
         // this lookup must be in the row with this cnt
@@ -623,7 +625,7 @@ impl core::Row {
         ]
         .into_iter()
         .zip([
-            Some(self.code_addr),
+            Some(code_addr),
             Some(pc.into()),
             Some(opcode.as_u8().into()),
             Some(0.into()), // non_code must be 0
