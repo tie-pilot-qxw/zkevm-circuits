@@ -81,8 +81,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (-1 * i as i32).expr(),
                 false,
             ));
-            let (_, stamp, _, value_lo, _, _, _, _) =
+            let (_, stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, state_entry);
+            stack_pop_values.push(value_hi);
             stack_pop_values.push(value_lo);
             if i == 2 {
                 top2_stamp = stamp;
@@ -91,24 +92,32 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                "[code copy] opcode = CODECOPY".into(),
-                opcode - OpcodeId::CODECOPY.as_u8().expr(),
-            ),
-            (
                 "[code copy] next pc ".into(),
                 pc_next - pc_cur - PC_DELTA.expr(),
             ),
             (
-                "[code copy] lookup dst_offset = stack top 0".into(),
-                stack_pop_values[0].expr() - dst_offset,
+                "[code copy] stack top0 value_hi = 0".into(),
+                stack_pop_values[0].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup offset = stack top 1".into(),
-                stack_pop_values[1].expr() - offset,
+                "[code copy] lookup dst_offset = stack top0 value_lo".into(),
+                stack_pop_values[1].expr() - dst_offset,
             ),
             (
-                "[code copy] lookup len = stack top 2".into(),
-                stack_pop_values[2].expr() - len,
+                "[code copy] stack top1 value_hi = 0".into(),
+                stack_pop_values[2].expr() - 0.expr(),
+            ),
+            (
+                "[code copy] lookup offset = stack top1 value_lo".into(),
+                stack_pop_values[3].expr() - offset,
+            ),
+            (
+                "[code copy] stack top2 value_hi = 0".into(),
+                stack_pop_values[4].expr() - 0.expr(),
+            ),
+            (
+                "[code copy] lookup len = stack top2 value_lo".into(),
+                stack_pop_values[5].expr() - len,
             ),
             (
                 "[code copy] lookup code address = code address".into(),
