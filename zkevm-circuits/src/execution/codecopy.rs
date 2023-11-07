@@ -55,13 +55,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
-        let (src_type, code_address, offset, _, dst_type, dst_id, dst_offset, det_stamp, len) =
-            extract_lookup_expression!(copy, config.get_copy_lookup(meta));
+        let (
+            copy_lookup_src_type,
+            copy_lookup_code_address,
+            copy_lookup_offset,
+            _,
+            copy_lookup_dst_type,
+            copy_lookup_dst_id,
+            copy_lookup_dst_offset,
+            copy_lookup_det_stamp,
+            copy_lookup_len,
+        ) = extract_lookup_expression!(copy, config.get_copy_lookup(meta));
 
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
         let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
+            state_stamp: STATE_STAMP_DELTA.expr() + copy_lookup_len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
@@ -101,7 +110,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup dst_offset = stack top0 value_lo".into(),
-                stack_pop_values[1].expr() - dst_offset,
+                stack_pop_values[1].expr() - copy_lookup_dst_offset,
             ),
             (
                 "[code copy] stack top1 value_hi = 0".into(),
@@ -109,7 +118,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup offset = stack top1 value_lo".into(),
-                stack_pop_values[3].expr() - offset,
+                stack_pop_values[3].expr() - copy_lookup_offset,
             ),
             (
                 "[code copy] stack top2 value_hi = 0".into(),
@@ -117,27 +126,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup len = stack top2 value_lo".into(),
-                stack_pop_values[5].expr() - len,
+                stack_pop_values[5].expr() - copy_lookup_len,
             ),
             (
                 "[code copy] lookup code address = code address".into(),
-                code_address - address,
+                copy_lookup_code_address - address,
             ),
             (
                 "[code copy] lookup dst_id = call id".into(),
-                dst_id - call_id,
+                copy_lookup_dst_id - call_id,
             ),
             (
                 "[code copy] lookup dst_stamp = top2_stamp + 1".into(),
-                det_stamp - top2_stamp - 1.expr(),
+                copy_lookup_det_stamp - top2_stamp - 1.expr(),
             ),
             (
                 "[code copy] src_type is ByteCode".into(),
-                src_type - (copy::Type::Bytecode as u8).expr(),
+                copy_lookup_src_type - (copy::Type::Bytecode as u8).expr(),
             ),
             (
                 "[code copy] dst_type is Memory".into(),
-                dst_type - (copy::Type::Memory as u8).expr(),
+                copy_lookup_dst_type - (copy::Type::Memory as u8).expr(),
             ),
         ]);
 
