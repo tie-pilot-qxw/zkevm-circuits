@@ -241,18 +241,3 @@ pub fn expr_from_u16s<F: Field, E: Expr<F>>(bytes: &[E]) -> Expression<F> {
     }
     value
 }
-
-/// Constant 2^128
-pub const TWO_TO_128: U256 = U256([0, 0, 1, 0]);
-
-/// Convert U256 to Expr does not ensure no overflow. Use with caution.
-impl<F: Field> Expr<F> for U256 {
-    #[inline]
-    fn expr(&self) -> Expression<F> {
-        let (lo, hi) = split_u256(&self);
-        let lo = F::from_u128(lo.as_u128());
-        let hi = F::from_u128(hi.as_u128());
-        let two_to_128 = F::from_u128(u128::MAX) + F::ONE;
-        Expression::Constant(hi * two_to_128 + lo)
-    }
-}
