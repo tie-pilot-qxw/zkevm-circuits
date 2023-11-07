@@ -416,7 +416,7 @@ impl WitnessExecHelper {
                 pointer_lo: Some((src + i).into()),
                 is_write: Some(0.into()),
             });
-            self.state_stamp += 1;
+            // self.state_stamp += 1;
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 
