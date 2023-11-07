@@ -92,7 +92,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 entry.clone(),
                 i,
                 NUM_ROW,
-                (i).expr() * (-1).expr(),
+                (-1 * i as i32).expr(),
                 false,
             ));
             let (_, tmp_stamp, value_hi, value_lo, _, _, _, _) =
