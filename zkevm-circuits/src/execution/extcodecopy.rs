@@ -83,7 +83,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let mut copy_operands = vec![];
-        let mut copy_code_length = 0.expr();
+        let mut copy_code_stamp_start = 0.expr();
         // stack constraints
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -98,41 +98,59 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, tmp_stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, entry);
             if i == 3 {
-                copy_code_length = tmp_stamp.clone();
+                copy_code_stamp_start = tmp_stamp.clone();
             }
-            let tmp_expression = value_hi * pow_of_two::<F>(128) + value_lo;
-            copy_operands.push(tmp_expression);
+            copy_operands.push([value_hi, value_lo]);
         }
         // copy constraints
         constraints.extend([
             (
-                "copy src_type".into(),
+                "extcodecopy src_type".into(),
                 copy_lookup_src_type.clone() - (copy::Type::Bytecode as u8).expr(),
             ),
             (
-                "copy dst_type".into(),
+                "extcodecopy dst_type".into(),
                 copy_lookup_dst_type.clone() - (copy::Type::Memory as u8).expr(),
             ),
-            ("copy dst_id".into(), copy_lookup_dst_id.clone() - call_id),
             (
-                "copy dst_stamp".into(),
-                copy_lookup_dst_stamp.clone() - copy_code_length.clone() - 1.expr(),
+                "extcodecopy dst_id".into(),
+                copy_lookup_dst_id.clone() - call_id,
             ),
             (
-                "copy src_id".into(),
-                copy_lookup_src_id.clone() - copy_operands[0].clone(),
+                "extcodecopy dst_stamp".into(),
+                copy_lookup_dst_stamp.clone() - copy_code_stamp_start.clone() - 1.expr(),
             ),
             (
-                "copy dst_pointer".into(),
-                copy_lookup_dst_pointer.clone() - copy_operands[1].clone(),
+                "extcodecopy src_id value_hi = 0".into(),
+                copy_operands[0][0].clone() - 0.expr(),
             ),
             (
-                "copy src_pointer".into(),
-                copy_lookup_src_pointer.clone() - copy_operands[2].clone(),
+                "extcodecopy src_id".into(),
+                copy_lookup_src_id.clone() - copy_operands[0][1].clone(),
             ),
             (
-                "copy len".into(),
-                copy_lookup_len.clone() - copy_operands[3].clone(),
+                "extcodecopy dst_pointer value_hi = 0".into(),
+                copy_operands[1][0].clone() - 0.expr(),
+            ),
+            (
+                "extcodecopy dst_pointer".into(),
+                copy_lookup_dst_pointer.clone() - copy_operands[1][1].clone(),
+            ),
+            (
+                "extcodecopy src_pointer value_hi = 0".into(),
+                copy_operands[2][0].clone() - 0.expr(),
+            ),
+            (
+                "extcodecopy src_pointer".into(),
+                copy_lookup_src_pointer.clone() - copy_operands[2][1].clone(),
+            ),
+            (
+                "extcodecopy len value_hi = 0".into(),
+                copy_operands[3][0].clone() - 0.expr(),
+            ),
+            (
+                "extcodecopy len".into(),
+                copy_lookup_len.clone() - copy_operands[3][1].clone(),
             ),
         ]);
         // pc & opcode constrains
@@ -159,7 +177,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("stack pop account address".into(), stack_lookup_0),
             ("stack pop mem offset".into(), stack_lookup_1),
             ("stack pop code offset".into(), stack_lookup_2),
-            ("stack pop  length".into(), stack_lookup_3),
+            ("stack pop length".into(), stack_lookup_3),
             ("copy look up".into(), copy_lookup),
         ]
     }
@@ -174,28 +192,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_3, size) = current_state.get_pop_stack_row_value(&trace);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-
-        core_row_2.insert_copy_lookup(&copy::Row {
-            byte: 0.into(), //not used
-            src_type: copy::Type::Bytecode,
-            src_id: address,
-            src_pointer: code_offset,
-            src_stamp: None, // not used
-            dst_type: copy::Type::Memory,
-            dst_id: current_state.call_id.into(),
-            dst_pointer: mem_offset,
-            dst_stamp: current_state.state_stamp.into(),
-            len: size,
-            cnt: 0.into(), // not used
-        });
-
         let (copy_rows, mem_rows) = current_state.get_code_copy_rows(
             address,
             mem_offset.as_usize(),
             code_offset.as_usize(),
             size.as_usize(),
         );
-
+        core_row_2.insert_copy_lookup(&copy_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);
@@ -207,7 +210,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let mut state_vec = vec![stack_pop_0, stack_pop_1, stack_pop_2, stack_pop_3];
-        state_vec.extend_from_slice(&mem_rows);
+        state_vec.extend(mem_rows);
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -230,13 +233,21 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into(), 1.into(), 2.into(), 3.into()]);
+        let stack = Stack::from_slice(&[2.into(), 0.into(), 0.into(), 0xaa.into()]);
         let stack_pointer = stack.0.len();
+
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(0xff.into()),
+            stack_top: None,
             ..WitnessExecHelper::new()
         };
+        let mut codeVec = vec![];
+        codeVec.push(OpcodeId::PUSH1.as_u8());
+        codeVec.push(OpcodeId::PUSH1.as_u8());
+        codeVec.push(OpcodeId::ADD.as_u8());
+        current_state
+            .bytecode
+            .insert(0xaa.into(), codeVec.to_vec().into());
         let trace = prepare_trace_step!(0, OpcodeId::EXTCODECOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
