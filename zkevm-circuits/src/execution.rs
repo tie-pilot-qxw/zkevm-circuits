@@ -40,12 +40,13 @@ pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
+use crate::execution::calldataload::LOAD_SIZE;
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
 use crate::witness::WitnessExecHelper;
 use crate::witness::{state, Witness};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
 use eth_types::GethExecStep;
+use eth_types::{Field, U256};
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::util::Expr;
@@ -235,6 +236,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             value_2: meta.query_advice(self.vers[num], Rotation(-3)),
             result: meta.query_advice(self.vers[num], Rotation(-4)),
             tag: meta.query_advice(self.vers[25], Rotation(-1)),
+        }
+    }
+
+    pub(crate) fn get_calldata_load_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize, // 0..31
+        base_pointer: Expression<F>,
+        base_stamp: Expression<F>,
+        value: &Column<Advice>,
+    ) -> LookupEntry<F> {
+        assert!(index < 32);
+        LookupEntry::State {
+            tag: (state::Tag::CallData as u8).expr(),
+            stamp: base_stamp + index.expr(),
+            value_lo: meta.query_advice(*value, Rotation(-2)),
+            call_id_contract_addr: meta.query_advice(self.call_id, Rotation(-2)),
+            pointer_lo: base_pointer + index.expr(),
+            value_hi: 0.expr(),
+            pointer_hi: 0.expr(),
+            is_write: 0.expr(),
         }
     }
 

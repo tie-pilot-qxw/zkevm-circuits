@@ -423,6 +423,47 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
+    pub fn get_calldata_load_rows(&mut self, idx: usize, length: usize) -> Vec<state::Row> {
+        let mut state_rows = vec![];
+        let call_data = &self.call_data[&self.call_id];
+        let len = if idx + length <= call_data.len() {
+            idx + length
+        } else {
+            call_data.len()
+        };
+        // data
+        for (i, &byte) in call_data[idx..len].iter().enumerate() {
+            state_rows.push(state::Row {
+                tag: Some(state::Tag::CallData),
+                stamp: Some(self.state_stamp.into()),
+                value_hi: None,
+                value_lo: Some(byte.into()),
+                call_id_contract_addr: Some(self.call_id.into()),
+                pointer_hi: None,
+                pointer_lo: Some(i.into()),
+                is_write: Some(0.into()),
+            });
+            self.state_stamp += 1;
+        }
+        // padding
+        if call_data.len() < length {
+            for i in call_data.len()..length {
+                state_rows.push(state::Row {
+                    tag: Some(state::Tag::CallData),
+                    stamp: Some(self.state_stamp.into()),
+                    value_hi: None,
+                    value_lo: None,
+                    call_id_contract_addr: Some(self.call_id.into()),
+                    pointer_hi: None,
+                    pointer_lo: None,
+                    is_write: Some(0.into()),
+                });
+                self.state_stamp += 1;
+            }
+        }
+        state_rows
+    }
+
     /// Load calldata from public table to state table
     pub fn get_load_calldata_copy_rows(&mut self) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
@@ -561,10 +602,12 @@ impl core::Row {
         }
     }
 
+    /// We can skip the constraint by setting code_addr to 0
     pub fn insert_bytecode_full_lookup(
         &mut self,
         pc: u64,
         opcode: OpcodeId,
+        code_addr: U256,
         push_value: Option<U256>,
     ) {
         // this lookup must be in the row with this cnt
@@ -582,7 +625,7 @@ impl core::Row {
         ]
         .into_iter()
         .zip([
-            Some(self.code_addr),
+            Some(code_addr),
             Some(pc.into()),
             Some(opcode.as_u8().into()),
             Some(0.into()), // non_code must be 0

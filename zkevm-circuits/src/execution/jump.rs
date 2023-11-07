@@ -66,7 +66,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             false,
         ));
 
-        let (_, _, _, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
+        let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
         let (lookup_addr, expect_next_pc, _, not_code, _, _, _, _) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
@@ -80,8 +80,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "next pc = stack top".into(),
                 pc_next.clone() - value_lo.clone(),
             ),
+            ("stack top value_hi = 0".into(), value_hi - 0.expr()),
             (
-                "bytecode lookup pc = stack top".into(),
+                "bytecode lookup pc = stack top value_lo".into(),
                 value_lo - expect_next_pc.clone(),
             ),
             (
@@ -115,6 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_bytecode_full_lookup(
             next_pc.as_u64(),
             OpcodeId::JUMPDEST,
+            core_row_1.code_addr,
             Some(0.into()),
         );
 
