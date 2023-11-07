@@ -109,8 +109,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_bytecode_full_lookup(
             trace.pc,
             trace.op,
+            core_row_1.code_addr,
             current_state.stack_top,
-            Some(core_row_1.code_addr),
         );
         let core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
             trace,

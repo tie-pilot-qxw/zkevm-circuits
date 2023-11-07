@@ -565,8 +565,8 @@ impl core::Row {
         &mut self,
         pc: u64,
         opcode: OpcodeId,
+        code_addr: U256,
         push_value: Option<U256>,
-        code_addr: Option<U256>,
     ) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
@@ -583,7 +583,7 @@ impl core::Row {
         ]
         .into_iter()
         .zip([
-            code_addr,
+            Some(code_addr),
             Some(pc.into()),
             Some(opcode.as_u8().into()),
             Some(0.into()), // non_code must be 0

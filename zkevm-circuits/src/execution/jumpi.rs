@@ -115,9 +115,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "expect next pc".into(),
                 expect_next_pc.clone()
-                    - pc_cur.clone()
-                    - (is_zero.clone() * 1.expr()
-                        + (1.expr() - is_zero.clone()) * operands[1].clone()),
+                    - (pc_cur.clone() + 1.expr()) * is_zero.clone()
+                    - (1.expr() - is_zero.clone()) * operands[1].clone(),
             ),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             (
@@ -181,16 +180,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_zero = hi_is_zero * lo_is_zero;
         core_row_1.vers_20 = Some(is_zero);
 
-        let mut code_addr = Some(core_row_1.code_addr);
+        let mut code_addr = core_row_1.code_addr;
         //dest pc
         let pc = if is_zero.is_zero() {
             trace.pc + a.as_u64()
         } else {
-            code_addr = Some(U256::from(0));
+            code_addr = U256::from(0);
             0_u64
         };
 
-        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, Some(0.into()), code_addr);
+        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, code_addr, Some(0.into()));
 
         // current_state.bytecode.get(dest.as_usize())
 

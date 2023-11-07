@@ -115,8 +115,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_bytecode_full_lookup(
             next_pc.as_u64(),
             OpcodeId::JUMPDEST,
+            core_row_1.code_addr,
             Some(0.into()),
-            Some(core_row_1.code_addr),
         );
 
         let core_row_0 = ExecutionState::JUMP.into_exec_state_core_row(
