@@ -61,7 +61,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_next = meta.query_advice(config.pc, Rotation::next());
 
         // create custom gate and lookup constraints
-        let (src_type, code_address, src_offset, _, dest_type, _, dest_offset, _, len) =
+        let (src_type, _, src_offset, _, dest_type, _, dest_offset, _, len) =
             extract_lookup_expression!(copy, config.get_copy_lookup(meta));
 
         let delta = AuxiliaryDelta {
@@ -79,7 +79,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 state_entry.clone(),
                 i,
                 NUM_ROW,
-                STATE_STAMP_DELTA.expr(),
+                i.expr() * (-1).expr(),
                 false,
             ));
             let (_, _, _, value_lo, ..) = extract_lookup_expression!(state, state_entry);
@@ -132,14 +132,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         vec![
             (
-                "state lookup, stack top 0 dst_offset".into(),
+                "calldatacopy state lookup, stack top 0 dst_offset".into(),
                 stack_lookup_0,
             ),
             (
-                "state lookup, stack top 1 src_offset".into(),
+                "calldatacopy state lookup, stack top 1 src_offset".into(),
                 stack_lookup_1,
             ),
-            ("state lookup, stack top2 length".into(), stack_lookup_2),
+            (
+                "calldatacopy state lookup, stack top2 length".into(),
+                stack_lookup_2,
+            ),
             ("calldatacopy lookup".into(), calldata_copy_lookup),
         ]
     }
@@ -160,7 +163,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap());
+        core_row_2.insert_copy_lookup(copy_rows.get(length_value.as_usize() - 1).unwrap());
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&dst_offset, &calldata_offset, &length]);
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
