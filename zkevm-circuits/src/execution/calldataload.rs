@@ -86,14 +86,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let push_entry = config.get_state_lookup(meta, 1);
         let (_, stamp, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, push_entry.clone());
-        let calldata_high_value: Vec<Expression<F>> = config.vers[..HIGH_END_INDEX]
+        let mut calldata_high_value: Vec<Expression<F>> = config.vers[..HIGH_END_INDEX]
             .iter()
             .map(|s| meta.query_advice(*s, Rotation(-2)))
             .collect();
-        let calldata_low_value: Vec<Expression<F>> = config.vers[HIGH_END_INDEX..]
+        let mut calldata_low_value: Vec<Expression<F>> = config.vers[HIGH_END_INDEX..]
             .iter()
             .map(|s| meta.query_advice(*s, Rotation(-2)))
             .collect();
+        calldata_low_value.reverse();
+        calldata_high_value.reverse();
         constraints.extend([
             (
                 "CALLDATALOAD opcode".into(),
@@ -212,7 +214,7 @@ mod test {
             call_data: HashMap::new(),
             ..WitnessExecHelper::new()
         };
-        current_state.call_data.insert(0, vec![0, 32]);
+        current_state.call_data.insert(0, vec![0; 32]);
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATALOAD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
