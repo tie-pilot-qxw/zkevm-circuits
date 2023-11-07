@@ -359,6 +359,7 @@ impl WitnessExecHelper {
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
+        let codecopy_stamp = self.state_stamp;
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get no code ;2. or code is not long enough
             let code = self.bytecode.get(&address).unwrap();
@@ -372,7 +373,7 @@ impl WitnessExecHelper {
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: (dst + i).into(),
-                dst_stamp: self.state_stamp.into(),
+                dst_stamp: codecopy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
             });
