@@ -10,7 +10,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::vec;
 
 const NUM_ROW: usize = 3;
 pub const LOAD_SIZE: usize = 32;
