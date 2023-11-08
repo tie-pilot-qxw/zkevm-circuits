@@ -79,11 +79,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 state_entry.clone(),
                 i,
                 NUM_ROW,
-                i.expr() * (-1).expr(),
+                (-1 * i as i32).expr(),
                 false,
             ));
-            let (_, _, _, value_lo, ..) = extract_lookup_expression!(state, state_entry);
+            let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, state_entry);
             stack_pop_values.push(value_lo);
+            constraints.extend([(
+                format!("CALLDATACOPY value_high_{} = 0", i).into(),
+                value_hi.expr(),
+            )])
         }
 
         constraints.extend([
@@ -163,7 +167,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_copy_lookup(copy_rows.get(length_value.as_usize() - 1).unwrap());
+        core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap());
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&dst_offset, &calldata_offset, &length]);
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
@@ -174,7 +178,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // generate witness for coredataload instruct
-        state_rows.extend_from_slice(vec![dst_offset, calldata_offset, length].as_slice());
+        state_rows.extend(vec![dst_offset, calldata_offset, length]);
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
