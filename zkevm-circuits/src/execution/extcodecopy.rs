@@ -241,13 +241,13 @@ mod test {
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-        let mut codeVec = vec![];
-        codeVec.push(OpcodeId::PUSH1.as_u8());
-        codeVec.push(OpcodeId::PUSH1.as_u8());
-        codeVec.push(OpcodeId::ADD.as_u8());
+        let mut code_vec = vec![];
+        code_vec.push(OpcodeId::PUSH1.as_u8());
+        code_vec.push(OpcodeId::PUSH1.as_u8());
+        code_vec.push(OpcodeId::ADD.as_u8());
         current_state
             .bytecode
-            .insert(0xaa.into(), codeVec.to_vec().into());
+            .insert(0xaa.into(), code_vec.to_vec().into());
         let trace = prepare_trace_step!(0, OpcodeId::EXTCODECOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
