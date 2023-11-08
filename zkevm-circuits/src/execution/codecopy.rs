@@ -78,7 +78,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // index0: dst_offset, index1: offset, index2: len
-        let mut top2_stamp = 0.expr();
+        let mut copy_code_stamp_start = 0.expr();
         let mut stack_pop_values = vec![];
         for i in 0..3 {
             let state_entry = config.get_state_lookup(meta, i);
@@ -95,7 +95,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pop_values.push(value_hi);
             stack_pop_values.push(value_lo);
             if i == 2 {
-                top2_stamp = stamp;
+                copy_code_stamp_start = stamp;
             }
         }
 
@@ -138,7 +138,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup dst_stamp = top2_stamp + 1".into(),
-                copy_lookup_det_stamp - top2_stamp - 1.expr(),
+                copy_lookup_det_stamp - copy_code_stamp_start - 1.expr(),
             ),
             (
                 "[code copy] src_type is ByteCode".into(),
@@ -227,19 +227,26 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use std::vec;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0x02.into(), 0x00.into(), 0x00.into()]);
+        let stack = Stack::from_slice(&[0x01.into(), 0x00.into(), 0x00.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
+
+        let code_vec = vec![OpcodeId::PUSH1.as_u8()];
+        current_state
+            .bytecode
+            .insert(current_state.code_addr, code_vec.into());
 
         let trace = prepare_trace_step!(0, OpcodeId::CODECOPY, stack);
         let padding_begin_row = |current_state| {
