@@ -368,11 +368,11 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Type::Bytecode,
                 src_id: address, // fn argument,
-                src_pointer: (src + i).into(),
+                src_pointer: src.into(),
                 src_stamp: None,
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
-                dst_pointer: (dst + i).into(),
+                dst_pointer: dst.into(),
                 dst_stamp: codecopy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
@@ -416,7 +416,7 @@ impl WitnessExecHelper {
                 pointer_lo: Some((src + i).into()),
                 is_write: Some(0.into()),
             });
-            self.state_stamp += 1;
+            // self.state_stamp += 1;
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 

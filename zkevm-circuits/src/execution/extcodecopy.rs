@@ -121,12 +121,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 copy_lookup_dst_stamp.clone() - copy_code_stamp_start.clone() - 1.expr(),
             ),
             (
-                "extcodecopy src_id value_hi = 0".into(),
-                copy_operands[0][0].clone() - 0.expr(),
-            ),
-            (
                 "extcodecopy src_id".into(),
-                copy_lookup_src_id.clone() - copy_operands[0][1].clone(),
+                copy_lookup_src_id
+                    - copy_operands[0][0].clone() * pow_of_two::<F>(128)
+                    - copy_operands[0][1].clone(),
             ),
             (
                 "extcodecopy dst_pointer value_hi = 0".into(),
