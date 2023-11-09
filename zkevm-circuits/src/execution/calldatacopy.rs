@@ -4,7 +4,6 @@ use crate::util::query_expression;
 use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
-use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -55,15 +54,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        // create expr by context
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
-
         // create custom gate and lookup constraints
-        let (src_type, _, src_offset, _, dest_type, _, dest_offset, _, len) =
+        let (_, _, _, _, _, _, _, _, len) =
             extract_lookup_expression!(copy, config.get_copy_lookup(meta));
-
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -71,60 +64,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        let mut stack_pop_values = vec![];
-        for i in 0..3 {
-            let state_entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_stack_constraints(
-                meta,
-                state_entry.clone(),
-                i,
-                NUM_ROW,
-                (-1 * i as i32).expr(),
-                false,
-            ));
-            let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, state_entry);
-            stack_pop_values.push(value_lo);
-            constraints.extend([(
-                format!("CALLDATACOPY value_high_{} = 0", i).into(),
-                value_hi.expr(),
-            )])
-        }
-        let lenlo_inv = meta.query_advice(config.vers[24], Rotation::prev());
-        let iszero_len =
-            SimpleIsZero::new(&stack_pop_values[2], &lenlo_inv, String::from("length_lo"));
 
-        constraints.extend([
-            (
-                "CALLDATACOPY opcode".into(),
-                opcode - OpcodeId::CALLDATACOPY.as_u64().expr(),
-            ),
-            (
-                "CALLDATACOPY next pc".into(),
-                pc_next - pc_cur - PC_DELTA.expr(),
-            ),
-            (
-                "CALLDATACOPY  dst_offset = stack top 0".into(),
-                (1.expr() - iszero_len.expr()) * (stack_pop_values[0].expr() - dest_offset.expr()),
-            ),
-            (
-                "CALLDATACOPY  src_offset = stack top 1".into(),
-                (1.expr() - iszero_len.expr()) * (stack_pop_values[1].expr() - src_offset.expr()),
-            ),
-            (
-                "CALLDATACOPY  length = stack top 2".into(),
-                (1.expr() - iszero_len.expr()) * (stack_pop_values[2].expr() - len.expr()),
-            ),
-            (
-                "CALLDATACOPY src_type is calldata".into(),
-                (1.expr() - iszero_len.expr())
-                    * (src_type.expr() - (copy::Type::Calldata as u8).expr()),
-            ),
-            (
-                "CALLDATACOPY dst_type is memory".into(),
-                (1.expr() - iszero_len.expr())
-                    * (dest_type.expr() - (copy::Type::Memory as u8).expr()),
-            ),
-        ]);
+        constraints.append(&mut config.get_copy_contraints(
+            "CALLDATACOPY".to_string(),
+            meta,
+            OpcodeId::CALLDATACOPY,
+            PC_DELTA,
+            copy::Type::Calldata,
+            copy::Type::Memory,
+            NUM_ROW,
+        ));
 
         constraints
     }

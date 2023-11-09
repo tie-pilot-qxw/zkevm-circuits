@@ -40,15 +40,15 @@ pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
-use crate::execution::calldataload::LOAD_SIZE;
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
 use crate::witness::WitnessExecHelper;
-use crate::witness::{state, Witness};
+use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
+use eth_types::Field;
 use eth_types::GethExecStep;
-use eth_types::{Field, U256};
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -296,6 +296,85 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_lo,
             is_write,
         }
+    }
+
+    pub(crate) fn get_copy_contraints(
+        &self,
+        prefix: String,
+        meta: &mut VirtualCells<F>,
+        opcode: OpcodeId,
+        pc_delta: usize,
+        s_type: copy::Type,
+        d_type: copy::Type,
+        num_row: usize,
+    ) -> Vec<(String, Expression<F>)> {
+        let opcode_advice = meta.query_advice(self.opcode, Rotation::cur());
+        let pc_cur = meta.query_advice(self.pc, Rotation::cur());
+        let pc_next = meta.query_advice(self.pc, Rotation::next());
+
+        let (src_type, src_id, src_offset, _, dest_type, dst_id, dest_offset, _, len) =
+            extract_lookup_expression!(copy, self.get_copy_lookup(meta));
+
+        let mut constraints = vec![];
+        let mut stack_pop_values = vec![];
+        for i in 0..3 {
+            let state_entry = self.get_state_lookup(meta, i);
+            constraints.append(&mut self.get_stack_constraints(
+                meta,
+                state_entry.clone(),
+                i,
+                num_row,
+                (-1 * i as i32).expr(),
+                false,
+            ));
+            let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, state_entry);
+            stack_pop_values.push(value_lo);
+            constraints.extend([(
+                format!("CALLDATACOPY value_high_{} = 0", i).into(),
+                value_hi.expr(),
+            )])
+        }
+
+        let lenlo_inv = meta.query_advice(self.vers[24], Rotation::prev());
+        let iszero_len =
+            SimpleIsZero::new(&stack_pop_values[2], &lenlo_inv, String::from("length_lo"));
+
+        constraints.extend([
+            (
+                format!("{} opcode", prefix).into(),
+                opcode_advice - opcode.as_u64().expr(),
+            ),
+            (
+                format!("{} next pc", prefix).into(),
+                pc_next - pc_cur - pc_delta.expr(),
+            ),
+            (
+                format!("{} dst_offset = stack top 0", prefix).into(),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[0].expr() - dest_offset.expr()),
+            ),
+            (
+                format!("{} src_offset = stack top 1", prefix).into(),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[1].expr() - src_offset.expr()),
+            ),
+            (
+                format!("{} length = stack top 2", prefix).into(),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[2].expr() - len.expr()),
+            ),
+            (
+                format!("{} src_type is calldata", prefix).into(),
+                (1.expr() - iszero_len.expr()) * (src_type.expr() - (s_type as u64).expr()),
+            ),
+            (
+                format!("{} dst_type is memory", prefix).into(),
+                (1.expr() - iszero_len.expr()) * (dest_type.expr() - (d_type as u64).expr()),
+            ),
+            (
+                format!("{} src_id = dst_id", prefix).into(),
+                (1.expr() - iszero_len.expr()) * (dst_id - src_id),
+            ),
+        ]);
+
+        constraints
     }
 
     pub(crate) fn get_stack_constraints(
