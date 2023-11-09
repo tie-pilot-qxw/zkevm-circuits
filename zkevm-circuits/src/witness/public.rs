@@ -178,8 +178,8 @@ impl Row {
 #[cfg(test)]
 mod test {
     use crate::util::geth_data_test;
-    use crate::witness::public::{LogTag, Row, Tag};
-    use eth_types::{GethExecTrace, U256};
+    use crate::witness::public::Row;
+    use eth_types::GethExecTrace;
 
     #[test]
     fn from_geth_data() {
@@ -195,39 +195,11 @@ mod test {
             false,
         );
         let rows = Row::from_geth_data(&geth_data).unwrap();
-        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+        let mut wtr = csv::Writer::from_writer(vec![]);
         for row in &rows {
             wtr.serialize(row).unwrap();
         }
-        wtr.flush().unwrap();
-    }
-
-    #[test]
-    fn print_csv() {
-        let row0 = Row {
-            tag: Tag::BlockCoinbase,
-            tx_idx_or_number_diff: Some(U256::zero()),
-            value_0: Some(U256::from(1023)),
-            value_1: Some(U256::max_value()),
-            value_2: Some(U256::zero()),
-            value_3: Some(U256::zero()),
-        };
-        let row1 = Row {
-            tag: Tag::BlockGasLimit,
-            ..Default::default()
-        };
-        let row2 = Row {
-            tag: Tag::TxLog,
-            tx_idx_or_number_diff: Some(1.into()),
-            value_0: Some(2.into()),
-            value_1: Some((LogTag::AddrWith3Topic as u8).into()),
-            value_2: Some(U256::from(1023)),
-            value_3: Some(U256::max_value()),
-        };
-        let mut wtr = csv::Writer::from_writer(std::io::stdout());
-        wtr.serialize(&row0).unwrap();
-        wtr.serialize(&row1).unwrap();
-        wtr.serialize(&row2).unwrap();
-        wtr.flush().unwrap();
+        let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
+        println!("{}", data);
     }
 }

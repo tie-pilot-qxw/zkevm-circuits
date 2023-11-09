@@ -2,7 +2,7 @@ use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::Tag;
 
 use eth_types::Field;
-use gadgets::util::{expr_from_u16s, Expr, TWO_TO_128};
+use gadgets::util::{expr_from_u16s, pow_of_two, Expr};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -74,12 +74,12 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
             carry_lo.clone() * (1.expr() - carry_lo.clone()),
         ));
         constraints.push((
-            "c lo + carry lo * 2^128= a lo + b lo",
-            c_lo + carry_lo.clone() * TWO_TO_128.expr() - a_lo - b_lo,
+            "c lo + carry lo * 2^128 = a lo + b lo",
+            c_lo + carry_lo.clone() * pow_of_two::<F>(128) - a_lo - b_lo,
         ));
         constraints.push((
-            "c hi + carry hi * 2^128= a hi + b hi + carry lo",
-            c_hi + carry_hi * TWO_TO_128.expr() - a_hi - b_hi - carry_lo,
+            "c hi + carry hi * 2^128 = a hi + b hi + carry lo",
+            c_hi + carry_hi * pow_of_two::<F>(128) - a_hi - b_hi - carry_lo,
         ));
         constraints
     }
