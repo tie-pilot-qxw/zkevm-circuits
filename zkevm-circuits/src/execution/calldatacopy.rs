@@ -2,9 +2,9 @@ use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, Executi
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{copy, Witness, WitnessExecHelper};
-use eth_types::evm_types::{stack, OpcodeId};
-use eth_types::{Field, GethExecStep};
-use ethers_core::types::Opcode;
+use eth_types::evm_types::OpcodeId;
+use eth_types::{Field, GethExecStep, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -89,6 +89,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 value_hi.expr(),
             )])
         }
+        let lenlo_inv = meta.query_advice(config.vers[24], Rotation::prev());
+        let iszero_len =
+            SimpleIsZero::new(&stack_pop_values[2], &lenlo_inv, String::from("length_lo"));
 
         constraints.extend([
             (
@@ -101,23 +104,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "CALLDATACOPY  dst_offset = stack top 0".into(),
-                stack_pop_values[0].expr() - dest_offset.expr(),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[0].expr() - dest_offset.expr()),
             ),
             (
                 "CALLDATACOPY  src_offset = stack top 1".into(),
-                stack_pop_values[1].expr() - src_offset.expr(),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[1].expr() - src_offset.expr()),
             ),
             (
                 "CALLDATACOPY  length = stack top 2".into(),
-                stack_pop_values[2].expr() - len.expr(),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[2].expr() - len.expr()),
             ),
             (
                 "CALLDATACOPY src_type is calldata".into(),
-                src_type.expr() - (copy::Type::Calldata as u8).expr(),
+                (1.expr() - iszero_len.expr())
+                    * (src_type.expr() - (copy::Type::Calldata as u8).expr()),
             ),
             (
                 "CALLDATACOPY dst_type is memory".into(),
-                dest_type.expr() - (copy::Type::Memory as u8).expr(),
+                (1.expr() - iszero_len.expr())
+                    * (dest_type.expr() - (copy::Type::Memory as u8).expr()),
             ),
         ]);
 
@@ -167,9 +172,32 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap());
+        let copy_row: copy::Row;
+        if length_value.is_zero() {
+            copy_row = copy::Row {
+                byte: 0.into(),
+                src_type: copy::Type::Calldata,
+                src_id: current_state.call_id.into(),
+                src_pointer: calldata_offset_value,
+                src_stamp: Some(current_state.state_stamp.into()),
+                dst_type: copy::Type::Memory,
+                dst_id: current_state.call_id.into(),
+                dst_pointer: dst_offset_value,
+                dst_stamp: current_state.state_stamp.into(),
+                cnt: 0.into(),
+                len: 0.into(),
+            };
+        } else {
+            copy_row = copy_rows.get(0).unwrap().clone();
+        }
+        core_row_2.insert_copy_lookup(&copy_row);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&dst_offset, &calldata_offset, &length]);
+        let len_lo = F::from_u128(length_value.low_u128());
+        let lenlo_inv =
+            U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        core_row_1.vers_24 = Some(lenlo_inv);
+
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
             trace,
             current_state,
