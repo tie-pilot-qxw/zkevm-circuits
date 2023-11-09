@@ -52,5 +52,6 @@ pub enum CallContextTag {
     SenderAddr,
     Value,
     CallDataSize,
+    ReturnDataSize,
     ReturnDataCallId,
 }
