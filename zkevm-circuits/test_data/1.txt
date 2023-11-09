@@ -17,4 +17,3 @@ PUSH1 0x00
 PUSH32 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 EXTCODECOPY
 STOP
-
