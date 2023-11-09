@@ -390,6 +390,7 @@ impl WitnessExecHelper {
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
+        let copy_stamp = self.state_stamp;
         for i in 0..len {
             let call_data = &self.call_data[&self.call_id];
             let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
@@ -397,12 +398,12 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Type::Calldata,
                 src_id: self.call_id.into(),
-                src_pointer: (src + i).into(),
+                src_pointer: src.into(),
                 src_stamp: Some(self.state_stamp.into()),
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
-                dst_pointer: (dst + i).into(),
-                dst_stamp: (self.state_stamp + 1).into(),
+                dst_pointer: dst.into(),
+                dst_stamp: copy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
             });
@@ -416,7 +417,6 @@ impl WitnessExecHelper {
                 pointer_lo: Some((src + i).into()),
                 is_write: Some(0.into()),
             });
-            // self.state_stamp += 1;
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 
