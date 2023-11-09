@@ -399,7 +399,7 @@ impl WitnessExecHelper {
                 src_type: copy::Type::Calldata,
                 src_id: self.call_id.into(),
                 src_pointer: src.into(),
-                src_stamp: Some(self.state_stamp.into()),
+                src_stamp: Some(copy_stamp.into()),
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: dst.into(),
