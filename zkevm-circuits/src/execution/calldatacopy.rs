@@ -1,6 +1,8 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    Auxiliary, AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
@@ -8,6 +10,8 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+
+use super::CoreSinglePurposeOutcome;
 
 const NUM_ROW: usize = 3;
 const PC_DELTA: usize = 1;
@@ -62,9 +66,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
-
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(1.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
         constraints.append(&mut config.get_copy_contraints(
             "CALLDATACOPY".to_string(),
             meta,
@@ -125,14 +132,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         if length_value.is_zero() {
             copy_row = copy::Row {
                 byte: 0.into(),
-                src_type: copy::Type::Calldata,
-                src_id: current_state.call_id.into(),
-                src_pointer: calldata_offset_value,
-                src_stamp: Some(current_state.state_stamp.into()),
-                dst_type: copy::Type::Memory,
-                dst_id: current_state.call_id.into(),
-                dst_pointer: dst_offset_value,
-                dst_stamp: current_state.state_stamp.into(),
+                src_type: copy::Type::default(),
+                src_id: 0.into(),
+                src_pointer: 0.into(),
+                src_stamp: None, //Some(0.into()),
+                dst_type: copy::Type::default(),
+                dst_id: 0.into(),
+                dst_pointer: 0.into(),
+                dst_stamp: 0.into(),
                 cnt: 0.into(),
                 len: 0.into(),
             };
@@ -172,23 +179,59 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::fs::File;
 
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
+
     #[test]
-    fn assign_and_constraint() {
+    fn copylength_less_or_equal_calldata() {
+        //[length, src_offset, dst_offset]
         let stack = Stack::from_slice(&[0x01.into(), 0x02.into(), 0x03.into()]);
-        let stack_pointer = stack.0.len();
+
         let mut current_state = WitnessExecHelper {
-            stack_pointer: stack.0.len(),
             stack_top: None,
-            call_data: HashMap::new(),
             ..WitnessExecHelper::new()
         };
+        current_state.stack_pointer = stack.0.len();
         current_state.call_data.insert(0, vec![0; 10]);
+
+        assign_and_constraint(stack, current_state, "copylength_le_calldata")
+    }
+
+    #[test]
+    fn copylength_great_calldata() {
+        let stack = Stack::from_slice(&[0x20.into(), 0x02.into(), 0x03.into()]);
+
+        let mut current_state = WitnessExecHelper {
+            stack_top: None,
+            ..WitnessExecHelper::new()
+        };
+        current_state.stack_pointer = stack.0.len();
+        current_state.call_data.insert(0, vec![0; 10]);
+
+        assign_and_constraint(stack, current_state, "copylength_gt_calldata");
+    }
+
+    #[test]
+    fn copylength_equal_0() {
+        let stack = Stack::from_slice(&[0x00.into(), 0x02.into(), 0x03.into()]);
+
+        let mut current_state = WitnessExecHelper {
+            stack_top: None,
+            ..WitnessExecHelper::new()
+        };
+        current_state.stack_pointer = stack.0.len();
+        current_state.call_data.insert(0, vec![0; 10]);
+
+        assign_and_constraint(stack, current_state, "copylength_eq_0");
+    }
+
+    // #[test]
+    fn assign_and_constraint(stack: Stack, mut current_state: WitnessExecHelper, file_name: &str) {
+        let stack_pointer = stack.0.len();
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATACOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -214,5 +257,8 @@ mod test {
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
         prover.assert_satisfied_par();
+        // let mut buf =
+        //     std::io::BufWriter::new(File::create(format!("test_data/{}.html", file_name)).unwrap());
+        // witness.write_html(&mut buf);
     }
 }

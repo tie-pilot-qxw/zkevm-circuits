@@ -390,21 +390,27 @@ impl WitnessExecHelper {
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        for i in 0..len {
+        let calldata_length = self.call_data[&self.call_id].len();
+        let copylen = if src + len > calldata_length {
+            calldata_length - src
+        } else {
+            len
+        };
+        for i in 0..copylen {
             let call_data = &self.call_data[&self.call_id];
             let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Calldata,
                 src_id: self.call_id.into(),
-                src_pointer: (src + i).into(),
+                src_pointer: src.into(),
                 src_stamp: Some(self.state_stamp.into()),
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
-                dst_pointer: (dst + i).into(),
-                dst_stamp: (self.state_stamp + 1).into(),
+                dst_pointer: dst.into(),
+                dst_stamp: self.state_stamp.into(),
                 cnt: i.into(),
-                len: len.into(),
+                len: copylen.into(),
             });
             state_rows.push(state::Row {
                 tag: Some(state::Tag::CallData),
@@ -416,10 +422,28 @@ impl WitnessExecHelper {
                 pointer_lo: Some((src + i).into()),
                 is_write: Some(0.into()),
             });
-            // self.state_stamp += 1;
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
-
+        //padding
+        if copylen < len {
+            let padding_length = len - copylen;
+            for _ in copylen..len {
+                // state_rows.push(self.get_memory_padding_row()); // todo
+                copy_rows.push(copy::Row {
+                    byte: 0.into(),
+                    src_type: copy::Type::default(),
+                    src_id: 0.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: None,
+                    dst_type: copy::Type::Memory,
+                    dst_id: 0.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: 0.into(),
+                    cnt: 0.into(),
+                    len: U256::from(padding_length),
+                })
+            }
+        }
         (copy_rows, state_rows)
     }
 

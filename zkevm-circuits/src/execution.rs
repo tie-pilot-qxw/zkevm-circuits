@@ -330,7 +330,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, state_entry);
             stack_pop_values.push(value_lo);
             constraints.extend([(
-                format!("CALLDATACOPY value_high_{} = 0", i).into(),
+                format!("{} value_high_{} = 0", prefix, i).into(),
                 value_hi.expr(),
             )])
         }
@@ -350,27 +350,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("{} dst_offset = stack top 0", prefix).into(),
-                (1.expr() - iszero_len.expr()) * (stack_pop_values[0].expr() - dest_offset.expr()),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[0].expr() - dest_offset.expr())
+                    + iszero_len.expr() * dest_offset.expr(),
             ),
             (
                 format!("{} src_offset = stack top 1", prefix).into(),
-                (1.expr() - iszero_len.expr()) * (stack_pop_values[1].expr() - src_offset.expr()),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[1].expr() - src_offset.expr())
+                    + iszero_len.expr() * src_offset.expr(),
             ),
             (
                 format!("{} length = stack top 2", prefix).into(),
-                (1.expr() - iszero_len.expr()) * (stack_pop_values[2].expr() - len.expr()),
+                (1.expr() - iszero_len.expr()) * (stack_pop_values[2].expr() - len.expr())
+                    + iszero_len.expr() * len.expr(),
             ),
             (
                 format!("{} src_type is calldata", prefix).into(),
-                (1.expr() - iszero_len.expr()) * (src_type.expr() - (s_type as u64).expr()),
+                (1.expr() - iszero_len.expr()) * (src_type.expr() - (s_type as u64).expr())
+                    + iszero_len.expr() * src_type.expr(),
             ),
             (
                 format!("{} dst_type is memory", prefix).into(),
-                (1.expr() - iszero_len.expr()) * (dest_type.expr() - (d_type as u64).expr()),
+                (1.expr() - iszero_len.expr()) * (dest_type.expr() - (d_type as u64).expr())
+                    + iszero_len.expr() * dest_type.expr(),
             ),
             (
                 format!("{} src_id = dst_id", prefix).into(),
-                (1.expr() - iszero_len.expr()) * (dst_id - src_id),
+                (1.expr() - iszero_len.expr()) * (dst_id.clone() - src_id)
+                    + iszero_len.expr() * dst_id,
             ),
         ]);
 
