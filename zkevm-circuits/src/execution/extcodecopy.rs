@@ -1,15 +1,41 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::query_expression;
+use crate::witness::{copy, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
+use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
+const ADDRESS_ZERO_COUNT: u32 = 12 * 8;
+const STATE_STAMP_DELTA: u64 = 4;
+const STACK_POINTER_DELTA: i32 = -4;
+const PC_DELTA: u64 = 1;
+
+/// Extcodecopy Execution State layout is as follows
+/// where COPY means copy table lookup , 9 cols
+/// STATE means state table lookup,
+/// STATE0 means account address,
+/// STATE1 means memOffset
+/// STATE2 means codeOffset
+/// STATE3 means length
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | not used |
+/// +---+-------+-------+-------+----------+
+/// | 2 | COPY   |
+/// | 1 | STATE0| STATE1| STATE2| STATE3   |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 
 pub struct ExtcodecopyGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -34,26 +60,143 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
+        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        let (
+            copy_lookup_src_type,
+            copy_lookup_src_id,
+            copy_lookup_src_pointer,
+            _,
+            copy_lookup_dst_type,
+            copy_lookup_dst_id,
+            copy_lookup_dst_pointer,
+            copy_lookup_dst_stamp,
+            copy_lookup_len,
+        ) = extract_lookup_expression!(copy, config.get_copy_lookup(meta));
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr() + copy_lookup_len.clone(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        // auxiliary constraints
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut copy_operands = vec![];
+        let mut copy_code_stamp_start = 0.expr();
+        // stack constraints
+        for i in 0..4 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                (-1 * i as i32).expr(),
+                false,
+            ));
+            let (_, tmp_stamp, value_hi, value_lo, _, _, _, _) =
+                extract_lookup_expression!(state, entry);
+            if i == 3 {
+                copy_code_stamp_start = tmp_stamp.clone();
+            }
+            copy_operands.push([value_hi, value_lo]);
+        }
+        // copy constraints
+        constraints.extend([
+            (
+                "extcodecopy src_type".into(),
+                copy_lookup_src_type.clone() - (copy::Type::Bytecode as u8).expr(),
+            ),
+            (
+                "extcodecopy dst_type".into(),
+                copy_lookup_dst_type.clone() - (copy::Type::Memory as u8).expr(),
+            ),
+            (
+                "extcodecopy dst_id".into(),
+                copy_lookup_dst_id.clone() - call_id,
+            ),
+            (
+                "extcodecopy dst_stamp".into(),
+                copy_lookup_dst_stamp.clone() - copy_code_stamp_start.clone() - 1.expr(),
+            ),
+            (
+                "extcodecopy src_id".into(),
+                copy_lookup_src_id
+                    - copy_operands[0][0].clone() * pow_of_two::<F>(128)
+                    - copy_operands[0][1].clone(),
+            ),
+            (
+                "extcodecopy dst_pointer value_hi = 0".into(),
+                copy_operands[1][0].clone() - 0.expr(),
+            ),
+            (
+                "extcodecopy dst_pointer".into(),
+                copy_lookup_dst_pointer.clone() - copy_operands[1][1].clone(),
+            ),
+            (
+                "extcodecopy src_pointer value_hi = 0".into(),
+                copy_operands[2][0].clone() - 0.expr(),
+            ),
+            (
+                "extcodecopy src_pointer".into(),
+                copy_lookup_src_pointer.clone() - copy_operands[2][1].clone(),
+            ),
+            (
+                "extcodecopy len value_hi = 0".into(),
+                copy_operands[3][0].clone() - 0.expr(),
+            ),
+            (
+                "extcodecopy len".into(),
+                copy_lookup_len.clone() - copy_operands[3][1].clone(),
+            ),
+        ]);
+        // pc & opcode constrains
+        constraints.extend([
+            (
+                "opcode".into(),
+                opcode - OpcodeId::EXTCODECOPY.as_u8().expr(),
+            ),
+            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
+        ]);
+        constraints
     }
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let stack_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
+        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        vec![
+            ("stack pop account address".into(), stack_lookup_0),
+            ("stack pop mem offset".into(), stack_lookup_1),
+            ("stack pop code offset".into(), stack_lookup_2),
+            ("stack pop length".into(), stack_lookup_3),
+            ("copy look up".into(), copy_lookup),
+        ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_0, address) = current_state.get_pop_stack_row_value(&trace);
+        assert!(address.leading_zeros() >= ADDRESS_ZERO_COUNT);
+        //let address_code = current_state.bytecode.get(&address).unwrap();
+        let (stack_pop_1, mem_offset) = current_state.get_pop_stack_row_value(&trace);
 
-        let (stack_pop_1, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_2, code_offset) = current_state.get_pop_stack_row_value(&trace);
 
-        let (stack_pop_2, _) = current_state.get_pop_stack_row_value(&trace);
-
-        let (stack_pop_3, _) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_3, size) = current_state.get_pop_stack_row_value(&trace);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-
+        let (copy_rows, mem_rows) = current_state.get_code_copy_rows(
+            address,
+            mem_offset.as_usize(),
+            code_offset.as_usize(),
+            size.as_usize(),
+        );
+        core_row_2.insert_copy_lookup(&copy_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);
@@ -63,9 +206,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+
+        let mut state_vec = vec![stack_pop_0, stack_pop_1, stack_pop_2, stack_pop_3];
+        state_vec.extend(mem_rows);
         Witness {
+            copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_pop_0, stack_pop_1, stack_pop_2, stack_pop_3],
+            state: state_vec,
             ..Default::default()
         }
     }
@@ -84,14 +231,22 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into(), 1.into(), 2.into(), 3.into()]);
+        let stack = Stack::from_slice(&[2.into(), 0.into(), 0.into(), 0xaa.into()]);
         let stack_pointer = stack.0.len();
+
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
+        let mut code_vec = vec![];
+        code_vec.push(OpcodeId::PUSH1.as_u8());
+        code_vec.push(OpcodeId::PUSH1.as_u8());
+        code_vec.push(OpcodeId::ADD.as_u8());
+        current_state
+            .bytecode
+            .insert(0xaa.into(), code_vec.to_vec().into());
+        let trace = prepare_trace_step!(0, OpcodeId::EXTCODECOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,

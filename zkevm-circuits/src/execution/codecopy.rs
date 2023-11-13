@@ -55,13 +55,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
-        let (src_type, code_address, offset, _, dst_type, dst_id, dst_offset, det_stamp, len) =
-            extract_lookup_expression!(copy, config.get_copy_lookup(meta));
+        let (
+            copy_lookup_src_type,
+            copy_lookup_code_address,
+            copy_lookup_offset,
+            _,
+            copy_lookup_dst_type,
+            copy_lookup_dst_id,
+            copy_lookup_dst_offset,
+            copy_lookup_det_stamp,
+            copy_lookup_len,
+        ) = extract_lookup_expression!(copy, config.get_copy_lookup(meta));
 
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
         let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
+            state_stamp: STATE_STAMP_DELTA.expr() + copy_lookup_len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
@@ -69,7 +78,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // index0: dst_offset, index1: offset, index2: len
-        let mut top2_stamp = 0.expr();
+        let mut copy_code_stamp_start = 0.expr();
         let mut stack_pop_values = vec![];
         for i in 0..3 {
             let state_entry = config.get_state_lookup(meta, i);
@@ -86,7 +95,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pop_values.push(value_hi);
             stack_pop_values.push(value_lo);
             if i == 2 {
-                top2_stamp = stamp;
+                copy_code_stamp_start = stamp;
             }
         }
 
@@ -101,7 +110,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup dst_offset = stack top0 value_lo".into(),
-                stack_pop_values[1].expr() - dst_offset,
+                stack_pop_values[1].expr() - copy_lookup_dst_offset,
             ),
             (
                 "[code copy] stack top1 value_hi = 0".into(),
@@ -109,7 +118,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup offset = stack top1 value_lo".into(),
-                stack_pop_values[3].expr() - offset,
+                stack_pop_values[3].expr() - copy_lookup_offset,
             ),
             (
                 "[code copy] stack top2 value_hi = 0".into(),
@@ -117,27 +126,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "[code copy] lookup len = stack top2 value_lo".into(),
-                stack_pop_values[5].expr() - len,
+                stack_pop_values[5].expr() - copy_lookup_len,
             ),
             (
                 "[code copy] lookup code address = code address".into(),
-                code_address - address,
+                copy_lookup_code_address - address,
             ),
             (
                 "[code copy] lookup dst_id = call id".into(),
-                dst_id - call_id,
+                copy_lookup_dst_id - call_id,
             ),
             (
                 "[code copy] lookup dst_stamp = top2_stamp + 1".into(),
-                det_stamp - top2_stamp - 1.expr(),
+                copy_lookup_det_stamp - copy_code_stamp_start - 1.expr(),
             ),
             (
                 "[code copy] src_type is ByteCode".into(),
-                src_type - (copy::Type::Bytecode as u8).expr(),
+                copy_lookup_src_type - (copy::Type::Bytecode as u8).expr(),
             ),
             (
                 "[code copy] dst_type is Memory".into(),
-                dst_type - (copy::Type::Memory as u8).expr(),
+                copy_lookup_dst_type - (copy::Type::Memory as u8).expr(),
             ),
         ]);
 
@@ -218,19 +227,26 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use std::vec;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0x02.into(), 0x00.into(), 0x00.into()]);
+        let stack = Stack::from_slice(&[0x01.into(), 0x00.into(), 0x00.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
+
+        let code_vec = vec![OpcodeId::PUSH1.as_u8()];
+        current_state
+            .bytecode
+            .insert(current_state.code_addr, code_vec.into());
 
         let trace = prepare_trace_step!(0, OpcodeId::CODECOPY, stack);
         let padding_begin_row = |current_state| {

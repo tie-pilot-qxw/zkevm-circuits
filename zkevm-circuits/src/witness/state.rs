@@ -52,36 +52,6 @@ pub enum CallContextTag {
     SenderAddr,
     Value,
     CallDataSize,
+    ReturnDataSize,
     ReturnDataCallId,
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use std::io;
-
-    #[test]
-    fn print_csv() {
-        let row1 = Row {
-            tag: Some(Tag::Memory),
-            stamp: Some(2.into()),
-            value_hi: Some(u128::MAX.into()),
-            value_lo: Some(0.into()),
-            is_write: Some((true as usize).into()),
-            call_id_contract_addr: Some(1.into()),
-            pointer_lo: Some(50.into()),
-            ..Default::default()
-        };
-        let row2 = Row {
-            tag: Some(Tag::CallContext),
-            value_lo: Some(10.into()),
-            pointer_lo: Some((CallContextTag::ParentProgramCounter as u8).into()),
-            call_id_contract_addr: Some(3.into()),
-            ..Default::default()
-        };
-        let mut wtr = csv::Writer::from_writer(io::stdout());
-        wtr.serialize(&row1).unwrap();
-        wtr.serialize(&row2).unwrap();
-        wtr.flush().unwrap();
-    }
 }

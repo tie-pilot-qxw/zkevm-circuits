@@ -368,11 +368,11 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Type::Bytecode,
                 src_id: address, // fn argument,
-                src_pointer: (src + i).into(),
+                src_pointer: src.into(),
                 src_stamp: None,
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
-                dst_pointer: (dst + i).into(),
+                dst_pointer: dst.into(),
                 dst_stamp: codecopy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
@@ -396,6 +396,8 @@ impl WitnessExecHelper {
         } else {
             len
         };
+
+        let copy_stamp = self.state_stamp;
         for i in 0..copylen {
             let call_data = &self.call_data[&self.call_id];
             let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
@@ -404,11 +406,11 @@ impl WitnessExecHelper {
                 src_type: copy::Type::Calldata,
                 src_id: self.call_id.into(),
                 src_pointer: src.into(),
-                src_stamp: Some(self.state_stamp.into()),
+                src_stamp: Some(copy_stamp.into()),
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: dst.into(),
-                dst_stamp: self.state_stamp.into(),
+                dst_stamp: copy_stamp.into(),
                 cnt: i.into(),
                 len: copylen.into(),
             });
@@ -948,7 +950,10 @@ impl Witness {
     }
 
     pub fn print_csv(&self) {
-        self.write_all_as_csv(std::io::stdout());
+        let mut buf = Vec::new();
+        self.write_all_as_csv(&mut buf);
+        let csv_string = String::from_utf8(buf).unwrap();
+        println!("{}", csv_string);
     }
 
     fn write_one_table<W: Write, T: Serialize, S: AsRef<str>>(
