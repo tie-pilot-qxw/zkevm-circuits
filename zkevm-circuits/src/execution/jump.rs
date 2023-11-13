@@ -159,7 +159,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let jump_to_pc = 0xabu8;
+        let jump_to_pc = 0x1;
         let stack = Stack::from_slice(&[jump_to_pc.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
