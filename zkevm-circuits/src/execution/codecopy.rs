@@ -81,9 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(1.expr()),
-            tx_idx: ExpressionOutcome::Delta(0.expr()),
-            call_id: ExpressionOutcome::Delta(0.expr()),
-            code_addr: ExpressionOutcome::To(address.clone()),
+            ..Default::default()
         };
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
