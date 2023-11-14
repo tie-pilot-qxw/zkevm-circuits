@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
-/// | 2 | CopyLookUp(9)|
+/// | 2 | COPY(9)|
 /// | 1 | STATE | STATE | STATE | notUsed |
 /// | 0 | DYNA_SELECTOR   | AUX           |
 /// +---+-------+-------+-------+---------+
@@ -111,52 +111,49 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         constraints.extend([
+            ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
             (
-                "[code copy] next pc ".into(),
-                pc_next - pc_cur - PC_DELTA.expr(),
-            ),
-            (
-                "[code copy] stack top0 value_hi = 0".into(),
+                "stack top0 value_hi = 0".into(),
                 stack_pop_values[0].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup dst_offset = stack top0 value_lo".into(),
+                "lookup dst_offset = stack top0 value_lo".into(),
                 stack_pop_values[1].expr() - copy_lookup_dst_offset,
             ),
             (
-                "[code copy] stack top1 value_hi = 0".into(),
+                "stack top1 value_hi = 0".into(),
                 stack_pop_values[2].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup offset = stack top1 value_lo".into(),
+                "lookup offset = stack top1 value_lo".into(),
                 stack_pop_values[3].expr() - copy_lookup_offset,
             ),
             (
-                "[code copy] stack top2 value_hi = 0".into(),
+                "stack top2 value_hi = 0".into(),
                 stack_pop_values[4].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup len = stack top2 value_lo".into(),
+                "lookup len = stack top2 value_lo".into(),
                 stack_pop_values[5].expr() - copy_lookup_len,
             ),
             (
-                "[code copy] lookup code address = code address".into(),
+                "lookup code address = code address".into(),
                 copy_lookup_code_address - address,
             ),
             (
-                "[code copy] lookup dst_id = call id".into(),
+                "lookup dst_id = call id".into(),
                 copy_lookup_dst_id - call_id,
             ),
             (
-                "[code copy] lookup dst_stamp = top2_stamp + 1".into(),
+                "lookup dst_stamp = top2_stamp + 1".into(),
                 copy_lookup_det_stamp - copy_code_stamp_start - 1.expr(),
             ),
             (
-                "[code copy] src_type is ByteCode".into(),
+                "src_type is ByteCode".into(),
                 copy_lookup_src_type - (copy::Type::Bytecode as u8).expr(),
             ),
             (
-                "[code copy] dst_type is Memory".into(),
+                "dst_type is Memory".into(),
                 copy_lookup_dst_type - (copy::Type::Memory as u8).expr(),
             ),
         ]);
