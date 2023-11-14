@@ -382,6 +382,31 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
+    pub fn get_calldata_read_row(
+        &self,
+        val: u8,
+        src: usize,
+        dst: usize,
+        copylen: usize,
+        cnt: usize,
+        stamp: u64,
+    ) -> copy::Row {
+        let res = copy::Row {
+            byte: val.into(),
+            src_type: copy::Type::Calldata,
+            src_id: self.call_id.into(),
+            src_pointer: src.into(),
+            src_stamp: Some(stamp.into()),
+            dst_type: copy::Type::Memory,
+            dst_id: self.call_id.into(),
+            dst_pointer: dst.into(),
+            dst_stamp: stamp.into(),
+            cnt: cnt.into(),
+            len: copylen.into(),
+        };
+        res
+    }
+
     pub fn get_calldata_copy_rows(
         &mut self,
         dst: usize,
@@ -401,19 +426,7 @@ impl WitnessExecHelper {
         for i in 0..copylen {
             let call_data = &self.call_data[&self.call_id];
             let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
-            copy_rows.push(copy::Row {
-                byte: byte.into(),
-                src_type: copy::Type::Calldata,
-                src_id: self.call_id.into(),
-                src_pointer: src.into(),
-                src_stamp: Some(copy_stamp.into()),
-                dst_type: copy::Type::Memory,
-                dst_id: self.call_id.into(),
-                dst_pointer: dst.into(),
-                dst_stamp: copy_stamp.into(),
-                cnt: i.into(),
-                len: copylen.into(),
-            });
+            copy_rows.push(self.get_calldata_read_row(byte, src, dst, copylen, i, copy_stamp));
             state_rows.push(state::Row {
                 tag: Some(state::Tag::CallData),
                 stamp: Some(self.state_stamp.into()),

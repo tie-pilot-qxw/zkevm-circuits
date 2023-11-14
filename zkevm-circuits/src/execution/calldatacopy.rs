@@ -1,5 +1,5 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -8,10 +8,7 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
-use super::CoreSinglePurposeOutcome;
 
 const NUM_ROW: usize = 3;
 const PC_DELTA: usize = 1;
