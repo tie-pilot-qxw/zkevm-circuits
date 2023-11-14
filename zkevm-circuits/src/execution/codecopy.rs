@@ -1,9 +1,11 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
@@ -17,7 +19,7 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
-/// | 2 | CopyLookUp(9)|
+/// | 2 | COPY(9)|
 /// | 1 | STATE | STATE | STATE | notUsed |
 /// | 0 | DYNA_SELECTOR   | AUX           |
 /// +---+-------+-------+-------+---------+
@@ -49,7 +51,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        // let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let address = meta.query_advice(config.code_addr, Rotation::cur());
@@ -69,13 +71,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
-        let delta = AuxiliaryDelta {
+        let auxiliary_delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + copy_lookup_len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
+
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(1.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
 
         // index0: dst_offset, index1: offset, index2: len
         let mut copy_code_stamp_start = 0.expr();
@@ -100,52 +109,49 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         constraints.extend([
+            ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
             (
-                "[code copy] next pc ".into(),
-                pc_next - pc_cur - PC_DELTA.expr(),
-            ),
-            (
-                "[code copy] stack top0 value_hi = 0".into(),
+                "stack top0 value_hi = 0".into(),
                 stack_pop_values[0].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup dst_offset = stack top0 value_lo".into(),
+                "lookup dst_offset = stack top0 value_lo".into(),
                 stack_pop_values[1].expr() - copy_lookup_dst_offset,
             ),
             (
-                "[code copy] stack top1 value_hi = 0".into(),
+                "stack top1 value_hi = 0".into(),
                 stack_pop_values[2].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup offset = stack top1 value_lo".into(),
+                "lookup offset = stack top1 value_lo".into(),
                 stack_pop_values[3].expr() - copy_lookup_offset,
             ),
             (
-                "[code copy] stack top2 value_hi = 0".into(),
+                "stack top2 value_hi = 0".into(),
                 stack_pop_values[4].expr() - 0.expr(),
             ),
             (
-                "[code copy] lookup len = stack top2 value_lo".into(),
+                "lookup len = stack top2 value_lo".into(),
                 stack_pop_values[5].expr() - copy_lookup_len,
             ),
             (
-                "[code copy] lookup code address = code address".into(),
+                "lookup code address = code address".into(),
                 copy_lookup_code_address - address,
             ),
             (
-                "[code copy] lookup dst_id = call id".into(),
+                "lookup dst_id = call id".into(),
                 copy_lookup_dst_id - call_id,
             ),
             (
-                "[code copy] lookup dst_stamp = top2_stamp + 1".into(),
+                "lookup dst_stamp = top2_stamp + 1".into(),
                 copy_lookup_det_stamp - copy_code_stamp_start - 1.expr(),
             ),
             (
-                "[code copy] src_type is ByteCode".into(),
+                "src_type is ByteCode".into(),
                 copy_lookup_src_type - (copy::Type::Bytecode as u8).expr(),
             ),
             (
-                "[code copy] dst_type is Memory".into(),
+                "dst_type is Memory".into(),
                 copy_lookup_dst_type - (copy::Type::Memory as u8).expr(),
             ),
         ]);
