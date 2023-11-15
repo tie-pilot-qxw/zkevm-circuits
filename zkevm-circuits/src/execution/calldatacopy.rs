@@ -28,7 +28,7 @@ const STACK_POINTER_DELTA: i32 = -3;
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | not used |
 /// +---+-------+-------+-------+----------+
-/// | 2 | LENGTH|       |       |          |
+/// | 2 | COPY   |       |       |         |
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -62,8 +62,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_next = meta.query_advice(config.pc, Rotation::next());
 
         // create custom gate and lookup constraints
-        let (_, _, _, _, _, _, _, _, len) =
-            extract_lookup_expression!(copy, config.get_copy_lookup(meta));
+        let copy_entry = config.get_copy_lookup(meta);
+        let (_, _, _, _, _, _, _, _, len) = extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -90,29 +90,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ));
             let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, state_entry);
             stack_pop_values.push(value_lo);
-            constraints.extend([(
-                format!("CALLDATACOPY value_high_{} = 0", i).into(),
-                value_hi.expr(),
-            )])
+            constraints.extend([(format!("value_high_{} = 0", i), value_hi.expr())])
         }
 
-        let lenlo_inv = meta.query_advice(config.vers[24], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
         let is_zero_len =
-            SimpleIsZero::new(&stack_pop_values[2], &lenlo_inv, String::from("length_lo"));
+            SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
+        let state_lookup_2 = config.get_state_lookup(meta, 2);
         constraints.append(&mut config.get_copy_contraints(
             copy::Type::Calldata,
             copy::Type::Memory,
-            stack_pop_values,
+            stack_pop_values[0].clone(),
+            stack_pop_values[1].clone(),
+            stack_pop_values[2].clone(),
             is_zero_len.expr(),
-            config.get_copy_lookup(meta),
+            copy_entry,
+            state_lookup_2,
         ));
         constraints.extend([
             (
-                format!("CALLDATACOPY opcode").into(),
+                format!("opcode").into(),
                 opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
             ),
             (
-                format!("CALLDATACOPY next pc").into(),
+                format!("next pc").into(),
                 pc_next - pc_cur - PC_DELTA.expr(),
             ),
         ]);
@@ -131,18 +132,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         vec![
             (
-                "calldatacopy state lookup, stack top 0 dst_offset".into(),
+                "state lookup, stack top 0 dst_offset".into(),
                 stack_lookup_0,
             ),
             (
-                "calldatacopy state lookup, stack top 1 src_offset".into(),
+                "state lookup, stack top 1 src_offset".into(),
                 stack_lookup_1,
             ),
-            (
-                "calldatacopy state lookup, stack top2 length".into(),
-                stack_lookup_2,
-            ),
-            ("calldatacopy lookup".into(), calldata_copy_lookup),
+            ("state lookup, stack top2 length".into(), stack_lookup_2),
+            ("copy lookup".into(), calldata_copy_lookup),
         ]
     }
 
@@ -167,7 +165,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 src_type: copy::Type::default(),
                 src_id: 0.into(),
                 src_pointer: 0.into(),
-                src_stamp: None, //Some(0.into()),
+                src_stamp: None,
                 dst_type: copy::Type::default(),
                 dst_id: 0.into(),
                 dst_pointer: 0.into(),
@@ -228,7 +226,7 @@ mod test {
         current_state.stack_pointer = stack.0.len();
         current_state.call_data.insert(0, vec![0; 10]);
 
-        assign_and_constraint(stack, current_state, "copylength_le_calldata")
+        run_prover(stack, current_state, "copylength_le_calldata")
     }
 
     #[test]
@@ -242,7 +240,7 @@ mod test {
         current_state.stack_pointer = stack.0.len();
         current_state.call_data.insert(0, vec![0; 10]);
 
-        assign_and_constraint(stack, current_state, "copylength_gt_calldata");
+        run_prover(stack, current_state, "copylength_gt_calldata");
     }
 
     #[test]
@@ -256,11 +254,10 @@ mod test {
         current_state.stack_pointer = stack.0.len();
         current_state.call_data.insert(0, vec![0; 10]);
 
-        assign_and_constraint(stack, current_state, "copylength_eq_0");
+        run_prover(stack, current_state, "copylength_eq_0");
     }
 
-    // #[test]
-    fn assign_and_constraint(stack: Stack, mut current_state: WitnessExecHelper, file_name: &str) {
+    fn run_prover(stack: Stack, mut current_state: WitnessExecHelper, file_name: &str) {
         let stack_pointer = stack.0.len();
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATACOPY, stack);
         let padding_begin_row = |current_state| {
