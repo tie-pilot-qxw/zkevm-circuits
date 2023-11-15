@@ -383,7 +383,7 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
-    pub fn get_calldata_read_row(&mut self, val: u8, src: usize, index: usize) -> state::Row {
+    pub fn get_calldata_read_row(&mut self, dst: usize, val: u8) -> state::Row {
         let state_row = state::Row {
             tag: Some(state::Tag::CallData),
             stamp: Some(self.state_stamp.into()),
@@ -391,7 +391,7 @@ impl WitnessExecHelper {
             value_lo: Some(val.into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((src + index).into()),
+            pointer_lo: Some(dst.into()),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
@@ -423,7 +423,7 @@ impl WitnessExecHelper {
                 cnt: i.into(),
                 len: len.into(),
             });
-            state_rows.push(self.get_calldata_read_row(byte, src, i));
+            state_rows.push(self.get_calldata_read_row(src + i, byte));
         }
 
         for i in 0..len {

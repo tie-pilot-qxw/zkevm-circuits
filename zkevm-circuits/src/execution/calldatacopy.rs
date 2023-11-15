@@ -210,7 +210,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    // use std::fs::File;
 
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
@@ -288,8 +287,5 @@ mod test {
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
         prover.assert_satisfied_par();
-        // let mut buf =
-        //     std::io::BufWriter::new(File::create(format!("test_data/{}.html", file_name)).unwrap());
-        // witness.write_html(&mut buf);
     }
 }
