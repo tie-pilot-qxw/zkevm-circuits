@@ -6,8 +6,10 @@ use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
@@ -18,7 +20,7 @@ const STACK_POINTER_DELTA: i32 = -3;
 /// CALLDATACOPY copy message data from calldata to memory in EVM.
 ///
 /// CALLDATACOPY Execution State layout is as follows
-/// where STATE means state table lookup (dst_offset, src_offset, length),
+/// where COPY means copy table lookup (dst_offset, src_offset, length),
 /// LENGTH means retrive data length from calldata,
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -55,11 +57,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let opcode_advice = meta.query_advice(config.opcode, Rotation::cur());
+        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
+        let pc_next = meta.query_advice(config.pc, Rotation::next());
+
         // create custom gate and lookup constraints
         let (_, _, _, _, _, _, _, _, len) =
             extract_lookup_expression!(copy, config.get_copy_lookup(meta));
         let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
+            state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
@@ -69,16 +75,47 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+
+        let mut stack_pop_values = vec![];
+        // calldatacopy has three operand.
+        for i in 0..3 {
+            let state_entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                state_entry.clone(),
+                i,
+                NUM_ROW,
+                (-1 * i as i32).expr(),
+                false,
+            ));
+            let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, state_entry);
+            stack_pop_values.push(value_lo);
+            constraints.extend([(
+                format!("CALLDATACOPY value_high_{} = 0", i).into(),
+                value_hi.expr(),
+            )])
+        }
+
+        let lenlo_inv = meta.query_advice(config.vers[24], Rotation::prev());
+        let is_zero_len =
+            SimpleIsZero::new(&stack_pop_values[2], &lenlo_inv, String::from("length_lo"));
         constraints.append(&mut config.get_copy_contraints(
-            "CALLDATACOPY".to_string(),
-            meta,
-            OpcodeId::CALLDATACOPY,
-            PC_DELTA,
             copy::Type::Calldata,
             copy::Type::Memory,
-            NUM_ROW,
+            stack_pop_values,
+            is_zero_len.expr(),
+            config.get_copy_lookup(meta),
         ));
-
+        constraints.extend([
+            (
+                format!("CALLDATACOPY opcode").into(),
+                opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
+            ),
+            (
+                format!("CALLDATACOPY next pc").into(),
+                pc_next - pc_cur - PC_DELTA.expr(),
+            ),
+        ]);
         constraints
     }
 
@@ -111,23 +148,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // get three operand from stack
-        let (dst_offset, dst_offset_value) = current_state.get_pop_stack_row_value(&trace);
-        let (calldata_offset, calldata_offset_value) =
-            current_state.get_pop_stack_row_value(&trace);
-        let (length, length_value) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_0, dst_offset) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_1, calldata_offset) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_2, length) = current_state.get_pop_stack_row_value(&trace);
 
         // get copydata and state from calldata
         let (copy_rows, mut state_rows) = current_state.get_calldata_copy_rows(
-            dst_offset_value.as_usize(),
-            calldata_offset_value.as_usize(),
-            length_value.as_usize(),
+            dst_offset.as_usize(),
+            calldata_offset.as_usize(),
+            length.as_usize(),
         );
 
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let copy_row: copy::Row;
-        if length_value.is_zero() {
-            copy_row = copy::Row {
+        if length.is_zero() {
+            core_row_2.insert_copy_lookup(&copy::Row {
                 byte: 0.into(),
                 src_type: copy::Type::default(),
                 src_id: 0.into(),
@@ -139,14 +174,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 dst_stamp: 0.into(),
                 cnt: 0.into(),
                 len: 0.into(),
-            };
+            });
         } else {
-            copy_row = copy_rows.get(0).unwrap().clone();
+            core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap());
         }
-        core_row_2.insert_copy_lookup(&copy_row);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&dst_offset, &calldata_offset, &length]);
-        let len_lo = F::from_u128(length_value.low_u128());
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2]);
+        let len_lo = F::from_u128(length.low_u128());
         let lenlo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         core_row_1.vers_24 = Some(lenlo_inv);
@@ -159,7 +193,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // generate witness for coredataload instruct
-        state_rows.extend(vec![dst_offset, calldata_offset, length]);
+        state_rows.extend(vec![stack_pop_0, stack_pop_1, stack_pop_2]);
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -176,7 +210,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use std::fs::File;
+    // use std::fs::File;
 
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
