@@ -108,7 +108,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_advice_or_fixed(region, offset, &(row.src_type as u8).into(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
         assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
-        assign_advice_or_fixed(region, offset, &row.src_stamp.unwrap(), self.src_stamp)?;
+        assign_advice_or_fixed(region, offset, &row.src_stamp.unwrap_or_default(), self.src_stamp)?;
         assign_advice_or_fixed(region, offset, &(row.dst_type as u8).into(), self.dst_type)?;
         assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
         assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
