@@ -1,13 +1,29 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::util::query_expression;
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
+use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+use super::CoreSinglePurposeOutcome;
+
+/// +---+-------+-------+-------+--------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col  |
+/// +---+-------+-------+-------+--------+
+/// | 1 | STATE | STATE |                |
+/// | 0 | DYNA_SELECTOR   | AUX          |
+/// +---+-------+-------+-------+--------+
+
 const NUM_ROW: usize = 2;
+
+const STATE_STAMP_DELTA: u64 = 2;
+const STACK_POINTER_DELTA: i32 = 0;
+const PC_DELTA: u64 = 1;
 
 pub struct NotGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -32,7 +48,56 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut operands = vec![];
+
+        for i in 0..2 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                0.expr(),
+                i == 1,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            operands.push([value_hi, value_lo]);
+        }
+
+        let a = &operands[0];
+        let b = &operands[1];
+
+        let sum_expr = 1.expr() * pow_of_two::<F>(128) - 1.expr(); // expression for 2^128 - 1
+        constraints.extend([
+            (
+                "not operation correct hi".into(),
+                a[0].clone() + b[0].clone() - sum_expr.clone(),
+            ),
+            (
+                "not operation correct lo".into(),
+                a[1].clone() + b[1].clone() - sum_expr.clone(),
+            ),
+        ]);
+
+        constraints.extend([("opcode".into(), opcode - OpcodeId::NOT.as_u8().expr())]);
+
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+
+        constraints
     }
     fn get_lookups(
         &self,
