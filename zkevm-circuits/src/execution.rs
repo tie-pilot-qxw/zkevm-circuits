@@ -326,7 +326,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         constraints.extend([
             (
-                format!("src_type is {:?}", src_type),
+                format!("src_type of copy is {:?}", src_type),
                 (1.expr() - len_is_zero.clone())
                     * (copy_lookup_src_type.clone() - (src_type as u64).expr())
                     + len_is_zero.clone() * copy_lookup_src_type,
@@ -347,7 +347,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     + len_is_zero.clone() * copy_lookup_src_stamp,
             ),
             (
-                format!("dst_type is {:?}", dst_type),
+                format!("dst_type of copy is {:?}", dst_type),
                 (1.expr() - len_is_zero.clone())
                     * (copy_lookup_dst_type.clone() - (dst_type as u64).expr())
                     + len_is_zero.clone() * copy_lookup_dst_type,
@@ -367,11 +367,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_stamp.clone() - dst_stamp)
                     + len_is_zero.clone() * copy_lookup_dst_stamp,
             ),
-            (
-                format!("length of copy"),
-                (1.expr() - len_is_zero.expr()) * (copy_lookup_length.expr() - len)
-                    + len_is_zero * copy_lookup_length,
-            ),
+            (format!("length of copy"), copy_lookup_length.expr() - len),
         ]);
 
         constraints
@@ -416,7 +412,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(), // third stack is write
+                is_write - (write as u8).expr(),
             ),
         ]
     }
