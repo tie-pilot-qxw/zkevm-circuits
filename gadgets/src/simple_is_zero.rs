@@ -38,6 +38,9 @@ impl<F: Field> SimpleIsZero<F> {
     }
 
     /// return the expression 1 - value * value_inv
+    ///
+    /// if value=0 return 1
+    /// else return 0
     pub fn expr(&self) -> Expression<F> {
         1.expr() - self.value.clone() * self.value_inv.clone()
     }

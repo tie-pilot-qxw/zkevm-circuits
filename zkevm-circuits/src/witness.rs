@@ -20,6 +20,7 @@ use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
+use rand_chacha::rand_core::le;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
@@ -382,6 +383,25 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
+    pub fn get_calldata_read_row(&mut self, dst: usize) -> (state::Row, u8) {
+        let val = self.call_data[&self.call_id]
+            .get(dst)
+            .cloned()
+            .unwrap_or_default();
+        let state_row = state::Row {
+            tag: Some(state::Tag::CallData),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some(val.into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some(dst.into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (state_row, val)
+    }
+
     pub fn get_calldata_copy_rows(
         &mut self,
         dst: usize,
@@ -392,8 +412,7 @@ impl WitnessExecHelper {
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
         for i in 0..len {
-            let call_data = &self.call_data[&self.call_id];
-            let byte = call_data.get(src + i).map(|x| x.clone()).unwrap();
+            let (state_row, byte) = self.get_calldata_read_row(src + i);
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Calldata,
@@ -403,20 +422,16 @@ impl WitnessExecHelper {
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: dst.into(),
-                dst_stamp: copy_stamp.into(),
+                dst_stamp: (copy_stamp + len as u64).into(),
                 cnt: i.into(),
                 len: len.into(),
             });
-            state_rows.push(state::Row {
-                tag: Some(state::Tag::CallData),
-                stamp: Some(self.state_stamp.into()),
-                value_hi: None,
-                value_lo: Some(byte.into()),
-                call_id_contract_addr: Some(self.call_id.into()),
-                pointer_hi: None,
-                pointer_lo: Some((src + i).into()),
-                is_write: Some(0.into()),
-            });
+            state_rows.push(state_row);
+        }
+
+        for i in 0..len {
+            let call_data = self.call_data.get(&self.call_id).unwrap();
+            let byte = call_data.get(src + i).cloned().unwrap_or_default();
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 

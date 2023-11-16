@@ -40,13 +40,12 @@ pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
-use crate::execution::calldataload::LOAD_SIZE;
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
 use crate::witness::WitnessExecHelper;
-use crate::witness::{state, Witness};
+use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
+use eth_types::Field;
 use eth_types::GethExecStep;
-use eth_types::{Field, U256};
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::util::Expr;
@@ -298,6 +297,82 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_copy_contraints(
+        &self,
+        src_type: copy::Type,
+        src_id: Expression<F>,
+        src_pointer: Expression<F>,
+        src_stamp: Expression<F>,
+        dst_type: copy::Type,
+        dst_id: Expression<F>,
+        dst_pointer: Expression<F>,
+        dst_stamp: Expression<F>,
+        len: Expression<F>,
+        len_is_zero: Expression<F>,
+        copy_lookup_entry: LookupEntry<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let (
+            copy_lookup_src_type,
+            copy_lookup_src_id,
+            copy_lookup_src_pointer,
+            copy_lookup_src_stamp,
+            copy_lookup_dst_type,
+            copy_lookup_dst_id,
+            copy_lookup_dst_pointer,
+            copy_lookup_dst_stamp,
+            copy_lookup_length,
+        ) = extract_lookup_expression!(copy, copy_lookup_entry);
+
+        let mut constraints = vec![];
+        constraints.extend([
+            (
+                format!("src_type of copy is {:?}", src_type),
+                (1.expr() - len_is_zero.clone())
+                    * (copy_lookup_src_type.clone() - (src_type as u64).expr())
+                    + len_is_zero.clone() * copy_lookup_src_type,
+            ),
+            (
+                format!("src_id of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_id.clone() - src_id)
+                    + len_is_zero.clone() * copy_lookup_src_id,
+            ),
+            (
+                format!("src_pointer of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_pointer.clone() - src_pointer)
+                    + len_is_zero.clone() * copy_lookup_src_pointer,
+            ),
+            (
+                format!("src_stamp of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_stamp.clone() - src_stamp)
+                    + len_is_zero.clone() * copy_lookup_src_stamp,
+            ),
+            (
+                format!("dst_type of copy is {:?}", dst_type),
+                (1.expr() - len_is_zero.clone())
+                    * (copy_lookup_dst_type.clone() - (dst_type as u64).expr())
+                    + len_is_zero.clone() * copy_lookup_dst_type,
+            ),
+            (
+                format!("dst_id of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_id.clone() - dst_id)
+                    + len_is_zero.clone() * copy_lookup_dst_id,
+            ),
+            (
+                format!("dst_pointer of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_pointer.clone() - dst_pointer)
+                    + len_is_zero.clone() * copy_lookup_dst_pointer,
+            ),
+            (
+                format!("dst_stamp of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_stamp.clone() - dst_stamp)
+                    + len_is_zero.clone() * copy_lookup_dst_stamp,
+            ),
+            (format!("length of copy"), copy_lookup_length.expr() - len),
+        ]);
+
+        constraints
+    }
+
     pub(crate) fn get_stack_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -337,7 +412,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(), // third stack is write
+                is_write - (write as u8).expr(),
             ),
         ]
     }
