@@ -299,73 +299,81 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_copy_contraints(
         &self,
-        s_type: copy::Type,
-        d_type: copy::Type,
-        dst_pointer: Expression<F>,
+        src_type: copy::Type,
+        src_id: Expression<F>,
         src_pointer: Expression<F>,
-        lenth: Expression<F>,
-        is_zero_value: Expression<F>,
+        src_stamp: Expression<F>,
+        dst_type: copy::Type,
+        dst_id: Expression<F>,
+        dst_pointer: Expression<F>,
+        dst_stamp: Expression<F>,
+        len: Expression<F>,
+        len_is_zero: Expression<F>,
         copy_lookup_entry: LookupEntry<F>,
-        state_lookup: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
         let (
             copy_lookup_src_type,
             copy_lookup_src_id,
             copy_lookup_src_pointer,
             copy_lookup_src_stamp,
-            copy_lookup_dest_type,
+            copy_lookup_dst_type,
             copy_lookup_dst_id,
-            copy_lookup_dest_pointer,
-            copy_lookup_dest_stamp,
+            copy_lookup_dst_pointer,
+            copy_lookup_dst_stamp,
             copy_lookup_length,
         ) = extract_lookup_expression!(copy, copy_lookup_entry);
 
-        let (_, state_lookup_stamp, ..) = extract_lookup_expression!(state, state_lookup);
         let mut constraints = vec![];
         constraints.extend([
             (
-                format!(" dst_offset = stack top 0"),
-                (1.expr() - is_zero_value.expr()) * (dst_pointer - copy_lookup_dest_pointer.expr())
-                    + is_zero_value.expr() * copy_lookup_dest_pointer.expr(),
+                format!("dst_pointer of copy"),
+                (1.expr() - len_is_zero.clone()) * (dst_pointer - copy_lookup_dst_pointer.clone())
+                    + len_is_zero.clone() * copy_lookup_dst_pointer.clone(),
             ),
             (
-                format!(" src_offset = stack top 1"),
-                (1.expr() - is_zero_value.expr()) * (src_pointer - copy_lookup_src_pointer.expr())
-                    + is_zero_value.expr() * copy_lookup_src_pointer.expr(),
+                format!("src_id of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_id.clone() - src_id)
+                    + len_is_zero.clone() * copy_lookup_src_id,
             ),
             (
-                format!(" length = stack top 2"),
-                (1.expr() - is_zero_value.expr()) * (lenth - copy_lookup_length.expr())
-                    + is_zero_value.expr() * copy_lookup_length.expr(),
+                format!("src_type is {:?}", src_type),
+                (1.expr() - len_is_zero.clone())
+                    * (copy_lookup_src_type.clone() - (src_type as u64).expr())
+                    + len_is_zero.clone() * copy_lookup_src_type.clone(),
+            ),
+            // TODO refactor below
+            (
+                format!("src_offset = stack top 1"),
+                (1.expr() - len_is_zero.expr()) * (src_pointer - copy_lookup_src_pointer.expr())
+                    + len_is_zero.expr() * copy_lookup_src_pointer.expr(),
             ),
             (
-                format!(" src_type is calldata"),
-                (1.expr() - is_zero_value.expr())
-                    * (copy_lookup_src_type.expr() - (s_type as u64).expr())
-                    + is_zero_value.expr() * copy_lookup_src_type.expr(),
+                format!("length = stack top 2"),
+                (1.expr() - len_is_zero.expr()) * (len - copy_lookup_length.expr())
+                    + len_is_zero.expr() * copy_lookup_length.expr(),
             ),
             (
-                format!(" dst_type is memory"),
-                (1.expr() - is_zero_value.expr())
-                    * (copy_lookup_dest_type.expr() - (d_type as u64).expr())
-                    + is_zero_value.expr() * copy_lookup_dest_type.expr(),
+                format!("src_type is calldata"),
+                (1.expr() - len_is_zero.expr())
+                    * (copy_lookup_src_type.expr() - (src_type as u64).expr())
+                    + len_is_zero.expr() * copy_lookup_src_type.expr(),
             ),
             (
-                format!(" src_id = dst_id"),
-                (1.expr() - is_zero_value.expr())
-                    * (copy_lookup_dst_id.clone() - copy_lookup_src_id)
-                    + is_zero_value.expr() * copy_lookup_dst_id,
+                format!("dst_type is memory"),
+                (1.expr() - len_is_zero.expr())
+                    * (copy_lookup_dst_type.expr() - (dst_type as u64).expr())
+                    + len_is_zero.expr() * copy_lookup_dst_type.expr(),
             ),
             (
                 format!("copy_src_stamp = state_stamp = 1"),
-                (1.expr() - is_zero_value.expr())
+                (1.expr() - len_is_zero.expr())
                 // -1.expr()， state rows are generated on stamp 1, and subsequent COPY_rows start on stamp 1
                     * (copy_lookup_src_stamp.clone() - state_lookup_stamp - 1.expr())
-                    + is_zero_value.expr() * copy_lookup_src_stamp.clone(),
+                    + len_is_zero.expr() * copy_lookup_src_stamp.clone(),
             ),
             (
                 format!("copy_dst_stamp - copy_src_stamp = length"),
-                (1.expr() - is_zero_value.expr())
+                (1.expr() - len_is_zero.expr())
                     * (copy_lookup_dest_stamp - copy_lookup_src_stamp - copy_lookup_length),
             ),
         ]);

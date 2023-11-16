@@ -97,12 +97,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
         let state_lookup_2 = config.get_state_lookup(meta, 2);
+        //todo
         constraints.append(&mut config.get_copy_contraints(
             copy::Type::Calldata,
-            copy::Type::Memory,
             stack_pop_values[0].clone(),
             stack_pop_values[1].clone(),
             stack_pop_values[2].clone(),
+            copy::Type::Memory,
             is_zero_len.expr(),
             copy_entry,
             state_lookup_2,

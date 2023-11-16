@@ -412,8 +412,7 @@ impl WitnessExecHelper {
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
         for i in 0..len {
-            let call_data = &self.call_data[&self.call_id];
-            let byte = call_data.get(src + i).cloned().unwrap_or_default();
+            let (state_row, byte) = self.get_calldata_read_row(src + i);
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Calldata,
@@ -427,7 +426,6 @@ impl WitnessExecHelper {
                 cnt: i.into(),
                 len: len.into(),
             });
-            let (state_row, _) = self.get_calldata_read_row(src + i);
             state_rows.push(state_row);
         }
 
