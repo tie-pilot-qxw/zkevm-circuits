@@ -61,7 +61,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
 
-        // create custom gate and lookup constraints
+        // create custom gate constraints
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, len) = extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryDelta {
@@ -96,17 +96,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
-        let state_lookup_2 = config.get_state_lookup(meta, 2);
-        //todo
+        let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut config.get_copy_contraints(
             copy::Type::Calldata,
-            stack_pop_values[0].clone(),
+            call_id.clone(),
             stack_pop_values[1].clone(),
-            stack_pop_values[2].clone(),
+            // +1.expr() after state row is generated, the stamp+=1 affected, thus subsequent copy_row start at stamp+=1.
+            stamp.clone() + 1.expr(),
             copy::Type::Memory,
+            call_id,
+            stack_pop_values[0].clone(),
+            stamp + stack_pop_values[2].clone() + 1.expr(),
+            stack_pop_values[2].clone(),
             is_zero_len.expr(),
             copy_entry,
-            state_lookup_2,
         ));
         constraints.extend([
             (

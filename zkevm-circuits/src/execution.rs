@@ -326,9 +326,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         constraints.extend([
             (
-                format!("dst_pointer of copy"),
-                (1.expr() - len_is_zero.clone()) * (dst_pointer - copy_lookup_dst_pointer.clone())
-                    + len_is_zero.clone() * copy_lookup_dst_pointer.clone(),
+                format!("src_type is {:?}", src_type),
+                (1.expr() - len_is_zero.clone())
+                    * (copy_lookup_src_type.clone() - (src_type as u64).expr())
+                    + len_is_zero.clone() * copy_lookup_src_type,
             ),
             (
                 format!("src_id of copy"),
@@ -336,45 +337,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     + len_is_zero.clone() * copy_lookup_src_id,
             ),
             (
-                format!("src_type is {:?}", src_type),
+                format!("src_pointer of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_pointer.clone() - src_pointer)
+                    + len_is_zero.clone() * copy_lookup_src_pointer,
+            ),
+            (
+                format!("src_stamp of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_stamp.clone() - src_stamp)
+                    + len_is_zero.clone() * copy_lookup_src_stamp,
+            ),
+            (
+                format!("dst_type is {:?}", dst_type),
                 (1.expr() - len_is_zero.clone())
-                    * (copy_lookup_src_type.clone() - (src_type as u64).expr())
-                    + len_is_zero.clone() * copy_lookup_src_type.clone(),
-            ),
-            // TODO refactor below
-            (
-                format!("src_offset = stack top 1"),
-                (1.expr() - len_is_zero.expr()) * (src_pointer - copy_lookup_src_pointer.expr())
-                    + len_is_zero.expr() * copy_lookup_src_pointer.expr(),
+                    * (copy_lookup_dst_type.clone() - (dst_type as u64).expr())
+                    + len_is_zero.clone() * copy_lookup_dst_type,
             ),
             (
-                format!("length = stack top 2"),
-                (1.expr() - len_is_zero.expr()) * (len - copy_lookup_length.expr())
-                    + len_is_zero.expr() * copy_lookup_length.expr(),
+                format!("dst_id of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_id.clone() - dst_id)
+                    + len_is_zero.clone() * copy_lookup_dst_id,
             ),
             (
-                format!("src_type is calldata"),
-                (1.expr() - len_is_zero.expr())
-                    * (copy_lookup_src_type.expr() - (src_type as u64).expr())
-                    + len_is_zero.expr() * copy_lookup_src_type.expr(),
+                format!("dst_pointer of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_pointer.clone() - dst_pointer)
+                    + len_is_zero.clone() * copy_lookup_dst_pointer,
             ),
             (
-                format!("dst_type is memory"),
-                (1.expr() - len_is_zero.expr())
-                    * (copy_lookup_dst_type.expr() - (dst_type as u64).expr())
-                    + len_is_zero.expr() * copy_lookup_dst_type.expr(),
+                format!("dst_stamp of copy"),
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_stamp.clone() - dst_stamp)
+                    + len_is_zero.clone() * copy_lookup_dst_stamp,
             ),
             (
-                format!("copy_src_stamp = state_stamp = 1"),
-                (1.expr() - len_is_zero.expr())
-                // -1.expr()， state rows are generated on stamp 1, and subsequent COPY_rows start on stamp 1
-                    * (copy_lookup_src_stamp.clone() - state_lookup_stamp - 1.expr())
-                    + len_is_zero.expr() * copy_lookup_src_stamp.clone(),
-            ),
-            (
-                format!("copy_dst_stamp - copy_src_stamp = length"),
-                (1.expr() - len_is_zero.expr())
-                    * (copy_lookup_dest_stamp - copy_lookup_src_stamp - copy_lookup_length),
+                format!("length of copy"),
+                (1.expr() - len_is_zero.expr()) * (copy_lookup_length.expr() - len)
+                    + len_is_zero * copy_lookup_length,
             ),
         ]);
 
