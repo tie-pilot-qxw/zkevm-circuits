@@ -1,6 +1,6 @@
 use eth_types::U256;
 use serde::Serialize;
-
+use strum_macros::{EnumIter, EnumString};
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
     /// The byte value that is copied
@@ -12,7 +12,7 @@ pub struct Row {
     /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
     pub src_pointer: U256,
     /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
-    pub src_stamp: Option<U256>,
+    pub src_stamp: U256,
     /// The destination type, one of Memory, Calldata, Returndata, PublicLog
     pub dst_type: Type,
     /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
@@ -30,9 +30,11 @@ pub struct Row {
 /// Source and destination type.
 /// Destination type could only be Memory, Calldata, Returndata, PublicLog, hence it needs two bits to represent.
 /// Source type needs three bits.
-#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
 pub enum Type {
     #[default]
+    /// Zero value for padding, under which id, pointer, and stamp are default value
+    Zero,
     /// Memory in state sub-circuit
     Memory,
     /// Calldata in state sub-circuit
@@ -45,4 +47,10 @@ pub enum Type {
     PublicCalldata,
     /// Bytecode in bytecode sub-circuit
     Bytecode,
+}
+
+impl From<Type> for usize {
+    fn from(t: Type) -> Self {
+        t as usize
+    }
 }
