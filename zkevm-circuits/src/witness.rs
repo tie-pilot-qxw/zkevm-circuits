@@ -20,7 +20,6 @@ use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
-use rand_chacha::rand_core::le;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
@@ -39,6 +38,7 @@ pub struct Witness {
 pub struct WitnessExecHelper {
     pub stack_pointer: usize,
     pub call_data: HashMap<u64, Vec<u8>>,
+    pub return_data: HashMap<u64, Vec<u8>>,
     pub value: HashMap<u64, U256>,
     pub sender: HashMap<u64, U256>,
     pub tx_idx: usize,
@@ -60,6 +60,7 @@ impl WitnessExecHelper {
         Self {
             stack_pointer: 0,
             call_data: HashMap::new(),
+            return_data: HashMap::new(),
             value: HashMap::new(),
             sender: HashMap::new(),
             tx_idx: 0,
@@ -265,6 +266,27 @@ impl WitnessExecHelper {
         res
     }
 
+    pub fn get_return_data_read_row(&mut self, dst: usize, call_id: u64) -> (state::Row, u8) {
+        let value = self
+            .return_data
+            .get(&call_id)
+            .unwrap()
+            .get(dst)
+            .cloned()
+            .unwrap_or_default();
+        let res = state::Row {
+            tag: Some(state::Tag::ReturnData),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some(value.into()),
+            call_id_contract_addr: Some(call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some(dst.into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, value)
+    }
     pub fn get_storage_read_row(&mut self, key: U256, contract_addr: U256) -> state::Row {
         todo!()
         //TODO add trace_step, use trace_step.storage
@@ -383,6 +405,49 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
+    pub fn get_return_data_copy_rows(
+        &mut self,
+        dst: usize,
+        src: usize,
+        len: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        //TODO: src_id need use last_call_id (return_data_write maybe use last_call_id )
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let copy_stamp = self.state_stamp;
+        let dst_copy_stamp = self.state_stamp + len as u64;
+
+        for i in 0..len {
+            // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
+            let data = self.return_data.get(&self.call_id).unwrap();
+            let byte = data.get(src + i).map(|x| x.clone()).unwrap();
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Type::Returndata,
+                src_id: self.call_id.into(),
+                src_pointer: src.into(),
+                src_stamp: Some(copy_stamp.into()),
+                dst_type: copy::Type::Memory,
+                dst_id: self.call_id.into(),
+                dst_pointer: dst.into(),
+                dst_stamp: dst_copy_stamp.into(),
+                cnt: i.into(),
+                len: len.into(),
+            });
+
+            state_rows.push(self.get_return_data_read_row(src + i, self.call_id).0);
+        }
+
+        for i in 0..len {
+            // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
+            let data = self.return_data.get(&self.call_id).unwrap();
+            let byte = data.get(src + i).map(|x| x.clone()).unwrap();
+
+            state_rows.push(self.get_memory_write_row(dst + i, byte));
+        }
+
+        (copy_rows, state_rows)
+    }
     pub fn get_calldata_read_row(&mut self, dst: usize) -> (state::Row, u8) {
         let val = self.call_data[&self.call_id]
             .get(dst)
@@ -939,10 +1004,7 @@ impl Witness {
     }
 
     pub fn print_csv(&self) {
-        let mut buf = Vec::new();
-        self.write_all_as_csv(&mut buf);
-        let csv_string = String::from_utf8(buf).unwrap();
-        println!("{}", csv_string);
+        self.write_all_as_csv(std::io::stdout());
     }
 
     fn write_one_table<W: Write, T: Serialize, S: AsRef<str>>(

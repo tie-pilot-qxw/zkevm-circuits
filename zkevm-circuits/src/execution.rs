@@ -30,6 +30,7 @@ pub mod pop;
 pub mod public_context;
 pub mod push;
 pub mod return_revert;
+pub mod returndatacopy;
 pub mod selfbalance;
 pub mod sgt;
 pub mod shr;
@@ -99,6 +100,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::begin_tx_1::new(),
             crate::execution::begin_tx_2::new(),
             crate::execution::selfbalance::new(),
+            crate::execution::returndatacopy::new(),
         ]
     }};
 }
@@ -795,6 +797,7 @@ pub enum ExecutionState {
     CODECOPY,
     EXTCODECOPY,
     SELFBALANCE,
+    RETURNDATACOPY,
 }
 
 impl ExecutionState {
@@ -960,7 +963,7 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::RETURNDATACOPY => {
-                todo!()
+                vec![Self::RETURNDATACOPY]
             }
             OpcodeId::BLOCKHASH => {
                 todo!()
