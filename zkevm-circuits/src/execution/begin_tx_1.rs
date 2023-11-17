@@ -140,7 +140,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 src_type: copy::Type::PublicCalldata,
                 src_id: tx_idx.into(),
                 src_pointer: 0.into(),
-                src_stamp: None,
+                src_stamp: 0.into(),
                 dst_type: copy::Type::Calldata,
                 dst_id: call_id.into(),
                 dst_pointer: 0.into(),
