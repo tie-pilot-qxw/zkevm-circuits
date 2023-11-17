@@ -101,8 +101,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("lengthlo"));
 
-        let is_copydata_exceed_len = meta.query_advice(config.vers[25], Rotation::prev());
-
         constraints.append(&mut config.get_copy_contraints(
             copy::Type::Returndata,
             call_id.clone(),
@@ -123,10 +121,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode - (OpcodeId::RETURNDATACOPY).expr(),
             ),
             ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
-            (
-                "copydata not exceed returndate length".into(),
-                is_copydata_exceed_len.expr(),
-            ),
         ]);
         // TODO: add return data length > copy size
 
@@ -179,7 +173,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 src_type: copy::Type::default(),
                 src_id: 0.into(),
                 src_pointer: 0.into(),
-                src_stamp: None,
+                src_stamp: 0.into(),
                 dst_type: copy::Type::default(),
                 dst_id: 0.into(),
                 dst_pointer: 0.into(),

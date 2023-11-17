@@ -426,7 +426,7 @@ impl WitnessExecHelper {
                 src_type: copy::Type::Returndata,
                 src_id: self.call_id.into(),
                 src_pointer: src.into(),
-                src_stamp: Some(copy_stamp.into()),
+                src_stamp: copy_stamp.into(),
                 dst_type: copy::Type::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: dst.into(),
@@ -1004,7 +1004,10 @@ impl Witness {
     }
 
     pub fn print_csv(&self) {
-        self.write_all_as_csv(std::io::stdout());
+        let mut buf = Vec::new();
+        self.write_all_as_csv(&mut buf);
+        let csv_string = String::from_utf8(buf).unwrap();
+        println!("{}", csv_string);
     }
 
     fn write_one_table<W: Write, T: Serialize, S: AsRef<str>>(
