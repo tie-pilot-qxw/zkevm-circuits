@@ -21,7 +21,7 @@ pub struct SuperCircuitConfig<
     bytecode_circuit: BytecodeCircuitConfig<F>,
     state_circuit: StateCircuitConfig<F>,
     public_circuit: PublicCircuitConfig,
-    copy_circuit: CopyCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    copy_circuit: CopyCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -93,7 +93,7 @@ pub struct SuperCircuit<
     pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
     pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
     pub public_circuit: PublicCircuit<F>,
-    pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<

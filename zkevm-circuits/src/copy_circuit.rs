@@ -14,7 +14,7 @@ use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 #[derive(Clone)]
-pub struct CopyCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+pub struct CopyCircuitConfig<F: Field>
 {
     pub q_enable: Selector,
     /// The byte value that is copied
@@ -50,8 +50,8 @@ pub struct CopyCircuitConfigArgs<F> {
     pub state_table: StateTable,
 }
 
-impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
-    for CopyCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+impl<F: Field> SubCircuitConfig<F>
+    for CopyCircuitConfig<F>
 {
     type ConfigArgs = CopyCircuitConfigArgs<F>;
     fn new(
@@ -93,8 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     }
 }
 
-impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    CopyCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+impl<F: Field> CopyCircuitConfig<F>
 {
     #[rustfmt::skip]
     fn assign_row(
@@ -158,7 +157,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .last()
             .expect("copy witness must have last row");
         // pad the rest rows
-        for offset in witness.core.len()..num_row_incl_padding {
+        for offset in witness.copy.len()..num_row_incl_padding {
             self.assign_padding_row(region, offset, last_row)?;
         }
         Ok(())
@@ -184,8 +183,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 pub struct CopyCircuit<
     F: Field,
     const MAX_NUM_ROW: usize,
-    const NUM_STATE_HI_COL: usize,
-    const NUM_STATE_LO_COL: usize,
 > {
     witness: Witness,
     _marker: PhantomData<F>,
@@ -193,12 +190,10 @@ pub struct CopyCircuit<
 
 impl<
         F: Field,
-        const MAX_NUM_ROW: usize,
-        const NUM_STATE_HI_COL: usize,
-        const NUM_STATE_LO_COL: usize,
-    > SubCircuit<F> for CopyCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+        const MAX_NUM_ROW: usize
+    > SubCircuit<F> for CopyCircuit<F, MAX_NUM_ROW>
 {
-    type Config = CopyCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
+    type Config = CopyCircuitConfig<F>;
     type Cells = ();
 
     fn new_from_witness(witness: &Witness) -> Self {
@@ -213,14 +208,14 @@ impl<
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
-        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
+        //let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
             || "copy circuit",
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
                 // sub circuit need to enable selector
-                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
+                for offset in 0..self.witness.copy.len() - 1 {
                     config.q_enable.enable(&mut region, offset)?;
                 }
                 Ok(())
@@ -229,7 +224,7 @@ impl<
     }
 
     fn unusable_rows() -> (usize, usize) {
-        ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows()
+        (0, 1)
     }
 
     fn num_rows(witness: &Witness) -> usize {
@@ -252,11 +247,11 @@ mod test {
 
     #[derive(Clone, Default, Debug)]
     pub struct CopyTestCircuit<F: Field>(
-        CopyCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        CopyCircuit<F, MAX_NUM_ROW>,
     );
 
     impl<F: Field> Circuit<F> for CopyTestCircuit<F> {
-        type Config = CopyCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
+        type Config = CopyCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
             Self::default()
