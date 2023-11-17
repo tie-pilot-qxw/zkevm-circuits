@@ -179,7 +179,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 src_type: copy::Type::default(),
                 src_id: 0.into(),
                 src_pointer: 0.into(),
-                src_stamp: None,
+                src_stamp: 0.into(),
                 dst_type: copy::Type::default(),
                 dst_id: 0.into(),
                 dst_pointer: 0.into(),
