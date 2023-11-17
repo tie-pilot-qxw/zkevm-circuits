@@ -287,6 +287,21 @@ impl WitnessExecHelper {
         self.state_stamp += 1;
         (res, value)
     }
+
+    pub fn get_return_data_write_row(&mut self, dst: usize, value: u8) -> state::Row {
+        let res = state::Row {
+            tag: Some(state::Tag::ReturnData),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some(value.into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some(dst.into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
     pub fn get_storage_read_row(&mut self, key: U256, contract_addr: U256) -> state::Row {
         todo!()
         //TODO add trace_step, use trace_step.storage
@@ -599,6 +614,41 @@ impl WitnessExecHelper {
         };
         self.state_stamp += 1;
         res
+    }
+
+    pub fn get_return_revert_rows(
+        &mut self,
+        trace: &GethExecStep,
+        offset: usize,
+        len: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let copy_stamp = self.state_stamp;
+        let dst_copy_stamp = self.state_stamp + len as u64;
+        for i in 0..len {
+            let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Type::Memory,
+                src_id: self.call_id.into(),
+                src_pointer: offset.into(),
+                src_stamp: copy_stamp.into(),
+                dst_type: copy::Type::Returndata,
+                dst_id: self.call_id.into(),
+                dst_pointer: 0.into(),
+                dst_stamp: dst_copy_stamp.into(),
+                cnt: i.into(),
+                len: len.into(),
+            });
+            state_rows.push(self.get_memory_read_row(trace, offset + i));
+        }
+        for i in 0..len {
+            let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+            state_rows.push(self.get_return_data_write_row(i, byte));
+        }
+
+        (copy_rows, state_rows)
     }
 }
 
