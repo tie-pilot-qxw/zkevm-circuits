@@ -164,6 +164,7 @@ impl<
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows(),
             StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             PublicCircuit::<F>::unusable_rows(),
+            CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -176,6 +177,7 @@ impl<
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             PublicCircuit::<F>::num_rows(witness),
+            CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
         itertools::max(num_rows).unwrap()
     }

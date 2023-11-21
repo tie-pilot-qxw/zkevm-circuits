@@ -1,21 +1,21 @@
-
-use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
+use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{BytecodeTable, LookupEntry, StateTable};
 
 use crate::util::assign_advice_or_fixed;
-use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
-use crate::witness::copy::Row;
-use crate::witness::Witness;
+use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::witness::copy::{Row, Type};
+use crate::witness::{state, Witness};
 use eth_types::{Field, U256};
 
-use halo2_proofs::circuit::{Layouter, Region, Value};
+use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
+use gadgets::util::Expr;
+use halo2_proofs::circuit::{Layouter, Region};
 
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 #[derive(Clone)]
-pub struct CopyCircuitConfig<F: Field>
-{
+pub struct CopyCircuitConfig<F: Field> {
     pub q_enable: Selector,
     /// The byte value that is copied
     pub byte: Column<Advice>,
@@ -39,6 +39,12 @@ pub struct CopyCircuitConfig<F: Field>
     pub cnt: Column<Advice>,
     /// The length for one copy operation
     pub len: Column<Advice>,
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
+    /// src Type of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    src_tag: BinaryNumberConfig<Type, LOG_NUM_STATE_TAG>,
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
+    /// dst Type of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    dst_tag: BinaryNumberConfig<Type, LOG_NUM_STATE_TAG>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
     state_table: StateTable,
@@ -50,9 +56,7 @@ pub struct CopyCircuitConfigArgs<F> {
     pub state_table: StateTable,
 }
 
-impl<F: Field> SubCircuitConfig<F>
-    for CopyCircuitConfig<F>
-{
+impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
     type ConfigArgs = CopyCircuitConfigArgs<F>;
     fn new(
         meta: &mut ConstraintSystem<F>,
@@ -73,6 +77,8 @@ impl<F: Field> SubCircuitConfig<F>
         let dst_stamp = meta.advice_column();
         let cnt = meta.advice_column();
         let len = meta.advice_column();
+        let src_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let dst_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let config = Self {
             q_enable,
             byte,
@@ -86,47 +92,88 @@ impl<F: Field> SubCircuitConfig<F>
             dst_stamp,
             cnt,
             len,
+            src_tag,
+            dst_tag,
             bytecode_table,
             state_table,
         };
+        // lookups
+        // src bytecode lookup
+        config.src_bytecode_lookup(meta, "COPY_src_bytecode_lookup");
+        // src memory lookup
+        config.src_state_lookup(
+            meta,
+            "COPY_src_memory_lookup",
+            Type::Memory,
+            state::Tag::Memory,
+        );
+        // src call-data lookup
+        config.src_state_lookup(
+            meta,
+            "COPY_src_call-data_lookup",
+            Type::Calldata,
+            state::Tag::CallData,
+        );
+        // src return-data lookup
+        config.src_state_lookup(
+            meta,
+            "COPY_src_return-data_lookup",
+            Type::Returndata,
+            state::Tag::ReturnData,
+        );
+        // dst memory lookup
+        config.dst_state_lookup(
+            meta,
+            "COPY_dst_memory_lookup",
+            Type::Memory,
+            state::Tag::Memory,
+        );
+        // dst call-data lookup
+        config.dst_state_lookup(
+            meta,
+            "COPY_dst_call-data_lookup",
+            Type::Calldata,
+            state::Tag::CallData,
+        );
+        // dst return-data lookup
+        config.dst_state_lookup(
+            meta,
+            "COPY_dst_return-data_lookup",
+            Type::Returndata,
+            state::Tag::ReturnData,
+        );
         config
     }
 }
 
-impl<F: Field> CopyCircuitConfig<F>
-{
-    #[rustfmt::skip]
+impl<F: Field> CopyCircuitConfig<F> {
     fn assign_row(
         &self,
         region: &mut Region<'_, F>,
         offset: usize,
         row: &Row,
     ) -> Result<(), Error> {
-
         assign_advice_or_fixed(region, offset, &row.byte, self.byte)?;
         assign_advice_or_fixed(region, offset, &(row.src_type as u8).into(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
         assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
-        assign_advice_or_fixed(region, offset, &row.src_stamp.unwrap_or_default(), self.src_stamp)?;
+        assign_advice_or_fixed(region, offset, &row.src_stamp, self.src_stamp)?;
         assign_advice_or_fixed(region, offset, &(row.dst_type as u8).into(), self.dst_type)?;
         assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
         assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
         assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
         assign_advice_or_fixed(region, offset, &row.len, self.len)?;
+        let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
+        src_tag.assign(region, offset, &row.src_type);
+        let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
+        dst_tag.assign(region, offset, &row.dst_type);
         Ok(())
     }
 
     // assign a padding row whose state selector is the first `ExecutionState`
     // and auxiliary columns are kept from the last row
-    #[rustfmt::skip]
-    fn assign_padding_row(
-        &self,
-        region: &mut Region<'_, F>,
-        offset: usize,
-        last_row: &Row,
-    ) -> Result<(), Error> {
-
+    fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.byte)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_id)?;
@@ -137,8 +184,11 @@ impl<F: Field> CopyCircuitConfig<F>
         assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_pointer)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_stamp)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.cnt)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.len)?;     
-
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.len)?;
+        let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
+        src_tag.assign(region, offset, &Type::default());
+        let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
+        dst_tag.assign(region, offset, &Type::default());
         Ok(())
     }
 
@@ -152,13 +202,9 @@ impl<F: Field> CopyCircuitConfig<F>
         for (offset, row) in witness.copy.iter().enumerate() {
             self.assign_row(region, offset, row)?;
         }
-        let last_row = witness
-            .copy
-            .last()
-            .expect("copy witness must have last row");
         // pad the rest rows
         for offset in witness.copy.len()..num_row_incl_padding {
-            self.assign_padding_row(region, offset, last_row)?;
+            self.assign_padding_row(region, offset)?;
         }
         Ok(())
     }
@@ -175,24 +221,112 @@ impl<F: Field> CopyCircuitConfig<F>
         region.name_column(|| "COPY_dst_stamp", self.dst_stamp);
         region.name_column(|| "COPY_cnt", self.cnt);
         region.name_column(|| "COPY_len", self.len);
+        self.src_tag
+            .annotate_columns_in_region(region, "COPY_src_tag");
+        self.dst_tag
+            .annotate_columns_in_region(region, "COPY_dst_tag");
+    }
 
+    /// bytecode src lookup
+    pub fn src_bytecode_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
+        meta.lookup_any(name, |meta| {
+            let byte_code_entry = LookupEntry::Bytecode {
+                addr: meta.query_advice(self.src_id, Rotation::cur()),
+                pc: meta.query_advice(self.src_pointer, Rotation::cur())
+                    + meta.query_advice(self.cnt, Rotation::cur()),
+                opcode: meta.query_advice(self.byte, Rotation::cur()),
+            };
+            let byte_code_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self
+                .bytecode_table
+                .get_lookup_vector(meta, byte_code_entry.clone());
+            byte_code_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(self.q_enable);
+                    let bytecode_enable =
+                        self.src_tag.value_equals(Type::Bytecode, Rotation::cur())(meta);
+                    (q_enable * bytecode_enable * left, right)
+                })
+                .collect()
+        });
+    }
+
+    /// state src lookup
+    pub fn src_state_lookup(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        name: &str,
+        copy_type: Type,
+        state_tag: state::Tag,
+    ) {
+        meta.lookup_any(name, |meta| {
+            let state_entry = LookupEntry::State {
+                tag: (state_tag as u8).expr(),
+                stamp: meta.query_advice(self.src_stamp, Rotation::cur())
+                    + meta.query_advice(self.cnt, Rotation::cur()),
+                value_hi: 0.expr(),
+                value_lo: meta.query_advice(self.byte, Rotation::cur()),
+                call_id_contract_addr: meta.query_advice(self.src_id, Rotation::cur()),
+                pointer_hi: 0.expr(),
+                pointer_lo: meta.query_advice(self.src_pointer, Rotation::cur())
+                    + meta.query_advice(self.cnt, Rotation::cur()),
+                is_write: 0.expr(),
+            };
+            let state_lookup_vec = self
+                .state_table
+                .get_lookup_vector(meta, state_entry.clone());
+            state_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(self.q_enable);
+                    let state_enable = self.src_tag.value_equals(copy_type, Rotation::cur())(meta);
+                    (q_enable * state_enable * left, right)
+                })
+                .collect()
+        });
+    }
+
+    /// state dst lookup
+    pub fn dst_state_lookup(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        name: &str,
+        copy_type: Type,
+        state_tag: state::Tag,
+    ) {
+        meta.lookup_any(name, |meta| {
+            let state_entry = LookupEntry::State {
+                tag: (state_tag as u8).expr(),
+                stamp: meta.query_advice(self.dst_stamp, Rotation::cur())
+                    + meta.query_advice(self.cnt, Rotation::cur()),
+                value_hi: 0.expr(),
+                value_lo: meta.query_advice(self.byte, Rotation::cur()),
+                call_id_contract_addr: meta.query_advice(self.dst_id, Rotation::cur()),
+                pointer_hi: 0.expr(),
+                pointer_lo: meta.query_advice(self.dst_pointer, Rotation::cur())
+                    + meta.query_advice(self.cnt, Rotation::cur()),
+                is_write: 1.expr(),
+            };
+            let state_lookup_vec = self.state_table.get_lookup_vector(meta, state_entry);
+            state_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(self.q_enable);
+                    let state_enable = self.dst_tag.value_equals(copy_type, Rotation::cur())(meta);
+                    (q_enable * state_enable * left, right)
+                })
+                .collect()
+        });
     }
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct CopyCircuit<
-    F: Field,
-    const MAX_NUM_ROW: usize,
-> {
+pub struct CopyCircuit<F: Field, const MAX_NUM_ROW: usize> {
     witness: Witness,
     _marker: PhantomData<F>,
 }
 
-impl<
-        F: Field,
-        const MAX_NUM_ROW: usize
-    > SubCircuit<F> for CopyCircuit<F, MAX_NUM_ROW>
-{
+impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NUM_ROW> {
     type Config = CopyCircuitConfig<F>;
     type Cells = ();
 
@@ -215,8 +349,10 @@ impl<
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
                 // sub circuit need to enable selector
-                for offset in 0..self.witness.copy.len() - 1 {
-                    config.q_enable.enable(&mut region, offset)?;
+                if self.witness.copy.len() > 0 {
+                    for offset in 0..self.witness.copy.len() - 1 {
+                        config.q_enable.enable(&mut region, offset)?;
+                    }
                 }
                 Ok(())
             },
@@ -232,11 +368,10 @@ impl<
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+    use crate::constant::MAX_NUM_ROW;
     use crate::copy_circuit::CopyCircuit;
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
@@ -246,9 +381,7 @@ mod test {
     use halo2_proofs::plonk::Circuit;
 
     #[derive(Clone, Default, Debug)]
-    pub struct CopyTestCircuit<F: Field>(
-        CopyCircuit<F, MAX_NUM_ROW>,
-    );
+    pub struct CopyTestCircuit<F: Field>(CopyCircuit<F, MAX_NUM_ROW>);
 
     impl<F: Field> Circuit<F> for CopyTestCircuit<F> {
         type Config = CopyCircuitConfig<F>;
@@ -291,7 +424,6 @@ mod test {
         prover
     }
 
-    #[cfg(feature = "no_intersubcircuit_lookup")]
     #[test]
     fn test_core_parser() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");

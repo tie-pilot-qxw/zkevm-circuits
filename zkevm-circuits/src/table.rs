@@ -217,12 +217,12 @@ impl<F: Field> BytecodeTable<F> {
         let table_is_push = 1.expr() - self.cnt_is_zero.expr_at(meta, Rotation::cur());
         match entry {
             LookupEntry::Bytecode { addr, pc, opcode } => {
-                let not_code = 0.expr();
+                //let not_code = 0.expr();
                 vec![
                     (addr, table_addr),
                     (pc, table_pc),
                     (opcode, table_bytecode),
-                    (not_code, table_not_code),
+                    //(not_code, table_not_code),
                 ]
             }
             LookupEntry::BytecodeFull {
