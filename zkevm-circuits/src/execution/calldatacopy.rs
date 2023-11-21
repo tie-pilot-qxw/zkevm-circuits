@@ -165,21 +165,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if length.is_zero() {
-            core_row_2.insert_copy_lookup(&copy::Row {
-                byte: 0.into(),
-                src_type: copy::Type::default(),
-                src_id: 0.into(),
-                src_pointer: 0.into(),
-                src_stamp: 0.into(),
-                dst_type: copy::Type::default(),
-                dst_id: 0.into(),
-                dst_pointer: 0.into(),
-                dst_stamp: 0.into(),
-                cnt: 0.into(),
-                len: 0.into(),
-            });
+            core_row_2.insert_copy_lookup(
+                &copy::Row {
+                    byte: 0.into(),
+                    src_type: copy::Type::default(),
+                    src_id: 0.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Type::default(),
+                    dst_id: 0.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: 0.into(),
+                    cnt: 0.into(),
+                    len: 0.into(),
+                },
+                None,
+            );
         } else {
-            core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap());
+            core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap(), None);
         }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2]);

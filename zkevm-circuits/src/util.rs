@@ -118,6 +118,10 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     bytes
 }
 
+pub fn uint64_with_overflow(value: &U256) -> bool {
+    value.leading_zeros() < 3 * 8 * 8
+}
+
 /// Generate the code address for create-contract transaction
 pub fn create_contract_addr(tx: &Transaction) -> U256 {
     if tx.to.is_some() {
@@ -204,7 +208,7 @@ impl<F: Field> ExpressionOutcome<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::convert_u256_to_64_bytes;
+    use crate::util::{convert_u256_to_64_bytes, uint64_with_overflow};
     use eth_types::U256;
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::halo2curves::ff::FromUniformBytes;
@@ -254,5 +258,26 @@ mod tests {
             Fr::from_uniform_bytes(&convert_u256_to_64_bytes(&input_1)),
             field_1
         );
+    }
+    #[test]
+    fn test_overflow() {
+        let x: [u8; 32] = [
+            255, 255, 255, 255, 255, 255, 255, 255, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let input_overflow = U256::from_little_endian(&x);
+        assert_eq!(uint64_with_overflow(&input_overflow), true);
+        let x: [u8; 32] = [
+            255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 1, 0, 0, 0,
+        ];
+        let input_overflow = U256::from_little_endian(&x);
+        assert_eq!(uint64_with_overflow(&input_overflow), true);
+        let x: [u8; 32] = [
+            255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let input_no_overflow = U256::from_little_endian(&x);
+        assert_eq!(uint64_with_overflow(&input_no_overflow), false);
     }
 }

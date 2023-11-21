@@ -172,9 +172,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.get_return_revert_rows(trace, offset.as_usize(), length.as_usize());
         // insert lookUp: Core ---> Copy
         if length.is_zero() {
-            core_row_2.insert_copy_lookup(&Default::default());
+            core_row_2.insert_copy_lookup(&Default::default(), None);
         } else {
-            core_row_2.insert_copy_lookup(&copy_rows[0]);
+            core_row_2.insert_copy_lookup(&copy_rows[0], None);
         }
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);

@@ -191,14 +191,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // generate copy rows and state rows(type: memory)
-        let (copy_rows, memory_state_rows) = current_state.get_code_copy_rows(
-            current_state.code_addr,
-            dst_offset.as_usize(),
-            offset.as_usize(),
-            length.as_usize(),
-        );
+        let (copy_rows, memory_state_rows, _, _, _) =
+            current_state.get_code_copy_rows(current_state.code_addr, dst_offset, offset, length);
         // insert lookUp: Core ---> Copy
-        core_row_2.insert_copy_lookup(&copy_rows[0]);
+        core_row_2.insert_copy_lookup(&copy_rows[0], None);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State

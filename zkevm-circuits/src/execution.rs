@@ -460,6 +460,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_copy_padding_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let (
+            src_type,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            len,
+        ) = (
+            meta.query_advice(self.vers[9], Rotation(-2)),
+            meta.query_advice(self.vers[10], Rotation(-2)),
+            meta.query_advice(self.vers[11], Rotation(-2)),
+            meta.query_advice(self.vers[12], Rotation(-2)),
+            meta.query_advice(self.vers[13], Rotation(-2)),
+            meta.query_advice(self.vers[14], Rotation(-2)),
+            meta.query_advice(self.vers[15], Rotation(-2)),
+            meta.query_advice(self.vers[16], Rotation(-2)),
+            meta.query_advice(self.vers[17], Rotation(-2)),
+        );
+        LookupEntry::Copy {
+            src_type,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            len,
+        }
+    }
+
     pub(crate) fn get_copy_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (
             src_type,

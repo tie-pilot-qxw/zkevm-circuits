@@ -168,21 +168,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // insert lookUp: Core ---> Copy
         if length == 0.into() {
-            core_row_2.insert_copy_lookup(&copy::Row {
-                byte: 0.into(),
-                src_type: copy::Type::default(),
-                src_id: 0.into(),
-                src_pointer: 0.into(),
-                src_stamp: 0.into(),
-                dst_type: copy::Type::default(),
-                dst_id: 0.into(),
-                dst_pointer: 0.into(),
-                dst_stamp: 0.into(),
-                cnt: 0.into(),
-                len: 0.into(),
-            });
+            core_row_2.insert_copy_lookup(
+                &copy::Row {
+                    byte: 0.into(),
+                    src_type: copy::Type::default(),
+                    src_id: 0.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Type::default(),
+                    dst_id: 0.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: 0.into(),
+                    cnt: 0.into(),
+                    len: 0.into(),
+                },
+                None,
+            );
         } else {
-            core_row_2.insert_copy_lookup(&copy_rows[0]);
+            core_row_2.insert_copy_lookup(&copy_rows[0], None);
         }
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
