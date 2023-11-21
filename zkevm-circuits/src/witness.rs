@@ -14,7 +14,9 @@ use crate::constant::{
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::StateCircuit;
-use crate::util::{create_contract_addr_with_prefix, SubCircuit};
+use crate::util::{
+    convert_u256_to_64_bytes, create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
+};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, GethExecStep, U256};
@@ -391,33 +393,92 @@ impl WitnessExecHelper {
     pub fn get_code_copy_rows(
         &mut self,
         address: U256,
-        dst: usize,
-        src: usize,
-        len: usize,
-    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        dst: U256,
+        src: U256,
+        len: U256,
+    ) -> (Vec<copy::Row>, Vec<state::Row>, u64, u64, u64) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        let codecopy_stamp = self.state_stamp;
-        for i in 0..len {
-            // todo situations to deal: 1. if according to address ,get no code ;2. or code is not long enough
-            let code = self.bytecode.get(&address).unwrap();
-            let byte = code.get(src + i).unwrap().value;
-            copy_rows.push(copy::Row {
-                byte: byte.into(),
-                src_type: copy::Type::Bytecode,
-                src_id: address, // fn argument,
-                src_pointer: src.into(),
-                src_stamp: 0.into(),
-                dst_type: copy::Type::Memory,
-                dst_id: self.call_id.into(),
-                dst_pointer: dst.into(),
-                dst_stamp: codecopy_stamp.into(),
-                cnt: i.into(),
-                len: len.into(),
-            });
-            state_rows.push(self.get_memory_write_row(dst + i, byte));
+        // way of processing address and src and len, reference go-ethereum's method
+        // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L373
+        // src offset check
+        let mut src_offset: u64 = 0;
+        if uint64_with_overflow(&src) {
+            src_offset = u64::MAX;
+        } else {
+            src_offset = src.as_u64();
         }
-        (copy_rows, state_rows)
+        let dst_offset = dst.low_u64();
+        let length = len.low_u64();
+        let codecopy_stamp = self.state_stamp;
+        let code = self.bytecode.get(&address).unwrap();
+        let code_length = code.code.len() as u64;
+        let mut padding_length: u64 = 0;
+        let mut code_copy_length: u64 = 0;
+        if length > 0 {
+            if src_offset >= code_length {
+                padding_length = length;
+            } else {
+                if length > code_length - src_offset {
+                    padding_length = length - (code_length - src_offset);
+                    code_copy_length = code_length - src_offset;
+                } else {
+                    code_copy_length = length;
+                }
+            }
+        }
+        if code_copy_length > 0 {
+            for i in 0..code_copy_length {
+                let code = self.bytecode.get(&address).unwrap();
+                let byte = code.get((src_offset + i) as usize).unwrap().value;
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Type::Bytecode,
+                    src_id: address,
+                    src_pointer: src_offset.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Type::Memory,
+                    dst_id: self.call_id.into(),
+                    dst_pointer: dst_offset.into(),
+                    dst_stamp: codecopy_stamp.into(),
+                    cnt: i.into(),
+                    len: code_copy_length.into(),
+                });
+                state_rows.push(self.get_memory_write_row((dst_offset + i) as usize, byte));
+            }
+        }
+        let codecopy_padding_stamp = self.state_stamp;
+        if padding_length > 0 {
+            for i in 0..padding_length {
+                state_rows.push(
+                    self.get_memory_write_row(
+                        (dst_offset + code_copy_length + i) as usize,
+                        0 as u8,
+                    ),
+                );
+                copy_rows.push(copy::Row {
+                    byte: 0.into(),
+                    src_type: copy::Type::Zero,
+                    src_id: 0.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Type::Memory,
+                    dst_id: self.call_id.into(),
+                    dst_pointer: (dst_offset + code_copy_length).into(),
+                    dst_stamp: codecopy_padding_stamp.into(),
+                    cnt: i.into(),
+                    len: U256::from(padding_length),
+                })
+            }
+        }
+
+        (
+            copy_rows,
+            state_rows,
+            length,
+            padding_length,
+            code_copy_length,
+        )
     }
 
     pub fn get_return_data_copy_rows(
@@ -810,11 +871,11 @@ impl core::Row {
         ]);
     }
 
-    pub fn insert_copy_lookup(&mut self, copy: &copy::Row) {
-        // this lookup must be in the row with this cnt
+    pub fn insert_copy_lookup(&mut self, copy: &copy::Row, padding_copy: Option<&copy::Row>) {
+        //
         assert_eq!(self.cnt, 2.into());
-
-        for (cell, value) in [
+        let mut cells = vec![
+            // code copy
             (&mut self.vers_0, Some((copy.src_type as u8).into())),
             (&mut self.vers_1, Some(copy.src_id)),
             (&mut self.vers_2, Some(copy.src_pointer)),
@@ -824,23 +885,72 @@ impl core::Row {
             (&mut self.vers_6, Some(copy.dst_pointer)),
             (&mut self.vers_7, Some(copy.dst_stamp)),
             (&mut self.vers_8, Some(copy.len)),
-        ] {
-            // before inserting, these columns must be none
-            assert!(cell.is_none());
-            *cell = value;
-        }
-        #[rustfmt::skip]
-        self.comments.extend([
-            (format!("vers_{}", 0), format!("src_type={:?}", copy.src_type)),
+        ];
+        let mut comments = vec![
+            // copy comment
+            (
+                format!("vers_{}", 0),
+                format!("src_type={:?}", copy.src_type),
+            ),
             (format!("vers_{}", 1), format!("src_id")),
             (format!("vers_{}", 2), format!("src_pointer")),
             (format!("vers_{}", 3), format!("src_stamp")),
-            (format!("vers_{}", 4), format!("dst_type={:?}", copy.dst_type)),
+            (
+                format!("vers_{}", 4),
+                format!("dst_type={:?}", copy.dst_type),
+            ),
             (format!("vers_{}", 5), format!("dst_id")),
             (format!("vers_{}", 6), format!("dst_pointer")),
             (format!("vers_{}", 7), format!("dst_stamp")),
             (format!("vers_{}", 8), format!("len")),
-        ]);
+        ];
+        match padding_copy {
+            Some(padding_copy_new) => {
+                cells.extend([
+                    // padding copy
+                    (
+                        &mut self.vers_9,
+                        Some((padding_copy_new.src_type as u8).into()),
+                    ),
+                    (&mut self.vers_10, Some(padding_copy_new.src_id)),
+                    (&mut self.vers_11, Some(padding_copy_new.src_pointer)),
+                    (&mut self.vers_12, Some(padding_copy_new.src_stamp)),
+                    (
+                        &mut self.vers_13,
+                        Some((padding_copy_new.dst_type as u8).into()),
+                    ),
+                    (&mut self.vers_14, Some(padding_copy_new.dst_id)),
+                    (&mut self.vers_15, Some(padding_copy_new.dst_pointer)),
+                    (&mut self.vers_16, Some(padding_copy_new.dst_stamp)),
+                    (&mut self.vers_17, Some(padding_copy_new.len)),
+                ]);
+                comments.extend([
+                    // padding copy comment
+                    (
+                        format!("vers_{}", 9),
+                        format!("padding_src_type={:?}", padding_copy_new.src_type),
+                    ),
+                    (format!("vers_{}", 10), format!("padding_src_id")),
+                    (format!("vers_{}", 11), format!("padding_src_pointer")),
+                    (format!("vers_{}", 12), format!("padding_src_stamp")),
+                    (
+                        format!("vers_{}", 13),
+                        format!("padding_dst_type={:?}", padding_copy_new.dst_type),
+                    ),
+                    (format!("vers_{}", 14), format!("padding_dst_id")),
+                    (format!("vers_{}", 15), format!("padding_dst_pointer")),
+                    (format!("vers_{}", 16), format!("padding_dst_stamp")),
+                    (format!("vers_{}", 17), format!("padding_len")),
+                ]);
+            }
+            None => (),
+        }
+        for (cell, value) in cells {
+            // before inserting, these columns must be none
+            assert!(cell.is_none());
+            *cell = value;
+        }
+        self.comments.extend(comments);
     }
 }
 

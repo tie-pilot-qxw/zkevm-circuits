@@ -132,22 +132,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if calldata_size > 0 {
-            core_row_2.insert_copy_lookup(copy_rows.first().unwrap());
+            core_row_2.insert_copy_lookup(copy_rows.first().unwrap(), None);
         } else {
             // no actually copy, but we need to insert same format placeholders to satisfy constraint
-            core_row_2.insert_copy_lookup(&copy::Row {
-                byte: 0.into(), //not used
-                src_type: copy::Type::PublicCalldata,
-                src_id: tx_idx.into(),
-                src_pointer: 0.into(),
-                src_stamp: 0.into(),
-                dst_type: copy::Type::Calldata,
-                dst_id: call_id.into(),
-                dst_pointer: 0.into(),
-                dst_stamp: current_state.state_stamp.into(),
-                cnt: 0.into(), //not used
-                len: calldata_size.into(),
-            });
+            core_row_2.insert_copy_lookup(
+                &copy::Row {
+                    byte: 0.into(), //not used
+                    src_type: copy::Type::PublicCalldata,
+                    src_id: tx_idx.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Type::Calldata,
+                    dst_id: call_id.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: current_state.state_stamp.into(),
+                    cnt: 0.into(), //not used
+                    len: calldata_size.into(),
+                },
+                None,
+            );
         }
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
