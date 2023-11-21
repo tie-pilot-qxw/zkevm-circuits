@@ -31,6 +31,7 @@ pub mod public_context;
 pub mod push;
 pub mod return_revert;
 pub mod returndatacopy;
+pub mod returndatasize;
 pub mod selfbalance;
 pub mod sgt;
 pub mod shr;
@@ -101,6 +102,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::begin_tx_2::new(),
             crate::execution::selfbalance::new(),
             crate::execution::returndatacopy::new(),
+            crate::execution::returndatasize::new(),
         ]
     }};
 }
@@ -384,7 +386,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         stack_pointer_delta: Expression<F>, // compare to that of previous state
         write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, _, pointer_lo, is_write) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
             extract_lookup_expression!(state, entry);
         let Auxiliary {
             state_stamp,
@@ -406,11 +408,79 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 format!("state lookup call id[{}]", index),
                 call_id_contract_addr - meta.query_advice(self.call_id, Rotation::cur()),
             ),
+            (format!("pointer_hi (stack pointer)[{}]", index), pointer_hi),
             (
                 format!("pointer_lo (stack pointer)[{}]", index),
                 pointer_lo
                     - meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
                     - stack_pointer_delta,
+            ),
+            (
+                format!("is_write[{}]", index),
+                is_write - (write as u8).expr(),
+            ),
+        ]
+    }
+
+    pub(crate) fn get_returndata_call_id_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = self.get_call_context_constraints(
+            meta,
+            entry.clone(),
+            index,
+            prev_exec_state_row,
+            write,
+            (state::CallContextTag::ReturnDataCallId as u8).expr(),
+            0.expr(),
+        );
+        let (_, _, value_hi, _, _, _, _, _) = extract_lookup_expression!(state, entry);
+
+        constraints.extend([(format!("value_hi[{}]", index), value_hi)]);
+
+        constraints
+    }
+
+    pub(crate) fn get_call_context_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        write: bool,
+        call_context_tag: Expression<F>,
+        call_id: Expression<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+            extract_lookup_expression!(state, entry);
+        let Auxiliary { state_stamp, .. } = self.get_auxiliary();
+        vec![
+            (
+                format!("state lookup tag[{}] = CallContext", index),
+                tag - (state::Tag::CallContext as u8).expr(),
+            ),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                stamp
+                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - index.expr(),
+            ),
+            (
+                format!("call id[{}]", index),
+                call_id_contract_addr - call_id,
+            ),
+            (
+                format!("pointer_hi (CallContext pointer)[{}]", index),
+                pointer_hi,
+            ),
+            (
+                format!("pointer_lo (CallContext pointer)[{}]", index),
+                pointer_lo - call_context_tag,
             ),
             (
                 format!("is_write[{}]", index),
@@ -826,6 +896,7 @@ pub enum ExecutionState {
     DUP,
     SWAP,
     BYTE,
+    RETURNDATASIZE,
     RETURN_REVERT,
     SHR,
     KECCAK,

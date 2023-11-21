@@ -45,6 +45,8 @@ pub struct WitnessExecHelper {
     pub sender: HashMap<u64, U256>,
     pub tx_idx: usize,
     pub call_id: u64,
+    pub returndata_call_id: u64,
+    pub returndata_size: U256,
     pub code_addr: U256,
     pub state_stamp: u64,
     pub log_stamp: u64,
@@ -67,6 +69,8 @@ impl WitnessExecHelper {
             sender: HashMap::new(),
             tx_idx: 0,
             call_id: 0,
+            returndata_call_id: 0,
+            returndata_size: 0.into(),
             code_addr: 0.into(),
             state_stamp: 0,
             log_stamp: 0,
@@ -710,6 +714,34 @@ impl WitnessExecHelper {
         }
 
         (copy_rows, state_rows)
+    }
+    pub fn get_returndata_call_id_row(&mut self) -> state::Row {
+        let res = state::Row {
+            tag: Some(state::Tag::CallContext),
+            stamp: Some((self.state_stamp).into()),
+            value_hi: None,
+            value_lo: Some(self.returndata_call_id.into()),
+            call_id_contract_addr: None,
+            pointer_hi: None,
+            pointer_lo: Some((state::CallContextTag::ReturnDataCallId as u8).into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+    pub fn get_returndata_size_row(&mut self) -> (state::Row, U256) {
+        let res = state::Row {
+            tag: Some(state::Tag::CallContext),
+            stamp: Some((self.state_stamp).into()),
+            value_hi: Some((self.returndata_size >> 128).as_u128().into()),
+            value_lo: Some(self.returndata_size.low_u128().into()),
+            call_id_contract_addr: Some(self.returndata_call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((state::CallContextTag::ReturnDataSize as u8).into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, self.returndata_size.into())
     }
 }
 
