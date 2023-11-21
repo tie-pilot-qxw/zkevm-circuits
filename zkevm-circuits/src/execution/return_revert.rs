@@ -165,6 +165,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
 
+        //update returndata_call_id and returndata_call_size
+        current_state.returndata_call_id = current_state.call_id.clone();
+        current_state.returndata_size = length;
+
         // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // generate copy rows and state rows(type: memory)
