@@ -69,7 +69,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let copy_entry = config.get_copy_lookup(meta);
         let padding_entry = config.get_copy_padding_lookup(meta);
-        let (_, _, _, _, _, _, copy_lookup_dst_pointer, _, copy_lookup_len) =
+        let (_, _, _, _, _, _, _, _, copy_lookup_len) =
             extract_lookup_expression!(copy, copy_entry.clone());
         let (_, _, _, _, _, _, _, _, copy_padding_lookup_len) =
             extract_lookup_expression!(copy, padding_entry.clone());
@@ -150,7 +150,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0.expr(),
             copy::Type::Memory,
             call_id.clone(),
-            copy_lookup_dst_pointer.clone() + copy_lookup_len.clone(),
+            copy_operands[1][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
             padding_len_lo.expr(),
             is_padding_zero_len.expr(),
