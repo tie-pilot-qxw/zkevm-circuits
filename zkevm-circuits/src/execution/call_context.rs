@@ -87,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     NUM_ROW,
                     i == 1,
                     call_context_tag.clone(),
-                    call_id,
+                    call_id.clone(),
                 ));
             } else {
                 constraints.append(&mut config.get_stack_constraints(
