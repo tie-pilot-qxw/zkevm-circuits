@@ -7,7 +7,6 @@ pub mod fix;
 pub mod public;
 pub mod state;
 
-use self::state::{CallContextTag, Tag};
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
@@ -18,6 +17,7 @@ use crate::state_circuit::StateCircuit;
 use crate::util::{
     convert_u256_to_64_bytes, create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
 };
+use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, GethExecStep, U256};

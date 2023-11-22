@@ -64,17 +64,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        let v1 = meta.query_advice(config.vers[29], Rotation::prev());
-        let v2 = meta.query_advice(config.vers[30], Rotation::prev());
-        let v3 = meta.query_advice(config.vers[31], Rotation::prev());
-
-        let selector = SimpleSelector::new(&[v1.clone(), v2.clone(), v3.clone()]);
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[29], Rotation::prev()),
+            meta.query_advice(config.vers[30], Rotation::prev()),
+            meta.query_advice(config.vers[31], Rotation::prev()),
+        ]);
 
         let mut operands = vec![];
 
-        let call_context_tag = v1 * (CallContextTag::CallDataSize as u8).expr()
-            + v2 * (CallContextTag::SenderAddr as u8).expr()
-            + v3 * (CallContextTag::Value as u8).expr();
+        let call_context_tag = selector.select(&[
+            (CallContextTag::CallDataSize as u8).expr(),
+            (CallContextTag::SenderAddr as u8).expr(),
+            (CallContextTag::Value as u8).expr(),
+        ]);
 
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
@@ -85,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     entry.clone(),
                     i,
                     NUM_ROW,
-                    i == 1,
+                    false,
                     call_context_tag.clone(),
                     call_id.clone(),
                 ));
@@ -96,7 +98,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     i,
                     NUM_ROW,
                     1.expr(),
-                    i == 1,
+                    true,
                 ));
             }
 
