@@ -360,9 +360,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         len_sub_cnt_one_is_zero.assign(region, offset, Value::known(len_val - cnt_val - F::ONE))?;
 
         let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
-        src_tag.assign(region, offset, &row.src_type);
+        src_tag.assign(region, offset, &row.src_type)?;
         let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
-        dst_tag.assign(region, offset, &row.dst_type);
+        dst_tag.assign(region, offset, &row.dst_type)?;
         Ok(())
     }
 
@@ -393,9 +393,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         len_sub_cnt_one_is_zero.assign(region, offset, Value::known(F::from(0) - F::from(1)))?;
 
         let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
-        src_tag.assign(region, offset, &Type::default());
+        src_tag.assign(region, offset, &Type::default())?;
         let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
-        dst_tag.assign(region, offset, &Type::default());
+        dst_tag.assign(region, offset, &Type::default())?;
         Ok(())
     }
 
