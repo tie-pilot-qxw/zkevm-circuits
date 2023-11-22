@@ -117,6 +117,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &copy_len_lo_inv,
             String::from("copy_length_lo"),
         );
+        constraints.extend(is_copy_zero_len.get_constraints());
+
         constraints.extend(config.get_copy_contraints(
             copy::Type::Bytecode,
             copy_operands[0][0].clone() * pow_of_two::<F>(128) + copy_operands[0][1].clone(),
@@ -126,10 +128,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id.clone(),
             copy_operands[1][1].clone(),
             copy_code_stamp_start.clone() + 1.expr(),
-            copy_lookup_len.clone(),
+            copy_len_lo.clone(),
             is_copy_zero_len.expr(),
             copy_entry.clone(),
         ));
+
         // padding constraints
         let padding_len_lo = meta.query_advice(config.vers[20], Rotation(-2));
         let padding_len_lo_inv = meta.query_advice(config.vers[21], Rotation(-2));
@@ -138,6 +141,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &padding_len_lo_inv,
             String::from("padding_length_lo"),
         );
+        constraints.extend(is_padding_zero_len.get_constraints());
+
         constraints.extend(config.get_copy_contraints(
             copy::Type::Zero,
             0.expr(),
@@ -157,7 +162,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 copy_operands[1][0].expr() - 0.expr(),
             ),
             (
-                "stack top1 value_hi = 0".into(),
+                "stack top2 value_hi = 0".into(),
                 copy_operands[2][0].expr() - 0.expr(),
             ),
             (
