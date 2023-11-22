@@ -1,19 +1,22 @@
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{BytecodeTable, LookupEntry, StateTable};
 
-use crate::util::assign_advice_or_fixed;
+use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::copy::{Row, Type};
 use crate::witness::{state, Witness};
 use eth_types::{Field, U256};
 
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
-use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region};
+use halo2_proofs::circuit::{Layouter, Region, Value};
 
+use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
+use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+
 #[derive(Clone)]
 pub struct CopyCircuitConfig<F: Field> {
     pub q_enable: Selector,
@@ -39,6 +42,12 @@ pub struct CopyCircuitConfig<F: Field> {
     pub cnt: Column<Advice>,
     /// The length for one copy operation
     pub len: Column<Advice>,
+    /// IsZero chip for column len
+    pub len_is_zero: IsZeroWithRotationConfig<F>,
+    /// IsZero chip for column cnt
+    pub cnt_is_zero: IsZeroWithRotationConfig<F>,
+    /// IsZero chip for len-cnt-1
+    pub len_sub_cnt_one_is_zero: IsZeroConfig<F>,
     /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
     /// src Type of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
     src_tag: BinaryNumberConfig<Type, LOG_NUM_STATE_TAG>,
@@ -77,6 +86,24 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
         let dst_stamp = meta.advice_column();
         let cnt = meta.advice_column();
         let len = meta.advice_column();
+
+        let len_is_zero =
+            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), len);
+        let cnt_is_zero =
+            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+
+        let _len_sub_cnt_one_is_zero_inv = meta.advice_column();
+        let len_sub_cnt_one_is_zero = IsZeroChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            |meta| {
+                let len = meta.query_advice(len, Rotation::cur());
+                let cnt = meta.query_advice(cnt, Rotation::cur());
+                len - cnt - 1.expr()
+            },
+            _len_sub_cnt_one_is_zero_inv,
+        );
+
         let src_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let dst_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let config = Self {
@@ -96,7 +123,151 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             dst_tag,
             bytecode_table,
             state_table,
+            len_is_zero,
+            cnt_is_zero,
+            len_sub_cnt_one_is_zero,
         };
+
+        meta.create_gate("COPY", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let src_type = meta.query_advice(config.src_type, Rotation::cur());
+            let src_id = meta.query_advice(config.src_id, Rotation::cur());
+            let src_pointer = meta.query_advice(config.src_pointer, Rotation::cur());
+            let src_stamp = meta.query_advice(config.src_stamp, Rotation::cur());
+            let dst_type = meta.query_advice(config.dst_type, Rotation::cur());
+            let dst_id = meta.query_advice(config.dst_id, Rotation::cur());
+            let dst_pointer = meta.query_advice(config.dst_pointer, Rotation::cur());
+            let dst_stamp = meta.query_advice(config.dst_stamp, Rotation::cur());
+            let len = meta.query_advice(config.len, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+
+            let next_src_type = meta.query_advice(config.src_type, Rotation::next());
+            let next_src_id = meta.query_advice(config.src_id, Rotation::next());
+            let next_src_pointer = meta.query_advice(config.src_pointer, Rotation::next());
+            let next_src_stamp = meta.query_advice(config.src_stamp, Rotation::next());
+            let next_dst_type = meta.query_advice(config.dst_type, Rotation::next());
+            let next_dst_id = meta.query_advice(config.dst_id, Rotation::next());
+            let next_dst_pointer = meta.query_advice(config.dst_pointer, Rotation::next());
+            let next_dst_stamp = meta.query_advice(config.dst_stamp, Rotation::next());
+            let next_cnt = meta.query_advice(config.cnt, Rotation::next());
+            let next_len = meta.query_advice(config.len, Rotation::next());
+
+            let len_is_zero = config.len_is_zero.expr_at(meta, Rotation::cur());
+            let next_cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::next());
+            let len_sub_cnt_one_is_zero = config.len_sub_cnt_one_is_zero.expr();
+
+            // len==0 --> next_cnt==0
+            // len-cnt-1==0 --> next_cnt==0
+            let mut constraints = vec![
+                (
+                    "len_is_zero, next_cnt_is_zero",
+                    q_enable.clone() * len_is_zero.clone() * (1.expr() - next_cnt_is_zero.clone()),
+                ),
+                (
+                    "len_sub_cnt_one_is_zero, next_cnt_is_zero",
+                    q_enable.clone()
+                        * len_sub_cnt_one_is_zero.expr()
+                        * (1.expr() - next_cnt_is_zero.clone()),
+                ),
+            ];
+
+            let is_not_zero_exp =
+                (1.expr() - len_is_zero.clone()) * (1.expr() - len_sub_cnt_one_is_zero.expr());
+            constraints.extend(vec![
+                // len!=0 && len-cnt-1!=0 --> next_cnt=cnt+1
+                (
+                    "len !=0 and len-cnt-1!=0 => next_cnt=cnt+1",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_cnt - cnt.clone() - 1.expr()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_len=cur_len",
+                    q_enable.clone() * is_not_zero_exp.clone() * (next_len - len.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_src_type=cur_src_type",
+                    q_enable.clone() * is_not_zero_exp.clone() * (next_src_type - src_type.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_src_id=cur_src_id",
+                    q_enable.clone() * is_not_zero_exp.clone() * (next_src_id - src_id.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_src_pointer=cur_src_pointer",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_src_pointer - src_pointer.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_src_stamp=cur_src_stamp",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_src_stamp - src_stamp.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_dst_type=cur_dst_type",
+                    q_enable.clone() * is_not_zero_exp.clone() * (next_dst_type - dst_type.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_dst_id=cur_dst_id",
+                    q_enable.clone() * is_not_zero_exp.clone() * (next_dst_id - dst_id.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_dst_pointer=cur_dst_pointer",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_dst_pointer - dst_pointer.clone()),
+                ),
+                (
+                    "len !=0 and len-cnt-1!=0 => next_dst_stamp=cur_dst_stamp",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_dst_stamp - dst_stamp.clone()),
+                ),
+            ]);
+
+            // len=0 ---> all field is zero
+            constraints.extend(vec![(
+                "len=0 => src_type=0",
+                q_enable.clone() * len_is_zero.clone() * (src_type - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => src_id=0",
+                q_enable.clone() * len_is_zero.clone() * (src_id - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => src_pointer=0",
+                q_enable.clone() * len_is_zero.clone() * (src_pointer - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => src_stamp=0",
+                q_enable.clone() * len_is_zero.clone() * (src_stamp - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => dst_type=0",
+                q_enable.clone() * len_is_zero.clone() * (dst_type - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => dst_id=0",
+                q_enable.clone() * len_is_zero.clone() * (dst_id - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => dst_pointer=0",
+                q_enable.clone() * len_is_zero.clone() * (dst_pointer - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => dst_stamp=0",
+                q_enable.clone() * len_is_zero.clone() * (dst_stamp - 0.expr()),
+            )]);
+            constraints.extend(vec![(
+                "len=0 => cnt=0",
+                q_enable.clone() * len_is_zero.clone() * (cnt - 0.expr()),
+            )]);
+
+            constraints
+        });
+
         // lookups
         // src bytecode lookup
         config.src_bytecode_lookup(meta, "COPY_src_bytecode_lookup");
@@ -153,6 +324,12 @@ impl<F: Field> CopyCircuitConfig<F> {
         offset: usize,
         row: &Row,
     ) -> Result<(), Error> {
+        let len_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.len_is_zero.clone());
+        let cnt_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
+        let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
+
         assign_advice_or_fixed(region, offset, &row.byte, self.byte)?;
         assign_advice_or_fixed(region, offset, &(row.src_type as u8).into(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
@@ -164,6 +341,24 @@ impl<F: Field> CopyCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
         assign_advice_or_fixed(region, offset, &row.len, self.len)?;
+
+        len_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.len))),
+        )?;
+
+        cnt_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt))),
+        )?;
+
+        // calc inv for len-cnt-1
+        let len_val = F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.len));
+        let cnt_val = F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt));
+        len_sub_cnt_one_is_zero.assign(region, offset, Value::known(len_val - cnt_val - F::ONE))?;
+
         let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
         src_tag.assign(region, offset, &row.src_type);
         let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
@@ -174,6 +369,13 @@ impl<F: Field> CopyCircuitConfig<F> {
     // assign a padding row whose state selector is the first `ExecutionState`
     // and auxiliary columns are kept from the last row
     fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
+        let len_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.len_is_zero.clone());
+        let cnt_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
+        let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
+
+        //let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
         assign_advice_or_fixed(region, offset, &U256::zero(), self.byte)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_id)?;
@@ -185,6 +387,11 @@ impl<F: Field> CopyCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_stamp)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.cnt)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.len)?;
+
+        len_is_zero.assign(region, offset, Value::known(F::ZERO))?;
+        cnt_is_zero.assign(region, offset, Value::known(F::ZERO))?;
+        len_sub_cnt_one_is_zero.assign(region, offset, Value::known(F::from(0) - F::from(1)))?;
+
         let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
         src_tag.assign(region, offset, &Type::default());
         let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
