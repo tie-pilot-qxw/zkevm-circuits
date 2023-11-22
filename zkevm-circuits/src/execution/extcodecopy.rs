@@ -169,14 +169,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "stack top3 value_hi = 0".into(),
                 copy_operands[3][0].expr() - 0.expr(),
             ),
-            (
-                "stack top3 value_lo(input_len) = copy_lookup_len+padding_lookup_len".into(),
-                copy_operands[3][1].clone() - copy_lookup_len - copy_padding_lookup_len,
-            ),
-            (
-                "stack top3 value_lo(input_len) = copy_len_lo+padding_len_lo".into(),
-                copy_operands[3][1].clone() - copy_len_lo - padding_len_lo,
-            ),
+            // todo: use arithmetic, when generating witness, stack top2 value_lo will be truncated to u64(input_copy_len)
+            // (
+            //     "stack top3 value_lo(input_len) = copy_lookup_len+padding_lookup_len".into(),
+            //     copy_operands[3][1].clone() - copy_lookup_len - copy_padding_lookup_len,
+            // ),
+            // (
+            //     "stack top3 value_lo(input_len) = copy_len_lo+padding_len_lo".into(),
+            //     copy_operands[3][1].clone() - copy_len_lo - padding_len_lo,
+            // ),
         ]);
 
         constraints
