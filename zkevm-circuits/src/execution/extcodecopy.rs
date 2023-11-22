@@ -151,6 +151,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             is_padding_zero_len.expr(),
             padding_entry.clone(),
         ));
+        constraints.extend([
+            (
+                "stack top1 value_hi = 0".into(),
+                copy_operands[1][0].expr() - 0.expr(),
+            ),
+            (
+                "stack top1 value_hi = 0".into(),
+                copy_operands[2][0].expr() - 0.expr(),
+            ),
+            (
+                "stack top3 value_hi = 0".into(),
+                copy_operands[3][0].expr() - 0.expr(),
+            ),
+            (
+                "stack top3 value_lo(input_len) = copy_lookup_len+padding_lookup_len".into(),
+                copy_operands[3][1].clone() - copy_lookup_len - copy_padding_lookup_len,
+            ),
+            (
+                "stack top3 value_lo(input_len) = copy_len_lo+padding_len_lo".into(),
+                copy_operands[3][1].clone() - copy_len_lo - padding_len_lo,
+            ),
+        ]);
+
         constraints
     }
     fn get_lookups(
@@ -274,7 +297,7 @@ mod test {
     fn assign_and_constraint_no_copy_only_padding() {
         run_prover(&[5.into(), 4.into(), 0.into(), 0xaa.into()]);
     }
-
+    //
     fn run_prover(words: &[Word]) {
         let stack = Stack::from_slice(words);
         let stack_pointer = stack.0.len();
