@@ -101,7 +101,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode - OpcodeId::JUMPI.as_u8().expr(),
             ),
             (
-                "must is_zero of operand1hi".into(),
+                "is_zero of operand1hi".into(),
                 iszero_gadget_hi.expr() - hi_eq.clone(),
             ),
             (
@@ -121,7 +121,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             (
                 "bytecode lookup pc = expect_next_pc".into(),
-                pc - expect_next_pc,
+                (1.expr() - is_zero.clone()) * (pc - expect_next_pc),
             ),
             (
                 "bytecode lookup opcode = JUMPDEST".into(),
@@ -129,7 +129,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("bytecode lookup is code".into(), not_code),
         ]);
-
+        //inv of operand1hi
+        constraints.extend(iszero_gadget_hi.get_constraints());
         //inv of operand1lo
         constraints.extend(iszero_gadget_lo.get_constraints());
 
@@ -192,7 +193,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             //b is 0
             code_addr = U256::from(0);
-            trace.pc + 1
+            0_u64
         };
 
         core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, code_addr, Some(0.into()));
