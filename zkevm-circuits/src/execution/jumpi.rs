@@ -170,11 +170,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.vers_17 = Some(lo_inv);
 
         //hi_inv
-        let hi_is_zero = U256::from(1u32) - U256::from(b_hi.get_lower_128()) * hi_inv;
+        let hi_is_zero = if b_hi == F::ZERO {
+            U256::one()
+        } else {
+            U256::zero()
+        };
         core_row_1.vers_18 = Some(hi_is_zero);
         //lo_inv
-        let lo_is_zero = U256::from(1u32) - U256::from(b_lo.get_lower_128()) * lo_inv;
-        core_row_1.vers_19 = Some(lo_is_zero);
+        let lo_is_zero = if b_lo == F::ZERO {
+            U256::one()
+        } else {
+            U256::zero()
+        };
 
         //is_zero
         let is_zero = hi_is_zero * lo_is_zero;
