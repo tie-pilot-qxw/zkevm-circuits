@@ -1299,7 +1299,12 @@ impl Witness {
         );
         self.write_one_table(&mut writer, &self.state, "State", None);
         self.write_one_table(&mut writer, &self.bytecode, "Bytecode", None);
-        self.write_one_table(&mut writer, &self.public, "Public", None);
+        self.write_one_table(
+            &mut writer,
+            &self.public,
+            "Public",
+            Some(self.public.iter().map(|x| &x.comments).collect()),
+        );
         self.write_one_table(&mut writer, &self.copy, "Copy", None);
         self.write_one_table(&mut writer, &self.exp, "Exp", None);
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);

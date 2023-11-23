@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::util::create_contract_addr_with_prefix;
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{ToBigEndian, U256};
@@ -13,6 +15,9 @@ pub struct Row {
     pub value_1: Option<U256>,
     pub value_2: Option<U256>,
     pub value_3: Option<U256>,
+    /// comments to show in html table that explain the purpose of each cell
+    #[serde(skip_serializing)]
+    pub comments: HashMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize)]
@@ -65,35 +70,76 @@ impl Row {
             tag: Tag::BlockCoinbase,
             value_0: Some(block_constant.coinbase.as_fixed_bytes()[..4].into()),
             value_1: Some(block_constant.coinbase.as_fixed_bytes()[4..].into()),
+            comments: [
+                (format!("tag"), format!("BlockCoinbase")),
+                (format!("value_0"), format!("BlockCoinbase[..4]")),
+                (format!("value_1"), format!("BlockCoinbase[4..]")),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockTimestamp,
             value_0: Some(block_constant.timestamp.to_be_bytes()[..16].into()),
             value_1: Some(block_constant.timestamp.to_be_bytes()[16..].into()),
+            comments: [
+                (format!("tag"), format!("BlockTimestamp")),
+                (format!("value_0"), format!("BlockTimestamp[..16]")),
+                (format!("value_1"), format!("BlockCoinbase[16..]")),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockNumber,
             value_1: Some(block_constant.number.as_u64().into()),
+            comments: [
+                (format!("tag"), format!("BlockNumber")),
+                (format!("value_1"), format!("BlockNumber as u64")),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockDifficulty,
             value_0: Some(block_constant.difficulty.to_be_bytes()[..16].into()),
             value_1: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
+            comments: [
+                (format!("tag"), format!("BlockDifficulty")),
+                (format!("value_0"), format!("BlockDifficulty[..16]")),
+                (format!("value_1"), format!("BlockDifficulty[16..]")),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockGasLimit,
             value_0: Some(block_constant.gas_limit.to_be_bytes()[..16].into()),
             value_1: Some(block_constant.gas_limit.to_be_bytes()[16..].into()),
+            comments: [
+                (format!("tag"), format!("BlockGasLimit")),
+                (format!("value_0"), format!("BlockGasLimit[..16]")),
+                (format!("value_1"), format!("BlockGasLimit[16..]")),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         });
         result.push(Row {
             tag: Tag::BlockBaseFee,
             value_0: Some(block_constant.base_fee.to_be_bytes()[..16].into()),
             value_1: Some(block_constant.base_fee.to_be_bytes()[16..].into()),
+            comments: [
+                (format!("tag"), format!("BlockBaseFee")),
+                (format!("value_0"), format!("BlockBaseFee[..16]")),
+                (format!("value_1"), format!("BlockBaseFee[16..]")),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         });
         for (tx_idx, tx) in geth_data.eth_block.transactions.iter().enumerate() {
@@ -106,6 +152,19 @@ impl Row {
                 value_1: Some(tx.from.as_fixed_bytes()[4..].into()),
                 value_2: Some(tx.value.to_be_bytes()[..16].into()),
                 value_3: Some(tx.value.to_be_bytes()[16..].into()),
+                comments: [
+                    (format!("tag"), format!("TxFromValue")),
+                    (
+                        format!("tx_idx_or_number_diff"),
+                        format!("tx_idx{}", tx_idx),
+                    ),
+                    (format!("value_0"), format!("tx.from[..4]")),
+                    (format!("value_1"), format!("tx.from[4..]")),
+                    (format!("value_2"), format!("tx.value[..16]")),
+                    (format!("value_3"), format!("tx.value[16..]")),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             });
             // to is 0x00ffffffffabcd... if tx is create (0xff... is prefix and first 0x00 is to prevent visiting outside of Fr)
@@ -128,6 +187,19 @@ impl Row {
                 value_1: Some(to_lo),
                 value_2: Some(0.into()), //len won't > u128
                 value_3: Some(tx.input.len().into()),
+                comments: [
+                    (format!("tag"), format!("TxToCallDataSize")),
+                    (
+                        format!("tx_idx_or_number_diff"),
+                        format!("tx_idx={}", tx_idx),
+                    ),
+                    (format!("value_0"), format!("to_hi")),
+                    (format!("value_1"), format!("to_low")),
+                    (format!("value_2"), format!("0")),
+                    (format!("value_3"), format!("tx.input.len")),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             });
             result.push(Row {
@@ -135,6 +207,17 @@ impl Row {
                 tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(0.into()),
                 value_1: Some((tx.to.is_none() as u8).into()),
+                comments: [
+                    (format!("tag"), format!("TxIsCreate")),
+                    (
+                        format!("tx_idx_or_number_diff"),
+                        format!("tx_idx{}", tx_idx),
+                    ),
+                    (format!("value_0"), format!("0")),
+                    (format!("value_1"), format!("tx.to.is_none")),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             });
             result.push(Row {
@@ -142,6 +225,17 @@ impl Row {
                 tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(tx.gas.to_be_bytes()[..16].into()),
                 value_1: Some(tx.gas.to_be_bytes()[16..].into()),
+                comments: [
+                    (format!("tag"), format!("TxGasLimit")),
+                    (
+                        format!("tx_idx_or_number_diff"),
+                        format!("tx_idx{}", tx_idx),
+                    ),
+                    (format!("value_0"), format!("tx.gas[..16]")),
+                    (format!("value_1"), format!("tx.gas[16..]")),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             });
             let gas_price = tx.gas_price.unwrap_or(0.into());
@@ -150,6 +244,17 @@ impl Row {
                 tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(gas_price.to_be_bytes()[..16].into()),
                 value_1: Some(gas_price.to_be_bytes()[16..].into()),
+                comments: [
+                    (format!("tag"), format!("TxGasPrice")),
+                    (
+                        format!("tx_idx_or_number_diff"),
+                        format!("tx_idx{}", tx_idx),
+                    ),
+                    (format!("value_0"), format!("gas_price[..16]")),
+                    (format!("value_1"), format!("gas_price[16..]")),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             });
             for (idx, byte) in tx.input.iter().enumerate() {
@@ -159,6 +264,18 @@ impl Row {
                     value_0: Some(idx.into()),
                     value_1: Some(tx.input.len().into()),
                     value_2: Some((*byte).into()),
+                    comments: [
+                        (format!("tag"), format!("TxCalldata")),
+                        (
+                            format!("tx_idx_or_number_diff"),
+                            format!("tx_idx{}", tx_idx),
+                        ),
+                        (format!("value_0"), format!("idx")),
+                        (format!("value_1"), format!("tx.input.len")),
+                        (format!("value_2"), format!("byte")),
+                    ]
+                    .into_iter()
+                    .collect(),
                     ..Default::default()
                 });
             }
@@ -169,6 +286,14 @@ impl Row {
                 tx_idx_or_number_diff: Some((diff + 1).into()),
                 value_0: Some(hash.to_be_bytes()[..16].into()),
                 value_1: Some(hash.to_be_bytes()[16..].into()),
+                comments: [
+                    (format!("tag"), format!("BlockHash")),
+                    (format!("tx_idx_or_number_diff"), format!("diff")),
+                    (format!("value_0"), format!("hash[..16]")),
+                    (format!("value_1"), format!("hash[16..]")),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             });
         }
