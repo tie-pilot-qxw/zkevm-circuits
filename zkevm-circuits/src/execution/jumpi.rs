@@ -101,7 +101,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode - OpcodeId::JUMPI.as_u8().expr(),
             ),
             (
-                "is_zero of operand1hi".into(),
+                "must is_zero of operand1hi".into(),
                 iszero_gadget_hi.expr() - hi_eq.clone(),
             ),
             (
@@ -110,7 +110,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "is_zero of operand1".into(),
-                is_zero.clone() - hi_eq * lo_eq,
+                is_zero.clone() - (hi_eq.clone() + lo_eq.clone()) - (hi_eq * lo_eq),
             ),
             (
                 "expect next pc".into(),
@@ -129,8 +129,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("bytecode lookup is code".into(), not_code),
         ]);
-        //inv of operand1hi
-        constraints.extend(iszero_gadget_hi.get_constraints());
 
         //inv of operand1lo
         constraints.extend(iszero_gadget_lo.get_constraints());
@@ -182,23 +180,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             U256::zero()
         };
-
+        core_row_1.vers_19 = Some(lo_is_zero);
         //is_zero
-        let is_zero = hi_is_zero * lo_is_zero;
+        let is_zero = hi_is_zero | lo_is_zero;
         core_row_1.vers_20 = Some(is_zero);
 
         let mut code_addr = core_row_1.code_addr;
         //dest pc
         let pc = if is_zero.is_zero() {
-            trace.pc + a.as_u64()
+            a.as_u64()
         } else {
+            //b is 0
             code_addr = U256::from(0);
-            0_u64
+            trace.pc + 1
         };
 
         core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, code_addr, Some(0.into()));
-
-        // current_state.bytecode.get(dest.as_usize())
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,
@@ -228,6 +225,41 @@ mod test {
     #[test]
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[1.into(), 1.into()]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: None,
+            ..WitnessExecHelper::new()
+        };
+        let trace = prepare_trace_step!(0, OpcodeId::JUMPI, stack);
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 1.into();
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
+    #[test]
+    fn assign_and_constraint_condzero() {
+        let stack = Stack::from_slice(&[1.into(), 0.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
