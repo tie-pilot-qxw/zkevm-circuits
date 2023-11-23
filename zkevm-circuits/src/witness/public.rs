@@ -191,7 +191,7 @@ impl Row {
                     (format!("tag"), format!("TxToCallDataSize")),
                     (
                         format!("tx_idx_or_number_diff"),
-                        format!("tx_idx{}", tx_idx),
+                        format!("tx_idx={}", tx_idx),
                     ),
                     (format!("value_0"), format!("to_hi")),
                     (format!("value_1"), format!("to_low")),
@@ -288,7 +288,7 @@ impl Row {
                 value_1: Some(hash.to_be_bytes()[16..].into()),
                 comments: [
                     (format!("tag"), format!("BlockHash")),
-                    (format!("tx_idx_or_number_diff"), format!("diff+1")),
+                    (format!("tx_idx_or_number_diff"), format!("diff")),
                     (format!("value_0"), format!("hash[..16]")),
                     (format!("value_1"), format!("hash[16..]")),
                 ]
