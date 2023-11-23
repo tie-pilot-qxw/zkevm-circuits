@@ -6,7 +6,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -52,9 +52,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        // let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let copy_lookup_entry = config.get_copy_lookup(meta);
@@ -101,8 +98,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ));
             let (_, stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, state_entry);
-            stack_pop_values.push(value_hi);
-            stack_pop_values.push(value_lo);
+            stack_pop_values.push([value_hi, value_lo]);
             if i == 2 {
                 copy_code_stamp_start = stamp;
             }
@@ -118,11 +114,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_copy_contraints(
             copy::Type::Bytecode,
             address,
-            stack_pop_values[3].clone(), // stack top1 value_lo
+            stack_pop_values[1][1].clone(), // stack top1 value_lo
             0.expr(),
             copy::Type::Memory,
             call_id.clone(),
-            stack_pop_values[1].clone(), // stack top0 value_lo
+            stack_pop_values[0][1].clone(), // stack top0 value_lo
             copy_code_stamp_start.clone() + 1.expr(),
             copy_len_lo.clone(), // stack top2 value_lo
             copy_len_is_zero.expr(),
@@ -142,11 +138,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_copy_contraints(
             copy::Type::Zero,
             0.expr(),
-            0.expr(), // stack top1 value_lo
+            0.expr(),
             0.expr(),
             copy::Type::Memory,
             call_id.clone(),
-            stack_pop_values[1].clone() + copy_lookup_len.clone(), // stack top0 value_lo
+            stack_pop_values[0][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
             copy_padding_len_lo.clone(), // stack top2 value_lo
             copy_padding_len_is_zero.expr(),
@@ -156,24 +152,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "stack top0 value_hi = 0".into(),
-                stack_pop_values[0].expr() - 0.expr(),
+                stack_pop_values[0][0].clone() - 0.expr(),
             ),
             (
                 "stack top1 value_hi = 0".into(),
-                stack_pop_values[2].expr() - 0.expr(),
+                stack_pop_values[1][0].clone() - 0.expr(),
             ),
             (
                 "stack top2 value_hi = 0".into(),
-                stack_pop_values[4].expr() - 0.expr(),
+                stack_pop_values[2][0].clone() - 0.expr(),
             ),
             // todo: use arithmetic, when generating witness, stack top2 value_lo will be truncated to u64(input_copy_len)
             // (
             //     "stack top2 value_lo(input_len) = copy_lookup_len+padding_lookup_len".into(),
-            //     stack_pop_values[5].clone() - copy_lookup_len - copy_padding_lookup_len,
+            //     stack_pop_values[2][1].clone() - copy_lookup_len - copy_padding_lookup_len,
             // ),
             // (
             //     "stack top2 value_lo(input_len) = copy_len_lo+padding_len_lo".into(),
-            //     stack_pop_values[5].clone() - copy_len_lo - copy_padding_len_lo,
+            //     stack_pop_values[2][1].clone() - copy_len_lo - copy_padding_len_lo,
             // ),
         ]);
 
@@ -232,7 +228,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
 
         // code copy len
-        core_row_2.vers_18 = Some(U256::from(code_copy_len));
+        assign_or_panic!(core_row_2.vers_18, U256::from(code_copy_len));
         let code_copy_len_lo = F::from(code_copy_len);
         let code_copy_len_lo_inv = U256::from_little_endian(
             code_copy_len_lo
@@ -241,10 +237,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        core_row_2.vers_19 = Some(code_copy_len_lo_inv);
+        assign_or_panic!(core_row_2.vers_19, code_copy_len_lo_inv);
 
         // padding copy len
-        core_row_2.vers_20 = Some(U256::from(padding_len));
+        assign_or_panic!(core_row_2.vers_20, U256::from(padding_len));
         let padding_copy_len_lo = F::from(padding_len);
         let padding_copy_len_lo_inv = U256::from_little_endian(
             padding_copy_len_lo
@@ -253,7 +249,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        core_row_2.vers_21 = Some(padding_copy_len_lo_inv);
+        assign_or_panic!(core_row_2.vers_21, padding_copy_len_lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State

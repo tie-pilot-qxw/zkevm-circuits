@@ -6,7 +6,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::GethExecStep;
 use eth_types::Word;
 use eth_types::{Field, U256};
@@ -159,15 +159,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "stack top1 value_hi = 0".into(),
-                copy_operands[1][0].expr() - 0.expr(),
+                copy_operands[1][0].clone() - 0.expr(),
             ),
             (
                 "stack top2 value_hi = 0".into(),
-                copy_operands[2][0].expr() - 0.expr(),
+                copy_operands[2][0].clone() - 0.expr(),
             ),
             (
                 "stack top3 value_hi = 0".into(),
-                copy_operands[3][0].expr() - 0.expr(),
+                copy_operands[3][0].clone() - 0.expr(),
             ),
             // todo: use arithmetic, when generating witness, stack top2 value_lo will be truncated to u64(input_copy_len)
             // (
@@ -229,7 +229,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
         // code copy len
-        core_row_2.vers_18 = Some(U256::from(code_copy_length));
+        assign_or_panic!(core_row_2.vers_18, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);
         let code_copy_lenlo_inv = U256::from_little_endian(
             code_copy_len_lo
@@ -238,9 +238,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        core_row_2.vers_19 = Some(code_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_19, code_copy_lenlo_inv);
         // padding copy len
-        core_row_2.vers_20 = Some(U256::from(padding_length));
+        assign_or_panic!(core_row_2.vers_20, U256::from(padding_length));
         let padding_copy_len_lo = F::from(padding_length);
         let padding_copy_lenlo_inv = U256::from_little_endian(
             padding_copy_len_lo
@@ -249,7 +249,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        core_row_2.vers_21 = Some(padding_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_21, padding_copy_lenlo_inv);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);
@@ -303,7 +303,7 @@ mod test {
     fn assign_and_constraint_no_copy_only_padding() {
         run_prover(&[5.into(), 4.into(), 0.into(), 0xaa.into()]);
     }
-    //
+
     fn run_prover(words: &[Word]) {
         let stack = Stack::from_slice(words);
         let stack_pointer = stack.0.len();
