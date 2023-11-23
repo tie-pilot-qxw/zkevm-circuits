@@ -17,6 +17,7 @@ use crate::state_circuit::StateCircuit;
 use crate::util::{
     convert_u256_to_64_bytes, create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
 };
+use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, GethExecStep, U256};
@@ -329,6 +330,44 @@ impl WitnessExecHelper {
         // };
         // self.state_stamp += 1;
         // res
+    }
+
+    pub fn get_call_context_read_row(&mut self, trace_step: &GethExecStep) -> (state::Row, U256) {
+        let (value, tag) = match trace_step.op {
+            OpcodeId::CALLDATASIZE => (
+                self.call_data
+                    .get(&self.call_id)
+                    .unwrap()
+                    .len()
+                    .clone()
+                    .into(),
+                CallContextTag::CallDataSize,
+            ),
+            OpcodeId::CALLER => (
+                self.sender.get(&self.call_id).unwrap().clone(),
+                CallContextTag::SenderAddr,
+            ),
+            OpcodeId::CALLVALUE => (
+                self.value.get(&self.call_id).unwrap().clone(),
+                CallContextTag::Value,
+            ),
+            _ => {
+                panic!("not CALLDATASIZE,CALLER or CALLVALUE")
+            }
+        };
+
+        let res = state::Row {
+            tag: Some(Tag::CallContext),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some((value >> 128).as_u128().into()),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((tag as usize).into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, value)
     }
 
     pub fn get_storage_write_row(
