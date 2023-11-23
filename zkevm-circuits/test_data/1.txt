@@ -16,4 +16,13 @@ PUSH1 0x03
 PUSH1 0x00
 PUSH32 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 EXTCODECOPY
+PUSH1 0x1E
+PUSH1 0xef
+PUSH1 0x1F
+CODECOPY
+PUSH1 0x1E
+PUSH1 0xef
+PUSH1 0x1F
+PUSH32 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EXTCODECOPY
 STOP

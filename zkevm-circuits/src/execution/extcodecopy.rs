@@ -6,7 +6,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::GethExecStep;
 use eth_types::Word;
 use eth_types::{Field, U256};
@@ -69,7 +69,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let copy_entry = config.get_copy_lookup(meta);
         let padding_entry = config.get_copy_padding_lookup(meta);
-        let (_, _, _, _, _, _, copy_lookup_dst_pointer, _, copy_lookup_len) =
+        let (_, _, _, _, _, _, _, _, copy_lookup_len) =
             extract_lookup_expression!(copy, copy_entry.clone());
         let (_, _, _, _, _, _, _, _, copy_padding_lookup_len) =
             extract_lookup_expression!(copy, padding_entry.clone());
@@ -117,6 +117,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &copy_len_lo_inv,
             String::from("copy_length_lo"),
         );
+        constraints.extend(is_copy_zero_len.get_constraints());
+
         constraints.extend(config.get_copy_contraints(
             copy::Type::Bytecode,
             copy_operands[0][0].clone() * pow_of_two::<F>(128) + copy_operands[0][1].clone(),
@@ -126,10 +128,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id.clone(),
             copy_operands[1][1].clone(),
             copy_code_stamp_start.clone() + 1.expr(),
-            copy_lookup_len.clone(),
+            copy_len_lo.clone(),
             is_copy_zero_len.expr(),
             copy_entry.clone(),
         ));
+
         // padding constraints
         let padding_len_lo = meta.query_advice(config.vers[20], Rotation(-2));
         let padding_len_lo_inv = meta.query_advice(config.vers[21], Rotation(-2));
@@ -138,6 +141,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &padding_len_lo_inv,
             String::from("padding_length_lo"),
         );
+        constraints.extend(is_padding_zero_len.get_constraints());
+
         constraints.extend(config.get_copy_contraints(
             copy::Type::Zero,
             0.expr(),
@@ -145,12 +150,36 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0.expr(),
             copy::Type::Memory,
             call_id.clone(),
-            copy_lookup_dst_pointer.clone() + copy_lookup_len.clone(),
+            copy_operands[1][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
             padding_len_lo.expr(),
             is_padding_zero_len.expr(),
             padding_entry.clone(),
         ));
+        constraints.extend([
+            (
+                "stack top1 value_hi = 0".into(),
+                copy_operands[1][0].clone() - 0.expr(),
+            ),
+            (
+                "stack top2 value_hi = 0".into(),
+                copy_operands[2][0].clone() - 0.expr(),
+            ),
+            (
+                "stack top3 value_hi = 0".into(),
+                copy_operands[3][0].clone() - 0.expr(),
+            ),
+            // todo: use arithmetic, when generating witness, stack top2 value_lo will be truncated to u64(input_copy_len)
+            // (
+            //     "stack top3 value_lo(input_len) = copy_lookup_len+padding_lookup_len".into(),
+            //     copy_operands[3][1].clone() - copy_lookup_len - copy_padding_lookup_len,
+            // ),
+            // (
+            //     "stack top3 value_lo(input_len) = copy_len_lo+padding_len_lo".into(),
+            //     copy_operands[3][1].clone() - copy_len_lo - padding_len_lo,
+            // ),
+        ]);
+
         constraints
     }
     fn get_lookups(
@@ -200,7 +229,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
         // code copy len
-        core_row_2.vers_18 = Some(U256::from(code_copy_length));
+        assign_or_panic!(core_row_2.vers_18, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);
         let code_copy_lenlo_inv = U256::from_little_endian(
             code_copy_len_lo
@@ -209,9 +238,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        core_row_2.vers_19 = Some(code_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_19, code_copy_lenlo_inv);
         // padding copy len
-        core_row_2.vers_20 = Some(U256::from(padding_length));
+        assign_or_panic!(core_row_2.vers_20, U256::from(padding_length));
         let padding_copy_len_lo = F::from(padding_length);
         let padding_copy_lenlo_inv = U256::from_little_endian(
             padding_copy_len_lo
@@ -220,7 +249,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        core_row_2.vers_21 = Some(padding_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_21, padding_copy_lenlo_inv);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);

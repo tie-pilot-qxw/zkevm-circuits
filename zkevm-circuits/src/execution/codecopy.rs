@@ -6,10 +6,11 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
 use eth_types::GethExecStep;
+use eth_types::{Field, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -19,7 +20,7 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
-/// | 2 | COPY(9)|
+/// | 2 | COPY(9)| ZEROCOPY(9) | COPY_LEN_LO(1) | COPY_LEN_INV(1) | ZERO_LEN_LO(1) | ZERO_LEN_INV(1)
 /// | 1 | STATE | STATE | STATE | notUsed |
 /// | 0 | DYNA_SELECTOR   | AUX           |
 /// +---+-------+-------+-------+---------+
@@ -51,34 +52,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        // let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
+        let copy_lookup_entry = config.get_copy_lookup(meta);
+        let copy_padding_lookup_entry = config.get_copy_padding_lookup(meta);
 
-        let (
-            copy_lookup_src_type,
-            copy_lookup_code_address,
-            copy_lookup_offset,
-            _,
-            copy_lookup_dst_type,
-            copy_lookup_dst_id,
-            copy_lookup_dst_offset,
-            copy_lookup_det_stamp,
-            copy_lookup_len,
-        ) = extract_lookup_expression!(copy, config.get_copy_lookup(meta));
+        let (_, _, _, _, _, _, _, _, copy_lookup_len) =
+            extract_lookup_expression!(copy, copy_lookup_entry.clone());
+        let (_, _, _, _, _, _, _, _, copy_padding_lookup_len) =
+            extract_lookup_expression!(copy, copy_padding_lookup_entry.clone());
 
+        // auxiliary constraints
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
         let auxiliary_delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + copy_lookup_len.clone(),
+            state_stamp: STATE_STAMP_DELTA.expr()
+                + copy_lookup_len.clone()
+                + copy_padding_lookup_len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
-
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
+        // core single constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(1.expr()),
             ..Default::default()
@@ -86,6 +82,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
 
+        // stack constraints
         // index0: dst_offset, index1: offset, index2: len
         let mut copy_code_stamp_start = 0.expr();
         let mut stack_pop_values = vec![];
@@ -101,59 +98,79 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ));
             let (_, stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, state_entry);
-            stack_pop_values.push(value_hi);
-            stack_pop_values.push(value_lo);
+            stack_pop_values.push([value_hi, value_lo]);
             if i == 2 {
                 copy_code_stamp_start = stamp;
             }
         }
 
+        // code copy constraints
+        let copy_len_lo = meta.query_advice(config.vers[18], Rotation(-2));
+        let copy_len_lo_inv = meta.query_advice(config.vers[19], Rotation(-2));
+        let copy_len_is_zero =
+            SimpleIsZero::new(&copy_len_lo, &copy_len_lo_inv, String::from("copy_len_lo"));
+        constraints.extend(copy_len_is_zero.get_constraints());
+
+        constraints.extend(config.get_copy_contraints(
+            copy::Type::Bytecode,
+            address,
+            stack_pop_values[1][1].clone(), // stack top1 value_lo
+            0.expr(),
+            copy::Type::Memory,
+            call_id.clone(),
+            stack_pop_values[0][1].clone(), // stack top0 value_lo
+            copy_code_stamp_start.clone() + 1.expr(),
+            copy_len_lo.clone(), // stack top2 value_lo
+            copy_len_is_zero.expr(),
+            copy_lookup_entry.clone(),
+        ));
+
+        // code padding copy constraints
+        let copy_padding_len_lo = meta.query_advice(config.vers[20], Rotation(-2));
+        let copy_padding_len_lo_inv = meta.query_advice(config.vers[21], Rotation(-2));
+        let copy_padding_len_is_zero = SimpleIsZero::new(
+            &copy_padding_len_lo,
+            &copy_padding_len_lo_inv,
+            String::from("copy_padding_len_lo"),
+        );
+        constraints.extend(copy_padding_len_is_zero.get_constraints());
+
+        constraints.extend(config.get_copy_contraints(
+            copy::Type::Zero,
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            copy::Type::Memory,
+            call_id.clone(),
+            stack_pop_values[0][1].clone() + copy_lookup_len.clone(),
+            copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
+            copy_padding_len_lo.clone(), // stack top2 value_lo
+            copy_padding_len_is_zero.expr(),
+            copy_padding_lookup_entry.clone(),
+        ));
+
         constraints.extend([
-            ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
             (
                 "stack top0 value_hi = 0".into(),
-                stack_pop_values[0].expr() - 0.expr(),
-            ),
-            (
-                "lookup dst_offset = stack top0 value_lo".into(),
-                stack_pop_values[1].expr() - copy_lookup_dst_offset,
+                stack_pop_values[0][0].clone() - 0.expr(),
             ),
             (
                 "stack top1 value_hi = 0".into(),
-                stack_pop_values[2].expr() - 0.expr(),
-            ),
-            (
-                "lookup offset = stack top1 value_lo".into(),
-                stack_pop_values[3].expr() - copy_lookup_offset,
+                stack_pop_values[1][0].clone() - 0.expr(),
             ),
             (
                 "stack top2 value_hi = 0".into(),
-                stack_pop_values[4].expr() - 0.expr(),
+                stack_pop_values[2][0].clone() - 0.expr(),
             ),
-            (
-                "lookup len = stack top2 value_lo".into(),
-                stack_pop_values[5].expr() - copy_lookup_len,
-            ),
-            (
-                "lookup code address = code address".into(),
-                copy_lookup_code_address - address,
-            ),
-            (
-                "lookup dst_id = call id".into(),
-                copy_lookup_dst_id - call_id,
-            ),
-            (
-                "lookup dst_stamp = top2_stamp + 1".into(),
-                copy_lookup_det_stamp - copy_code_stamp_start - 1.expr(),
-            ),
-            (
-                "src_type is ByteCode".into(),
-                copy_lookup_src_type - (copy::Type::Bytecode as u8).expr(),
-            ),
-            (
-                "dst_type is Memory".into(),
-                copy_lookup_dst_type - (copy::Type::Memory as u8).expr(),
-            ),
+            // todo: use arithmetic, when generating witness, stack top2 value_lo will be truncated to u64(input_copy_len)
+            // (
+            //     "stack top2 value_lo(input_len) = copy_lookup_len+padding_lookup_len".into(),
+            //     stack_pop_values[2][1].clone() - copy_lookup_len - copy_padding_lookup_len,
+            // ),
+            // (
+            //     "stack top2 value_lo(input_len) = copy_len_lo+padding_len_lo".into(),
+            //     stack_pop_values[2][1].clone() - copy_len_lo - copy_padding_len_lo,
+            // ),
         ]);
 
         constraints
@@ -167,6 +184,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let padding_copy_lookup =
+            query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
         vec![
             ("state lookup, stack pop dst_offset".into(), stack_lookup_0),
             (
@@ -178,29 +197,65 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_lookup_2,
             ),
             ("code copy lookup".into(), code_copy_lookup),
+            ("code copy padding lookup".into(), padding_copy_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::CODECOPY);
 
         // get dstOffset、offset、length from stack top
-        let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
-        let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_mem_offset, mem_offset) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_code_offset, code_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
 
         // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // generate copy rows and state rows(type: memory)
-        let (copy_rows, memory_state_rows, _, _, _) =
-            current_state.get_code_copy_rows(current_state.code_addr, dst_offset, offset, length);
+        let (copy_rows, memory_state_rows, input_len, padding_len, code_copy_len) = current_state
+            .get_code_copy_rows(current_state.code_addr, mem_offset, code_offset, length);
+
+        let mut copy_row = &Default::default();
+        if code_copy_len > 0 {
+            copy_row = &copy_rows[0];
+        }
+
+        let mut padding_row = &Default::default();
+        if padding_len > 0 {
+            padding_row = &copy_rows[code_copy_len as usize];
+        }
+
         // insert lookUp: Core ---> Copy
-        core_row_2.insert_copy_lookup(&copy_rows[0], None);
+        core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
+
+        // code copy len
+        assign_or_panic!(core_row_2.vers_18, U256::from(code_copy_len));
+        let code_copy_len_lo = F::from(code_copy_len);
+        let code_copy_len_lo_inv = U256::from_little_endian(
+            code_copy_len_lo
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+        assign_or_panic!(core_row_2.vers_19, code_copy_len_lo_inv);
+
+        // padding copy len
+        assign_or_panic!(core_row_2.vers_20, U256::from(padding_len));
+        let padding_copy_len_lo = F::from(padding_len);
+        let padding_copy_len_lo_inv = U256::from_little_endian(
+            padding_copy_len_lo
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+        assign_or_panic!(core_row_2.vers_21, padding_copy_len_lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([
-            &stack_pop_dst_offset,
-            &stack_pop_offset,
+            &stack_pop_mem_offset,
+            &stack_pop_code_offset,
             &stack_pop_length,
         ]);
 
@@ -211,7 +266,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
-        let mut state_rows = vec![stack_pop_dst_offset, stack_pop_offset, stack_pop_length];
+        let mut state_rows = vec![
+            stack_pop_mem_offset,
+            stack_pop_code_offset,
+            stack_pop_length,
+        ];
         state_rows.extend(memory_state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -229,6 +288,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use eth_types::Word;
     use std::vec;
 
     use crate::execution::test::{
@@ -236,20 +296,42 @@ mod test {
     };
     generate_execution_gadget_test_circuit!();
     #[test]
-    fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0x01.into(), 0x00.into(), 0x00.into()]);
+    fn assign_and_constraint_copy_no_padding() {
+        run_prover(&[2.into(), 0.into(), 0.into()]);
+    }
+
+    #[test]
+    fn assign_and_constraint_copy_padding() {
+        run_prover(&[5.into(), 0.into(), 0.into()]);
+    }
+
+    #[test]
+    fn assign_and_constraint_no_copy_no_padding() {
+        run_prover(&[0.into(), 0.into(), 0.into()]);
+    }
+
+    #[test]
+    fn assign_and_constraint_no_copy_only_padding() {
+        run_prover(&[5.into(), 4.into(), 0.into()]);
+    }
+
+    fn run_prover(words: &[Word]) {
+        let stack = Stack::from_slice(words);
         let stack_pointer = stack.0.len();
+
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-
-        let code_vec = vec![OpcodeId::PUSH1.as_u8()];
+        let mut code_vec = vec![];
+        code_vec.push(OpcodeId::PUSH1.as_u8());
+        code_vec.push(OpcodeId::PUSH1.as_u8());
+        code_vec.push(OpcodeId::ADD.as_u8());
         current_state
             .bytecode
-            .insert(current_state.code_addr, code_vec.into());
-
+            .insert(0xaa.into(), code_vec.to_vec().into());
+        current_state.code_addr = 0xaa.into();
         let trace = prepare_trace_step!(0, OpcodeId::CODECOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
