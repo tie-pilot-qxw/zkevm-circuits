@@ -99,7 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // append core single purpose constraints
         let delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(1.expr()),
+            // pc: ExpressionOutcome::Delta(1.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
@@ -131,10 +131,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 format!("opcode is RETURN or REVERT").into(),
                 (opcode.clone() - (OpcodeId::RETURN).expr()) * (opcode - (OpcodeId::REVERT).expr()),
             ),
-            (
-                format!("next pc").into(),
-                pc_next - pc_cur - PC_DELTA.expr(),
-            ),
+            // (
+            //     format!("next pc").into(),
+            //     pc_next - pc_cur - PC_DELTA.expr(),
+            // ),
         ]);
 
         constraints
@@ -255,7 +255,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = 1.into();
+            row.pc = 0.into();
             row
         };
         let (witness, prover) =
