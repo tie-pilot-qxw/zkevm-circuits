@@ -1258,6 +1258,12 @@ impl Witness {
             "Core",
             Some(self.core.iter().map(|x| &x.comments).collect()),
         );
+        self.write_one_table(
+            &mut writer,
+            &self.public,
+            "Public",
+            Some(self.public.iter().map(|x| &x.comments).collect()),
+        );
         self.write_one_table(&mut writer, &self.state, "State", None);
         self.write_one_table(&mut writer, &self.bytecode, "Bytecode", None);
         self.write_one_table(&mut writer, &self.public, "Public", None);
