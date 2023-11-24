@@ -111,7 +111,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // copy constraints
         let copy_len_lo_inv = meta.query_advice(config.vers[19], Rotation(-2));
-        let copy_len_lo = meta.query_advice(config.vers[18], Rotation((-2)));
+        let copy_len_lo = meta.query_advice(config.vers[18], Rotation(-2));
         let is_copy_zero_len = SimpleIsZero::new(
             &copy_len_lo,
             &copy_len_lo_inv,

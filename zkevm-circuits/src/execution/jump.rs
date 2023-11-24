@@ -85,10 +85,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "opcode is JUMP".into(),
                 opcode - OpcodeId::JUMP.as_u8().expr(),
             ),
-            // (
-            //     "next pc = stack top".into(),
-            //     pc_next.clone() - value_lo.clone(),
-            // ),
             ("stack top value_hi = 0".into(), value_hi - 0.expr()),
             (
                 "bytecode lookup pc = stack top value_lo".into(),

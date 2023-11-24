@@ -87,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (
             bytecode_full_lookup_addr,
             bytecode_full_lookup_pc,
-            bytecode_full_lookup_next_op,
+            bytecode_full_lookup_op,
             bytecode_full_lookup_not_code,
             _,
             _,
@@ -140,8 +140,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "bytecode lookup opcode = JUMPDEST".into(),
                 (1.expr() - is_zero.clone())
-                    * (bytecode_full_lookup_next_op.clone() - OpcodeId::JUMPDEST.as_u8().expr())
-                    + is_zero.clone() * bytecode_full_lookup_next_op,
+                    * (bytecode_full_lookup_op.clone() - OpcodeId::JUMPDEST.as_u8().expr())
+                    + is_zero.clone() * bytecode_full_lookup_op,
             ),
             (
                 "bytecode lookup is code".into(),
