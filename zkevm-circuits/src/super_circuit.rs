@@ -90,7 +90,12 @@ impl<
     type Cells = ();
 
     fn new_from_witness(witness: &Witness) -> Self {
-        assert!(Self::num_rows(witness) <= MAX_NUM_ROW);
+        assert!(
+            Self::num_rows(witness) <= MAX_NUM_ROW,
+            "Witness rows {} > Circuit max rows {}",
+            Self::num_rows(witness),
+            MAX_NUM_ROW
+        );
         let core_circuit = CoreCircuit::new_from_witness(witness);
         let bytecode_circuit = BytecodeCircuit::new_from_witness(witness);
         let state_circuit = StateCircuit::new_from_witness(witness);
