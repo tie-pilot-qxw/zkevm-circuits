@@ -207,7 +207,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_1.vers_20, is_zero);
 
         let mut code_addr = core_row_1.code_addr;
- 
+
         let mut next_op = OpcodeId::JUMPDEST;
         //dest pc
         let pc = if is_zero.is_zero() {
