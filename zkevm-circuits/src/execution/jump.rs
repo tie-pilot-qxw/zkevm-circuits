@@ -58,13 +58,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
-        let core_single_delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(1.expr()),
-            ..Default::default()
-        };
-        constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
-
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
             meta,
@@ -77,6 +70,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::To(value_lo.clone()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+
         let (lookup_addr, expect_next_pc, _, not_code, _, _, _, _) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
@@ -84,10 +84,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "opcode is JUMP".into(),
                 opcode - OpcodeId::JUMP.as_u8().expr(),
-            ),
-            (
-                "next pc = stack top".into(),
-                pc_next.clone() - value_lo.clone(),
             ),
             ("stack top value_hi = 0".into(), value_hi - 0.expr()),
             (
