@@ -1,7 +1,7 @@
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::{GethExecStep, U256};
@@ -54,6 +54,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let expect_next_pc = meta.query_advice(config.pc, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
+
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -83,13 +84,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             }
         }
 
-        let (addr, pc, next_op, not_code, _, _, _, _) =
-            extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
+        let (
+            bytecode_full_lookup_addr,
+            bytecode_full_lookup_pc,
+            bytecode_full_lookup_next_op,
+            bytecode_full_lookup_not_code,
+            _,
+            _,
+            _,
+            _,
+        ) = extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
         let hi_inv = meta.query_advice(config.vers[16], Rotation::prev());
         let lo_inv = meta.query_advice(config.vers[17], Rotation::prev());
-        let hi_eq = meta.query_advice(config.vers[18], Rotation::prev());
-        let lo_eq = meta.query_advice(config.vers[19], Rotation::prev());
+        let hi_is_zero = meta.query_advice(config.vers[18], Rotation::prev());
+        let lo_is_zero = meta.query_advice(config.vers[19], Rotation::prev());
         let is_zero = meta.query_advice(config.vers[20], Rotation::prev());
 
         let iszero_gadget_hi = SimpleIsZero::new(&operands[2], &hi_inv, String::from("hi"));
@@ -102,15 +111,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "is_zero of operand1hi".into(),
-                iszero_gadget_hi.expr() - hi_eq.clone(),
+                iszero_gadget_hi.expr() - hi_is_zero.clone(),
             ),
             (
                 "is_zero of operand1lo".into(),
-                iszero_gadget_lo.expr() - lo_eq.clone(),
+                iszero_gadget_lo.expr() - lo_is_zero.clone(),
             ),
             (
                 "is_zero of operand1".into(),
-                is_zero.clone() - (hi_eq.clone() + lo_eq.clone()) - (hi_eq * lo_eq),
+                is_zero.clone() - hi_is_zero * lo_is_zero,
             ),
             (
                 "expect next pc".into(),
@@ -118,16 +127,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     - (pc_cur.clone() + 1.expr()) * is_zero.clone()
                     - (1.expr() - is_zero.clone()) * operands[1].clone(),
             ),
-            ("bytecode lookup addr = code_addr".into(), code_addr - addr),
+            (
+                "bytecode lookup addr = code_addr".into(),
+                (1.expr() - is_zero.clone()) * (code_addr - bytecode_full_lookup_addr.clone())
+                    + is_zero.clone() * bytecode_full_lookup_addr,
+            ),
             (
                 "bytecode lookup pc = expect_next_pc".into(),
-                (1.expr() - is_zero.clone()) * (pc - expect_next_pc),
+                (1.expr() - is_zero.clone()) * (bytecode_full_lookup_pc.clone() - expect_next_pc)
+                    + is_zero.clone() * bytecode_full_lookup_pc,
             ),
             (
                 "bytecode lookup opcode = JUMPDEST".into(),
-                (1.expr() - is_zero.clone()) * (next_op - OpcodeId::JUMPDEST.as_u8().expr()),
+                (1.expr() - is_zero.clone())
+                    * (bytecode_full_lookup_next_op.clone() - OpcodeId::JUMPDEST.as_u8().expr())
+                    + is_zero.clone() * bytecode_full_lookup_next_op,
             ),
-            ("bytecode lookup is code".into(), not_code),
+            (
+                "bytecode lookup is code".into(),
+                bytecode_full_lookup_not_code,
+            ),
         ]);
         //inv of operand1hi
         constraints.extend(iszero_gadget_hi.get_constraints());
@@ -164,9 +183,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let lo_inv = U256::from_little_endian(b_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         let hi_inv = U256::from_little_endian(b_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         //hi_inv
-        core_row_1.vers_16 = Some(hi_inv);
+        assign_or_panic!(core_row_1.vers_16, hi_inv);
         //lo_inv
-        core_row_1.vers_17 = Some(lo_inv);
+        assign_or_panic!(core_row_1.vers_17, lo_inv);
 
         //hi_inv
         let hi_is_zero = if b_hi == F::ZERO {
@@ -174,29 +193,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             U256::zero()
         };
-        core_row_1.vers_18 = Some(hi_is_zero);
+        assign_or_panic!(core_row_1.vers_18, hi_is_zero);
         //lo_inv
         let lo_is_zero = if b_lo == F::ZERO {
             U256::one()
         } else {
             U256::zero()
         };
-        core_row_1.vers_19 = Some(lo_is_zero);
+        assign_or_panic!(core_row_1.vers_19, lo_is_zero);
+
         //is_zero
-        let is_zero = hi_is_zero | lo_is_zero;
-        core_row_1.vers_20 = Some(is_zero);
+        let is_zero = hi_is_zero * lo_is_zero;
+        assign_or_panic!(core_row_1.vers_20, is_zero);
 
         let mut code_addr = core_row_1.code_addr;
+ 
+        let mut next_op = OpcodeId::JUMPDEST;
         //dest pc
         let pc = if is_zero.is_zero() {
             a.as_u64()
         } else {
             //b is 0
             code_addr = U256::from(0);
+            next_op = OpcodeId::default();
             0_u64
         };
 
-        core_row_1.insert_bytecode_full_lookup(pc, OpcodeId::JUMPDEST, code_addr, Some(0.into()));
+        core_row_1.insert_bytecode_full_lookup(pc, next_op, code_addr, Some(0.into()));
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,
@@ -260,7 +283,7 @@ mod test {
     }
     #[test]
     fn assign_and_constraint_condzero() {
-        let stack = Stack::from_slice(&[1.into(), 0.into()]);
+        let stack = Stack::from_slice(&[0.into(), 1.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
