@@ -50,7 +50,7 @@ use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
-use gadgets::util::Expr;
+use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use serde::Serialize;
@@ -420,6 +420,115 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 is_write - (write as u8).expr(),
             ),
         ]
+    }
+
+    pub(crate) fn get_storage_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        storage_contract_addr_hi: Expression<F>,
+        storage_contract_addr_lo: Expression<F>,
+        storage_key_hi: Expression<F>,
+        storage_key_lo: Expression<F>,
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+            extract_lookup_expression!(state, entry);
+        let Auxiliary { state_stamp, .. } = self.get_auxiliary();
+        vec![
+            (
+                format!("state lookup tag[{}] = Storage", index),
+                tag - (state::Tag::Storage as u8).expr(),
+            ),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                stamp
+                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - index.expr(),
+            ),
+            (
+                format!("state lookup call id[{}]", index),
+                call_id_contract_addr
+                    - storage_contract_addr_hi * pow_of_two::<F>(128)
+                    - storage_contract_addr_lo,
+            ),
+            (
+                format!("pointer_hi (storage key)[{}]", index),
+                pointer_hi - storage_key_hi,
+            ),
+            (
+                format!("pointer_lo (storage key)[{}]", index),
+                pointer_lo - storage_key_lo,
+            ),
+            (
+                format!("is_write[{}]", index),
+                is_write - (write as u8).expr(),
+            ),
+        ]
+    }
+
+    ///generate stack lookup's constraints which are controlled by the selector (enabled when selector != 0.expr() and disabled when selector == 0.expr())
+    pub(crate) fn get_stack_constraints_with_selector(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        stack_pointer_delta: Expression<F>, // compare to that of previous state
+        write: bool,
+        selector: Expression<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let constraints_raw = self.get_stack_constraints(
+            meta,
+            entry,
+            index,
+            prev_exec_state_row,
+            stack_pointer_delta,
+            write,
+        );
+
+        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+            .into_iter()
+            .map(|constraint| (constraint.0, selector.clone() * constraint.1))
+            .collect();
+
+        res
+    }
+
+    ///generate storage lookup's constraints which are controlled by the selector (enabled when selector != 0.expr() and disabled when selector == 0.expr())
+    pub(crate) fn get_storage_constraints_with_selector(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        storage_contract_addr_hi: Expression<F>,
+        storage_contract_addr_lo: Expression<F>,
+        storage_key_hi: Expression<F>,
+        storage_key_lo: Expression<F>,
+        write: bool,
+        selector: Expression<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let constraints_raw = self.get_storage_constraints(
+            meta,
+            entry,
+            index,
+            prev_exec_state_row,
+            storage_contract_addr_hi,
+            storage_contract_addr_lo,
+            storage_key_hi,
+            storage_key_lo,
+            write,
+        );
+
+        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+            .into_iter()
+            .map(|constraint| (constraint.0, selector.clone() * constraint.1))
+            .collect();
+
+        res
     }
 
     pub(crate) fn get_returndata_call_id_constraints(
@@ -1354,7 +1463,7 @@ mod test {
         }};
     }
     macro_rules! prepare_trace_step {
-        ($pc:expr, $op:expr, $stack:expr) => {{
+        ($pc:expr, $op:expr, $stack: expr) => {{
             GethExecStep {
                 pc: $pc,
                 op: $op,
