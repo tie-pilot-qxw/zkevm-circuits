@@ -19,7 +19,7 @@ use crate::util::{
 };
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
-use eth_types::{Bytecode, GethExecStep, U256};
+use eth_types::{Bytecode, GethExecStep, Hash, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -48,6 +48,7 @@ pub struct WitnessExecHelper {
     pub returndata_call_id: u64,
     pub returndata_size: U256,
     pub code_addr: U256,
+    pub storage_contract_addr: HashMap<u64, U256>,
     pub state_stamp: u64,
     pub log_stamp: u64,
     pub gas_left: u64,
@@ -72,6 +73,7 @@ impl WitnessExecHelper {
             returndata_call_id: 0,
             returndata_size: 0.into(),
             code_addr: 0.into(),
+            storage_contract_addr: HashMap::new(),
             state_stamp: 0,
             log_stamp: 0,
             gas_left: 0,
@@ -237,12 +239,7 @@ impl WitnessExecHelper {
     }
 
     pub fn get_memory_read_row(&mut self, trace_step: &GethExecStep, dst: usize) -> state::Row {
-        let value = trace_step
-            .memory
-            .0
-            .get(dst)
-            .map(|x| x.clone())
-            .unwrap_or_default();
+        let value = trace_step.memory.0.get(dst).cloned().unwrap_or_default();
         let res = state::Row {
             tag: Some(state::Tag::Memory),
             stamp: Some(self.state_stamp.into()),
@@ -308,27 +305,26 @@ impl WitnessExecHelper {
         self.state_stamp += 1;
         res
     }
-    pub fn get_storage_read_row(&mut self, key: U256, contract_addr: U256) -> state::Row {
-        todo!()
-        //TODO add trace_step, use trace_step.storage
-        // let value = self
-        //     .storage
-        //     .0
-        //     .get(&key)
-        //     .map(|x| x.clone())
-        //     .unwrap_or_default();
-        // let res = state::Row {
-        //     tag: Some(state::Tag::Storage),
-        //     stamp: Some(self.state_stamp.into()),
-        //     value_hi: Some(value >> 128),
-        //     value_lo: Some(value.low_u128().into()),
-        //     call_id_contract_addr: Some(contract_addr),
-        //     pointer_hi: Some(key >> 128),
-        //     pointer_lo: Some(key.low_u128().into()),
-        //     is_write: Some(0.into()),
-        // };
-        // self.state_stamp += 1;
-        // res
+
+    pub fn get_storage_read_row_value(
+        &mut self,
+        trace_step: &GethExecStep,
+        key: U256,
+        contract_addr: U256,
+    ) -> (state::Row, U256) {
+        let value = trace_step.storage.0.get(&key).cloned().unwrap_or_default();
+        let res = state::Row {
+            tag: Some(state::Tag::Storage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some(value >> 128),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(key >> 128),
+            pointer_lo: Some(key.low_u128().into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, value)
     }
 
     pub fn get_storage_write_row(
@@ -337,20 +333,18 @@ impl WitnessExecHelper {
         value: U256,
         contract_addr: U256,
     ) -> state::Row {
-        todo!()
-        //TODO add trace_step, use trace_step.storage
-        // let res = state::Row {
-        //     tag: Some(state::Tag::Storage),
-        //     stamp: Some(self.state_stamp.into()),
-        //     value_hi: Some(value >> 128),
-        //     value_lo: Some(value.low_u128().into()),
-        //     call_id_contract_addr: Some(contract_addr),
-        //     pointer_hi: Some(key >> 128),
-        //     pointer_lo: Some(key.low_u128().into()),
-        //     is_write: Some(1.into()),
-        // };
-        // self.state_stamp += 1;
-        // res
+        let res = state::Row {
+            tag: Some(state::Tag::Storage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some(value >> 128),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(key >> 128),
+            pointer_lo: Some(key.low_u128().into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
     }
 
     pub fn get_push_stack_row(&mut self, trace: &GethExecStep, value: U256) -> state::Row {
@@ -500,7 +494,7 @@ impl WitnessExecHelper {
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
             let data = self.return_data.get(&self.call_id).unwrap();
-            let byte = data.get(src + i).map(|x| x.clone()).unwrap();
+            let byte = data.get(src + i).cloned().unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Type::Returndata,
@@ -521,7 +515,7 @@ impl WitnessExecHelper {
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
             let data = self.return_data.get(&self.call_id).unwrap();
-            let byte = data.get(src + i).map(|x| x.clone()).unwrap();
+            let byte = data.get(src + i).cloned().unwrap();
 
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
@@ -742,6 +736,21 @@ impl WitnessExecHelper {
         };
         self.state_stamp += 1;
         (res, self.returndata_size.into())
+    }
+    pub fn get_storage_contract_addr_row(&mut self) -> (state::Row, U256) {
+        let value = self.storage_contract_addr.get(&self.call_id).unwrap();
+        let res = state::Row {
+            tag: Some(state::Tag::CallContext),
+            stamp: Some((self.state_stamp).into()),
+            value_hi: Some((value.clone() >> 128).as_u128().into()),
+            value_lo: Some(value.clone().low_u128().into()),
+            call_id_contract_addr: Some(self.call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((state::CallContextTag::StorageContractAddr as u8).into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, value.clone())
     }
 }
 
@@ -1172,15 +1181,11 @@ impl Witness {
         ])
         .unwrap();
         for i in 0..max_length {
-            let core = self.core.get(i).map(|x| x.clone()).unwrap_or_default();
-            let state = self.state.get(i).map(|x| x.clone()).unwrap_or_default();
-            let bytecode = self.bytecode.get(i).map(|x| x.clone()).unwrap_or_default();
-            let public = self.public.get(i).map(|x| x.clone()).unwrap_or_default();
-            let arithmetic = self
-                .arithmetic
-                .get(i)
-                .map(|x| x.clone())
-                .unwrap_or_default();
+            let core = self.core.get(i).cloned().unwrap_or_default();
+            let state = self.state.get(i).cloned().unwrap_or_default();
+            let bytecode = self.bytecode.get(i).cloned().unwrap_or_default();
+            let public = self.public.get(i).cloned().unwrap_or_default();
+            let arithmetic = self.arithmetic.get(i).cloned().unwrap_or_default();
             wtr.serialize((core, state, bytecode, public, arithmetic))
                 .unwrap()
         }
