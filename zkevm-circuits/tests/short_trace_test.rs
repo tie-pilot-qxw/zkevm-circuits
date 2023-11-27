@@ -2,7 +2,7 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
 use std::fs::File;
 use std::io::Read;
-use trace_parser::read_trace_from_api_result_file;
+use trace_parser::{read_log_from_api_result_file, read_trace_from_api_result_file};
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
@@ -18,7 +18,11 @@ fn test_short_trace() {
         bytecodes = bytecodes.split_off(2);
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
-    let witness = Witness::new(&geth_data_test(trace, &bytecodes, &[], false));
+    let resultLog = read_log_from_api_result_file("test_data/short-log.json");
+    let witness = Witness::new(
+        &geth_data_test(trace, &bytecodes, &[], false),
+        Some(&resultLog),
+    );
     witness.print_csv();
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);

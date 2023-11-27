@@ -25,7 +25,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let machine_code = trace_parser::assemble_file("test_data/1.txt");
     let trace = trace_parser::trace_program(&machine_code);
-    let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
+    let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false), None);
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance: Vec<Vec<Fr>> = circuit.instance();

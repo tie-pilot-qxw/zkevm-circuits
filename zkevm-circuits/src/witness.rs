@@ -20,7 +20,7 @@ use crate::util::{
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
-use eth_types::{Bytecode, GethExecStep, Hash, U256};
+use eth_types::{Bytecode, GethExecStep, Hash, ResultLog, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -1133,9 +1133,9 @@ impl Witness {
     }
 
     /// Generate witness of block related data, such as bytecode and public table
-    fn insert_block_related(&mut self, geth_data: &GethData) {
+    fn insert_block_related(&mut self, geth_data: &GethData, log_data: Option<&ResultLog>) {
         self.public
-            .append(&mut public::Row::from_geth_data(&geth_data).unwrap());
+            .append(&mut public::Row::from_geth_data(&geth_data, log_data).unwrap());
         for account in &geth_data.accounts {
             if !account.code.is_empty() {
                 let mut bytcode_table =
@@ -1174,7 +1174,7 @@ impl Witness {
     }
 
     /// Generate witness of one transaction's trace
-    pub fn new(geth_data: &GethData) -> Self {
+    pub fn new(geth_data: &GethData, log_data: Option<&ResultLog>) -> Self {
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         > = get_every_execution_gadgets!();
@@ -1184,7 +1184,7 @@ impl Witness {
             .collect();
         let mut witness = Witness::default();
         // step 1: insert block related witness: bytecode and public
-        witness.insert_block_related(&geth_data);
+        witness.insert_block_related(&geth_data, log_data);
         // step 2: insert padding to core, bytecode, state
         witness.insert_begin_padding();
         // step 3: create witness trace by trace, and append them
@@ -1387,7 +1387,7 @@ mod tests {
     fn test_data_print_csv() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
+        let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false), None);
         witness.print_csv();
     }
 }

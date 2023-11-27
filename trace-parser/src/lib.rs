@@ -1,5 +1,7 @@
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::{Bytes, GethExecStep, GethExecTrace, ResultGethExecTrace, U256};
+use eth_types::{
+    Bytes, GethExecStep, GethExecTrace, ResultGethExecTrace, ResultLog, WrapResultLog, U256,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -160,6 +162,13 @@ pub fn read_trace_from_api_result_file<P: AsRef<Path>>(path: P) -> GethExecTrace
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
     let x: ResultGethExecTrace = serde_json::from_reader(reader).unwrap();
+    x.result
+}
+
+pub fn read_log_from_api_result_file<P: AsRef<Path>>(path: P) -> ResultLog {
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let x: WrapResultLog = serde_json::from_reader(reader).unwrap();
     x.result
 }
 
