@@ -430,6 +430,12 @@ impl<F: Field> CopyCircuitConfig<F> {
             .annotate_columns_in_region(region, "COPY_src_tag");
         self.dst_tag
             .annotate_columns_in_region(region, "COPY_dst_tag");
+        self.len_is_zero
+            .annotate_columns_in_region(region, "COPY_len_is_zero");
+        self.cnt_is_zero
+            .annotate_columns_in_region(region, "COPY_cnt_is_zero");
+        self.len_sub_cnt_one_is_zero
+            .annotate_columns_in_region(region, "COPY_len_sub_cnt_one_is_zero");
     }
 
     /// bytecode src lookup
