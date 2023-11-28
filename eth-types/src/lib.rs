@@ -456,16 +456,16 @@ pub struct GethExecTrace {
 
 ///  type build to deal with Log
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
-pub struct ResultLog {
+pub struct ReceiptLog {
     /// logs of transaction
     #[serde(rename = "logs")]
     pub logs: Vec<Log>,
 }
 /// Log Wrapper in api result
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
-pub struct WrapResultLog {
+pub struct WrapReceiptLog {
     /// result in api result json
-    pub result: ResultLog,
+    pub result: ReceiptLog,
 }
 
 #[macro_export]
@@ -674,7 +674,8 @@ mod tests {
             "effectiveGasPrice": "0x23281169"
         }       
         "#;
-        let logs: ResultLog = serde_json::from_str(logs_json).expect("json-deserialize ResultLog");
+        let logs: ReceiptLog =
+            serde_json::from_str(logs_json).expect("json-deserialize ReceiptLog");
         assert_eq!(
             logs.logs,
             vec![Log {

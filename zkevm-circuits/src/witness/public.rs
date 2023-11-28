@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::util::create_contract_addr_with_prefix;
 use eth_types::geth_types::{BlockConstants, GethData};
-use eth_types::{ResultLog, ToBigEndian, U256};
+use eth_types::{ToBigEndian, U256};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -63,10 +63,7 @@ pub enum LogTag {
 
 impl Row {
     /// Get all rows from geth data except TxStatus and TxLog since they don't exist there
-    pub fn from_geth_data(
-        geth_data: &GethData,
-        log_data: Option<&ResultLog>,
-    ) -> Result<Vec<Row>, anyhow::Error> {
+    pub fn from_geth_data(geth_data: &GethData) -> Result<Vec<Row>, anyhow::Error> {
         let mut result = vec![];
         let block_constant: BlockConstants = (&geth_data.eth_block).try_into()?;
         result.push(Row {
@@ -301,7 +298,7 @@ impl Row {
             });
         }
         // log data inserts
-        match log_data {
+        match &geth_data.logs {
             Some(log_data) => {
                 for log in log_data.logs.iter() {
                     let topic_num = log.topics.len();
@@ -389,12 +386,12 @@ impl Row {
 
     // get_log_topic_tag return log topic tag
     fn get_log_topic_tag(idx: u8) -> LogTag {
-        assert!(idx < 4);
         match idx {
             0 => LogTag::Topic1,
             1 => LogTag::Topic2,
             2 => LogTag::Topic3,
-            _ => LogTag::Topic4,
+            3 => LogTag::Topic4,
+            _ => panic!(),
         }
     }
     // get_log_topic_row return topic row
@@ -441,23 +438,12 @@ mod test {
 
     use crate::util::geth_data_test;
     use crate::witness::public::Row;
-    use eth_types::{Bytes, GethExecTrace, ResultLog, H160, H256, U256, U64};
+    use eth_types::{Bytes, GethExecTrace, ReceiptLog, H160, H256, U256, U64};
     use ethers_core::types::Log;
 
     #[test]
     fn from_geth_data() {
-        let geth_data = geth_data_test(
-            GethExecTrace {
-                gas: 26809,
-                failed: false,
-                return_value: "".to_owned(),
-                struct_logs: vec![],
-            },
-            &[12, 34, 56, 78],
-            &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99],
-            false,
-        );
-        let log = ResultLog{
+        let log = ReceiptLog{
             logs:             vec![Log {
                 address: H160::from_str("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512").unwrap(),
                 topics: vec![H256::from_str(
@@ -475,7 +461,20 @@ mod test {
                 removed: Some(false)
             }]
         };
-        let rows = Row::from_geth_data(&geth_data, Some(&log)).unwrap();
+        let geth_data = geth_data_test(
+            GethExecTrace {
+                gas: 26809,
+                failed: false,
+                return_value: "".to_owned(),
+                struct_logs: vec![],
+            },
+            &[12, 34, 56, 78],
+            &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99],
+            false,
+            Some(log),
+        );
+
+        let rows = Row::from_geth_data(&geth_data);
         let mut wtr = csv::Writer::from_writer(vec![]);
         for row in &rows {
             wtr.serialize(row).unwrap();
