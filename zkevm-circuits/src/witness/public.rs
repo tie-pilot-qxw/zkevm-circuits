@@ -335,7 +335,7 @@ impl Row {
                                 format!("transactionIndex"),
                             ),
                             (format!("value_0"), format!("logIndex")),
-                            (format!("value_1"), format!("{:?}", log_tag)),
+                            (format!("value_1"), format!("log_tag = {:?}", log_tag)),
                             (format!("value_2"), format!("address[..4]")),
                             (format!("value_3"), format!("hash[4..]")),
                         ]
@@ -360,7 +360,10 @@ impl Row {
                                     format!("transactionIndex"),
                                 ),
                                 (format!("value_0"), format!("logIndex")),
-                                (format!("value_1"), format!("{:?}", LogTag::Topic1)),
+                                (
+                                    format!("value_1"),
+                                    format!("log_tag = {:?}", LogTag::Topic1),
+                                ),
                                 (format!("value_2"), format!("topicHash[0][..16]")),
                                 (format!("value_3"), format!("topicHash[0][16..]")),
                             ]
@@ -386,7 +389,10 @@ impl Row {
                                     format!("transactionIndex"),
                                 ),
                                 (format!("value_0"), format!("logIndex")),
-                                (format!("value_1"), format!("{:?}", LogTag::Topic2)),
+                                (
+                                    format!("value_1"),
+                                    format!("log_tag = {:?}", LogTag::Topic2),
+                                ),
                                 (format!("value_2"), format!("topicHash[1][..16]")),
                                 (format!("value_3"), format!("topicHash[1][16..]")),
                             ]
@@ -412,7 +418,10 @@ impl Row {
                                     format!("transactionIndex"),
                                 ),
                                 (format!("value_0"), format!("logIndex")),
-                                (format!("value_1"), format!("{:?}", LogTag::Topic3)),
+                                (
+                                    format!("value_1"),
+                                    format!("log_tag = {:?}", LogTag::Topic3),
+                                ),
                                 (format!("value_2"), format!("topicHash[2][..16]")),
                                 (format!("value_3"), format!("topicHash[2][16..]")),
                             ]
@@ -438,7 +447,10 @@ impl Row {
                                     format!("transactionIndex"),
                                 ),
                                 (format!("value_0"), format!("logIndex")),
-                                (format!("value_1"), format!("{:?}", LogTag::Topic4)),
+                                (
+                                    format!("value_1"),
+                                    format!("log_tag = {:?}", LogTag::Topic4),
+                                ),
                                 (format!("value_2"), format!("topicHash[3][..16]")),
                                 (format!("value_3"), format!("topicHash[3][16..]")),
                             ]
@@ -463,7 +475,7 @@ impl Row {
                                     format!("transactionIndex"),
                                 ),
                                 (format!("value_0"), format!("logIndex")),
-                                (format!("value_1"), format!("{:?}", LogTag::Data)),
+                                (format!("value_1"), format!("log_tag = {:?}", LogTag::Data)),
                                 (format!("value_2"), format!("byte")),
                                 (format!("value_3"), format!("byte index")),
                             ]

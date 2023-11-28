@@ -24,6 +24,8 @@ fn test_short_trace() {
         Some(&resultLog),
     );
     witness.print_csv();
+    let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
+    witness.write_html(&mut buf);
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
