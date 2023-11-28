@@ -161,13 +161,11 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             let mut constraints = vec![
                 (
                     "len_is_zero, next_cnt_is_zero",
-                    q_enable.clone() * len_is_zero.clone() * (1.expr() - next_cnt_is_zero.clone()),
+                    q_enable.clone() * len_is_zero.clone() * next_cnt.clone(),
                 ),
                 (
                     "len_sub_cnt_one_is_zero, next_cnt_is_zero",
-                    q_enable.clone()
-                        * len_sub_cnt_one_is_zero.expr()
-                        * (1.expr() - next_cnt_is_zero.clone()),
+                    q_enable.clone() * len_sub_cnt_one_is_zero.expr() * next_cnt.clone(),
                 ),
             ];
 
@@ -230,39 +228,39 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             // len=0 ---> all field is zero
             constraints.extend(vec![(
                 "len=0 => src_type=0",
-                q_enable.clone() * len_is_zero.clone() * (src_type - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * src_type,
             )]);
             constraints.extend(vec![(
                 "len=0 => src_id=0",
-                q_enable.clone() * len_is_zero.clone() * (src_id - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * src_id,
             )]);
             constraints.extend(vec![(
                 "len=0 => src_pointer=0",
-                q_enable.clone() * len_is_zero.clone() * (src_pointer - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * src_pointer,
             )]);
             constraints.extend(vec![(
                 "len=0 => src_stamp=0",
-                q_enable.clone() * len_is_zero.clone() * (src_stamp - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * src_stamp,
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_type=0",
-                q_enable.clone() * len_is_zero.clone() * (dst_type - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * dst_type,
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_id=0",
-                q_enable.clone() * len_is_zero.clone() * (dst_id - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * dst_id,
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_pointer=0",
-                q_enable.clone() * len_is_zero.clone() * (dst_pointer - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * dst_pointer,
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_stamp=0",
-                q_enable.clone() * len_is_zero.clone() * (dst_stamp - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * dst_stamp,
             )]);
             constraints.extend(vec![(
                 "len=0 => cnt=0",
-                q_enable.clone() * len_is_zero.clone() * (cnt - 0.expr()),
+                q_enable.clone() * len_is_zero.clone() * cnt,
             )]);
 
             constraints
