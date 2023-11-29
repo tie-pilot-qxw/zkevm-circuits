@@ -3,8 +3,8 @@
 use crate::{
     keccak256,
     sign_types::{biguint_to_32bytes_le, ct_option_ok_or, recover_pk, SignData, SECP256K1_Q},
-    AccessList, Address, Block, Bytes, Error, GethExecTrace, Hash, ToBigEndian, ToLittleEndian,
-    ToWord, Word, U64,
+    AccessList, Address, Block, Bytes, Error, GethExecTrace, Hash, ReceiptLog, ToBigEndian,
+    ToLittleEndian, ToWord, Word, U64,
 };
 use ethers_core::{
     types::{transaction::response, NameOrAddress, TransactionRequest},
@@ -308,6 +308,8 @@ pub struct GethData {
     pub geth_traces: Vec<GethExecTrace>,
     /// Accounts
     pub accounts: Vec<Account>,
+    /// Logs of transactions
+    pub logs: Vec<ReceiptLog>,
 }
 
 impl GethData {

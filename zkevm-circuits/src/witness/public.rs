@@ -58,7 +58,7 @@ pub enum LogTag {
     Topic2,
     Topic3,
     Topic4,
-    Bytes,
+    Data,
 }
 
 impl Row {
@@ -297,17 +297,167 @@ impl Row {
                 ..Default::default()
             });
         }
+        // log data inserts
+        for log_data in &geth_data.logs {
+            for log in log_data.logs.iter() {
+                let topic_num = log.topics.len();
+                // topic arrays length <= 4
+                assert!(topic_num <= 4);
+                let tx_idx = U256::from(log.transaction_index.unwrap_or_default().as_u64());
+                let log_index = log.log_index.unwrap_or_default();
+                let log_tag = if topic_num == 0 {
+                    LogTag::AddrWith0Topic
+                } else if topic_num == 1 {
+                    LogTag::AddrWith1Topic
+                } else if topic_num == 2 {
+                    LogTag::AddrWith2Topic
+                } else if topic_num == 3 {
+                    LogTag::AddrWith3Topic
+                } else {
+                    LogTag::AddrWith4Topic
+                };
+                let address = log.address.as_bytes();
+                // row0
+                result.push(Row {
+                    tag: Tag::TxLog,
+                    tx_idx_or_number_diff: Some(tx_idx),
+                    value_0: Some(log_index),
+                    value_1: Some(U256::from(log_tag as u64)),
+                    value_2: Some(address[..4].into()),
+                    value_3: Some(address[4..].into()),
+                    comments: [
+                        (format!("tag"), format!("{:?}", Tag::TxLog)),
+                        (
+                            format!("tx_idx_or_number_diff"),
+                            format!("transactionIndex"),
+                        ),
+                        (format!("value_0"), format!("logIndex")),
+                        (format!("value_1"), format!("log_tag = {:?}", log_tag)),
+                        (format!("value_2"), format!("address[..4]")),
+                        (format!("value_3"), format!("address[4..]")),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    ..Default::default()
+                });
+                for i in 0..topic_num {
+                    // insert topic
+                    let topic_hash = log.topics[i].as_bytes();
+                    result.push(Self::get_log_topic_row(
+                        i as u8,
+                        topic_hash,
+                        tx_idx,
+                        log_index,
+                        Self::get_log_topic_tag(i as u8),
+                    ))
+                }
+                // insert log bytes
+                for (data_idx, data) in log.data.iter().enumerate() {
+                    result.push(Row {
+                        tag: Tag::TxLog,
+                        tx_idx_or_number_diff: Some(tx_idx),
+                        value_0: Some(log_index),
+                        value_1: Some(U256::from(LogTag::Data as u64)),
+                        value_2: Some(U256::from(data.clone())),
+                        value_3: Some(U256::from(data_idx as u64)),
+                        comments: [
+                            (format!("tag"), format!("{:?}", Tag::TxLog)),
+                            (
+                                format!("tx_idx_or_number_diff"),
+                                format!("transactionIndex"),
+                            ),
+                            (format!("value_0"), format!("logIndex")),
+                            (format!("value_1"), format!("log_tag = {:?}", LogTag::Data)),
+                            (format!("value_2"), format!("byte")),
+                            (format!("value_3"), format!("byte index")),
+                        ]
+                        .into_iter()
+                        .collect(),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
         Ok(result)
+    }
+
+    // get_log_topic_tag return log topic tag
+    fn get_log_topic_tag(idx: u8) -> LogTag {
+        match idx {
+            0 => LogTag::Topic1,
+            1 => LogTag::Topic2,
+            2 => LogTag::Topic3,
+            3 => LogTag::Topic4,
+            _ => panic!(),
+        }
+    }
+    // get_log_topic_row return topic row
+    fn get_log_topic_row(
+        topic_idx: u8,
+        topic_hash: &[u8],
+        tx_idx: U256,
+        log_index: U256,
+        log_tag: LogTag,
+    ) -> Row {
+        Row {
+            tag: Tag::TxLog,
+            tx_idx_or_number_diff: Some(tx_idx),
+            value_0: Some(log_index),
+            value_1: Some(U256::from(log_tag as u64)),
+            value_2: Some(topic_hash[..16].into()),
+            value_3: Some(topic_hash[16..].into()),
+            comments: [
+                (format!("tag"), format!("{:?}", Tag::TxLog)),
+                (
+                    format!("tx_idx_or_number_diff"),
+                    format!("transactionIndex"),
+                ),
+                (format!("value_0"), format!("logIndex")),
+                (format!("value_1"), format!("log_tag = {:?}", log_tag)),
+                (
+                    format!("value_2"),
+                    format!("topicHash[{:}][..16]", topic_idx),
+                ),
+                (
+                    format!("value_3"),
+                    format!("topicHash[{:}][16..]", topic_idx),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        }
     }
 }
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use crate::util::geth_data_test;
     use crate::witness::public::Row;
-    use eth_types::GethExecTrace;
+    use eth_types::{Bytes, GethExecTrace, ReceiptLog, H160, H256, U256, U64};
+    use ethers_core::types::Log;
 
     #[test]
     fn from_geth_data() {
+        let log = ReceiptLog{
+            logs:             vec![Log {
+                address: H160::from_str("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512").unwrap(),
+                topics: vec![H256::from_str(
+                    "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93"
+                )
+                .unwrap(),],
+                data: Bytes::from_str("0x000000000000000000000000000000000000000000000000000000003b9aca0000000000000000000000000000000000000000000000000000000000674041ba").unwrap(),
+                block_hash: Some(H256::from_str("0xee573172d327d8c99739cd936344bb5567be6e794c6c1863ae97520af81803fe").unwrap()),
+                block_number: Some(U64::from(4)),
+                transaction_hash: Some(H256::from_str("0x15bc89db9525912ddb289c647ec4b473dc3b326eec95308d4dcb2d8a98de1b99").unwrap()),
+                transaction_index: Some(U64::from(0)),
+                log_index: Some(U256::from(0)),
+                transaction_log_index: None,
+                log_type: None,
+                removed: Some(false)
+            }]
+        };
         let geth_data = geth_data_test(
             GethExecTrace {
                 gas: 26809,
@@ -318,8 +468,10 @@ mod test {
             &[12, 34, 56, 78],
             &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99],
             false,
+            log,
         );
-        let rows = Row::from_geth_data(&geth_data).unwrap();
+
+        let rows = Row::from_geth_data(&geth_data);
         let mut wtr = csv::Writer::from_writer(vec![]);
         for row in &rows {
             wtr.serialize(row).unwrap();

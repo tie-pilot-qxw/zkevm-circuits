@@ -1,7 +1,7 @@
 use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::geth_types::{Account, GethData};
-use eth_types::{Address, Block, Field, GethExecTrace, Transaction, U256};
+use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
@@ -148,6 +148,7 @@ pub fn geth_data_test(
     bytecode: &[u8],
     input: &[u8],
     is_create: bool,
+    receipt_log: ReceiptLog,
 ) -> GethData {
     let mut history_hashes = vec![];
     for i in 0..256 {
@@ -182,6 +183,7 @@ pub fn geth_data_test(
         eth_block,
         geth_traces: vec![trace],
         accounts: vec![account],
+        logs: vec![receipt_log],
     }
 }
 

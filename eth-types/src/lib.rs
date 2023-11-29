@@ -30,7 +30,7 @@ use halo2_proofs::halo2curves::{
 };
 
 use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
-use ethers_core::types;
+use ethers_core::types::{self, Log};
 pub use ethers_core::{
     abi::ethereum_types::{BigEndianHash, U512},
     types::{
@@ -454,6 +454,20 @@ pub struct GethExecTrace {
     pub struct_logs: Vec<GethExecStep>,
 }
 
+///  type build to deal with Log
+#[derive(Deserialize, Default, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct ReceiptLog {
+    /// logs of transaction
+    #[serde(rename = "logs")]
+    pub logs: Vec<Log>,
+}
+/// Log Wrapper in api result
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct WrapReceiptLog {
+    /// result in api result json
+    pub result: ReceiptLog,
+}
+
 #[macro_export]
 /// Create an [`Address`] from a hex string.  Panics on invalid input.
 macro_rules! address {
@@ -625,6 +639,62 @@ mod tests {
                 ],
             }
         );
+    }
+    #[test]
+    fn deserialize_logs() {
+        let logs_json = r#"
+        {
+            "transactionHash": "0x15bc89db9525912ddb289c647ec4b473dc3b326eec95308d4dcb2d8a98de1b99",
+            "transactionIndex": "0x0",
+            "blockHash": "0xee573172d327d8c99739cd936344bb5567be6e794c6c1863ae97520af81803fe",
+            "blockNumber": "0x4",
+            "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "to": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+            "cumulativeGasUsed": "0x8530",
+            "gasUsed": "0x8530",
+            "contractAddress": null,
+            "logs": [
+                {
+                    "removed": false,
+                    "logIndex": "0x0",
+                    "transactionIndex": "0x0",
+                    "transactionHash": "0x15bc89db9525912ddb289c647ec4b473dc3b326eec95308d4dcb2d8a98de1b99",
+                    "blockHash": "0xee573172d327d8c99739cd936344bb5567be6e794c6c1863ae97520af81803fe",
+                    "blockNumber": "0x4",
+                    "address": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+                    "data": "0x000000000000000000000000000000000000000000000000000000003b9aca0000000000000000000000000000000000000000000000000000000000674041ba",
+                    "topics": [
+                        "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93"
+                    ]
+                }
+            ],
+            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000004000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000",
+            "type": "0x2",
+            "status": "0x1",
+            "effectiveGasPrice": "0x23281169"
+        }       
+        "#;
+        let logs: ReceiptLog =
+            serde_json::from_str(logs_json).expect("json-deserialize ReceiptLog");
+        assert_eq!(
+            logs.logs,
+            vec![Log {
+                address: H160::from_str("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512").unwrap(),
+                topics: vec![H256::from_str(
+                    "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93"
+                )
+                .unwrap(),],
+                data: Bytes::from_str("0x000000000000000000000000000000000000000000000000000000003b9aca0000000000000000000000000000000000000000000000000000000000674041ba").unwrap(),
+                block_hash: Some(H256::from_str("0xee573172d327d8c99739cd936344bb5567be6e794c6c1863ae97520af81803fe").unwrap()),
+                block_number: Some(U64::from(4)),
+                transaction_hash: Some(H256::from_str("0x15bc89db9525912ddb289c647ec4b473dc3b326eec95308d4dcb2d8a98de1b99").unwrap()),
+                transaction_index: Some(U64::from(0)),
+                log_index: Some(U256::from(0)),
+                transaction_log_index: None,
+                log_type: None,
+                removed: Some(false)
+            }]
+        )
     }
 }
 
