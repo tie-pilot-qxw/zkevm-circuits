@@ -20,7 +20,13 @@ fn test_deploy_trace() {
         bytecodes = bytecodes.split_off(2);
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
-    let witness = Witness::new(&geth_data_test(trace, &bytecodes, &[], true, None));
+    let witness = Witness::new(&geth_data_test(
+        trace,
+        &bytecodes,
+        &[],
+        true,
+        Default::default(),
+    ));
     let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
     witness.write_html(&mut buf);
     let witness_length = SuperCircuit::<

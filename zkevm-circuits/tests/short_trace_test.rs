@@ -18,13 +18,13 @@ fn test_short_trace() {
         bytecodes = bytecodes.split_off(2);
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
-    let resultLog = read_log_from_api_result_file("test_data/short-log.json");
+    let receipt_log = read_log_from_api_result_file("test_data/short-log.json");
     let witness = Witness::new(&geth_data_test(
         trace,
         &bytecodes,
         &[],
         false,
-        Some(resultLog),
+        vec![receipt_log],
     ));
     witness.print_csv();
     let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());

@@ -455,7 +455,7 @@ pub struct GethExecTrace {
 }
 
 ///  type build to deal with Log
-#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Deserialize, Default, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct ReceiptLog {
     /// logs of transaction
     #[serde(rename = "logs")]

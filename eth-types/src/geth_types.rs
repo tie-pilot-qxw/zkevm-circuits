@@ -308,8 +308,8 @@ pub struct GethData {
     pub geth_traces: Vec<GethExecTrace>,
     /// Accounts
     pub accounts: Vec<Account>,
-    /// Logs transaction
-    pub logs: Option<ReceiptLog>,
+    /// Logs of transactions
+    pub logs: Vec<ReceiptLog>,
 }
 
 impl GethData {

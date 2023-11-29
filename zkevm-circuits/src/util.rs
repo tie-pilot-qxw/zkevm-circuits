@@ -148,7 +148,7 @@ pub fn geth_data_test(
     bytecode: &[u8],
     input: &[u8],
     is_create: bool,
-    receipt_log: Option<ReceiptLog>,
+    receipt_log: Vec<ReceiptLog>,
 ) -> GethData {
     let mut history_hashes = vec![];
     for i in 0..256 {
@@ -177,23 +177,13 @@ pub fn geth_data_test(
         code: bytecode.to_vec().into(),
         ..Default::default()
     };
-    match receipt_log {
-        Some(logs) => GethData {
-            chain_id: 42.into(),
-            history_hashes,
-            eth_block,
-            geth_traces: vec![trace],
-            accounts: vec![account],
-            logs: Some(logs),
-        },
-        _ => GethData {
-            chain_id: 42.into(),
-            history_hashes,
-            eth_block,
-            geth_traces: vec![trace],
-            accounts: vec![account],
-            logs: None,
-        },
+    GethData {
+        chain_id: 42.into(),
+        history_hashes,
+        eth_block,
+        geth_traces: vec![trace],
+        accounts: vec![account],
+        logs: receipt_log,
     }
 }
 

@@ -1387,7 +1387,13 @@ mod tests {
     fn test_data_print_csv() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false, None));
+        let witness = Witness::new(&geth_data_test(
+            trace,
+            &machine_code,
+            &[],
+            false,
+            Default::default(),
+        ));
         witness.print_csv();
     }
 }
