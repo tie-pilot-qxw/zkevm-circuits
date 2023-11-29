@@ -468,7 +468,7 @@ mod test {
             &[12, 34, 56, 78],
             &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99],
             false,
-            vec![log],
+            log,
         );
 
         let rows = Row::from_geth_data(&geth_data);
