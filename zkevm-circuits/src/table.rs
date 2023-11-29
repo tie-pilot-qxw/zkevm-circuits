@@ -9,6 +9,8 @@ use halo2_proofs::plonk::{
 };
 use halo2_proofs::poly::Rotation;
 
+const PUBLIC_NUM_VALUES: usize = 4;
+
 macro_rules! extract_lookup_expression {
     (state, $value:expr) => {
         match $value {
@@ -277,26 +279,17 @@ pub struct PublicTable {
     pub tag: Column<Instance>,
     /// tx_id (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
     pub tx_idx_or_number_diff: Column<Instance>,
-    pub value_0: Column<Instance>,
-    pub value_1: Column<Instance>,
-    pub value_2: Column<Instance>,
-    pub value_3: Column<Instance>,
+    pub values: [Column<Instance>; PUBLIC_NUM_VALUES],
 }
 impl PublicTable {
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let tag = meta.instance_column();
         let tx_idx_or_number_diff = meta.instance_column();
-        let value_0 = meta.instance_column();
-        let value_1 = meta.instance_column();
-        let value_2 = meta.instance_column();
-        let value_3 = meta.instance_column();
+        let values = std::array::from_fn(|_| meta.instance_column());
         Self {
             tag,
             tx_idx_or_number_diff,
-            value_0,
-            value_1,
-            value_2,
-            value_3,
+            values,
         }
     }
     pub fn get_lookup_vector<F: Field>(
@@ -307,10 +300,10 @@ impl PublicTable {
         let table_tag = meta.query_instance(self.tag, Rotation::cur());
         let table_tx_idx_or_number_diff =
             meta.query_instance(self.tx_idx_or_number_diff, Rotation::cur());
-        let table_value_0 = meta.query_instance(self.value_0, Rotation::cur());
-        let table_value_1 = meta.query_instance(self.value_1, Rotation::cur());
-        let table_value_2 = meta.query_instance(self.value_2, Rotation::cur());
-        let table_value_3 = meta.query_instance(self.value_3, Rotation::cur());
+        let table_value_0 = meta.query_instance(self.values[0], Rotation::cur());
+        let table_value_1 = meta.query_instance(self.values[1], Rotation::cur());
+        let table_value_2 = meta.query_instance(self.values[2], Rotation::cur());
+        let table_value_3 = meta.query_instance(self.values[3], Rotation::cur());
         match entry {
             LookupEntry::Public {
                 tag,

@@ -31,15 +31,12 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
         let PublicTable {
             tag,
             tx_idx_or_number_diff,
-            value_0,
-            value_1,
-            value_2,
-            value_3,
+            values,
         } = public_table;
         Self {
             tag,
             tx_idx_or_number_diff,
-            values: [value_0, value_1, value_2, value_3],
+            values,
         }
     }
 }
