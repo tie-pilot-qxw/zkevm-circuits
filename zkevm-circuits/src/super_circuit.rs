@@ -1,9 +1,9 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-use crate::public_circuit::{PublicCircuit, PublicCircuitConfig};
+use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-use crate::table::{BytecodeTable, FixedTable, StateTable};
+use crate::table::{BytecodeTable, FixedTable, PublicTable, StateTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -32,6 +32,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
         let q_enable_state = meta.complex_selector();
         let state_table = StateTable::construct(meta, q_enable_state);
+        let public_table = PublicTable::construct(meta);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
@@ -53,7 +54,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 state_table,
             },
         );
-        let public_circuit = PublicCircuitConfig::new(meta, ());
+        let public_circuit =
+            PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
