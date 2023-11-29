@@ -22,16 +22,12 @@ pub struct CopyCircuitConfig<F: Field> {
     pub q_enable: Selector,
     /// The byte value that is copied
     pub byte: Column<Advice>,
-    /// The source type, one of PublicCalldata, Memory, Bytecode, Calldata, Returndata
-    pub src_type: Column<Advice>,
     /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
     pub src_id: Column<Advice>,
     /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
     pub src_pointer: Column<Advice>,
     /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
     pub src_stamp: Column<Advice>,
-    /// The destination type, one of Memory, Calldata, Returndata, PublicLog
-    pub dst_type: Column<Advice>,
     /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
     pub dst_id: Column<Advice>,
     /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
@@ -76,11 +72,9 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
     ) -> Self {
         let q_enable = meta.complex_selector();
         let byte = meta.advice_column();
-        let src_type = meta.advice_column();
         let src_id = meta.advice_column();
         let src_pointer = meta.advice_column();
         let src_stamp = meta.advice_column();
-        let dst_type = meta.advice_column();
         let dst_id = meta.advice_column();
         let dst_pointer = meta.advice_column();
         let dst_stamp = meta.advice_column();
@@ -109,11 +103,9 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
         let config = Self {
             q_enable,
             byte,
-            src_type,
             src_id,
             src_pointer,
             src_stamp,
-            dst_type,
             dst_id,
             dst_pointer,
             dst_stamp,
@@ -130,22 +122,22 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
 
         meta.create_gate("COPY", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
-            let src_type = meta.query_advice(config.src_type, Rotation::cur());
+            let src_tag = config.src_tag.value(Rotation::cur())(meta);
             let src_id = meta.query_advice(config.src_id, Rotation::cur());
             let src_pointer = meta.query_advice(config.src_pointer, Rotation::cur());
             let src_stamp = meta.query_advice(config.src_stamp, Rotation::cur());
-            let dst_type = meta.query_advice(config.dst_type, Rotation::cur());
+            let dst_tag = config.dst_tag.value(Rotation::cur())(meta);
             let dst_id = meta.query_advice(config.dst_id, Rotation::cur());
             let dst_pointer = meta.query_advice(config.dst_pointer, Rotation::cur());
             let dst_stamp = meta.query_advice(config.dst_stamp, Rotation::cur());
             let len = meta.query_advice(config.len, Rotation::cur());
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
 
-            let next_src_type = meta.query_advice(config.src_type, Rotation::next());
+            let next_src_tag = config.src_tag.value(Rotation::next())(meta);
             let next_src_id = meta.query_advice(config.src_id, Rotation::next());
             let next_src_pointer = meta.query_advice(config.src_pointer, Rotation::next());
             let next_src_stamp = meta.query_advice(config.src_stamp, Rotation::next());
-            let next_dst_type = meta.query_advice(config.dst_type, Rotation::next());
+            let next_dst_tag = config.dst_tag.value(Rotation::next())(meta);
             let next_dst_id = meta.query_advice(config.dst_id, Rotation::next());
             let next_dst_pointer = meta.query_advice(config.dst_pointer, Rotation::next());
             let next_dst_stamp = meta.query_advice(config.dst_stamp, Rotation::next());
@@ -184,8 +176,10 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
                     q_enable.clone() * is_not_zero_exp.clone() * (next_len - len.clone()),
                 ),
                 (
-                    "len !=0 and len-cnt-1!=0 => next_src_type=cur_src_type",
-                    q_enable.clone() * is_not_zero_exp.clone() * (next_src_type - src_type.clone()),
+                    "len !=0 and len-cnt-1!=0 => next_src_tag=cur_src_tag",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_src_tag.clone() - src_tag.clone()),
                 ),
                 (
                     "len !=0 and len-cnt-1!=0 => next_src_id=cur_src_id",
@@ -204,8 +198,10 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
                         * (next_src_stamp - src_stamp.clone()),
                 ),
                 (
-                    "len !=0 and len-cnt-1!=0 => next_dst_type=cur_dst_type",
-                    q_enable.clone() * is_not_zero_exp.clone() * (next_dst_type - dst_type.clone()),
+                    "len !=0 and len-cnt-1!=0 => next_dst_tag=cur_dst_tag",
+                    q_enable.clone()
+                        * is_not_zero_exp.clone()
+                        * (next_dst_tag.clone() - dst_tag.clone()),
                 ),
                 (
                     "len !=0 and len-cnt-1!=0 => next_dst_id=cur_dst_id",
@@ -227,8 +223,8 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
 
             // len=0 ---> all field is zero
             constraints.extend(vec![(
-                "len=0 => src_type=0",
-                q_enable.clone() * len_is_zero.clone() * src_type,
+                "len=0 => src_tag=0",
+                q_enable.clone() * len_is_zero.clone() * src_tag.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => src_id=0",
@@ -243,8 +239,8 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
                 q_enable.clone() * len_is_zero.clone() * src_stamp,
             )]);
             constraints.extend(vec![(
-                "len=0 => dst_type=0",
-                q_enable.clone() * len_is_zero.clone() * dst_type,
+                "len=0 => dst_tag=0",
+                q_enable.clone() * len_is_zero.clone() * dst_tag.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_id=0",
@@ -329,11 +325,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
 
         assign_advice_or_fixed(region, offset, &row.byte, self.byte)?;
-        assign_advice_or_fixed(region, offset, &(row.src_type as u8).into(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
         assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
         assign_advice_or_fixed(region, offset, &row.src_stamp, self.src_stamp)?;
-        assign_advice_or_fixed(region, offset, &(row.dst_type as u8).into(), self.dst_type)?;
         assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
         assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
         assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
@@ -375,11 +369,9 @@ impl<F: Field> CopyCircuitConfig<F> {
 
         //let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
         assign_advice_or_fixed(region, offset, &U256::zero(), self.byte)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.src_type)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_id)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_pointer)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.src_stamp)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_type)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_id)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_pointer)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_stamp)?;
@@ -416,11 +408,9 @@ impl<F: Field> CopyCircuitConfig<F> {
 
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
         region.name_column(|| "COPY_byte", self.byte);
-        region.name_column(|| "COPY_src_type", self.src_type);
         region.name_column(|| "COPY_src_id", self.src_id);
         region.name_column(|| "COPY_src_pointer", self.src_pointer);
         region.name_column(|| "COPY_src_stamp", self.src_stamp);
-        region.name_column(|| "COPY_dst_type", self.dst_type);
         region.name_column(|| "COPY_dst_id", self.dst_id);
         region.name_column(|| "COPY_dst_pointer", self.dst_pointer);
         region.name_column(|| "COPY_dst_stamp", self.dst_stamp);
