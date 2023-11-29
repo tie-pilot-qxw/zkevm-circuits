@@ -220,6 +220,14 @@ pub fn split_u256(value: &U256) -> (U256, U256) {
     )
 }
 
+/// Returns tuple consists of low and high part of U256
+pub fn split_u256_hi_lo(value: &U256) -> [U256; 2] {
+    [
+        U256([value.0[2], value.0[3], 0, 0]),
+        U256([value.0[0], value.0[1], 0, 0]),
+    ]
+}
+
 /// Split a U256 value into 4 64-bit limbs stored in U256 values.
 pub fn split_u256_limb64(value: &U256) -> [U256; 4] {
     [

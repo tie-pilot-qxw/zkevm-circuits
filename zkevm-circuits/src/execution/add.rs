@@ -1,8 +1,10 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::arithmetic_circuit::operation;
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
-use crate::witness::{arithmetic, WitnessExecHelper};
-use crate::witness::{core, state, Witness};
+use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::{arithmetic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
@@ -58,14 +60,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        // auxiliary constraints
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // core single constraints
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
         let mut arithmetic_operands = vec![];
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
@@ -91,7 +98,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }));
         constraints.extend([
             ("opcode".into(), opcode - OpcodeId::ADD.as_u8().expr()),
-            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
             (
                 "arithmetic tag".into(),
                 tag - (arithmetic::Tag::Add as u8).expr(),
@@ -122,16 +128,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
-        // todo another carry_lo ?
-        let (c, carry_hi) = a.overflowing_add(b);
-        let stack_push_c = current_state.get_push_stack_row(trace, c);
-        let mut d = (carry_hi as u128).into();
-        d <<= 128; // todo check this line
-        let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Add, [a, b, c, d]);
+        let (arithmetic, result) = operation::add::gen_witness(vec![a, b]);
+        let stack_push = current_state.get_push_stack_row(trace, result[0]);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);
+        core_row_2.insert_arithmetic_lookup(&arithmetic);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push_c]);
+        core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push]);
         let core_row_0 = ExecutionState::ADD.into_exec_state_core_row(
             trace,
             current_state,
@@ -140,13 +142,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         Witness {
-            bytecode: vec![],
-            copy: vec![],
             core: vec![core_row_2, core_row_1, core_row_0],
-            exp: vec![],
-            public: vec![],
-            state: vec![stack_pop_b, stack_pop_a, stack_push_c],
-            arithmetic: arithmetic_rows,
+            state: vec![stack_pop_b, stack_pop_a, stack_push],
+            arithmetic,
             ..Default::default()
         }
     }

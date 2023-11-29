@@ -73,10 +73,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         .into();
         assert_eq!(exp_c, c);
-        let arithmetic_rows =
-            Witness::gen_arithmetic_witness(arithmetic::Tag::DivMod, [a, b, quotient, reminder]);
+        // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::DivMod, [a, b, quotient, reminder]);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);
+        //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
@@ -89,7 +88,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
-            arithmetic: arithmetic_rows,
             ..Default::default()
         }
     }

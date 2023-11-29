@@ -922,33 +922,46 @@ impl core::Row {
         ]);
     }
 
-    pub fn insert_arithmetic_lookup(&mut self, arithmetic: &arithmetic::Row) {
+    pub fn insert_arithmetic_lookup(&mut self, arithmetic: &[arithmetic::Row]) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 2.into());
-        assert_eq!(arithmetic.cnt, Some(0.into()));
+        let len = arithmetic.len();
+        assert!(len >= 2);
+        let row_0 = &arithmetic[len - 1];
+        let row_1 = &arithmetic[len - 2];
 
         for (cell, value) in [
-            (&mut self.vers_0, arithmetic.operand0_hi),
-            (&mut self.vers_1, arithmetic.operand0_lo),
-            (&mut self.vers_2, arithmetic.operand1_hi),
-            (&mut self.vers_3, arithmetic.operand1_lo),
-            (&mut self.vers_4, arithmetic.operand2_hi),
-            (&mut self.vers_5, arithmetic.operand2_lo),
-            (&mut self.vers_6, arithmetic.operand3_hi),
-            (&mut self.vers_7, arithmetic.operand3_lo),
-            (
-                &mut self.vers_8,
-                arithmetic.tag.map(|tag| (tag as u8).into()),
-            ),
+            (&mut self.vers_0, row_0.operand_0_hi),
+            (&mut self.vers_1, row_0.operand_0_lo),
+            (&mut self.vers_2, row_0.operand_1_hi),
+            (&mut self.vers_3, row_0.operand_1_lo),
+            (&mut self.vers_4, row_1.operand_0_hi),
+            (&mut self.vers_5, row_1.operand_0_lo),
+            (&mut self.vers_6, row_1.operand_1_hi),
+            (&mut self.vers_7, row_1.operand_1_lo),
+            (&mut self.vers_8, (row_0.tag as u8).into()),
         ] {
-            // before inserting, these columns must be none
-            assert!(cell.is_none());
-            *cell = value;
+            assign_or_panic!(*cell, value);
         }
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", 8), format!("{:?}", arithmetic.tag)),
+            (format!("vers_{}", 0), format!("arithmetic operand 0 hi")),
+            (format!("vers_{}", 1), format!("arithmetic operand 0 lo")),
+            (format!("vers_{}", 2), format!("arithmetic operand 1 hi")),
+            (format!("vers_{}", 3), format!("arithmetic operand 1 lo")),
+            (format!("vers_{}", 8), format!("arithmetic tag={:?}", row_0.tag)),
         ]);
+        match row_0.tag {
+            arithmetic::Tag::Add => {
+                self.comments.extend([
+                    (format!("vers_{}", 4), format!("arithmetic sum hi")),
+                    (format!("vers_{}", 5), format!("arithmetic sum lo")),
+                    (format!("vers_{}", 6), format!("arithmetic carry hi")),
+                    (format!("vers_{}", 7), format!("arithmetic carry lo")),
+                ]);
+            }
+            _ => (),
+        };
     }
 
     pub fn insert_copy_lookup(&mut self, copy: &copy::Row, padding_copy: Option<&copy::Row>) {
@@ -1108,28 +1121,6 @@ impl Witness {
             res.append(&mut this_op);
         }
         res
-    }
-
-    pub fn gen_arithmetic_witness(
-        tag: arithmetic::Tag,
-        operands: [U256; 4],
-    ) -> Vec<arithmetic::Row> {
-        let mut row_0 = arithmetic::Row {
-            tag: Some(tag),
-            cnt: Some(0.into()),
-            ..Default::default()
-        };
-        for (operand, (hi, lo)) in operands.into_iter().zip([
-            (&mut row_0.operand0_hi, &mut row_0.operand0_lo),
-            (&mut row_0.operand1_hi, &mut row_0.operand1_lo),
-            (&mut row_0.operand2_hi, &mut row_0.operand2_lo),
-            (&mut row_0.operand3_hi, &mut row_0.operand3_lo),
-        ]) {
-            *hi = Some((operand >> 128).as_u128().into());
-            *lo = Some(operand.low_u128().into());
-        }
-        // todo generate more rows
-        vec![row_0]
     }
 
     /// Generate witness of block related data, such as bytecode and public table
