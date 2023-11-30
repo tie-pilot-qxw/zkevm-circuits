@@ -355,14 +355,16 @@ impl Row {
                 result.push(Row {
                     tag: Tag::TxLogSize,
                     tx_idx_or_number_diff: Some(tx_idx),
-                    value_0: Some(log.data.len().into()),
+                    value_0: Some(0.into()),
+                    value_1: Some(log.data.len().into()),
                     comments: [
                         (format!("tag"), format!("{:?}", Tag::TxLogSize)),
                         (
                             format!("tx_idx_or_number_diff"),
                             format!("transactionIndex"),
                         ),
-                        (format!("value_0"), format!("logSize = {}", log.data.len())),
+                        (format!("value_0"), format!("0")),
+                        (format!("value_1"), format!("logSize = {}", log.data.len())),
                     ]
                     .into_iter()
                     .collect(),
