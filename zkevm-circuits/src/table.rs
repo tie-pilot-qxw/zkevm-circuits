@@ -250,6 +250,17 @@ impl<F: Field> BytecodeTable<F> {
         }
     }
 }
+
+impl<F: Field> BytecodeTable<F> {
+    // construct_addr_bytecode_instance_column init two instance column
+    pub fn construct_addr_bytecode_instance_column(
+        meta: &mut ConstraintSystem<F>,
+    ) -> (Column<Instance>, Column<Instance>) {
+        let addr_instance_column = meta.instance_column();
+        let bytecode_instance_column = meta.instance_column();
+        (addr_instance_column, bytecode_instance_column)
+    }
+}
 // TODO re-write
 #[derive(Clone, Copy, Debug)]
 pub struct FixedTable {

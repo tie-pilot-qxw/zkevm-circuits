@@ -50,6 +50,8 @@ pub struct BytecodeCircuitConfig<F> {
 pub struct BytecodeCircuitConfigArgs<F> {
     pub q_enable: Selector,
     pub bytecode_table: BytecodeTable<F>,
+    pub instance_addr: Column<Instance>,
+    pub instance_bytecode: Column<Instance>,
 }
 
 impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
@@ -60,6 +62,8 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         Self::ConfigArgs {
             q_enable,
             bytecode_table,
+            instance_addr,
+            instance_bytecode,
         }: Self::ConfigArgs,
     ) -> Self {
         let BytecodeTable {
@@ -71,8 +75,6 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             cnt,
             cnt_is_zero,
         } = bytecode_table;
-        let instance_addr = meta.instance_column();
-        let instance_bytecode = meta.instance_column();
         let acc_hi = meta.advice_column();
         let acc_lo = meta.advice_column();
         let is_high = meta.advice_column();
@@ -540,11 +542,15 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let q_enable = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable);
+            let (instance_addr, instance_bytecode) =
+                BytecodeTable::construct_addr_bytecode_instance_column(meta);
             Self::Config::new(
                 meta,
                 BytecodeCircuitConfigArgs {
                     q_enable,
                     bytecode_table,
+                    instance_addr,
+                    instance_bytecode,
                 },
             )
         }
