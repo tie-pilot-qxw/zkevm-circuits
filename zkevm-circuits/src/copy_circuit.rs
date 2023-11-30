@@ -520,8 +520,8 @@ impl<F: Field> CopyCircuitConfig<F> {
                 values: [
                     meta.query_advice(self.src_pointer, Rotation::cur())
                         + meta.query_advice(self.cnt, Rotation::cur()),
-                    0.expr(),
                     meta.query_advice(self.byte, Rotation::cur()),
+                    0.expr(),
                     0.expr(),
                 ],
             };
