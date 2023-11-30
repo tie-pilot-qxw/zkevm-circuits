@@ -57,11 +57,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push_0 = current_state.get_push_stack_row(trace, c);
         let (exp_c, carry_hi) = a.overflowing_mul(b);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let mut d = (carry_hi as u128).into();
-        d <<= 128;
+        // let mut d = (carry_hi as u128).into();
+        // d <<= 128;
         assert_eq!(exp_c, c);
-        let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Mul, [a, b, c, d]);
-        core_row_2.insert_arithmetic_lookup(&arithmetic_rows[0]);
+        // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Mul, [a, b, c, d]);
+        //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
@@ -74,7 +74,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
-            arithmetic: arithmetic_rows,
             ..Default::default()
         }
     }

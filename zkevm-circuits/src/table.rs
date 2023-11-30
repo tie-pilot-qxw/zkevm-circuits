@@ -1,3 +1,4 @@
+use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::witness::{arithmetic, state};
 use eth_types::Field;
@@ -283,6 +284,26 @@ impl FixedTable {
     }
 }
 
+/// The table shared between Core Circuit and Arithmetic Circuit
+#[derive(Clone, Copy, Debug)]
+pub struct ArithmeticTable {
+    /// Tag for arithmetic operation type
+    pub tag: BinaryNumberConfig<arithmetic::Tag, LOG_NUM_ARITHMETIC_TAG>,
+    /// The operands in one row, splitted to 2 (high and low 128-bit)
+    pub operands: [[Column<Advice>; 2]; NUM_OPERAND],
+    /// Row counter, decremented for rows in one execution state
+    pub cnt: Column<Advice>,
+}
+
+impl ArithmeticTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
+        let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let cnt = meta.advice_column();
+        let operands = std::array::from_fn(|_| [meta.advice_column(), meta.advice_column()]);
+        Self { tag, cnt, operands }
+    }
+}
+
 /// The table shared between Core Circuit and Public Circuit
 #[derive(Clone, Copy, Debug)]
 pub struct PublicTable {
@@ -334,6 +355,7 @@ impl PublicTable {
         }
     }
 }
+
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug)]
 pub enum LookupEntry<F> {
@@ -452,18 +474,4 @@ impl<F: Field> LookupEntry<F> {
     pub(crate) fn conditional(self, condition: Expression<F>) -> Self {
         Self::Conditional(condition, self.into())
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct ArithmeticTable {
-    // the tag to represent arithmetic opcdes
-    tag: arithmetic::Tag,
-    operand0_hi: Column<Advice>,
-    operand0_lo: Column<Advice>,
-    operand1_hi: Column<Advice>,
-    operand1_lo: Column<Advice>,
-    operand2_hi: Column<Advice>,
-    operand2_lo: Column<Advice>,
-    operand3_hi: Column<Advice>,
-    operand3_lo: Column<Advice>,
 }

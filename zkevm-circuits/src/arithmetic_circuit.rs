@@ -1,450 +1,323 @@
-// Toy example
-#![allow(dead_code)]
-#![allow(unused)]
+pub(crate) mod operation;
 
-mod operation;
-
-use crate::arithmetic_circuit::operation::OperationGadget;
-use crate::util::{self, SubCircuit, SubCircuitConfig};
-use crate::witness::arithmetic;
+use crate::arithmetic_circuit::operation::{get_every_operation_gadgets, OperationGadget};
+use crate::table::ArithmeticTable;
+use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::witness::{arithmetic, Witness};
 use arithmetic::{Row, Tag};
 use eth_types::Field;
-use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
-use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
+use gadgets::binary_number_with_real_selector::BinaryNumberConfig;
+use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region, SimpleFloorPlanner, Value};
-use halo2_proofs::plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::plonk::{
+    Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells,
+};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::str::FromStr;
+
+/// Number needed for tag's BinaryNumberConfig, equals to log of number of tags
+pub(crate) const LOG_NUM_ARITHMETIC_TAG: usize = 4;
+
+/// Number of operands in one row
+pub(crate) const NUM_OPERAND: usize = 2;
+
+/// Number of u16 values in one row
+const NUM_U16: usize = 8;
 
 #[derive(Clone)]
 pub struct ArithmeticCircuitConfig<F> {
-    // TODO use table to let core lookup
     q_enable: Selector,
-    // arithmetic table for lookup starts
-    tag: BinaryNumberConfig<Tag, 3>, //todo not use 3
+    /// Tag for arithmetic operation type
+    tag: BinaryNumberConfig<Tag, LOG_NUM_ARITHMETIC_TAG>,
+    /// The operands in one row, splitted to 2 (high and low 128-bit)
+    operands: [[Column<Advice>; 2]; NUM_OPERAND],
+    /// The 16-bit values in one row
+    u16s: [Column<Advice>; NUM_U16],
+    /// Row counter, decremented for rows in one execution state
     cnt: Column<Advice>,
-    operand0_hi: Column<Advice>,
-    operand0_lo: Column<Advice>,
-    operand1_hi: Column<Advice>,
-    operand1_lo: Column<Advice>,
-    operand2_hi: Column<Advice>,
-    operand2_lo: Column<Advice>,
-    operand3_hi: Column<Advice>,
-    operand3_lo: Column<Advice>,
-    // arithmetic table for lookup ends
-    u16_0: Column<Advice>,
-    u16_1: Column<Advice>,
-    u16_2: Column<Advice>,
-    u16_3: Column<Advice>,
-    u16_4: Column<Advice>,
-    u16_5: Column<Advice>,
-    u16_6: Column<Advice>,
-    u16_7: Column<Advice>,
+    /// IsZero chip for column cnt
     cnt_is_zero: IsZeroWithRotationConfig<F>,
 }
 
-pub struct NilCircuitConfigArgs {} // todo change this
+impl<F: Field> ArithmeticCircuitConfig<F> {
+    fn assign_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        row: &Row,
+    ) -> Result<(), Error> {
+        let cnt_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
+        assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
+        assign_advice_or_fixed(region, offset, &row.operand_1_hi, self.operands[1][0])?;
+        assign_advice_or_fixed(region, offset, &row.operand_1_lo, self.operands[1][1])?;
+        assign_advice_or_fixed(region, offset, &row.u16_0, self.u16s[0])?;
+        assign_advice_or_fixed(region, offset, &row.u16_1, self.u16s[1])?;
+        assign_advice_or_fixed(region, offset, &row.u16_2, self.u16s[2])?;
+        assign_advice_or_fixed(region, offset, &row.u16_3, self.u16s[3])?;
+        assign_advice_or_fixed(region, offset, &row.u16_4, self.u16s[4])?;
+        assign_advice_or_fixed(region, offset, &row.u16_5, self.u16s[5])?;
+        assign_advice_or_fixed(region, offset, &row.u16_6, self.u16s[6])?;
+        assign_advice_or_fixed(region, offset, &row.u16_7, self.u16s[7])?;
+        cnt_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt))),
+        )?;
+        Ok(())
+    }
+
+    /// assign values from witness in a region
+    pub fn assign_with_region(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &Witness,
+        num_row_incl_padding: usize,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
+        todo!()
+    }
+}
+
+// Implement methods to get expression
+impl<F: Field> ArithmeticCircuitConfig<F> {
+    /// Get the operand, which could access other rotation
+    pub(crate) fn get_operand(
+        &self,
+        index: usize,
+    ) -> impl FnOnce(&mut VirtualCells<'_, F>) -> [Expression<F>; 2] {
+        assert!(index < 4);
+        let rotation = if index < NUM_OPERAND {
+            Rotation::cur()
+        } else {
+            Rotation::prev()
+        };
+        let index = index % NUM_OPERAND;
+        let operands = self.operands[index];
+        move |meta: &mut VirtualCells<'_, F>| {
+            operands.map(|operand| meta.query_advice(operand, rotation))
+        }
+    }
+
+    /// Get the u16 expression
+    pub(crate) fn get_u16(
+        &self,
+        index: usize,
+        rotation: Rotation,
+    ) -> impl FnOnce(&mut VirtualCells<'_, F>) -> Expression<F> {
+        assert!(index < NUM_U16);
+        let column = self.u16s[index];
+        move |meta: &mut VirtualCells<'_, F>| meta.query_advice(column, rotation)
+    }
+}
+
+pub struct ArithmeticCircuitConfigArgs {
+    pub(crate) q_enable: Selector,
+    pub(crate) arithmetic_table: ArithmeticTable,
+}
 
 impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
-    type ConfigArgs = NilCircuitConfigArgs;
+    type ConfigArgs = ArithmeticCircuitConfigArgs;
 
-    fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+    fn new(
+        meta: &mut ConstraintSystem<F>,
+        Self::ConfigArgs {
+            q_enable,
+            arithmetic_table,
+        }: Self::ConfigArgs,
+    ) -> Self {
+        let ArithmeticTable { tag, operands, cnt } = arithmetic_table;
         // init columns
-        let q_enable = meta.complex_selector();
-        let cnt = meta.advice_column();
-        let operand0_hi = meta.advice_column();
-        let operand0_lo = meta.advice_column();
-        let operand1_hi = meta.advice_column();
-        let operand1_lo = meta.advice_column();
-        let operand2_hi = meta.advice_column();
-        let operand2_lo = meta.advice_column();
-        let operand3_hi = meta.advice_column();
-        let operand3_lo = meta.advice_column();
-        let u16_0 = meta.advice_column();
-        let u16_1 = meta.advice_column();
-        let u16_2 = meta.advice_column();
-        let u16_3 = meta.advice_column();
-        let u16_4 = meta.advice_column();
-        let u16_5 = meta.advice_column();
-        let u16_6 = meta.advice_column();
-        let u16_7 = meta.advice_column();
-        let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let u16s = std::array::from_fn(|_| meta.advice_column());
         let cnt_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
-
         let config = Self {
             q_enable,
             tag,
             cnt,
-            operand0_hi,
-            operand0_lo,
-            operand1_hi,
-            operand1_lo,
-            operand2_hi,
-            operand2_lo,
-            operand3_hi,
-            operand3_lo,
-            u16_0,
-            u16_1,
-            u16_2,
-            u16_3,
-            u16_4,
-            u16_5,
-            u16_6,
-            u16_7,
+            operands,
+            u16s,
             cnt_is_zero,
         };
         // constraints
-        meta.create_gate("Arithmetic Circuit Common", |meta| {
+        meta.create_gate("ARITHMETIC_common_constraints", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
-            let cnt_next = meta.query_advice(config.cnt.clone(), Rotation::next());
-            let cnt_cur = meta.query_advice(config.cnt.clone(), Rotation::cur());
+            let cnt_cur = meta.query_advice(config.cnt, Rotation::cur());
+            let cnt_next = meta.query_advice(config.cnt, Rotation::next());
+            let tag_cur = config.tag.value(Rotation::cur())(meta);
+            let tag_next = config.tag.value(Rotation::next())(meta);
             let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-            vec![q_enable * (1.expr() - cnt_is_zero) * (cnt_cur - cnt_next - 1.expr())]
-        });
-        // todo use a for loop for all gadgets
-        meta.create_gate(operation::add::AddGadget::<F>::NAME, |meta| {
-            // add selector and tag condition
-            let q_enable = meta.query_selector(config.q_enable);
-            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-            let condition = config
-                .tag
-                .value_equals(operation::add::AddGadget::<F>::TAG, Rotation::cur())(
-                meta
-            ) * cnt_is_zero;
-            let cnt_above = meta.query_advice(
-                config.cnt,
-                Rotation(1 - operation::add::AddGadget::<F>::NUM_ROW as i32),
-            );
-            let cnt_above_above = meta.query_advice(
-                config.cnt,
-                Rotation(0 - operation::add::AddGadget::<F>::NUM_ROW as i32),
-            );
-            let constraints = vec![
+            let condition = q_enable * (1.expr() - cnt_is_zero);
+            vec![
                 (
-                    "rows of this operation",
-                    q_enable.clone()
-                        * condition.clone()
-                        * (cnt_above - (operation::add::AddGadget::<F>::NUM_ROW - 1).expr()),
+                    "cnt decreases if cnt!=0",
+                    condition.clone() * (cnt_cur - cnt_next - 1.expr()),
                 ),
-                (
-                    "prev operation cnt = 0",
-                    q_enable.clone() * condition.clone() * cnt_above_above,
-                ),
-            ];
-
-            constraints
-                .into_iter()
-                .chain(operation::add::AddGadget::<F>::constraints(&config, meta))
-                .map(move |(name, constraint)| {
-                    (name, q_enable.clone() * condition.clone() * constraint)
-                })
+                ("tag is same if cnt!=0", condition * (tag_cur - tag_next)),
+            ]
         });
-
+        let gadgets: Vec<Box<dyn OperationGadget<F>>> = get_every_operation_gadgets!();
+        for gadget in &gadgets {
+            // the constraints that all execution state requires, e.g., cnt=num_row-1 at the first row
+            meta.create_gate(format!("ARITHMETIC_OPERATION_{}", gadget.name()), |meta| {
+                let q_enable = meta.query_selector(config.q_enable);
+                let num_row = gadget.num_row();
+                let cnt_prev_state = meta.query_advice(config.cnt, Rotation(-1 * num_row as i32));
+                // cnt in first row of this state
+                let cnt_first = meta.query_advice(config.cnt, Rotation(-1 * num_row as i32 + 1));
+                let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+                let tag_value_equals = config.tag.value_equals(gadget.tag(), Rotation::cur())(meta);
+                let condition = q_enable * cnt_is_zero * tag_value_equals;
+                vec![
+                    (
+                        "prev state last cnt = 0",
+                        condition.clone() * cnt_prev_state,
+                    ),
+                    (
+                        "this state first cnt is const",
+                        condition.clone() * (cnt_first - (num_row - 1).expr()),
+                    ),
+                ]
+            });
+            // the constraints for the specific execution state, extracted from the gadget
+            meta.create_gate(
+                format!("ARITHMETIC_OPERATION_GADGET_{}", gadget.name()),
+                |meta| {
+                    // constraints without condition
+                    let constraints = gadget.get_constraints(&config, meta);
+                    if constraints.is_empty() {
+                        return vec![("placeholder due to no constraint".into(), 0.expr())];
+                    }
+                    let q_enable = meta.query_selector(config.q_enable);
+                    let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+                    let tag_value_equals =
+                        config.tag.value_equals(gadget.tag(), Rotation::cur())(meta);
+                    let condition = q_enable * cnt_is_zero * tag_value_equals;
+                    constraints
+                        .into_iter()
+                        .map(|(s, e)| (s, condition.clone() * e))
+                        .collect::<Vec<(String, Expression<F>)>>()
+                },
+            );
+        }
         config
     }
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct ArithmeticCircuit<F: Field> {
-    witness: Vec<Row>,
+pub struct ArithmeticCircuit<F: Field, const MAX_NUM_ROW: usize> {
+    witness: Witness,
     _marker: PhantomData<F>,
 }
 
-/// A standalone circuit for testing
-impl<F: Field> Circuit<F> for ArithmeticCircuit<F> {
+impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ArithmeticCircuit<F, MAX_NUM_ROW> {
     type Config = ArithmeticCircuitConfig<F>;
-    type FloorPlanner = SimpleFloorPlanner;
+    type Cells = ();
 
-    fn without_witnesses(&self) -> Self {
-        Self::default()
+    fn new_from_witness(witness: &Witness) -> Self {
+        ArithmeticCircuit {
+            witness: witness.clone(),
+            _marker: PhantomData,
+        }
     }
 
-    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        Self::Config::new(meta, NilCircuitConfigArgs {})
-    }
-
-    fn synthesize(
+    fn synthesize_sub(
         &self,
-        config: Self::Config,
-        mut layouter: impl Layouter<F>,
+        config: &Self::Config,
+        layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
-        let tag = BinaryNumberChip::construct(config.tag);
-        let cnt_is_zero = IsZeroWithRotationChip::construct(config.cnt_is_zero.clone());
-
+        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
-            || "arithmetic",
+            || "arithmetic circuit",
             |mut region| {
-                // annotate columns todo
-                region.name_column(|| "cnt", config.cnt);
-                for (offset, row) in self.witness.iter().enumerate() {
-                    region.assign_advice(
-                        || "cnt",
-                        config.cnt,
-                        offset,
-                        || Value::known(F::from_u128(row.cnt.unwrap().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "operand0_hi",
-                        config.operand0_hi,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand0_hi.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand0_lo",
-                        config.operand0_lo,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand0_lo.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand1_hi",
-                        config.operand1_hi,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand1_hi.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand1_lo",
-                        config.operand1_lo,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand1_lo.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand2_hi",
-                        config.operand2_hi,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand2_hi.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand2_lo",
-                        config.operand2_lo,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand2_lo.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand3_hi",
-                        config.operand3_hi,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand3_hi.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "operand3_lo",
-                        config.operand3_lo,
-                        offset,
-                        || {
-                            Value::known(F::from_u128(
-                                row.operand3_lo.unwrap_or_default().as_u128(),
-                            ))
-                        },
-                    )?;
-                    region.assign_advice(
-                        || "u16_0",
-                        config.u16_0,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_0.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_1",
-                        config.u16_1,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_1.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_2",
-                        config.u16_2,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_2.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_3",
-                        config.u16_3,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_3.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_4",
-                        config.u16_4,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_4.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_5",
-                        config.u16_5,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_5.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_6",
-                        config.u16_6,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_6.unwrap_or_default().as_u128())),
-                    )?;
-                    region.assign_advice(
-                        || "u16_7",
-                        config.u16_7,
-                        offset,
-                        || Value::known(F::from_u128(row.u16_7.unwrap_or_default().as_u128())),
-                    )?;
-
-                    // do not enable first and last padding row
-                    // todo what should be it
-                    if offset > 1 && offset < (&self.witness).len() - 1 {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
-                    tag.assign(&mut region, offset, &row.tag.unwrap_or_default())?;
-                    cnt_is_zero.assign(
-                        &mut region,
-                        offset,
-                        Value::known(F::from_u128(row.cnt.unwrap().as_u128())),
-                    )?;
+                config.annotate_circuit_in_region(&mut region);
+                config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+                // sub circuit need to enable selector
+                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
+                    config.q_enable.enable(&mut region, offset)?;
                 }
-
                 Ok(())
             },
         )
     }
-}
 
-impl<F: Field> ArithmeticCircuit<F> {
-    pub fn new(witness: Vec<Row>) -> Self {
-        Self {
-            witness,
-            _marker: PhantomData,
-        }
+    fn unusable_rows() -> (usize, usize) {
+        let gadgets: Vec<Box<dyn OperationGadget<F>>> = get_every_operation_gadgets!();
+        let unusable_begin =
+            itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().0)).unwrap();
+        let unusable_end =
+            itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().1)).unwrap();
+        (unusable_begin, unusable_end)
+    }
+
+    fn num_rows(witness: &Witness) -> usize {
+        Self::unusable_rows().1 + witness.arithmetic.len()
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::{IsZeroInstruction, IsZeroWithRotationChip, IsZeroWithRotationConfig};
-    use crate::arithmetic_circuit::ArithmeticCircuit;
-    use crate::witness::arithmetic::{Row, Tag};
-    use eth_types::Field;
-    use gadgets::util;
-    use gadgets::util::Expr;
+    use super::*;
+    use crate::{constant::MAX_NUM_ROW, util::log2_ceil};
     use halo2_proofs::{
-        circuit::{Layouter, SimpleFloorPlanner, Value},
-        dev::MockProver,
-        halo2curves::bn256::Fr as Fp,
-        plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
-        poly::Rotation,
+        circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
-    use std::marker::PhantomData;
+    #[derive(Clone, Default, Debug)]
+    pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, MAX_NUM_ROW>);
+    impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
+        type Config = ArithmeticCircuitConfig<F>;
+        type FloorPlanner = SimpleFloorPlanner;
 
-    fn test_add_two_number(row0: Row, row1: Row) {
-        let k = 8;
-        let padding = Row::default();
-        let rows = vec![padding.clone(), padding.clone(), row0, row1, padding];
-        let circuit = ArithmeticCircuit::<Fp>::new(rows);
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let q_enable = meta.complex_selector();
+            let arithmetic_table = ArithmeticTable::construct(meta, q_enable);
+            Self::Config::new(
+                meta,
+                ArithmeticCircuitConfigArgs {
+                    q_enable,
+                    arithmetic_table,
+                },
+            )
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<F>,
+        ) -> Result<(), Error> {
+            self.0.synthesize_sub(&config, &mut layouter)
+        }
+    }
+
+    impl<F: Field> ArithmeticTestCircuit<F> {
+        pub fn new(witness: Witness) -> Self {
+            Self(ArithmeticCircuit::new_from_witness(&witness))
+        }
+    }
+    #[ignore = "remove ignore after arithmetic is finished"]
+    #[test]
+    fn test_each_operation_witness() {
+        let (arithmetic, result) =
+            self::operation::add::gen_witness(vec![3.into(), u128::MAX.into()]);
+        // TODO add more operation's witness
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(MAX_NUM_ROW);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied_par();
     }
-
-    /*
-    #[test]
-    fn add_0_0() {
-        let row0 = Row {
-            cnt: Some(1.into()),
-            u16_0: Some(0.into()),
-            u16_1: Some(0.into()),
-            u16_2: Some(0.into()),
-            u16_3: Some(0.into()),
-            u16_4: Some(0.into()),
-            u16_5: Some(0.into()),
-            u16_6: Some(0.into()),
-            u16_7: Some(0.into()),
-            ..Default::default()
-        };
-        let row1 = Row {
-            tag: Some(Tag::Add),
-            cnt: Some(0.into()),
-            operand0_hi: Some(0.into()),
-            operand0_lo: Some(0.into()),
-            operand1_hi: Some(0.into()),
-            operand1_lo: Some(0.into()),
-            operand2_hi: Some(0.into()),
-            operand2_lo: Some(0.into()),
-            operand3_hi: Some(0.into()),
-            operand3_lo: Some(0.into()),
-            u16_0: Some(0.into()),
-            u16_1: Some(0.into()),
-            u16_2: Some(0.into()),
-            u16_3: Some(0.into()),
-            u16_4: Some(0.into()),
-            u16_5: Some(0.into()),
-            u16_6: Some(0.into()),
-            u16_7: Some(0.into()),
-            ..Default::default()
-        };
-        test_add_two_number(row0, row1);
-    }
-
-    #[test]
-    fn add_u128max_1() {
-        let row0 = Row {
-            cnt: Some(1.into()),
-            u16_0: Some(0.into()),
-            u16_1: Some(0.into()),
-            u16_2: Some(0.into()),
-            u16_3: Some(0.into()),
-            u16_4: Some(0.into()),
-            u16_5: Some(0.into()),
-            u16_6: Some(0.into()),
-            u16_7: Some(0.into()),
-            ..Default::default()
-        };
-        let row1 = Row {
-            tag: Some(Tag::Add),
-            cnt: Some(0.into()),
-            operand0_hi: Some(u128::MAX.into()),
-            operand0_lo: Some(u128::MAX.into()),
-            operand1_hi: Some(0.into()),
-            operand1_lo: Some(1.into()),
-            operand2_hi: Some(0.into()),
-            operand2_lo: Some(0.into()),
-            operand3_hi: Some(1.into()),
-            operand3_lo: Some(1.into()),
-            u16_0: Some(0.into()),
-            u16_1: Some(0.into()),
-            u16_2: Some(0.into()),
-            u16_3: Some(0.into()),
-            u16_4: Some(0.into()),
-            u16_5: Some(0.into()),
-            u16_6: Some(0.into()),
-            u16_7: Some(0.into()),
-            ..Default::default()
-        };
-        test_add_two_number(row0, row1);
-    }
-     */
 }
