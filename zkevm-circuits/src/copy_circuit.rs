@@ -1,10 +1,10 @@
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{BytecodeTable, LookupEntry, StateTable};
+use crate::table::{BytecodeTable, LookupEntry, PublicTable, StateTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::copy::{Row, Type};
-use crate::witness::{state, Witness};
+use crate::witness::{public, state, Witness};
 use eth_types::{Field, U256};
 
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
@@ -53,12 +53,14 @@ pub struct CopyCircuitConfig<F: Field> {
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
     state_table: StateTable,
-    // todo add public_table
+    // add public_table
+    public_table: PublicTable,
 }
 
 pub struct CopyCircuitConfigArgs<F> {
     pub bytecode_table: BytecodeTable<F>,
     pub state_table: StateTable,
+    pub public_table: PublicTable,
 }
 
 impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
@@ -68,6 +70,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
         Self::ConfigArgs {
             bytecode_table,
             state_table,
+            public_table,
         }: Self::ConfigArgs,
     ) -> Self {
         let q_enable = meta.complex_selector();
@@ -115,6 +118,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             dst_tag,
             bytecode_table,
             state_table,
+            public_table,
             len_is_zero,
             cnt_is_zero,
             len_sub_cnt_one_is_zero,
@@ -286,6 +290,13 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             Type::Returndata,
             state::Tag::ReturnData,
         );
+        // src public-calldata lookup
+        config.src_public_calldata_lookup(
+            meta,
+            "COPY_src_public-calldata_lookup",
+            Type::PublicCalldata,
+            public::Tag::TxCalldata,
+        );
         // dst memory lookup
         config.dst_state_lookup(
             meta,
@@ -306,6 +317,13 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             "COPY_dst_return-data_lookup",
             Type::Returndata,
             state::Tag::ReturnData,
+        );
+        // dst public-log lookup
+        config.dst_public_log_lookup(
+            meta,
+            "COPY_dst_log_lookup",
+            Type::PublicLog,
+            public::Tag::TxLog,
         );
         config
     }
@@ -487,6 +505,74 @@ impl<F: Field> CopyCircuitConfig<F> {
         });
     }
 
+    /// publicCallData src lookup
+    pub fn src_public_calldata_lookup(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        name: &str,
+        copy_type: Type,
+        public_tag: public::Tag,
+    ) {
+        meta.lookup_any(name, |meta| {
+            let public_entry = LookupEntry::Public {
+                tag: (public_tag as u8).expr(),
+                tx_idx_or_number_diff: meta.query_advice(self.src_id, Rotation::cur()),
+                values: [
+                    meta.query_advice(self.src_pointer, Rotation::cur())
+                        + meta.query_advice(self.cnt, Rotation::cur()),
+                    0.expr(),
+                    meta.query_advice(self.byte, Rotation::cur()),
+                    0.expr(),
+                ],
+            };
+            let public_lookup_vec = self
+                .public_table
+                .get_lookup_vector(meta, public_entry.clone());
+            public_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(self.q_enable);
+                    let public_enable = self.src_tag.value_equals(copy_type, Rotation::cur())(meta);
+                    (q_enable * public_enable * left, right)
+                })
+                .collect()
+        });
+    }
+
+    /// publicLog dst lookup
+    pub fn dst_public_log_lookup(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        name: &str,
+        copy_type: Type,
+        public_tag: public::Tag,
+    ) {
+        meta.lookup_any(name, |meta| {
+            let public_entry = LookupEntry::Public {
+                tag: (public_tag as u8).expr(),
+                tx_idx_or_number_diff: meta.query_advice(self.dst_id, Rotation::cur()),
+                values: [
+                    meta.query_advice(self.dst_stamp, Rotation::cur()),
+                    (public::LogTag::Data as u8).expr(),
+                    meta.query_advice(self.byte, Rotation::cur()),
+                    meta.query_advice(self.src_pointer, Rotation::cur())
+                        + meta.query_advice(self.cnt, Rotation::cur()),
+                ],
+            };
+            let public_lookup_vec = self
+                .public_table
+                .get_lookup_vector(meta, public_entry.clone());
+            public_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(self.q_enable);
+                    let public_enable = self.src_tag.value_equals(copy_type, Rotation::cur())(meta);
+                    (q_enable * public_enable * left, right)
+                })
+                .collect()
+        });
+    }
+
     /// state dst lookup
     pub fn dst_state_lookup(
         &self,
@@ -593,13 +679,17 @@ mod test {
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+            let (instance_addr, instance_bytecode) =
+                BytecodeTable::construct_addr_bytecode_instance_column(meta);
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
+            let public_table = PublicTable::construct(meta);
             Self::Config::new(
                 meta,
                 CopyCircuitConfigArgs {
                     bytecode_table,
                     state_table,
+                    public_table,
                 },
             )
         }

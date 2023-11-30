@@ -68,6 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             CopyCircuitConfigArgs {
                 bytecode_table,
                 state_table,
+                public_table,
             },
         );
 
