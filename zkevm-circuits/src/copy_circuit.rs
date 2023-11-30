@@ -629,7 +629,13 @@ mod test {
     fn test_core_parser() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code);
-        let witness: Witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
+        let witness: Witness = Witness::new(&geth_data_test(
+            trace,
+            &machine_code,
+            &[],
+            false,
+            Default::default(),
+        ));
         let prover = test_simple_copy_circuit(witness);
         prover.assert_satisfied_par();
     }
