@@ -319,18 +319,15 @@ impl PublicTable {
             LookupEntry::Public {
                 tag,
                 tx_idx_or_number_diff,
-                value_0,
-                value_1,
-                value_2,
-                value_3,
+                values,
             } => {
                 vec![
                     (tag, table_tag),
                     (tx_idx_or_number_diff, table_tx_idx_or_number_diff),
-                    (value_0, table_value_0),
-                    (value_1, table_value_1),
-                    (value_2, table_value_2),
-                    (value_3, table_value_3),
+                    (values[0].clone(), table_value_0),
+                    (values[1].clone(), table_value_1),
+                    (values[2].clone(), table_value_2),
+                    (values[3].clone(), table_value_3),
                 ]
             }
             _ => panic!("Not public lookup!"),
@@ -446,10 +443,7 @@ pub enum LookupEntry<F> {
     Public {
         tag: Expression<F>,
         tx_idx_or_number_diff: Expression<F>,
-        value_0: Expression<F>,
-        value_1: Expression<F>,
-        value_2: Expression<F>,
-        value_3: Expression<F>,
+        values: [Expression<F>; PUBLIC_NUM_VALUES],
     },
 }
 
