@@ -1,3 +1,4 @@
+use crate::table::PublicTable;
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{Row, Tag};
 use crate::witness::Witness;
@@ -16,14 +17,26 @@ pub struct PublicCircuitConfig {
     values: [Column<Instance>; NUM_VALUES],
 }
 
-impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
-    type ConfigArgs = ();
+pub struct PublicCircuitConfigArgs {
+    pub public_table: PublicTable,
+}
 
-    fn new(meta: &mut ConstraintSystem<F>, _: Self::ConfigArgs) -> Self {
+impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
+    type ConfigArgs = PublicCircuitConfigArgs;
+
+    fn new(
+        meta: &mut ConstraintSystem<F>,
+        Self::ConfigArgs { public_table }: Self::ConfigArgs,
+    ) -> Self {
+        let PublicTable {
+            tag,
+            tx_idx_or_number_diff,
+            values,
+        } = public_table;
         Self {
-            tag: meta.instance_column(),
-            tx_idx_or_number_diff: meta.instance_column(),
-            values: std::array::from_fn(|_| meta.instance_column()),
+            tag,
+            tx_idx_or_number_diff,
+            values,
         }
     }
 }
@@ -113,7 +126,9 @@ mod test {
             Self::default()
         }
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-            let public_circuit_config = PublicCircuitConfig::new(meta, ());
+            let public_table = PublicTable::construct(meta);
+            let public_circuit_config =
+                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
             let config = PublicTestCircuitConfig {
                 public_circuit_config,
                 tag: meta.advice_column(),

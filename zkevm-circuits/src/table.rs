@@ -5,9 +5,11 @@ use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberCo
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Expression, Fixed, Selector, VirtualCells,
+    Advice, Column, ConstraintSystem, Expression, Fixed, Instance, Selector, VirtualCells,
 };
 use halo2_proofs::poly::Rotation;
+
+const PUBLIC_NUM_VALUES: usize = 4;
 
 macro_rules! extract_lookup_expression {
     (state, $value:expr) => {
@@ -248,6 +250,17 @@ impl<F: Field> BytecodeTable<F> {
         }
     }
 }
+
+impl<F: Field> BytecodeTable<F> {
+    // construct_addr_bytecode_instance_column init two instance column
+    pub fn construct_addr_bytecode_instance_column(
+        meta: &mut ConstraintSystem<F>,
+    ) -> (Column<Instance>, Column<Instance>) {
+        let addr_instance_column = meta.instance_column();
+        let bytecode_instance_column = meta.instance_column();
+        (addr_instance_column, bytecode_instance_column)
+    }
+}
 // TODO re-write
 #[derive(Clone, Copy, Debug)]
 pub struct FixedTable {
@@ -270,6 +283,57 @@ impl FixedTable {
     }
 }
 
+/// The table shared between Core Circuit and Public Circuit
+#[derive(Clone, Copy, Debug)]
+pub struct PublicTable {
+    /// various public information tag, e.g. BlockNumber, TxFrom
+    pub tag: Column<Instance>,
+    /// tx_id (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
+    pub tx_idx_or_number_diff: Column<Instance>,
+    pub values: [Column<Instance>; PUBLIC_NUM_VALUES],
+}
+impl PublicTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        let tag = meta.instance_column();
+        let tx_idx_or_number_diff = meta.instance_column();
+        let values = std::array::from_fn(|_| meta.instance_column());
+        Self {
+            tag,
+            tx_idx_or_number_diff,
+            values,
+        }
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = meta.query_instance(self.tag, Rotation::cur());
+        let table_tx_idx_or_number_diff =
+            meta.query_instance(self.tx_idx_or_number_diff, Rotation::cur());
+        let table_value_0 = meta.query_instance(self.values[0], Rotation::cur());
+        let table_value_1 = meta.query_instance(self.values[1], Rotation::cur());
+        let table_value_2 = meta.query_instance(self.values[2], Rotation::cur());
+        let table_value_3 = meta.query_instance(self.values[3], Rotation::cur());
+        match entry {
+            LookupEntry::Public {
+                tag,
+                tx_idx_or_number_diff,
+                values,
+            } => {
+                vec![
+                    (tag, table_tag),
+                    (tx_idx_or_number_diff, table_tx_idx_or_number_diff),
+                    (values[0].clone(), table_value_0),
+                    (values[1].clone(), table_value_1),
+                    (values[2].clone(), table_value_2),
+                    (values[3].clone(), table_value_3),
+                ]
+            }
+            _ => panic!("Not public lookup!"),
+        }
+    }
+}
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug)]
 pub enum LookupEntry<F> {
@@ -374,6 +438,12 @@ pub enum LookupEntry<F> {
         result: Expression<F>,
         /// Tag could be LogicAnd, LogicOr or LogicXor
         tag: Expression<F>,
+    },
+    /// Lookup to Public table
+    Public {
+        tag: Expression<F>,
+        tx_idx_or_number_diff: Expression<F>,
+        values: [Expression<F>; PUBLIC_NUM_VALUES],
     },
 }
 
