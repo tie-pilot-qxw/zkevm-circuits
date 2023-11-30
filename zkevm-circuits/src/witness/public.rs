@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::util::create_contract_addr_with_prefix;
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{ToBigEndian, U256};
+use gadgets::util::Expr;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -40,6 +41,7 @@ pub enum Tag {
     TxGasPrice,
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
+    TxLogSize,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -262,8 +264,7 @@ impl Row {
                     tag: Tag::TxCalldata,
                     tx_idx_or_number_diff: Some(tx_idx.into()),
                     value_0: Some(idx.into()),
-                    value_1: Some(tx.input.len().into()),
-                    value_2: Some((*byte).into()),
+                    value_1: Some((*byte).into()),
                     comments: [
                         (format!("tag"), format!("TxCalldata")),
                         (
@@ -271,8 +272,7 @@ impl Row {
                             format!("tx_idx{}", tx_idx),
                         ),
                         (format!("value_0"), format!("idx")),
-                        (format!("value_1"), format!("tx.input.len")),
-                        (format!("value_2"), format!("byte")),
+                        (format!("value_1"), format!("byte")),
                     ]
                     .into_iter()
                     .collect(),
@@ -351,6 +351,25 @@ impl Row {
                         Self::get_log_topic_tag(i as u8),
                     ))
                 }
+                // insert log data size
+                result.push(Row {
+                    tag: Tag::TxLogSize,
+                    tx_idx_or_number_diff: Some(tx_idx),
+                    value_0: Some(0.into()),
+                    value_1: Some(log.data.len().into()),
+                    comments: [
+                        (format!("tag"), format!("{:?}", Tag::TxLogSize)),
+                        (
+                            format!("tx_idx_or_number_diff"),
+                            format!("transactionIndex"),
+                        ),
+                        (format!("value_0"), format!("0")),
+                        (format!("value_1"), format!("logSize = {}", log.data.len())),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    ..Default::default()
+                });
                 // insert log bytes
                 for (data_idx, data) in log.data.iter().enumerate() {
                     result.push(Row {
