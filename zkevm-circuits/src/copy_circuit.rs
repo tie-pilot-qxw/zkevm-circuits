@@ -398,7 +398,7 @@ impl<F: Field> CopyCircuitConfig<F> {
 
         len_is_zero.assign(region, offset, Value::known(F::ZERO))?;
         cnt_is_zero.assign(region, offset, Value::known(F::ZERO))?;
-        len_sub_cnt_one_is_zero.assign(region, offset, Value::known(F::from(0) - F::from(1)))?;
+        len_sub_cnt_one_is_zero.assign(region, offset, Value::known(F::ZERO - F::ONE))?;
 
         let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
         src_tag.assign(region, offset, &Type::default())?;
