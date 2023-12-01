@@ -3,7 +3,7 @@ use crate::table::{BytecodeTable, LookupEntry, PublicTable, StateTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
-use crate::witness::copy::{Row, Type};
+use crate::witness::copy::{Row, Tag};
 use crate::witness::{public, state, Witness};
 use eth_types::{Field, U256};
 
@@ -45,11 +45,11 @@ pub struct CopyCircuitConfig<F: Field> {
     /// IsZero chip for len-cnt-1
     pub len_sub_cnt_one_is_zero: IsZeroConfig<F>,
     /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
-    /// src Type of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
-    src_tag: BinaryNumberConfig<Type, LOG_NUM_STATE_TAG>,
+    /// src Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    pub src_tag: BinaryNumberConfig<Tag, LOG_NUM_STATE_TAG>,
     /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
-    /// dst Type of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
-    dst_tag: BinaryNumberConfig<Type, LOG_NUM_STATE_TAG>,
+    /// dst Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    pub dst_tag: BinaryNumberConfig<Tag, LOG_NUM_STATE_TAG>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
     state_table: StateTable,
@@ -161,12 +161,12 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
                 ),
                 (
                     "len_sub_cnt_one_is_zero, next_cnt_is_zero",
-                    q_enable.clone() * len_sub_cnt_one_is_zero.expr() * next_cnt.clone(),
+                    q_enable.clone() * len_sub_cnt_one_is_zero.clone() * next_cnt.clone(),
                 ),
             ];
 
             let is_not_zero_exp =
-                (1.expr() - len_is_zero.clone()) * (1.expr() - len_sub_cnt_one_is_zero.expr());
+                (1.expr() - len_is_zero.clone()) * (1.expr() - len_sub_cnt_one_is_zero.clone());
             constraints.extend(vec![
                 // len!=0 && len-cnt-1!=0 --> next_cnt=cnt+1
                 (
@@ -273,56 +273,56 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
         config.src_state_lookup(
             meta,
             "COPY_src_memory_lookup",
-            Type::Memory,
+            Tag::Memory,
             state::Tag::Memory,
         );
         // src call-data lookup
         config.src_state_lookup(
             meta,
             "COPY_src_call-data_lookup",
-            Type::Calldata,
+            Tag::Calldata,
             state::Tag::CallData,
         );
         // src return-data lookup
         config.src_state_lookup(
             meta,
             "COPY_src_return-data_lookup",
-            Type::Returndata,
+            Tag::Returndata,
             state::Tag::ReturnData,
         );
         // src public-calldata lookup
         config.src_public_calldata_lookup(
             meta,
             "COPY_src_public-calldata_lookup",
-            Type::PublicCalldata,
+            Tag::PublicCalldata,
             public::Tag::TxCalldata,
         );
         // dst memory lookup
         config.dst_state_lookup(
             meta,
             "COPY_dst_memory_lookup",
-            Type::Memory,
+            Tag::Memory,
             state::Tag::Memory,
         );
         // dst call-data lookup
         config.dst_state_lookup(
             meta,
             "COPY_dst_call-data_lookup",
-            Type::Calldata,
+            Tag::Calldata,
             state::Tag::CallData,
         );
         // dst return-data lookup
         config.dst_state_lookup(
             meta,
             "COPY_dst_return-data_lookup",
-            Type::Returndata,
+            Tag::Returndata,
             state::Tag::ReturnData,
         );
         // dst public-log lookup
         config.dst_public_log_lookup(
             meta,
             "COPY_dst_log_lookup",
-            Type::PublicLog,
+            Tag::PublicLog,
             public::Tag::TxLog,
         );
         config
@@ -369,9 +369,11 @@ impl<F: Field> CopyCircuitConfig<F> {
         let cnt_val = F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt));
         len_sub_cnt_one_is_zero.assign(region, offset, Value::known(len_val - cnt_val - F::ONE))?;
 
-        let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
+        let src_tag: BinaryNumberChip<F, Tag, LOG_NUM_STATE_TAG> =
+            BinaryNumberChip::construct(self.src_tag);
         src_tag.assign(region, offset, &row.src_type)?;
-        let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
+        let dst_tag: BinaryNumberChip<F, Tag, LOG_NUM_STATE_TAG> =
+            BinaryNumberChip::construct(self.dst_tag);
         dst_tag.assign(region, offset, &row.dst_type)?;
         Ok(())
     }
@@ -400,10 +402,12 @@ impl<F: Field> CopyCircuitConfig<F> {
         cnt_is_zero.assign(region, offset, Value::known(F::ZERO))?;
         len_sub_cnt_one_is_zero.assign(region, offset, Value::known(F::ZERO - F::ONE))?;
 
-        let src_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.src_tag);
-        src_tag.assign(region, offset, &Type::default())?;
-        let dst_tag: BinaryNumberChip<F, Type, 4> = BinaryNumberChip::construct(self.dst_tag);
-        dst_tag.assign(region, offset, &Type::default())?;
+        let src_tag: BinaryNumberChip<F, Tag, LOG_NUM_STATE_TAG> =
+            BinaryNumberChip::construct(self.src_tag);
+        src_tag.assign(region, offset, &Tag::default())?;
+        let dst_tag: BinaryNumberChip<F, Tag, LOG_NUM_STATE_TAG> =
+            BinaryNumberChip::construct(self.dst_tag);
+        dst_tag.assign(region, offset, &Tag::default())?;
         Ok(())
     }
 
@@ -463,7 +467,7 @@ impl<F: Field> CopyCircuitConfig<F> {
                 .map(|(left, right)| {
                     let q_enable = meta.query_selector(self.q_enable);
                     let bytecode_enable =
-                        self.src_tag.value_equals(Type::Bytecode, Rotation::cur())(meta);
+                        self.src_tag.value_equals(Tag::Bytecode, Rotation::cur())(meta);
                     (q_enable * bytecode_enable * left, right)
                 })
                 .collect()
@@ -475,7 +479,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         &self,
         meta: &mut ConstraintSystem<F>,
         name: &str,
-        copy_type: Type,
+        copy_type: Tag,
         state_tag: state::Tag,
     ) {
         meta.lookup_any(name, |meta| {
@@ -510,7 +514,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         &self,
         meta: &mut ConstraintSystem<F>,
         name: &str,
-        copy_type: Type,
+        copy_type: Tag,
         public_tag: public::Tag,
     ) {
         meta.lookup_any(name, |meta| {
@@ -544,7 +548,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         &self,
         meta: &mut ConstraintSystem<F>,
         name: &str,
-        copy_type: Type,
+        copy_type: Tag,
         public_tag: public::Tag,
     ) {
         meta.lookup_any(name, |meta| {
@@ -578,7 +582,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         &self,
         meta: &mut ConstraintSystem<F>,
         name: &str,
-        copy_type: Type,
+        copy_type: Tag,
         state_tag: state::Tag,
     ) {
         meta.lookup_any(name, |meta| {
@@ -629,18 +633,18 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
-        //let (num_padding_begin, num_padding_end) = Self::unusable_rows();
+        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
             || "copy circuit",
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
                 // sub circuit need to enable selector
-                if self.witness.copy.len() > 0 {
-                    for offset in 0..self.witness.copy.len() - 1 {
-                        config.q_enable.enable(&mut region, offset)?;
-                    }
+
+                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
+                    config.q_enable.enable(&mut region, offset)?;
                 }
+
                 Ok(())
             },
         )
@@ -706,12 +710,25 @@ mod test {
         pub fn new(witness: Witness) -> Self {
             Self(CopyCircuit::new_from_witness(&witness))
         }
+        pub fn instance(&self) -> Vec<Vec<F>> {
+            vec![
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            ]
+        }
     }
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
         let circuit = CopyTestCircuit::<Fp>::new(witness);
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let instance = circuit.instance();
+        let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
     }
 

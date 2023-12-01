@@ -303,11 +303,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_copy_contraints(
         &self,
-        src_type: copy::Type,
+        src_type: copy::Tag,
         src_id: Expression<F>,
         src_pointer: Expression<F>,
         src_stamp: Expression<F>,
-        dst_type: copy::Type,
+        dst_type: copy::Tag,
         dst_id: Expression<F>,
         dst_pointer: Expression<F>,
         dst_stamp: Expression<F>,

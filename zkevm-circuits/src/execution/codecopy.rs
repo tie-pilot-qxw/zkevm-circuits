@@ -112,11 +112,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(copy_len_is_zero.get_constraints());
 
         constraints.extend(config.get_copy_contraints(
-            copy::Type::Bytecode,
+            copy::Tag::Bytecode,
             address,
             stack_pop_values[1][1].clone(), // stack top1 value_lo
             0.expr(),
-            copy::Type::Memory,
+            copy::Tag::Memory,
             call_id.clone(),
             stack_pop_values[0][1].clone(), // stack top0 value_lo
             copy_code_stamp_start.clone() + 1.expr(),
@@ -136,11 +136,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(copy_padding_len_is_zero.get_constraints());
 
         constraints.extend(config.get_copy_contraints(
-            copy::Type::Zero,
+            copy::Tag::Zero,
             0.expr(),
             0.expr(),
             0.expr(),
-            copy::Type::Memory,
+            copy::Tag::Memory,
             call_id.clone(),
             stack_pop_values[0][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
