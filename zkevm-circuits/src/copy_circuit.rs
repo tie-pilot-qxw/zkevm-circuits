@@ -662,8 +662,13 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constant::MAX_NUM_ROW;
+    use crate::bytecode_circuit::{
+        BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
+    };
+    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::copy_circuit::CopyCircuit;
+    use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
+    use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
@@ -671,16 +676,17 @@ mod test {
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::Circuit;
 
-    #[derive(Clone, Default, Debug)]
-    pub struct CopyTestCircuit<F: Field>(CopyCircuit<F, MAX_NUM_ROW>);
+    #[derive(Clone)]
+    pub struct CopyTestCircuitConfig<F: Field> {
+        pub bytecode_circuit: BytecodeCircuitConfig<F>,
+        pub public_circuit: PublicCircuitConfig,
+        pub copy_circuit: CopyCircuitConfig<F>,
+        pub state_circuit: StateCircuitConfig<F>,
+    }
 
-    impl<F: Field> Circuit<F> for CopyTestCircuit<F> {
-        type Config = CopyCircuitConfig<F>;
-        type FloorPlanner = SimpleFloorPlanner;
-        fn without_witnesses(&self) -> Self {
-            Self::default()
-        }
-        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+    impl<F: Field> SubCircuitConfig<F> for CopyTestCircuitConfig<F> {
+        type ConfigArgs = ();
+        fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let (instance_addr, instance_bytecode) =
@@ -688,45 +694,95 @@ mod test {
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
             let public_table = PublicTable::construct(meta);
-            Self::Config::new(
+            let bytecode_circuit = BytecodeCircuitConfig::new(
+                meta,
+                BytecodeCircuitConfigArgs {
+                    q_enable: q_enable_bytecode,
+                    bytecode_table,
+                    instance_addr,
+                    instance_bytecode,
+                },
+            );
+            let state_circuit = StateCircuitConfig::new(
+                meta,
+                StateCircuitConfigArgs {
+                    q_enable: q_enable_state,
+                    state_table,
+                },
+            );
+            let public_circuit =
+                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
+
+            let copy_circuit = CopyCircuitConfig::new(
                 meta,
                 CopyCircuitConfigArgs {
                     bytecode_table,
                     state_table,
                     public_table,
                 },
-            )
+            );
+            CopyTestCircuitConfig {
+                bytecode_circuit,
+                public_circuit,
+                copy_circuit,
+                state_circuit,
+            }
+        }
+    }
+
+    #[derive(Clone, Default, Debug)]
+    pub struct CopyTestCircuit<F: Field, const MAX_CODESIZE: usize> {
+        pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
+        pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+        pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
+        pub public_circuit: PublicCircuit<F>,
+    }
+
+    impl<F: Field, const MAX_CODESIZE: usize> Circuit<F> for CopyTestCircuit<F, MAX_CODESIZE> {
+        type Config = CopyTestCircuitConfig<F>;
+        type FloorPlanner = SimpleFloorPlanner;
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            Self::Config::new(meta, ())
         }
         fn synthesize(
             &self,
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.0.synthesize_sub(&config, &mut layouter)
+            self.bytecode_circuit
+                .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
+            self.public_circuit
+                .synthesize_sub(&config.public_circuit, &mut layouter)?;
+            self.copy_circuit
+                .synthesize_sub(&config.copy_circuit, &mut layouter)?;
+            self.state_circuit
+                .synthesize_sub(&config.state_circuit, &mut layouter)
         }
     }
 
-    impl<F: Field> CopyTestCircuit<F> {
+    impl<F: Field, const MAX_CODESIZE: usize> CopyTestCircuit<F, MAX_CODESIZE> {
         pub fn new(witness: Witness) -> Self {
-            Self(CopyCircuit::new_from_witness(&witness))
+            Self {
+                bytecode_circuit: BytecodeCircuit::new_from_witness(&witness),
+                public_circuit: PublicCircuit::new_from_witness(&witness),
+                copy_circuit: CopyCircuit::new_from_witness(&witness),
+                state_circuit: StateCircuit::new_from_witness(&witness),
+            }
         }
         pub fn instance(&self) -> Vec<Vec<F>> {
-            vec![
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-                vec![],
-            ]
+            let mut vec = Vec::new();
+            vec.extend(self.bytecode_circuit.instance());
+            vec.extend(self.public_circuit.instance());
+            vec
         }
     }
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
-        let circuit = CopyTestCircuit::<Fp>::new(witness);
+        let circuit = CopyTestCircuit::<Fp, MAX_CODESIZE>::new(witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
