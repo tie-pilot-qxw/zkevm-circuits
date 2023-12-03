@@ -6,7 +6,7 @@ pub struct Row {
     /// The byte value that is copied
     pub byte: U256,
     /// The source type, one of PublicCalldata, Memory, Bytecode, Calldata, Returndata
-    pub src_type: Type,
+    pub src_type: Tag,
     /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
     pub src_id: U256,
     /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
@@ -14,7 +14,7 @@ pub struct Row {
     /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
     pub src_stamp: U256,
     /// The destination type, one of Memory, Calldata, Returndata, PublicLog
-    pub dst_type: Type,
+    pub dst_type: Tag,
     /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
     pub dst_id: U256,
     /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
@@ -31,7 +31,7 @@ pub struct Row {
 /// Destination type could only be Memory, Calldata, Returndata, PublicLog, hence it needs two bits to represent.
 /// Source type needs three bits.
 #[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
-pub enum Type {
+pub enum Tag {
     #[default]
     /// Zero value for padding, under which id, pointer, and stamp are default value
     Zero,
@@ -49,8 +49,8 @@ pub enum Type {
     Bytecode,
 }
 
-impl From<Type> for usize {
-    fn from(t: Type) -> Self {
+impl From<Tag> for usize {
+    fn from(t: Tag) -> Self {
         t as usize
     }
 }

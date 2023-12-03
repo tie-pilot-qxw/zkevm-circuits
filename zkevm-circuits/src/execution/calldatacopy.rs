@@ -99,12 +99,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut config.get_copy_contraints(
-            copy::Type::Calldata,
+            copy::Tag::Calldata,
             call_id.clone(),
             stack_pop_values[1].clone(),
             // +1.expr() after state row is generated, the stamp+=1 affected, thus subsequent copy_row start at stamp+=1.
             stamp.clone() + 1.expr(),
-            copy::Type::Memory,
+            copy::Tag::Memory,
             call_id,
             stack_pop_values[0].clone(),
             stamp + stack_pop_values[2].clone() + 1.expr(),
@@ -168,11 +168,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(
                 &copy::Row {
                     byte: 0.into(),
-                    src_type: copy::Type::default(),
+                    src_type: copy::Tag::default(),
                     src_id: 0.into(),
                     src_pointer: 0.into(),
                     src_stamp: 0.into(),
-                    dst_type: copy::Type::default(),
+                    dst_type: copy::Tag::default(),
                     dst_id: 0.into(),
                     dst_pointer: 0.into(),
                     dst_stamp: 0.into(),

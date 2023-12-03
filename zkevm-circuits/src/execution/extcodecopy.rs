@@ -120,11 +120,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(is_copy_zero_len.get_constraints());
 
         constraints.extend(config.get_copy_contraints(
-            copy::Type::Bytecode,
+            copy::Tag::Bytecode,
             copy_operands[0][0].clone() * pow_of_two::<F>(128) + copy_operands[0][1].clone(),
             copy_operands[2][1].clone(),
             0.expr(),
-            copy::Type::Memory,
+            copy::Tag::Memory,
             call_id.clone(),
             copy_operands[1][1].clone(),
             copy_code_stamp_start.clone() + 1.expr(),
@@ -144,11 +144,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(is_padding_zero_len.get_constraints());
 
         constraints.extend(config.get_copy_contraints(
-            copy::Type::Zero,
+            copy::Tag::Zero,
             0.expr(),
             0.expr(),
             0.expr(),
-            copy::Type::Memory,
+            copy::Tag::Memory,
             call_id.clone(),
             copy_operands[1][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),

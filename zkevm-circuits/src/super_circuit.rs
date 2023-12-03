@@ -1,5 +1,6 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
+use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
@@ -20,6 +21,7 @@ pub struct SuperCircuitConfig<
     bytecode_circuit: BytecodeCircuitConfig<F>,
     state_circuit: StateCircuitConfig<F>,
     public_circuit: PublicCircuitConfig,
+    copy_circuit: CopyCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -60,11 +62,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         );
         let public_circuit =
             PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
+
+        let copy_circuit = CopyCircuitConfig::new(
+            meta,
+            CopyCircuitConfigArgs {
+                bytecode_table,
+                state_table,
+                public_table,
+            },
+        );
+
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
             state_circuit,
             public_circuit,
+            copy_circuit,
         }
     }
 }
@@ -81,6 +94,7 @@ pub struct SuperCircuit<
     pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
     pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
     pub public_circuit: PublicCircuit<F>,
+    pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -106,11 +120,13 @@ impl<
         let bytecode_circuit = BytecodeCircuit::new_from_witness(witness);
         let state_circuit = StateCircuit::new_from_witness(witness);
         let public_circuit = PublicCircuit::new_from_witness(witness);
+        let copy_circuit = CopyCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
             state_circuit,
             public_circuit,
+            copy_circuit,
         }
     }
 
@@ -120,6 +136,7 @@ impl<
         instance.extend(self.bytecode_circuit.instance());
         instance.extend(self.state_circuit.instance());
         instance.extend(self.public_circuit.instance());
+        instance.extend(self.copy_circuit.instance());
 
         instance
     }
@@ -137,6 +154,8 @@ impl<
             .synthesize_sub(&config.state_circuit, layouter)?;
         self.public_circuit
             .synthesize_sub(&config.public_circuit, layouter)?;
+        self.copy_circuit
+            .synthesize_sub(&config.copy_circuit, layouter)?;
         Ok(())
     }
 
@@ -146,6 +165,7 @@ impl<
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows(),
             StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             PublicCircuit::<F>::unusable_rows(),
+            CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -158,6 +178,7 @@ impl<
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             PublicCircuit::<F>::num_rows(witness),
+            CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
         itertools::max(num_rows).unwrap()
     }

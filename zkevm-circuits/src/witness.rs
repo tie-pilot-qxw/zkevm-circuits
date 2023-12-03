@@ -470,11 +470,11 @@ impl WitnessExecHelper {
                 let byte = code.get((src_offset + i) as usize).unwrap().value;
                 copy_rows.push(copy::Row {
                     byte: byte.into(),
-                    src_type: copy::Type::Bytecode,
+                    src_type: copy::Tag::Bytecode,
                     src_id: address,
                     src_pointer: src_offset.into(),
                     src_stamp: 0.into(),
-                    dst_type: copy::Type::Memory,
+                    dst_type: copy::Tag::Memory,
                     dst_id: self.call_id.into(),
                     dst_pointer: dst_offset.into(),
                     dst_stamp: codecopy_stamp.into(),
@@ -495,11 +495,11 @@ impl WitnessExecHelper {
                 );
                 copy_rows.push(copy::Row {
                     byte: 0.into(),
-                    src_type: copy::Type::Zero,
+                    src_type: copy::Tag::Zero,
                     src_id: 0.into(),
                     src_pointer: 0.into(),
                     src_stamp: 0.into(),
-                    dst_type: copy::Type::Memory,
+                    dst_type: copy::Tag::Memory,
                     dst_id: self.call_id.into(),
                     dst_pointer: (dst_offset + code_copy_length).into(),
                     dst_stamp: codecopy_padding_stamp.into(),
@@ -536,11 +536,11 @@ impl WitnessExecHelper {
             let byte = data.get(src + i).cloned().unwrap();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
-                src_type: copy::Type::Returndata,
+                src_type: copy::Tag::Returndata,
                 src_id: self.call_id.into(),
                 src_pointer: src.into(),
                 src_stamp: copy_stamp.into(),
-                dst_type: copy::Type::Memory,
+                dst_type: copy::Tag::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: dst.into(),
                 dst_stamp: dst_copy_stamp.into(),
@@ -593,11 +593,11 @@ impl WitnessExecHelper {
             let (state_row, byte) = self.get_calldata_read_row(src + i);
             copy_rows.push(copy::Row {
                 byte: byte.into(),
-                src_type: copy::Type::Calldata,
+                src_type: copy::Tag::Calldata,
                 src_id: self.call_id.into(),
                 src_pointer: src.into(),
                 src_stamp: copy_stamp.into(),
-                dst_type: copy::Type::Memory,
+                dst_type: copy::Tag::Memory,
                 dst_id: self.call_id.into(),
                 dst_pointer: dst.into(),
                 dst_stamp: (copy_stamp + len as u64).into(),
@@ -667,11 +667,11 @@ impl WitnessExecHelper {
         for (i, &byte) in calldata.iter().enumerate() {
             copy_rows.push(copy::Row {
                 byte: byte.into(),
-                src_type: copy::Type::PublicCalldata,
+                src_type: copy::Tag::PublicCalldata,
                 src_id: self.tx_idx.into(),
                 src_pointer: 0.into(),
                 src_stamp: 0.into(),
-                dst_type: copy::Type::Calldata,
+                dst_type: copy::Tag::Calldata,
                 dst_id: self.call_id.into(),
                 dst_pointer: 0.into(),
                 dst_stamp: stamp_start.into(),
@@ -728,11 +728,11 @@ impl WitnessExecHelper {
             let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
             copy_rows.push(copy::Row {
                 byte: byte.into(),
-                src_type: copy::Type::Memory,
+                src_type: copy::Tag::Memory,
                 src_id: self.call_id.into(),
                 src_pointer: offset.into(),
                 src_stamp: copy_stamp.into(),
-                dst_type: copy::Type::Returndata,
+                dst_type: copy::Tag::Returndata,
                 dst_id: self.call_id.into(),
                 dst_pointer: 0.into(),
                 dst_stamp: dst_copy_stamp.into(),

@@ -1,6 +1,7 @@
 pub mod arithmetic_circuit;
 pub mod bytecode_circuit;
 pub mod constant;
+pub mod copy_circuit;
 pub mod core_circuit;
 pub mod execution;
 pub mod public_circuit;
