@@ -378,39 +378,6 @@ impl<F: Field> CopyCircuitConfig<F> {
         Ok(())
     }
 
-    // assign a padding row whose state selector is the first `ExecutionState`
-    // and auxiliary columns are kept from the last row
-    fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
-        let len_is_zero: IsZeroWithRotationChip<F> =
-            IsZeroWithRotationChip::construct(self.len_is_zero.clone());
-        let cnt_is_zero: IsZeroWithRotationChip<F> =
-            IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
-        let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
-
-        //let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.byte)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.src_id)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.src_pointer)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.src_stamp)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_id)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_pointer)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.dst_stamp)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.cnt)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.len)?;
-
-        len_is_zero.assign(region, offset, Value::known(F::ZERO))?;
-        cnt_is_zero.assign(region, offset, Value::known(F::ZERO))?;
-        len_sub_cnt_one_is_zero.assign(region, offset, Value::known(F::ZERO - F::ONE))?;
-
-        let src_tag: BinaryNumberChip<F, Tag, LOG_NUM_STATE_TAG> =
-            BinaryNumberChip::construct(self.src_tag);
-        src_tag.assign(region, offset, &Tag::default())?;
-        let dst_tag: BinaryNumberChip<F, Tag, LOG_NUM_STATE_TAG> =
-            BinaryNumberChip::construct(self.dst_tag);
-        dst_tag.assign(region, offset, &Tag::default())?;
-        Ok(())
-    }
-
     /// assign values from witness in a region
     pub fn assign_with_region(
         &self,
@@ -423,7 +390,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         }
         // pad the rest rows
         for offset in witness.copy.len()..num_row_incl_padding {
-            self.assign_padding_row(region, offset)?;
+            self.assign_row(region, offset, &Default::default())?;
         }
         Ok(())
     }
