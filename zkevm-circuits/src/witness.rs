@@ -65,6 +65,7 @@ pub struct WitnessExecHelper {
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
+    pub log_left: usize,
     pub tx_value: U256,
 }
 
@@ -90,6 +91,7 @@ impl WitnessExecHelper {
             read_only: 0,
             bytecode: HashMap::new(),
             stack_top: None,
+            log_left: 0,
             tx_value: 0.into(),
         }
     }
@@ -136,6 +138,7 @@ impl WitnessExecHelper {
             self.call_data.insert(call_id, tx.input.to_vec());
         }
         self.value.insert(call_id, tx.value);
+        self.tx_value = tx.value;
         self.tx_value = tx.value;
         self.sender.insert(call_id, tx.from.as_bytes().into());
         self.code_addr = to;
@@ -926,7 +929,7 @@ impl WitnessExecHelper {
     }
 
     // core_row_1.vers_26 ~ vers31
-    pub fn get_public_log_row(&self, opcode_id: OpcodeId) -> public::Row {
+    pub fn get_public_log_bytes_row(&self, opcode_id: OpcodeId) -> public::Row {
         let log_tag = match opcode_id {
             OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
             OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
@@ -947,6 +950,32 @@ impl WitnessExecHelper {
             value_1: Some(U256::from(log_tag as u64)),
             value_2: Some(U256::from(value_hi)),
             value_3: Some(U256::from(value_lo)),
+            comments: Default::default(),
+        };
+        public_row
+    }
+
+    pub fn get_public_log_topic_row(&self, opcode_id: OpcodeId) -> public::Row {
+        let log_tag = match opcode_id {
+            OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
+            OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
+            OpcodeId::LOG2 => public::LogTag::AddrWith2Topic,
+            OpcodeId::LOG3 => public::LogTag::AddrWith3Topic,
+            OpcodeId::LOG4 => public::LogTag::AddrWith4Topic,
+            _ => panic!(),
+        };
+
+        // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog value_h
+        let log_addr_hi = self.code_addr >> 128; // get address[..4]
+        let log_addr_lo = self.code_addr & U256::from("0xffffffffffffffffffffffffffffffff"); // get address[4..]
+
+        let public_row = public::Row {
+            tag: public::Tag::TxLog,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: Some(U256::from(self.log_stamp)),
+            value_1: Some(U256::from(log_tag as u64)),
+            value_2: Some(U256::from(log_addr_hi)),
+            value_3: Some(U256::from(log_addr_lo)),
             comments: Default::default(),
         };
         public_row
@@ -1000,6 +1029,7 @@ impl core::Row {
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
         #[rustfmt::skip]
+        let vec = [
         let vec = [
             [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7],
             [&mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15],
@@ -1247,6 +1277,48 @@ impl core::Row {
         ];
         self.comments.extend(comments);
     }
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
+    /// +---+-------+-------+-------+----------+
+    pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
+        assert_eq!(self.cnt, 2.into());
+        let cells = vec![
+            (&mut self.vers_26, Some((public_row.tag as u8).into())),
+            (&mut self.vers_27, public_row.tx_idx_or_number_diff),
+            (
+                &mut self.vers_28,
+                Some(public_row.value_0.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_29,
+                Some(public_row.value_1.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_30,
+                Some(public_row.value_2.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_31,
+                Some(public_row.value_3.unwrap_or_default()),
+            ),
+        ];
+        for (cell, value) in cells {
+            assert!(cell.is_none());
+            *cell = value;
+        }
+        let comments = vec![
+            (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
+            (format!("vers_{}", 27), format!("tx_idx_or_number_diff")),
+            (format!("vers_{}", 28), format!("value_0")),
+            (format!("vers_{}", 29), format!("value_1")),
+            (format!("vers_{}", 30), format!("value_2")),
+            (format!("vers_{}", 31), format!("value_3")),
+        ];
+        self.comments.extend(comments);
+    }
 }
 
 impl Witness {
@@ -1403,6 +1475,11 @@ impl Witness {
             &mut current_state,
             &execution_gadgets_map,
         );
+        witness.state.sort_by(|a, b| {
+            let key_a = state_to_be_limbs(a);
+            let key_b = state_to_be_limbs(b);
+            key_a.cmp(&key_b)
+        });
         witness.state.sort_by(|a, b| {
             let key_a = state_to_be_limbs(a);
             let key_b = state_to_be_limbs(b);
