@@ -465,9 +465,20 @@ impl WitnessExecHelper {
             }
         }
         if code_copy_length > 0 {
+            let mut pre_acc = U256::from(0);
+            let temp_256 = U256::from(256);
             for i in 0..code_copy_length {
                 let code = self.bytecode.get(&address).unwrap();
                 let byte = code.get((src_offset + i) as usize).unwrap().value;
+
+                // calc acc
+                let (temp_acc, _) = pre_acc.overflowing_mul(temp_256);
+                let (mut acc, _) = temp_acc.overflowing_add(U256::from(byte));
+                if i == 0 {
+                    acc = byte.into();
+                }
+                pre_acc = acc;
+
                 copy_rows.push(copy::Row {
                     byte: byte.into(),
                     src_type: copy::Tag::Bytecode,
@@ -480,6 +491,7 @@ impl WitnessExecHelper {
                     dst_stamp: codecopy_stamp.into(),
                     cnt: i.into(),
                     len: code_copy_length.into(),
+                    acc: acc,
                 });
                 state_rows.push(self.get_memory_write_row((dst_offset + i) as usize, byte));
             }
@@ -505,6 +517,7 @@ impl WitnessExecHelper {
                     dst_stamp: codecopy_padding_stamp.into(),
                     cnt: i.into(),
                     len: U256::from(padding_length),
+                    acc: 0.into(),
                 })
             }
         }
@@ -530,10 +543,21 @@ impl WitnessExecHelper {
         let copy_stamp = self.state_stamp;
         let dst_copy_stamp = self.state_stamp + len as u64;
 
+        let mut pre_acc = U256::from(0);
+        let temp_256 = U256::from(256);
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
             let data = self.return_data.get(&self.call_id).unwrap();
             let byte = data.get(src + i).cloned().unwrap();
+
+            // calc acc
+            let (temp_acc, _) = pre_acc.overflowing_mul(temp_256);
+            let (mut acc, _) = temp_acc.overflowing_add(U256::from(byte));
+            if i == 0 {
+                acc = byte.into();
+            }
+            pre_acc = acc;
+
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Returndata,
@@ -546,6 +570,7 @@ impl WitnessExecHelper {
                 dst_stamp: dst_copy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
+                acc: acc,
             });
 
             state_rows.push(self.get_return_data_read_row(src + i, self.call_id).0);
@@ -589,8 +614,21 @@ impl WitnessExecHelper {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
+
+        let mut pre_acc = U256::from(0);
+        let temp_256 = U256::from(256);
+
         for i in 0..len {
             let (state_row, byte) = self.get_calldata_read_row(src + i);
+
+            // calc acc
+            let (temp_acc, _) = pre_acc.overflowing_mul(temp_256);
+            let (mut acc, _) = temp_acc.overflowing_add(U256::from(byte));
+            if i == 0 {
+                acc = byte.into();
+            }
+            pre_acc = acc;
+
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Calldata,
@@ -603,6 +641,7 @@ impl WitnessExecHelper {
                 dst_stamp: (copy_stamp + len as u64).into(),
                 cnt: i.into(),
                 len: len.into(),
+                acc: acc,
             });
             state_rows.push(state_row);
         }
@@ -664,7 +703,19 @@ impl WitnessExecHelper {
         let calldata = &self.call_data[&self.call_id];
         let len = calldata.len();
         let stamp_start = self.state_stamp;
+
+        let mut pre_acc = U256::from(0);
+        let temp_256 = U256::from(256);
+
         for (i, &byte) in calldata.iter().enumerate() {
+            // calc acc
+            let (temp_acc, _) = pre_acc.overflowing_mul(temp_256);
+            let (mut acc, _) = temp_acc.overflowing_add(U256::from(byte));
+            if i == 0 {
+                acc = byte.into();
+            }
+            pre_acc = acc;
+
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::PublicCalldata,
@@ -677,6 +728,7 @@ impl WitnessExecHelper {
                 dst_stamp: stamp_start.into(),
                 cnt: i.into(),
                 len: len.into(),
+                acc: acc,
             });
             state_rows.push(state::Row {
                 tag: Some(state::Tag::CallData),
@@ -724,8 +776,21 @@ impl WitnessExecHelper {
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
         let dst_copy_stamp = self.state_stamp + len as u64;
+
+        let mut pre_acc = U256::from(0);
+        let temp_256 = U256::from(256);
+
         for i in 0..len {
             let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+
+            // calc acc
+            let (temp_acc, _) = pre_acc.overflowing_mul(temp_256);
+            let (mut acc, _) = temp_acc.overflowing_add(U256::from(byte));
+            if i == 0 {
+                acc = byte.into();
+            }
+            pre_acc = acc;
+
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Memory,
@@ -738,6 +803,7 @@ impl WitnessExecHelper {
                 dst_stamp: dst_copy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
+                acc: acc,
             });
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }
@@ -801,6 +867,7 @@ macro_rules! assign_or_panic {
         }
     };
 }
+use crate::copy_circuit::CopyCircuit;
 pub(crate) use assign_or_panic;
 
 impl core::Row {
@@ -1145,6 +1212,8 @@ impl Witness {
             .for_each(|_| self.bytecode.insert(0, Default::default()));
         (0..StateCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| self.state.insert(0, Default::default()));
+        (0..CopyCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| self.copy.insert(0, Default::default()));
     }
 
     /// Generate end padding of a witness of one block

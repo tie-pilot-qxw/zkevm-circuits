@@ -148,6 +148,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     dst_stamp: current_state.state_stamp.into(),
                     cnt: 0.into(), //not used
                     len: calldata_size.into(),
+                    acc: 0.into(),
                 },
                 None,
             );

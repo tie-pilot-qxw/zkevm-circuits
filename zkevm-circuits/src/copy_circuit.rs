@@ -5,7 +5,7 @@ use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::copy::{Row, Tag};
 use crate::witness::{public, state, Witness};
-use eth_types::{Field, U256};
+use eth_types::Field;
 
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use halo2_proofs::circuit::{Layouter, Region, Value};
@@ -38,6 +38,8 @@ pub struct CopyCircuitConfig<F: Field> {
     pub cnt: Column<Advice>,
     /// The length for one copy operation
     pub len: Column<Advice>,
+    /// The acc for one copy operation
+    pub acc: Column<Advice>,
     /// IsZero chip for column len
     pub len_is_zero: IsZeroWithRotationConfig<F>,
     /// IsZero chip for column cnt
@@ -83,6 +85,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
         let dst_stamp = meta.advice_column();
         let cnt = meta.advice_column();
         let len = meta.advice_column();
+        let acc = meta.advice_column();
 
         let len_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), len);
@@ -122,6 +125,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             len_is_zero,
             cnt_is_zero,
             len_sub_cnt_one_is_zero,
+            acc,
         };
 
         meta.create_gate("COPY", |meta| {
@@ -136,6 +140,9 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             let dst_stamp = meta.query_advice(config.dst_stamp, Rotation::cur());
             let len = meta.query_advice(config.len, Rotation::cur());
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let byte = meta.query_advice(config.byte, Rotation::cur());
+            let acc = meta.query_advice(config.acc, Rotation::cur());
+            let prev_acc = meta.query_advice(config.acc, Rotation::prev());
 
             let next_src_tag = config.src_tag.value(Rotation::next())(meta);
             let next_src_id = meta.query_advice(config.src_id, Rotation::next());
@@ -149,18 +156,18 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             let next_len = meta.query_advice(config.len, Rotation::next());
 
             let len_is_zero = config.len_is_zero.expr_at(meta, Rotation::cur());
-            let next_cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::next());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
             let len_sub_cnt_one_is_zero = config.len_sub_cnt_one_is_zero.expr();
 
             // len==0 --> next_cnt==0
             // len-cnt-1==0 --> next_cnt==0
             let mut constraints = vec![
                 (
-                    "len_is_zero, next_cnt_is_zero",
+                    "len_is_zero => next_cnt_is_zero",
                     q_enable.clone() * len_is_zero.clone() * next_cnt.clone(),
                 ),
                 (
-                    "len_sub_cnt_one_is_zero, next_cnt_is_zero",
+                    "len_sub_cnt_one_is_zero => next_cnt=0",
                     q_enable.clone() * len_sub_cnt_one_is_zero.clone() * next_cnt.clone(),
                 ),
             ];
@@ -232,15 +239,15 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             )]);
             constraints.extend(vec![(
                 "len=0 => src_id=0",
-                q_enable.clone() * len_is_zero.clone() * src_id,
+                q_enable.clone() * len_is_zero.clone() * src_id.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => src_pointer=0",
-                q_enable.clone() * len_is_zero.clone() * src_pointer,
+                q_enable.clone() * len_is_zero.clone() * src_pointer.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => src_stamp=0",
-                q_enable.clone() * len_is_zero.clone() * src_stamp,
+                q_enable.clone() * len_is_zero.clone() * src_stamp.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_tag=0",
@@ -248,19 +255,101 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_id=0",
-                q_enable.clone() * len_is_zero.clone() * dst_id,
+                q_enable.clone() * len_is_zero.clone() * dst_id.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_pointer=0",
-                q_enable.clone() * len_is_zero.clone() * dst_pointer,
+                q_enable.clone() * len_is_zero.clone() * dst_pointer.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => dst_stamp=0",
-                q_enable.clone() * len_is_zero.clone() * dst_stamp,
+                q_enable.clone() * len_is_zero.clone() * dst_stamp.clone(),
             )]);
             constraints.extend(vec![(
                 "len=0 => cnt=0",
-                q_enable.clone() * len_is_zero.clone() * cnt,
+                q_enable.clone() * len_is_zero.clone() * cnt.clone(),
+            )]);
+
+            // src_type=ZERO ---> src_id、src_pointer、src_stamp is 0
+            let src_tag_is_zero = config.src_tag.value_equals(Tag::Zero, Rotation::cur())(meta);
+            constraints.extend(vec![
+                (
+                    "src_type=ZERO => src_id=0",
+                    q_enable.clone() * src_tag_is_zero.clone() * src_id.clone(),
+                ),
+                (
+                    "src_type=ZERO => src_pointer=0",
+                    q_enable.clone() * src_tag_is_zero.clone() * src_pointer.clone(),
+                ),
+                (
+                    "src_type=ZERO => src_stamp=0",
+                    q_enable.clone() * src_tag_is_zero.clone() * src_stamp.clone(),
+                ),
+            ]);
+
+            // dst_type=ZERO ---> dst_id、dst_pointer、dst_stamp is 0
+            let dst_tag_is_zero = config.dst_tag.value_equals(Tag::Zero, Rotation::cur())(meta);
+            constraints.extend(vec![
+                (
+                    "dst_type=ZERO => dst_id=0",
+                    q_enable.clone() * dst_tag_is_zero.clone() * dst_id.clone(),
+                ),
+                (
+                    "dst_type=ZERO => dst_pointer=0",
+                    q_enable.clone() * dst_tag_is_zero.clone() * dst_pointer.clone(),
+                ),
+                (
+                    "dst_type=ZERO => dst_stamp=0",
+                    q_enable.clone() * dst_tag_is_zero.clone() * dst_stamp.clone(),
+                ),
+            ]);
+
+            // src_type=Null ---> src_id、src_pointer、src_stamp is 0
+            let src_tag_is_null = config.src_tag.value_equals(Tag::Null, Rotation::cur())(meta);
+            constraints.extend(vec![
+                (
+                    "src_type=Null => src_id=0",
+                    q_enable.clone() * src_tag_is_null.clone() * src_id.clone(),
+                ),
+                (
+                    "src_type=Null => src_pointer=0",
+                    q_enable.clone() * src_tag_is_null.clone() * src_pointer.clone(),
+                ),
+                (
+                    "src_type=Null => src_stamp=0",
+                    q_enable.clone() * src_tag_is_null.clone() * src_stamp.clone(),
+                ),
+            ]);
+
+            // dst_type=Null ---> dst_id、dst_pointer、dst_stamp is 0
+            let dst_tag_is_null = config.dst_tag.value_equals(Tag::Null, Rotation::cur())(meta);
+            constraints.extend(vec![
+                (
+                    "dst_type=Null => dst_id=0",
+                    q_enable.clone() * dst_tag_is_null.clone() * dst_id.clone(),
+                ),
+                (
+                    "dst_type=Null => dst_pointer=0",
+                    q_enable.clone() * dst_tag_is_null.clone() * dst_pointer.clone(),
+                ),
+                (
+                    "dst_type=Null => dst_stamp=0",
+                    q_enable.clone() * dst_tag_is_null.clone() * dst_stamp.clone(),
+                ),
+            ]);
+
+            // cnt=0 ---> acc=byte
+            constraints.extend(vec![(
+                "cnt=0 => acc=byte",
+                q_enable.clone() * cnt_is_zero.clone() * (acc.clone() - byte.clone()),
+            )]);
+
+            // cnt!=0 ---> acc=byte+acc_prev*(2^8)
+            constraints.extend(vec![(
+                "cnt!=0 => acc=acc_pre*256+acc",
+                q_enable.clone()
+                    * (1.expr() - cnt_is_zero)
+                    * (acc - (byte + prev_acc * 256.expr())),
             )]);
 
             constraints
@@ -351,6 +440,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
         assign_advice_or_fixed(region, offset, &row.len, self.len)?;
+        assign_advice_or_fixed(region, offset, &row.acc, self.acc)?;
 
         len_is_zero.assign(
             region,
@@ -385,11 +475,16 @@ impl<F: Field> CopyCircuitConfig<F> {
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
+        // assign the first row
+        self.assign_row(region, 0, &Default::default())?;
+
+        // assign the rest rows
         for (offset, row) in witness.copy.iter().enumerate() {
-            self.assign_row(region, offset, row)?;
+            self.assign_row(region, offset + 1, row)?;
         }
+
         // pad the rest rows
-        for offset in witness.copy.len()..num_row_incl_padding {
+        for offset in witness.copy.len() + 1..num_row_incl_padding {
             self.assign_row(region, offset, &Default::default())?;
         }
         Ok(())
@@ -405,6 +500,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         region.name_column(|| "COPY_dst_stamp", self.dst_stamp);
         region.name_column(|| "COPY_cnt", self.cnt);
         region.name_column(|| "COPY_len", self.len);
+        region.name_column(|| "COPY_acc", self.acc);
         self.src_tag
             .annotate_columns_in_region(region, "COPY_src_tag");
         self.dst_tag
@@ -618,7 +714,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
     }
 
     fn unusable_rows() -> (usize, usize) {
-        (0, 1)
+        (1, 1)
     }
 
     fn num_rows(witness: &Witness) -> usize {
