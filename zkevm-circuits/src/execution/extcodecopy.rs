@@ -217,7 +217,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
         let (copy_rows, mem_rows, input_length, padding_length, code_copy_length) =
-            current_state.get_code_copy_rows(address, mem_offset, code_offset, size);
+            current_state.get_code_copy_rows::<F>(address, mem_offset, code_offset, size);
 
         let mut copy_row = &Default::default();
         if code_copy_length > 0 {

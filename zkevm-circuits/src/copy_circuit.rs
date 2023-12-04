@@ -142,7 +142,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
             let byte = meta.query_advice(config.byte, Rotation::cur());
             let acc = meta.query_advice(config.acc, Rotation::cur());
-            let prev_acc = meta.query_advice(config.acc, Rotation::prev());
+            let acc_prev = meta.query_advice(config.acc, Rotation::prev());
 
             let next_src_tag = config.src_tag.value(Rotation::next())(meta);
             let next_src_id = meta.query_advice(config.src_id, Rotation::next());
@@ -274,6 +274,10 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             let src_tag_is_zero = config.src_tag.value_equals(Tag::Zero, Rotation::cur())(meta);
             constraints.extend(vec![
                 (
+                    "src_type=ZERO => byte=0",
+                    q_enable.clone() * src_tag_is_zero.clone() * byte.clone(),
+                ),
+                (
                     "src_type=ZERO => src_id=0",
                     q_enable.clone() * src_tag_is_zero.clone() * src_id.clone(),
                 ),
@@ -290,6 +294,10 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             // dst_type=ZERO ---> dst_id、dst_pointer、dst_stamp is 0
             let dst_tag_is_zero = config.dst_tag.value_equals(Tag::Zero, Rotation::cur())(meta);
             constraints.extend(vec![
+                (
+                    "dst_type=ZERO => byte=0",
+                    q_enable.clone() * dst_tag_is_zero.clone() * byte.clone(),
+                ),
                 (
                     "dst_type=ZERO => dst_id=0",
                     q_enable.clone() * dst_tag_is_zero.clone() * dst_id.clone(),
@@ -349,7 +357,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
                 "cnt!=0 => acc=acc_pre*256+acc",
                 q_enable.clone()
                     * (1.expr() - cnt_is_zero)
-                    * (acc - (byte + prev_acc * 256.expr())),
+                    * (acc - (byte + acc_prev * 256.expr())),
             )]);
 
             constraints
@@ -475,16 +483,13 @@ impl<F: Field> CopyCircuitConfig<F> {
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
-        // assign the first row
-        self.assign_row(region, 0, &Default::default())?;
-
         // assign the rest rows
         for (offset, row) in witness.copy.iter().enumerate() {
-            self.assign_row(region, offset + 1, row)?;
+            self.assign_row(region, offset, row)?;
         }
 
         // pad the rest rows
-        for offset in witness.copy.len() + 1..num_row_incl_padding {
+        for offset in witness.copy.len()..num_row_incl_padding {
             self.assign_row(region, offset, &Default::default())?;
         }
         Ok(())

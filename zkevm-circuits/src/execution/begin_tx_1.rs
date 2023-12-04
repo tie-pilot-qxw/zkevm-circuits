@@ -126,7 +126,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state::CallContextTag::ParentCodeContractAddr,
         );
         let (copy_rows, state_rows_from_copy) = if calldata_size > 0 {
-            current_state.get_load_calldata_copy_rows()
+            current_state.get_load_calldata_copy_rows::<F>()
         } else {
             (vec![], vec![])
         };
