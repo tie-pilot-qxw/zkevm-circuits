@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn test_from_test_data() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
+        let trace = trace_parser::trace_program(&machine_code, &[]);
         let witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,
@@ -259,7 +259,7 @@ mod tests {
     #[cfg(feature = "plot")]
     fn test_draw() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
+        let trace = trace_parser::trace_program(&machine_code, &[]);
         let witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
 
         let (k, circuit, prover) = test_super_circuit(witness);
@@ -306,7 +306,7 @@ mod tests {
             vec!["#"; 20].join("")
         );
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
+        let trace = trace_parser::trace_program(&machine_code, &[]);
         let witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,

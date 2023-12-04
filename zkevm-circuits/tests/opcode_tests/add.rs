@@ -2,7 +2,7 @@ use crate::test_super_circuit_short_bytecode;
 use eth_types::{bytecode, U256};
 
 #[test]
-fn test_from_test_data() {
+fn add_bytecode() {
     let a = U256::from_str_radix(
         "0xff03210321032103210303210321032103210321032103210321032103210321",
         16,

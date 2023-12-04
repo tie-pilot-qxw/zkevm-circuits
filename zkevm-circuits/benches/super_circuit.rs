@@ -24,7 +24,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.sample_size(10);
 
     let machine_code = trace_parser::assemble_file("test_data/1.txt");
-    let trace = trace_parser::trace_program(&machine_code);
+    let trace = trace_parser::trace_program(&machine_code, &[]);
     let witness = Witness::new(&geth_data_test(
         trace,
         &machine_code,
