@@ -42,6 +42,8 @@ pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
+pub mod log_bytes;
+
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
@@ -103,6 +105,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::selfbalance::new(),
             crate::execution::returndatacopy::new(),
             crate::execution::returndatasize::new(),
+            crate::execution::log_bytes::new(),
         ]
     }};
 }
@@ -298,6 +301,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_hi,
             pointer_lo,
             is_write,
+        }
+    }
+
+    pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        const COL_START: usize = 26;
+        let (tag, tx_idx_or_number_diff, value0, value1, value2, value3) = (
+            meta.query_advice(self.vers[COL_START + 0], Rotation::prev()),
+            meta.query_advice(self.vers[COL_START + 1], Rotation::prev()),
+            meta.query_advice(self.vers[COL_START + 2], Rotation::prev()),
+            meta.query_advice(self.vers[COL_START + 3], Rotation::prev()),
+            meta.query_advice(self.vers[COL_START + 4], Rotation::prev()),
+            meta.query_advice(self.vers[COL_START + 5], Rotation::prev()),
+        );
+
+        let values = [value0, value1, value2, value3];
+
+        LookupEntry::Public {
+            tag,
+            tx_idx_or_number_diff,
+            values,
         }
     }
 
