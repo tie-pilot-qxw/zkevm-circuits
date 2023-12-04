@@ -124,8 +124,17 @@ struct JsonResultOpString {
     stack: Vec<String>,
 }
 
-pub fn trace_program(bytecode: &[u8]) -> GethExecTrace {
-    let cmd_string = format!("./evm --code {} --json run", hex::encode(bytecode)).to_string();
+pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
+    let cmd_string = if calldata.is_empty() {
+        format!("./evm --code {} --json run", hex::encode(bytecode)).to_string()
+    } else {
+        format!(
+            "./evm --code {} --input {} --json run",
+            hex::encode(bytecode),
+            hex::encode(calldata)
+        )
+        .to_string()
+    };
     let res = Command::new("sh")
         .arg("-c")
         .arg(cmd_string)
@@ -180,7 +189,7 @@ mod tests {
     #[ignore]
     fn trace_and_parse() {
         let bytecode = assemble_file("debug/1.txt");
-        let trace = trace_program(&bytecode);
+        let trace = trace_program(&bytecode, &[]);
         assert_eq!(4, trace.struct_logs.len());
     }
 }
