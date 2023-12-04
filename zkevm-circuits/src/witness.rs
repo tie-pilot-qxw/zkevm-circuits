@@ -65,6 +65,7 @@ pub struct WitnessExecHelper {
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
+    pub log_left: usize,
     pub tx_value: U256,
 }
 
@@ -90,6 +91,7 @@ impl WitnessExecHelper {
             read_only: 0,
             bytecode: HashMap::new(),
             stack_top: None,
+            log_left: 0,
             tx_value: 0.into(),
         }
     }
@@ -549,7 +551,7 @@ impl WitnessExecHelper {
         len: usize,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         //TODO: src_id need use last_call_id (return_data_write maybe use last_call_id )
-        let mut copy_rows: Vec<copy::Row> = vec![];
+        let mut copy_rows = vec![];
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
         let dst_copy_stamp = self.state_stamp + len as u64;
@@ -1078,6 +1080,32 @@ impl WitnessExecHelper {
         };
         public_row
     }
+
+    pub fn get_public_log_topic_row(&self, opcode_id: OpcodeId) -> public::Row {
+        let log_tag = match opcode_id {
+            OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
+            OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
+            OpcodeId::LOG2 => public::LogTag::AddrWith2Topic,
+            OpcodeId::LOG3 => public::LogTag::AddrWith3Topic,
+            OpcodeId::LOG4 => public::LogTag::AddrWith4Topic,
+            _ => panic!(),
+        };
+
+        // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog value_h
+        let log_addr_hi = self.code_addr >> 128; // get address[..4]
+        let log_addr_lo = self.code_addr & U256::from("0xffffffffffffffffffffffffffffffff"); // get address[4..]
+
+        let public_row = public::Row {
+            tag: public::Tag::TxLog,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: Some(U256::from(self.log_stamp)),
+            value_1: Some(U256::from(log_tag as u64)),
+            value_2: Some(U256::from(log_addr_hi)),
+            value_3: Some(U256::from(log_addr_lo)),
+            comments: Default::default(),
+        };
+        public_row
+    }
 }
 
 macro_rules! assign_or_panic {
@@ -1251,6 +1279,129 @@ impl core::Row {
         };
     }
 
+    pub fn insert_copy_lookup(&mut self, copy: &copy::Row, padding_copy: Option<&copy::Row>) {
+        //
+        assert_eq!(self.cnt, 2.into());
+        let mut cells = vec![
+            // code copy
+            (&mut self.vers_0, Some((copy.src_type as u8).into())),
+            (&mut self.vers_1, Some(copy.src_id)),
+            (&mut self.vers_2, Some(copy.src_pointer)),
+            (&mut self.vers_3, Some(copy.src_stamp)),
+            (&mut self.vers_4, Some((copy.dst_type as u8).into())),
+            (&mut self.vers_5, Some(copy.dst_id)),
+            (&mut self.vers_6, Some(copy.dst_pointer)),
+            (&mut self.vers_7, Some(copy.dst_stamp)),
+            (&mut self.vers_8, Some(copy.len)),
+        ];
+        let mut comments = vec![
+            // copy comment
+            (
+                format!("vers_{}", 0),
+                format!("src_type={:?}", copy.src_type),
+            ),
+            (format!("vers_{}", 1), format!("src_id")),
+            (format!("vers_{}", 2), format!("src_pointer")),
+            (format!("vers_{}", 3), format!("src_stamp")),
+            (
+                format!("vers_{}", 4),
+                format!("dst_type={:?}", copy.dst_type),
+            ),
+            (format!("vers_{}", 5), format!("dst_id")),
+            (format!("vers_{}", 6), format!("dst_pointer")),
+            (format!("vers_{}", 7), format!("dst_stamp")),
+            (format!("vers_{}", 8), format!("len")),
+        ];
+        match padding_copy {
+            Some(padding_copy_new) => {
+                cells.extend([
+                    // padding copy
+                    (
+                        &mut self.vers_9,
+                        Some((padding_copy_new.src_type as u8).into()),
+                    ),
+                    (&mut self.vers_10, Some(padding_copy_new.src_id)),
+                    (&mut self.vers_11, Some(padding_copy_new.src_pointer)),
+                    (&mut self.vers_12, Some(padding_copy_new.src_stamp)),
+                    (
+                        &mut self.vers_13,
+                        Some((padding_copy_new.dst_type as u8).into()),
+                    ),
+                    (&mut self.vers_14, Some(padding_copy_new.dst_id)),
+                    (&mut self.vers_15, Some(padding_copy_new.dst_pointer)),
+                    (&mut self.vers_16, Some(padding_copy_new.dst_stamp)),
+                    (&mut self.vers_17, Some(padding_copy_new.len)),
+                ]);
+                comments.extend([
+                    // padding copy comment
+                    (
+                        format!("vers_{}", 9),
+                        format!("padding_src_type={:?}", padding_copy_new.src_type),
+                    ),
+                    (format!("vers_{}", 10), format!("padding_src_id")),
+                    (format!("vers_{}", 11), format!("padding_src_pointer")),
+                    (format!("vers_{}", 12), format!("padding_src_stamp")),
+                    (
+                        format!("vers_{}", 13),
+                        format!("padding_dst_type={:?}", padding_copy_new.dst_type),
+                    ),
+                    (format!("vers_{}", 14), format!("padding_dst_id")),
+                    (format!("vers_{}", 15), format!("padding_dst_pointer")),
+                    (format!("vers_{}", 16), format!("padding_dst_stamp")),
+                    (format!("vers_{}", 17), format!("padding_len")),
+                ]);
+            }
+            None => (),
+        }
+        for (cell, value) in cells {
+            // before inserting, these columns must be none
+            assert!(cell.is_none());
+            *cell = value;
+        }
+        self.comments.extend(comments);
+    }
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
+    /// +---+-------+-------+-------+----------+
+    pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
+        assert_eq!(self.cnt, 2.into());
+        let cells = vec![
+            (&mut self.vers_26, Some((public_row.tag as u8).into())),
+            (&mut self.vers_27, public_row.tx_idx_or_number_diff),
+            (
+                &mut self.vers_28,
+                Some(public_row.value_0.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_29,
+                Some(public_row.value_1.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_30,
+                Some(public_row.value_2.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_31,
+                Some(public_row.value_3.unwrap_or_default()),
+            ),
+        ];
+        for (cell, value) in cells {
+            assert!(cell.is_none());
+            *cell = value;
+        }
+        let comments = vec![
+            (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
+            (format!("vers_{}", 27), format!("tx_idx_or_number_diff")),
+            (format!("vers_{}", 28), format!("value_0")),
+            (format!("vers_{}", 29), format!("value_1")),
+            (format!("vers_{}", 30), format!("value_2")),
+            (format!("vers_{}", 31), format!("value_3")),
+        ];
+        self.comments.extend(comments);
+    }
     // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
     /// +---+-------+-------+-------+------+-----------+
     /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
