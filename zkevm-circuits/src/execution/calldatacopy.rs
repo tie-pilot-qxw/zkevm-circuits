@@ -156,7 +156,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_2, length) = current_state.get_pop_stack_row_value(&trace);
 
         // get copydata and state from calldata
-        let (copy_rows, mut state_rows) = current_state.get_calldata_copy_rows(
+        let (copy_rows, mut state_rows) = current_state.get_calldata_copy_rows::<F>(
             dst_offset.as_usize(),
             calldata_offset.as_usize(),
             length.as_usize(),
@@ -178,6 +178,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     dst_stamp: 0.into(),
                     cnt: 0.into(),
                     len: 0.into(),
+                    acc: 0.into(),
                 },
                 None,
             );

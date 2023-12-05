@@ -161,7 +161,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
         // generate copy rows and state rows(type: memory)
-        let (copy_rows, copy_state_rows) = current_state.get_return_data_copy_rows(
+        let (copy_rows, copy_state_rows) = current_state.get_return_data_copy_rows::<F>(
             dst_offset.as_usize(),
             offset.as_usize(),
             length.as_usize(),
@@ -181,6 +181,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     dst_stamp: 0.into(),
                     cnt: 0.into(),
                     len: 0.into(),
+                    acc: 0.into(),
                 },
                 None,
             );

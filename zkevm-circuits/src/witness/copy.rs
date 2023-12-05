@@ -25,6 +25,8 @@ pub struct Row {
     pub cnt: U256,
     /// The length for one copy operation
     pub len: U256,
+    /// The accumulation value of bytes for one copy operation
+    pub acc: U256,
 }
 
 /// Source and destination type.
@@ -47,6 +49,10 @@ pub enum Tag {
     PublicCalldata,
     /// Bytecode in bytecode sub-circuit
     Bytecode,
+    /// Null for any value in read only/write only copy, under which id, pointer, and stamp are default value.
+    /// If read only copy, dst type is Null. If write only copy, src type is Null. This is usually used
+    /// in load-32-byte opcodes such as MLOAD, MWRITE, or CALLDATALOAD.
+    Null,
 }
 
 impl From<Tag> for usize {

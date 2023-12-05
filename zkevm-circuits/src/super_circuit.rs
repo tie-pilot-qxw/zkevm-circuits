@@ -4,7 +4,7 @@ use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs}
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-use crate::table::{BytecodeTable, FixedTable, PublicTable, StateTable};
+use crate::table::{BytecodeTable, PublicTable, StateTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
