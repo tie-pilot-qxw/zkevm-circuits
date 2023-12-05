@@ -32,20 +32,20 @@ enum BitOp {
 /// PublicContextGadget
 /// STATE0 record value
 /// TAGSELECTOR 6 columns
-/// TAG 1 column, means public tag
-/// TX_IDX_0 1 column,default 0, means public table tx_idx
-/// VALUE_HI 1 column , means public table value0
-/// VALUE_LOW 1 column, means public table value1
-/// VALUE_2 1 column , means public table value2 , here default 0
-/// VALUE_3 1 column ,means public table value3 , here default 0
-/// IS_ORIGIN 1 column
-/// INV OF HI 1 column
-/// IS_GASPRICE 1 column
-/// INV OF LO 1 column
+/// TAG 1 column, means public tag (column 24)
+/// TX_IDX_0 1 column,default 0, means public table tx_idx (column 25)
+/// VALUE_HI 1 column , means public table value0 (column 26)
+/// VALUE_LOW 1 column, means public table value1 (column 27)
+/// VALUE_2 1 column , means public table value2 , here default 0 (column 28)
+/// VALUE_3 1 column ,means public table value3 , here default 0 (column 29)
+/// IS_ORIGIN 1 column (column 0)
+/// INV OF HI 1 column (cllumn 1)
+/// IS_GASPRICE 1 column (column 2)
+/// INV OF LO 1 column (cloumn 3)
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | not used |
 /// +---+-------+-------+-------+----------+
-/// |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 | IS_ORIGIN | INV OF HI| IS_GASPRICE | INV OF LO |
+/// | 2 | IS_ORIGIN | INV OF HI| IS_GASPRICE | INV OF LO | 4 col (unused) | 8 col (unused) | 8 col (unused) |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
 /// | 1 | STATE0| TAGSELECTOR |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -100,7 +100,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // value_hi,value_lo constraints
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
-        let public_entry = config.get_public_context_lookup(meta);
+        let public_entry = config.get_public_lookup(meta);
         let (public_tag, tx_idx_or_number_diff, values) =
             extract_lookup_expression!(public, public_entry);
         // value[2] =0 values[3] = 0
@@ -127,8 +127,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         )]);
         let value_hi = values[0].clone();
         let value_lo = values[1].clone();
-        let value_hi_inv = meta.query_advice(config.vers[7], Rotation(-2));
-        let value_lo_inv = meta.query_advice(config.vers[9], Rotation(-2));
+        let value_hi_inv = meta.query_advice(config.vers[1], Rotation(-2));
+        let value_lo_inv = meta.query_advice(config.vers[3], Rotation(-2));
         // value_hi constraints
         let is_value_hi_zero =
             SimpleIsZero::new(&value_hi, &value_hi_inv, String::from("value_hi"));
@@ -142,8 +142,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("state_value_lo".into(), state_value_lo - value_lo),
         ]);
         // txid * (is_origin + is_gasprice) = 0
-        let is_origin = meta.query_advice(config.vers[6], Rotation(-2));
-        let is_gasprice = meta.query_advice(config.vers[8], Rotation(-2));
+        let is_origin = meta.query_advice(config.vers[0], Rotation(-2));
+        let is_gasprice = meta.query_advice(config.vers[2], Rotation(-2));
         constraints.extend([(
             "tx_id_o *(is_origin + is_gasprice)".into(),
             tx_idx_or_number_diff * (is_origin + is_gasprice),
@@ -175,8 +175,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
 
-        let public_context_lookup =
-            query_expression(meta, |meta| config.get_public_context_lookup(meta));
+        let public_context_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
             ("public context value lookup".into(), public_context_lookup),
@@ -223,13 +222,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         });
         // is_origin
-        assign_or_panic!(core_row_2.vers_6, 0.into());
+        assign_or_panic!(core_row_2.vers_0, 0.into());
         // inv of ih
-        assign_or_panic!(core_row_2.vers_7, value_hi_inv);
+        assign_or_panic!(core_row_2.vers_1, value_hi_inv);
         // is_gasprice
-        assign_or_panic!(core_row_2.vers_8, 0.into());
+        assign_or_panic!(core_row_2.vers_2, 0.into());
         //inv of lo
-        assign_or_panic!(core_row_2.vers_9, value_lo_inv);
+        assign_or_panic!(core_row_2.vers_3, value_lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
@@ -266,8 +265,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use std::fs::File;
-
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -305,9 +302,6 @@ mod test {
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
-        let mut buf =
-            std::io::BufWriter::new(File::create(format!("test_data/{:?}.html", op_code)).unwrap());
-        witness.write_html(&mut buf);
         prover.assert_satisfied_par();
     }
     #[test]

@@ -304,15 +304,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    // todo rename
-    pub(crate) fn get_public_context_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+----------+
+    /// |cnt| 8 col | 8 col | 8 col | not used |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | 8 col (xx) | 8 col (xx) | 8 col (xx) |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 | 2 col (unused) |
+    /// | 1 | xx| xx |
+    /// | 0 | DYNA_SELECTOR   | AUX            |
+    /// +---+-------+-------+-------+----------+    
+    pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
-            meta.query_advice(self.vers[0], Rotation(-2)),
-            meta.query_advice(self.vers[1], Rotation(-2)),
-            meta.query_advice(self.vers[2], Rotation(-2)),
-            meta.query_advice(self.vers[3], Rotation(-2)),
-            meta.query_advice(self.vers[4], Rotation(-2)),
-            meta.query_advice(self.vers[5], Rotation(-2)),
+            meta.query_advice(self.vers[24], Rotation(-2)),
+            meta.query_advice(self.vers[25], Rotation(-2)),
+            meta.query_advice(self.vers[26], Rotation(-2)),
+            meta.query_advice(self.vers[27], Rotation(-2)),
+            meta.query_advice(self.vers[28], Rotation(-2)),
+            meta.query_advice(self.vers[29], Rotation(-2)),
         );
         LookupEntry::Public {
             tag,

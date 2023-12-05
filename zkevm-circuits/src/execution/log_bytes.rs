@@ -22,15 +22,17 @@ use std::marker::PhantomData;
 // core rows
 /// LogBytes Execution State layout is as follows
 /// where COPY means copy table lookup , 9 cols
+/// PUBLIC means public table lookup 6 cols, origin from col 24
 /// STATE means state table lookup,
+/// LO_INV means length's inv , 1 col, located at col 24
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+---------+---------+
 /// |cnt| 8 col | 8 col |  8 col  |  8col   |
 /// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |                   |
-/// | 1 | STATE | STATE | notUsed | notUsed |
+/// | 2 | Copy(9) |               | PUBLIC(6) |
+/// | 1 | STATE | STATE | notUsed | LO_INV(1 col) |
 /// | 0 | DYNA_SELECTOR | AUX               |
 /// +---+-------+-------+---------+---------+
 ///
@@ -219,16 +221,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             core_row_2.insert_copy_lookup(&copy_rows[0], None);
         }
-
+        // write addrWithXLog to core_row_2.vers_26 ~ vers_31
+        // insert lookUp: Core ----> addrWithXLog
+        let public_row = current_state.get_public_log_row(trace.op);
+        core_row_2.insert_public_lookup(&public_row);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
         // let len_lo = F::from_u128(length.low_u128());
         let len_lo = F::from_u128(length.as_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         // core_row_1.vers_24 = Some(len_lo_inv);
         assign_or_panic!(core_row_1.vers_24, len_lo_inv);
-        // write addrWithXLog to core_row_1.vers_26 ~ vers_31
 
         // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([
@@ -236,10 +239,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &stack_pop_offset,
             &stack_pop_length,
         ]);
-
-        // insert lookUp: Core ----> addrWithXLog
-        let public_row = current_state.get_public_log_row(trace.op);
-        core_row_1.insert_public_lookup(&public_row);
 
         // increase log_stamp
         current_state.log_stamp += 1;
