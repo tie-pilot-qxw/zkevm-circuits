@@ -93,6 +93,16 @@ macro_rules! extract_lookup_expression {
             _ => panic!(""),
         }
     };
+    (public, $value:expr) => {
+        match $value {
+            LookupEntry::Public {
+                tag,
+                tx_idx_or_number_diff,
+                values,
+            } => (tag, tx_idx_or_number_diff, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
 }
 pub(crate) use extract_lookup_expression;
 

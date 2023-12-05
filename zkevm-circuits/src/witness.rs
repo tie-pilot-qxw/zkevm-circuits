@@ -791,6 +791,65 @@ impl WitnessExecHelper {
         self.state_stamp += 1;
         (res, value.clone())
     }
+
+    pub fn get_log_bytes_rows(
+        &mut self,
+        trace: &GethExecStep,
+        offset: usize,
+        len: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let copy_stamp = self.state_stamp;
+        let log_stamp = self.log_stamp;
+
+        for i in 0..len {
+            let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Tag::Memory,
+                src_id: self.call_id.into(),
+                src_pointer: offset.into(),
+                src_stamp: copy_stamp.into(),
+                dst_type: copy::Tag::PublicLog,
+                dst_id: self.tx_idx.into(), // tx_idx
+                dst_pointer: 0.into(),      // PublicLog index
+                dst_stamp: log_stamp.into(),
+                cnt: i.into(),
+                len: len.into(),
+            });
+            state_rows.push(self.get_memory_read_row(trace, offset + i));
+        }
+
+        (copy_rows, state_rows)
+    }
+
+    // core_row_1.vers_26 ~ vers31
+    pub fn get_public_log_row(&self, opcode_id: OpcodeId) -> public::Row {
+        let log_tag = match opcode_id {
+            OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
+            OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
+            OpcodeId::LOG2 => public::LogTag::AddrWith2Topic,
+            OpcodeId::LOG3 => public::LogTag::AddrWith3Topic,
+            OpcodeId::LOG4 => public::LogTag::AddrWith4Topic,
+            _ => panic!(),
+        };
+
+        // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog	0x0	0x0
+        let value_hi = (self.code_addr >> 128).as_u128();
+        let value_lo = self.code_addr.low_u128();
+
+        let public_row = public::Row {
+            tag: public::Tag::TxLog,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: Some(U256::from(self.log_stamp)),
+            value_1: Some(U256::from(log_tag as u64)),
+            value_2: Some(U256::from(value_hi)),
+            value_3: Some(U256::from(value_lo)),
+            comments: Default::default(),
+        };
+        public_row
+    }
 }
 
 macro_rules! assign_or_panic {
@@ -840,7 +899,7 @@ impl core::Row {
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
         #[rustfmt::skip]
-            let vec = [
+        let vec = [
             [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7],
             [&mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15],
             [&mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23],
@@ -1038,6 +1097,35 @@ impl core::Row {
             }
             None => (),
         }
+        for (cell, value) in cells {
+            // before inserting, these columns must be none
+            assert!(cell.is_none());
+            *cell = value;
+        }
+        self.comments.extend(comments);
+    }
+
+    pub fn insert_public_lookup(&mut self, public: &public::Row) {
+        assert_eq!(self.cnt, 1.into());
+        let mut cells = vec![
+            // code copy
+            (&mut self.vers_26, (U256::from(public.tag as u64)).into()),
+            (&mut self.vers_27, public.tx_idx_or_number_diff),
+            (&mut self.vers_28, public.value_0),
+            (&mut self.vers_29, public.value_1),
+            (&mut self.vers_30, public.value_2),
+            (&mut self.vers_31, public.value_3),
+        ];
+
+        let mut comments = vec![
+            // copy comment
+            (format!("vers_{}", 0), format!("tag={:?}", public.tag)),
+            (format!("vers_{}", 1), format!("tx_idx_or_number_diff")),
+            (format!("vers_{}", 2), format!("value_0")),
+            (format!("vers_{}", 3), format!("value_1")),
+            (format!("vers_{}", 5), format!("value_2")),
+            (format!("vers_{}", 6), format!("value_3")),
+        ];
         for (cell, value) in cells {
             // before inserting, these columns must be none
             assert!(cell.is_none());
