@@ -21,6 +21,7 @@ pub mod jump;
 pub mod jumpdest;
 pub mod jumpi;
 pub mod keccak;
+pub mod log_bytes;
 pub mod lt;
 pub mod memory;
 pub mod mul;
@@ -41,8 +42,6 @@ pub mod storage;
 pub mod sub;
 pub mod swap;
 pub mod tx_context;
-
-pub mod log_bytes;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
 use crate::witness::WitnessExecHelper;

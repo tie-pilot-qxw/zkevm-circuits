@@ -821,11 +821,6 @@ impl WitnessExecHelper {
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }
 
-        // for i in 0..len {
-        //     // let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
-        //     // state_rows.push(self.get_public_log_write_row(i, byte));
-        // }
-
         (copy_rows, state_rows)
     }
 
