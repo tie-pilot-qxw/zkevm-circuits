@@ -118,6 +118,14 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     bytes
 }
 
+pub fn convert_f_to_u256<F: Field>(value: &F) -> U256 {
+    U256::from_little_endian(&value.to_repr())
+}
+
+pub fn convert_u256_to_f<F: Field>(value: &U256) -> F {
+    F::from_uniform_bytes(&convert_u256_to_64_bytes(value))
+}
+
 pub fn uint64_with_overflow(value: &U256) -> bool {
     value.leading_zeros() < 3 * 8 * 8
 }
@@ -210,7 +218,9 @@ impl<F: Field> ExpressionOutcome<F> {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::{convert_u256_to_64_bytes, uint64_with_overflow};
+    use crate::util::{
+        convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f, uint64_with_overflow,
+    };
     use eth_types::U256;
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::halo2curves::ff::FromUniformBytes;
@@ -281,5 +291,26 @@ mod tests {
         ];
         let input_no_overflow = U256::from_little_endian(&x);
         assert_eq!(uint64_with_overflow(&input_no_overflow), false);
+    }
+
+    #[test]
+    fn test_convert_u256_f() {
+        let input_0 = U256::from(0);
+        let field_0 = Fr::zero();
+        assert_eq!(input_0, convert_f_to_u256(&field_0));
+
+        let input_1 = U256::from(1);
+        let field_1 = Fr::one();
+        assert_eq!(input_1, convert_f_to_u256(&field_1));
+
+        //let input_max = U256::MAX;
+
+        let x: [u8; 32] = [
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 47,
+        ];
+        let v = U256::from_little_endian(&x);
+        let field_max = convert_u256_to_f::<Fr>(&v);
+        assert_eq!(v, convert_f_to_u256(&field_max));
     }
 }

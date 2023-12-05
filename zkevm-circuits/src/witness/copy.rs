@@ -25,7 +25,7 @@ pub struct Row {
     pub cnt: U256,
     /// The length for one copy operation
     pub len: U256,
-    /// The accumulation of bytes in one copy
+    /// The accumulation value of bytes for one copy operation
     pub acc: U256,
 }
 

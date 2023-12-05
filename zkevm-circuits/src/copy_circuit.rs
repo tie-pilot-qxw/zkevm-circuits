@@ -38,7 +38,7 @@ pub struct CopyCircuitConfig<F: Field> {
     pub cnt: Column<Advice>,
     /// The length for one copy operation
     pub len: Column<Advice>,
-    /// The acc for one copy operation
+    /// The accumulation value of bytes for one copy operation
     pub acc: Column<Advice>,
     /// IsZero chip for column len
     pub len_is_zero: IsZeroWithRotationConfig<F>,

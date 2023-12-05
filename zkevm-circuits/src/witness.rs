@@ -16,7 +16,8 @@ use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_u256_to_64_bytes, create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
+    convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f,
+    create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
 };
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
@@ -467,7 +468,7 @@ impl WitnessExecHelper {
         }
         if code_copy_length > 0 {
             let mut acc_pre = U256::from(0);
-            let temp_256_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(256)));
+            let temp_256_f = F::from(256);
             for i in 0..code_copy_length {
                 let code = self.bytecode.get(&address).unwrap();
                 let byte = code.get((src_offset + i) as usize).unwrap().value;
@@ -476,11 +477,10 @@ impl WitnessExecHelper {
                 let acc: U256 = if i == 0 {
                     byte.into()
                 } else {
-                    let mut acc_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&acc_pre));
-                    let byte_f =
-                        F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(byte)));
+                    let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                    let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
                     acc_f = byte_f + acc_f * temp_256_f;
-                    U256::from_little_endian(&acc_f.to_repr())
+                    convert_f_to_u256(&acc_f)
                 };
                 acc_pre = acc;
 
@@ -549,7 +549,7 @@ impl WitnessExecHelper {
         let dst_copy_stamp = self.state_stamp + len as u64;
 
         let mut acc_pre = U256::from(0);
-        let temp_256_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(256)));
+        let temp_256_f = F::from(256);
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
             let data = self.return_data.get(&self.call_id).unwrap();
@@ -559,10 +559,10 @@ impl WitnessExecHelper {
             let acc: U256 = if i == 0 {
                 byte.into()
             } else {
-                let mut acc_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&acc_pre));
-                let byte_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(byte)));
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
                 acc_f = byte_f + acc_f * temp_256_f;
-                U256::from_little_endian(&acc_f.to_repr())
+                convert_f_to_u256(&acc_f)
             };
             acc_pre = acc;
 
@@ -624,7 +624,7 @@ impl WitnessExecHelper {
         let copy_stamp = self.state_stamp;
 
         let mut acc_pre = U256::from(0);
-        let temp_256_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(256)));
+        let temp_256_f = F::from(256);
 
         for i in 0..len {
             let (state_row, byte) = self.get_calldata_read_row(src + i);
@@ -633,10 +633,10 @@ impl WitnessExecHelper {
             let acc: U256 = if i == 0 {
                 byte.into()
             } else {
-                let mut acc_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&acc_pre));
-                let byte_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(byte)));
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
                 acc_f = byte_f + acc_f * temp_256_f;
-                U256::from_little_endian(&acc_f.to_repr())
+                convert_f_to_u256(&acc_f)
             };
             acc_pre = acc;
 
@@ -716,17 +716,17 @@ impl WitnessExecHelper {
         let stamp_start = self.state_stamp;
 
         let mut acc_pre = U256::from(0);
-        let temp_256_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(256)));
+        let temp_256_f = F::from(256);
 
         for (i, &byte) in calldata.iter().enumerate() {
             // calc acc
             let acc: U256 = if i == 0 {
                 byte.into()
             } else {
-                let mut acc_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&acc_pre));
-                let byte_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(byte)));
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
                 acc_f = byte_f + acc_f * temp_256_f;
-                U256::from_little_endian(&acc_f.to_repr())
+                convert_f_to_u256(&acc_f)
             };
             acc_pre = acc;
 
@@ -792,7 +792,7 @@ impl WitnessExecHelper {
         let dst_copy_stamp = self.state_stamp + len as u64;
 
         let mut acc_pre = U256::from(0);
-        let temp_256_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(256)));
+        let temp_256_f = F::from(256);
 
         for i in 0..len {
             let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
@@ -801,10 +801,10 @@ impl WitnessExecHelper {
             let acc: U256 = if i == 0 {
                 byte.into()
             } else {
-                let mut acc_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&acc_pre));
-                let byte_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(byte)));
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
                 acc_f = byte_f + acc_f * temp_256_f;
-                U256::from_little_endian(&acc_f.to_repr())
+                convert_f_to_u256(&acc_f)
             };
             acc_pre = acc;
 
