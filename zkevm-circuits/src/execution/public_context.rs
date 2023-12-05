@@ -1,13 +1,49 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::witness::{Witness, WitnessExecHelper};
-use eth_types::Field;
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
+use eth_types::{Field, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::SimpleSelector;
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_ROW: usize = 2;
+use crate::execution::{AuxiliaryDelta, CoreSinglePurposeOutcome};
 
+const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: u64 = 1;
+const STACK_POINTER_DELTA: i32 = 1;
+
+#[derive(Debug, Clone, Copy)]
+enum BitOp {
+    TIMESTAMP,
+    NUMBER,
+    COINBASE,
+    GASLIMIT,
+    CHAINID,
+    BASEFEE,
+}
+
+/// PublicContextGadget
+/// STATE0 record value
+/// TAGSELECTOR 6 columns
+/// TX_IDX_0 1 column,default 0
+/// VALUE_HI 1 column
+/// VALUE_LOW 1 column
+/// IS_ORIGIN 1 column
+/// INV OF HI 1 column
+/// IS_GASPRICE 1 column
+/// INV OF LO 1 column
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | not used |
+/// +---+-------+-------+-------+----------+
+/// | 1 | STATE0| TAGSELECTOR | TX_IDX_0 | VALUE_HI | VALUE_LOW | IS_ORIGIN | INV OF HI| IS_GASPRICE | INV OF LO |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 pub struct PublicContextGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -31,22 +67,147 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let auxiliary_delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        // auxiliary constraints
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
+        // core single constraints
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(1.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+        // stack constraints
+        let entry = config.get_state_lookup(meta, 0);
+        constraints.append(&mut config.get_stack_constraints(
+            meta,
+            entry.clone(),
+            0,
+            NUM_ROW,
+            (1 as i32).expr(),
+            true,
+        ));
+        // value_hi,value_lo constraints
+        let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, entry);
+        let value_hi = meta.query_advice(config.vers[15], Rotation::prev());
+        let value_lo = meta.query_advice(config.vers[16], Rotation::prev());
+        let value_hi_inv = meta.query_advice(config.vers[18], Rotation::prev());
+        let value_lo_inv = meta.query_advice(config.vers[20], Rotation::prev());
+        // value_hi constraints
+        let is_value_hi_zero =
+            SimpleIsZero::new(&value_hi, &value_hi_inv, String::from("value_hi"));
+        constraints.extend(is_value_hi_zero.get_constraints());
+        // value_lo constraints
+        let is_value_lo_zero =
+            SimpleIsZero::new(&value_lo, &value_lo_inv, String::from("value_lo"));
+        constraints.extend(is_value_lo_zero.get_constraints());
+        constraints.extend([
+            ("state_value_hi ".into(), state_value_hi - value_hi),
+            ("state_value_lo".into(), state_value_lo - value_lo),
+        ]);
+        // txid * (is_origin + is_gasprice) = 0
+        let tx_id = meta.query_advice(config.vers[14], Rotation::prev());
+        let is_origin = meta.query_advice(config.vers[17], Rotation::prev());
+        let is_gasprice = meta.query_advice(config.vers[19], Rotation::prev());
+        constraints.extend([(
+            "tx_id_o *(is_origin + is_gasprice)".into(),
+            tx_id * (is_origin + is_gasprice),
+        )]);
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[8], Rotation::prev()),
+            meta.query_advice(config.vers[9], Rotation::prev()),
+            meta.query_advice(config.vers[10], Rotation::prev()),
+            meta.query_advice(config.vers[11], Rotation::prev()),
+            meta.query_advice(config.vers[12], Rotation::prev()),
+            meta.query_advice(config.vers[13], Rotation::prev()),
+        ]);
+        let public_context_tag = selector.select(&[
+            opcode.clone() - (OpcodeId::TIMESTAMP.as_u64()).expr(),
+            opcode.clone() - (OpcodeId::NUMBER.as_u64()).expr(),
+            opcode.clone() - (OpcodeId::COINBASE.as_u64()).expr(),
+            opcode.clone() - (OpcodeId::GASLIMIT.as_u64()).expr(),
+            opcode.clone() - (OpcodeId::CHAINID.as_u64()).expr(),
+            opcode.clone() - (OpcodeId::BASEFEE.as_u64()).expr(),
+        ]);
+        // tag constraints
+        constraints.extend([("tag constraints".into(), public_context_tag)]);
+        //
+        constraints
     }
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+
+        let public_context_lookup =
+            query_expression(meta, |meta| config.get_public_context_lookup(meta));
+        vec![
+            ("stack push value lookup".into(), stack_lookup_0),
+            ("public context value lookup".into(), public_context_lookup),
+        ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let stack_push_0 =
-            current_state.get_push_stack_row(trace, current_state.stack_top.unwrap_or_default());
-
+        let next_stack_top_value = current_state.stack_top.unwrap_or_default();
+        let stack_push_0 = current_state.get_push_stack_row(trace, next_stack_top_value);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_push_0]);
+        let tag = match trace.op {
+            OpcodeId::TIMESTAMP => BitOp::TIMESTAMP,
+            OpcodeId::NUMBER => BitOp::NUMBER,
+            OpcodeId::COINBASE => BitOp::COINBASE,
+            OpcodeId::GASLIMIT => BitOp::GASLIMIT,
+            OpcodeId::CHAINID => BitOp::CHAINID,
+            OpcodeId::BASEFEE => BitOp::BASEFEE,
+            _ => panic!("not PUBLIC_CONTEXT op"),
+        };
+        let value_hi = (next_stack_top_value >> 128).as_u128();
+        let value_hi_inv = U256::from_little_endian(
+            F::from_u128(value_hi)
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+        let value_lo = next_stack_top_value.low_u128();
+        let value_lo_inv = U256::from_little_endian(
+            F::from_u128(value_lo)
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+        let mut v = [U256::from(0); 6];
+        v[tag as usize] = 1.into();
+        // tag selector
+        assign_or_panic!(core_row_1.vers_8, v[0]);
+        assign_or_panic!(core_row_1.vers_9, v[1]);
+        assign_or_panic!(core_row_1.vers_10, v[2]);
+        assign_or_panic!(core_row_1.vers_11, v[3]);
+        assign_or_panic!(core_row_1.vers_12, v[4]);
+        assign_or_panic!(core_row_1.vers_13, v[5]);
+        // 0 ,lookup from public
+        assign_or_panic!(core_row_1.vers_14, 0.into());
+        // value_hi
+        assign_or_panic!(core_row_1.vers_15, value_hi.into());
+        // value_lo
+        assign_or_panic!(core_row_1.vers_16, value_lo.into());
+        // is origin
+        assign_or_panic!(core_row_1.vers_17, 0.into());
+        // inv of hi
+        assign_or_panic!(core_row_1.vers_18, value_hi_inv);
+        // is gasprice
+        assign_or_panic!(core_row_1.vers_19, 0.into());
+        // inv of low
+        assign_or_panic!(core_row_1.vers_20, value_lo_inv);
         let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
             trace,
             current_state,
@@ -68,12 +229,14 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    #[test]
-    fn assign_and_constraint() {
+
+    fn run(op_code: OpcodeId) {
         let stack = Stack::from_slice(&[]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
@@ -81,7 +244,7 @@ mod test {
             stack_top: Some(0xff.into()),
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
+        let trace = prepare_trace_step!(0, op_code, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -106,5 +269,14 @@ mod test {
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
         prover.assert_satisfied_par();
+    }
+    #[test]
+    fn assign_opcode_run() {
+        run(OpcodeId::CHAINID);
+        run(OpcodeId::TIMESTAMP);
+        run(OpcodeId::NUMBER);
+        run(OpcodeId::COINBASE);
+        run(OpcodeId::GASLIMIT);
+        run(OpcodeId::BASEFEE);
     }
 }

@@ -24,6 +24,7 @@ pub struct Row {
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub enum Tag {
     #[default]
+    ChainId,
     BlockCoinbase,
     BlockTimestamp,
     BlockNumber,
@@ -68,6 +69,19 @@ impl Row {
     pub fn from_geth_data(geth_data: &GethData) -> Result<Vec<Row>, anyhow::Error> {
         let mut result = vec![];
         let block_constant: BlockConstants = (&geth_data.eth_block).try_into()?;
+        result.push(Row {
+            tag: Tag::ChainId,
+            value_0: Some(geth_data.chain_id.to_be_bytes()[..16].into()),
+            value_1: Some(geth_data.chain_id.to_be_bytes()[16..].into()),
+            comments: [
+                (format!("tag"), format!("ChainId")),
+                (format!("value_0"), format!("ChainId[..16]")),
+                (format!("value_1"), format!("ChainId[16..]")),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
         result.push(Row {
             tag: Tag::BlockCoinbase,
             value_0: Some(block_constant.coinbase.as_fixed_bytes()[..4].into()),
