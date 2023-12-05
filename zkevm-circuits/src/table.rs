@@ -87,6 +87,16 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (public, $value:expr) => {
+        match $value {
+            LookupEntry::Public {
+                tag,
+                tx_idx_or_number_diff,
+                values,
+            } => (tag, tx_idx_or_number_diff, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
     (exp, $value:expr) => {
         match $value {
             LookupEntry::Exp { base, index, power } => (base, index, power),

@@ -304,57 +304,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        const COL_START: usize = 26;
-        let (tag, tx_idx_or_number_diff, value0, value1, value2, value3) = (
-            meta.query_advice(self.vers[COL_START + 0], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 1], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 2], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 3], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 4], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 5], Rotation::prev()),
+    // todo rename
+    pub(crate) fn get_public_context_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
+            meta.query_advice(self.vers[0], Rotation(-2)),
+            meta.query_advice(self.vers[1], Rotation(-2)),
+            meta.query_advice(self.vers[2], Rotation(-2)),
+            meta.query_advice(self.vers[3], Rotation(-2)),
+            meta.query_advice(self.vers[4], Rotation(-2)),
+            meta.query_advice(self.vers[5], Rotation(-2)),
         );
-
-        let values = [value0, value1, value2, value3];
-
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
-            values,
-        }
-    }
-
-    pub(crate) fn get_public_context_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        let (
-            timestamp_tag,
-            number_tag,
-            coinbase_tag,
-            gas_limit_tag,
-            chainid_tag,
-            basefee_tag,
-            value_hi,
-            value_low,
-            tx_id_0,
-        ) = (
-            meta.query_advice(self.vers[8], Rotation::prev()),
-            meta.query_advice(self.vers[9], Rotation::prev()),
-            meta.query_advice(self.vers[10], Rotation::prev()),
-            meta.query_advice(self.vers[11], Rotation::prev()),
-            meta.query_advice(self.vers[12], Rotation::prev()),
-            meta.query_advice(self.vers[13], Rotation::prev()),
-            meta.query_advice(self.vers[15], Rotation::prev()),
-            meta.query_advice(self.vers[16], Rotation::prev()),
-            meta.query_advice(self.vers[14], Rotation::prev()),
-        );
-        LookupEntry::Public {
-            tag: timestamp_tag * F::from(Tag::ChainId as u64)
-                + number_tag * F::from(Tag::BlockNumber as u64)
-                + coinbase_tag * F::from(Tag::BlockCoinbase as u64)
-                + gas_limit_tag * F::from(Tag::BlockGasLimit as u64)
-                + chainid_tag * F::from(Tag::ChainId as u64)
-                + basefee_tag * F::from(Tag::BlockBaseFee as u64),
-            tx_idx_or_number_diff: tx_id_0,
-            values: [value_hi, value_low, 0.expr(), 0.expr()],
+            values: [value_0, value_1, value_2, value_3],
         }
     }
 

@@ -1,7 +1,8 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
+use crate::witness::public::Tag;
+use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -14,7 +15,7 @@ use std::marker::PhantomData;
 
 use crate::execution::{AuxiliaryDelta, CoreSinglePurposeOutcome};
 
-const NUM_ROW: usize = 2;
+const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
 
@@ -31,9 +32,12 @@ enum BitOp {
 /// PublicContextGadget
 /// STATE0 record value
 /// TAGSELECTOR 6 columns
-/// TX_IDX_0 1 column,default 0
-/// VALUE_HI 1 column
-/// VALUE_LOW 1 column
+/// TAG 1 column, means public tag
+/// TX_IDX_0 1 column,default 0, means public table tx_idx
+/// VALUE_HI 1 column , means public table value0
+/// VALUE_LOW 1 column, means public table value1
+/// VALUE_2 1 column , means public table value2 , here default 0
+/// VALUE_3 1 column ,means public table value3 , here default 0
 /// IS_ORIGIN 1 column
 /// INV OF HI 1 column
 /// IS_GASPRICE 1 column
@@ -41,7 +45,8 @@ enum BitOp {
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | not used |
 /// +---+-------+-------+-------+----------+
-/// | 1 | STATE0| TAGSELECTOR | TX_IDX_0 | VALUE_HI | VALUE_LOW | IS_ORIGIN | INV OF HI| IS_GASPRICE | INV OF LO |
+/// |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 | IS_ORIGIN | INV OF HI| IS_GASPRICE | INV OF LO |
+/// | 1 | STATE0| TAGSELECTOR |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 pub struct PublicContextGadget<F: Field> {
@@ -95,10 +100,35 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // value_hi,value_lo constraints
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
-        let value_hi = meta.query_advice(config.vers[15], Rotation::prev());
-        let value_lo = meta.query_advice(config.vers[16], Rotation::prev());
-        let value_hi_inv = meta.query_advice(config.vers[18], Rotation::prev());
-        let value_lo_inv = meta.query_advice(config.vers[20], Rotation::prev());
+        let public_entry = config.get_public_context_lookup(meta);
+        let (public_tag, tx_idx_or_number_diff, values) =
+            extract_lookup_expression!(public, public_entry);
+        // value[2] =0 values[3] = 0
+        constraints.extend([
+            ("values[2] = 0".into(), values[2].clone()),
+            ("values[3] = 0".into(), values[3].clone()),
+        ]);
+        let timestamp_tag = meta.query_advice(config.vers[8], Rotation::prev());
+        let number_tag = meta.query_advice(config.vers[9], Rotation::prev());
+        let coinbase_tag = meta.query_advice(config.vers[10], Rotation::prev());
+        let gaslimit_tag = meta.query_advice(config.vers[11], Rotation::prev());
+        let chainid_tag = meta.query_advice(config.vers[12], Rotation::prev());
+        let basefee_tag = meta.query_advice(config.vers[13], Rotation::prev());
+        // public tag constraints
+        constraints.extend([(
+            "tag constraints".into(),
+            public_tag
+                - timestamp_tag.clone() * F::from(public::Tag::BlockTimestamp as u64)
+                - number_tag.clone() * F::from(Tag::BlockNumber as u64)
+                - coinbase_tag.clone() * F::from(Tag::BlockCoinbase as u64)
+                - gaslimit_tag.clone() * F::from(Tag::BlockGasLimit as u64)
+                - chainid_tag.clone() * F::from(Tag::ChainId as u64)
+                - basefee_tag.clone() * F::from(Tag::BlockBaseFee as u64),
+        )]);
+        let value_hi = values[0].clone();
+        let value_lo = values[1].clone();
+        let value_hi_inv = meta.query_advice(config.vers[7], Rotation(-2));
+        let value_lo_inv = meta.query_advice(config.vers[9], Rotation(-2));
         // value_hi constraints
         let is_value_hi_zero =
             SimpleIsZero::new(&value_hi, &value_hi_inv, String::from("value_hi"));
@@ -112,20 +142,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("state_value_lo".into(), state_value_lo - value_lo),
         ]);
         // txid * (is_origin + is_gasprice) = 0
-        let tx_id = meta.query_advice(config.vers[14], Rotation::prev());
-        let is_origin = meta.query_advice(config.vers[17], Rotation::prev());
-        let is_gasprice = meta.query_advice(config.vers[19], Rotation::prev());
+        let is_origin = meta.query_advice(config.vers[6], Rotation(-2));
+        let is_gasprice = meta.query_advice(config.vers[8], Rotation(-2));
         constraints.extend([(
             "tx_id_o *(is_origin + is_gasprice)".into(),
-            tx_id * (is_origin + is_gasprice),
+            tx_idx_or_number_diff * (is_origin + is_gasprice),
         )]);
         let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[8], Rotation::prev()),
-            meta.query_advice(config.vers[9], Rotation::prev()),
-            meta.query_advice(config.vers[10], Rotation::prev()),
-            meta.query_advice(config.vers[11], Rotation::prev()),
-            meta.query_advice(config.vers[12], Rotation::prev()),
-            meta.query_advice(config.vers[13], Rotation::prev()),
+            timestamp_tag,
+            number_tag,
+            coinbase_tag,
+            gaslimit_tag,
+            chainid_tag,
+            basefee_tag,
         ]);
         let public_context_tag = selector.select(&[
             opcode.clone() - (OpcodeId::TIMESTAMP.as_u64()).expr(),
@@ -136,8 +165,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             opcode.clone() - (OpcodeId::BASEFEE.as_u64()).expr(),
         ]);
         // tag constraints
-        constraints.extend([("tag constraints".into(), public_context_tag)]);
-        //
+        constraints.extend([("opCode constraints".into(), public_context_tag)]);
         constraints
     }
     fn get_lookups(
@@ -157,18 +185,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let next_stack_top_value = current_state.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(trace, next_stack_top_value);
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
-        core_row_1.insert_state_lookups([&stack_push_0]);
-        let tag = match trace.op {
-            OpcodeId::TIMESTAMP => BitOp::TIMESTAMP,
-            OpcodeId::NUMBER => BitOp::NUMBER,
-            OpcodeId::COINBASE => BitOp::COINBASE,
-            OpcodeId::GASLIMIT => BitOp::GASLIMIT,
-            OpcodeId::CHAINID => BitOp::CHAINID,
-            OpcodeId::BASEFEE => BitOp::BASEFEE,
-            _ => panic!("not PUBLIC_CONTEXT op"),
-        };
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         let value_hi = (next_stack_top_value >> 128).as_u128();
         let value_hi_inv = U256::from_little_endian(
             F::from_u128(value_hi)
@@ -185,6 +202,39 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
+
+        let (public_tag, tag) = match trace.op {
+            OpcodeId::TIMESTAMP => (public::Tag::BlockTimestamp, BitOp::TIMESTAMP),
+            OpcodeId::NUMBER => (public::Tag::BlockNumber, BitOp::NUMBER),
+            OpcodeId::COINBASE => (public::Tag::BlockCoinbase, BitOp::COINBASE),
+            OpcodeId::GASLIMIT => (public::Tag::BlockGasLimit, BitOp::GASLIMIT),
+            OpcodeId::CHAINID => (public::Tag::ChainId, BitOp::CHAINID),
+            OpcodeId::BASEFEE => (public::Tag::BlockBaseFee, BitOp::BASEFEE),
+            _ => panic!("not PUBLIC_CONTEXT op"),
+        };
+        // core_row_2
+        core_row_2.insert_public_lookup(&public::Row {
+            tag: public_tag,
+            tx_idx_or_number_diff: Some(0.into()),
+            value_0: Some(U256::from(value_hi)),
+            value_1: Some(U256::from(value_lo)),
+            value_2: Some(0.into()),
+            value_3: Some(0.into()),
+            ..Default::default()
+        });
+        // is_origin
+        assign_or_panic!(core_row_2.vers_6, 0.into());
+        // inv of ih
+        assign_or_panic!(core_row_2.vers_7, value_hi_inv);
+        // is_gasprice
+        assign_or_panic!(core_row_2.vers_8, 0.into());
+        //inv of lo
+        assign_or_panic!(core_row_2.vers_9, value_lo_inv);
+
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+
+        core_row_1.insert_state_lookups([&stack_push_0]);
+
         let mut v = [U256::from(0); 6];
         v[tag as usize] = 1.into();
         // tag selector
@@ -194,20 +244,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_1.vers_11, v[3]);
         assign_or_panic!(core_row_1.vers_12, v[4]);
         assign_or_panic!(core_row_1.vers_13, v[5]);
-        // 0 ,lookup from public
-        assign_or_panic!(core_row_1.vers_14, 0.into());
-        // value_hi
-        assign_or_panic!(core_row_1.vers_15, value_hi.into());
-        // value_lo
-        assign_or_panic!(core_row_1.vers_16, value_lo.into());
-        // is origin
-        assign_or_panic!(core_row_1.vers_17, 0.into());
-        // inv of hi
-        assign_or_panic!(core_row_1.vers_18, value_hi_inv);
-        // is gasprice
-        assign_or_panic!(core_row_1.vers_19, 0.into());
-        // inv of low
-        assign_or_panic!(core_row_1.vers_20, value_lo_inv);
+        // core row 2
         let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
             trace,
             current_state,
@@ -215,7 +252,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         Witness {
-            core: vec![core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_push_0],
             ..Default::default()
         }
@@ -268,6 +305,9 @@ mod test {
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
+        let mut buf =
+            std::io::BufWriter::new(File::create(format!("test_data/{:?}.html", op_code)).unwrap());
+        witness.write_html(&mut buf);
         prover.assert_satisfied_par();
     }
     #[test]

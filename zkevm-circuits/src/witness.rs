@@ -1104,33 +1104,40 @@ impl core::Row {
         }
         self.comments.extend(comments);
     }
-
-    pub fn insert_public_lookup(&mut self, public: &public::Row) {
-        assert_eq!(self.cnt, 1.into());
-        let mut cells = vec![
-            // code copy
-            (&mut self.vers_26, (U256::from(public.tag as u64)).into()),
-            (&mut self.vers_27, public.tx_idx_or_number_diff),
-            (&mut self.vers_28, public.value_0),
-            (&mut self.vers_29, public.value_1),
-            (&mut self.vers_30, public.value_2),
-            (&mut self.vers_31, public.value_3),
-        ];
-
-        let mut comments = vec![
-            // copy comment
-            (format!("vers_{}", 0), format!("tag={:?}", public.tag)),
-            (format!("vers_{}", 1), format!("tx_idx_or_number_diff")),
-            (format!("vers_{}", 2), format!("value_0")),
-            (format!("vers_{}", 3), format!("value_1")),
-            (format!("vers_{}", 5), format!("value_2")),
-            (format!("vers_{}", 6), format!("value_3")),
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
+        let cells = vec![
+            (&mut self.vers_0, Some((public_row.tag as u8).into())),
+            (&mut self.vers_1, public_row.tx_idx_or_number_diff),
+            (
+                &mut self.vers_2,
+                Some(public_row.value_0.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_3,
+                Some(public_row.value_1.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_4,
+                Some(public_row.value_2.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_5,
+                Some(public_row.value_3.unwrap_or_default()),
+            ),
         ];
         for (cell, value) in cells {
-            // before inserting, these columns must be none
             assert!(cell.is_none());
             *cell = value;
         }
+        let comments = vec![
+            (format!("vers_{}", 0), format!("tag={:?}", public_row.tag)),
+            (format!("vers_{}", 1), format!("tx_idx_or_number_diff")),
+            (format!("vers_{}", 2), format!("value_0")),
+            (format!("vers_{}", 3), format!("value_1")),
+            (format!("vers_{}", 4), format!("value_2")),
+            (format!("vers_{}", 5), format!("value_3")),
+        ];
         self.comments.extend(comments);
     }
 }
