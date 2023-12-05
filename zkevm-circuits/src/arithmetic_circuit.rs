@@ -6,7 +6,7 @@ use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, 
 use crate::witness::{arithmetic, Witness};
 use arithmetic::{Row, Tag};
 use eth_types::Field;
-use gadgets::binary_number_with_real_selector::BinaryNumberConfig;
+use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
@@ -50,6 +50,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
     ) -> Result<(), Error> {
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        let tag = BinaryNumberChip::construct(self.tag);
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
         assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
         assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
@@ -68,6 +69,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt))),
         )?;
+        tag.assign(region, offset, &row.tag)?;
         Ok(())
     }
 
@@ -78,11 +80,33 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
-        todo!()
+        // pad the first row. The helper row helps us define the first row cnt is 0
+        // self.assign_row(region, 0, &Default::default())?;
+        // assign the rows
+        for (offset, row) in witness.arithmetic.iter().enumerate() {
+            self.assign_row(region, offset + 0, row)?;
+        }
+
+        // pad the rest rows
+        for offset in witness.arithmetic.len()..num_row_incl_padding {
+            self.assign_row(region, offset + 0, &Default::default())?;
+        }
+        Ok(())
     }
 
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
-        todo!()
+        region.name_column(|| "ARITHMETIC_cnt", self.cnt);
+        self.tag
+            .annotate_columns_in_region(region, "ARITHMETIC_tag");
+        self.cnt_is_zero
+            .annotate_columns_in_region(region, "ARITHMETIC_cnt_is_zero");
+        for (index, value) in self.u16s.iter().enumerate() {
+            region.name_column(|| format!("ARITHMETIC_u16_{}", index), *value);
+        }
+        for (index, value) in self.operands.iter().enumerate() {
+            region.name_column(|| format!("ARITHMETIC_operands_{}_hi", index), value[0]);
+            region.name_column(|| format!("ARITHMETIC_operand_{}_lo", index,), value[1]);
+        }
     }
 }
 
@@ -305,11 +329,16 @@ mod test {
             Self(ArithmeticCircuit::new_from_witness(&witness))
         }
     }
-    #[ignore = "remove ignore after arithmetic is finished"]
+    // #[ignore = "remove ignore after arithmetic is finished"]
     #[test]
     fn test_each_operation_witness() {
-        let (arithmetic, result) =
+        let (arithmeticAdd, result) =
             self::operation::add::gen_witness(vec![3.into(), u128::MAX.into()]);
+        let (arithmeticSub, result) =
+            self::operation::sub::gen_witness(vec![3.into(), u128::MAX.into()]);
+
+        let mut arithmetic = arithmeticAdd.clone();
+        arithmetic.extend(arithmeticSub);
         // TODO add more operation's witness
         let witness = Witness {
             arithmetic,

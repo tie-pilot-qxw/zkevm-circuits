@@ -1,7 +1,9 @@
+use crate::arithmetic_circuit::operation;
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::util::query_expression;
 use crate::witness::{arithmetic, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
@@ -51,28 +53,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
+        assert_eq!(trace.op, OpcodeId::ADD);
 
-        let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
-        let c = current_state.stack_top.unwrap_or_default();
-        let stack_push_0 = current_state.get_push_stack_row(trace, c);
-        let (exp_c, carry_hi) = a.overflowing_sub(b);
-        assert_eq!(exp_c, c);
-        // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Sub, [a, b, c, d]);
+        let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
+        let (arithmetic, result) = operation::sub::gen_witness(vec![a, b]);
+        let stack_push = current_state.get_push_stack_row(trace, result[0]);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
+        core_row_2.insert_arithmetic_lookup(&arithmetic);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+        core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push]);
         let core_row_0 = ExecutionState::SUB.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_pop_0, stack_pop_1, stack_push_0],
+            state: vec![stack_pop_a, stack_pop_b, stack_push],
+            arithmetic,
             ..Default::default()
         }
     }

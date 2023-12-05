@@ -6,15 +6,15 @@ use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(crate) struct AddGadget<F>(PhantomData<F>);
+pub(crate) struct SubGadget<F>(PhantomData<F>);
 
-impl<F: Field> OperationGadget<F> for AddGadget<F> {
+impl<F: Field> OperationGadget<F> for SubGadget<F> {
     fn name(&self) -> &'static str {
-        "ADD"
+        "SUB"
     }
 
     fn tag(&self) -> Tag {
-        Tag::Add
+        Tag::Sub
     }
 
     fn num_row(&self) -> usize {
@@ -66,13 +66,13 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
             ));
             constraints.push((
                 format!(
-                    "add c_{0} + carry_{0} * 2^128 - last_overflow= a_{0} + b_{0}",
+                    "sub a_{0} + carry_{0} * 2^128 - last_overflow = b_{0} + c_{0}",
                     hi_or_lo
                 ),
-                c[i].clone() + carry[i].clone() * pow_of_two::<F>(128)
+                a[i].clone() + carry[i].clone() * pow_of_two::<F>(128)
                     - last_overflow.clone()
-                    - a[i].clone()
-                    - b[i].clone(),
+                    - b[i].clone()
+                    - c[i].clone(),
             ));
         }
         constraints
@@ -85,18 +85,18 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(2, operands.len());
     let a = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
-    let (c, carry_hi) = operands[0].overflowing_add(operands[1]);
-    let carry_lo = a[1] + b[1] > u128::MAX.into();
-    let carry = (U256::from(carry_hi as u8) << 128) + U256::from(carry_lo as u8);
+    let (c, carry_hi) = operands[0].overflowing_sub(operands[1]);
+    let (_, carry_lo) = a[1].overflowing_sub(b[1]);
+
     let c_u16s: Vec<u16> = c
         .to_le_bytes()
         .chunks(2)
-        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .map(|x| x[0] as u16 * 256 + x[1] as u16)
         .collect();
     assert_eq!(16, c_u16s.len());
     let c_split = split_u256_hi_lo(&c);
     let row_0 = Row {
-        tag: Tag::Add,
+        tag: Tag::Sub,
         cnt: 0.into(),
         operand_0_hi: a[0],
         operand_0_lo: a[1],
@@ -112,7 +112,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         u16_7: c_u16s[15].into(),
     };
     let row_1 = Row {
-        tag: Tag::Add,
+        tag: Tag::Sub,
         cnt: 1.into(),
         operand_0_hi: c_split[0],
         operand_0_lo: c_split[1],
@@ -127,11 +127,11 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         u16_6: c_u16s[6].into(),
         u16_7: c_u16s[7].into(),
     };
-    (vec![row_1, row_0], vec![c, carry])
+    (vec![row_1, row_0], vec![c, (carry_hi as u8).into()])
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
-    Box::new(AddGadget(PhantomData))
+    Box::new(SubGadget(PhantomData))
 }
 
 #[cfg(test)]
@@ -139,24 +139,94 @@ mod test {
     use super::gen_witness;
     use crate::witness::Witness;
     use eth_types::U256;
-    use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, Expr};
     #[test]
-    fn test_gen_witness() {
-        let a = 3.into();
-        let b = u128::MAX.into();
+    fn test_gen_witness_sub() {
+        let a = u128::MAX.into();
+        let b = 3.into();
         let (arithmetic, result) = gen_witness(vec![a, b]);
+        let arith = arithmetic.clone();
         let witness = Witness {
             arithmetic,
             ..Default::default()
         };
         witness.print_csv();
-        // let u16_sum_for_c_hi = {
-        //     let u16s: Vec<_> = vec![arithmetic[1].u16_0,arithmetic[1].u16_1,arithmetic[1].u16_2,arithmetic[1].u16_3,arithmetic[1].u16_4,arithmetic[1].u16_5,arithmetic[1].u16_6,arithmetic[1].u16_7];
-        //     expr_from_u16s(&u16s)
-        // };
+        assert_eq!(
+            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
+            arith[1].operand_1_lo + arith[0].operand_0_lo
+        );
+        println!(
+            "{}",
+            arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo
+        );
+        println!("{}", arith[1].operand_1_hi + arith[0].operand_0_hi);
+        assert_eq!(
+            arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo,
+            arith[1].operand_1_hi + arith[0].operand_0_hi
+        );
+        assert_eq!(U256::from(0), result[1]);
+    }
+    #[test]
+    fn test_gen_witness_lt() {
+        let a = 3.into();
+        let b = u128::MAX.into();
+        let (arithmetic, result) = gen_witness(vec![a, b]);
+        let arith = arithmetic.clone();
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
 
-        assert_eq!(a + b, result[0]);
+        witness.print_csv();
+        println!(
+            "{}",
+            arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo
+        );
+        println!("{}", arith[1].operand_1_hi + arith[0].operand_0_hi);
+        assert_eq!(
+            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
+            arith[1].operand_1_lo + arith[0].operand_0_lo
+        );
+        assert_eq!(
+            arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo,
+            arith[1].operand_1_hi + arith[0].operand_0_hi
+        );
         assert_eq!(U256::from(1), result[1]);
-        // assert_eq!(arithmetic[0].operand_0_hi,u16_sum_for_c_hi)
+    }
+    #[test]
+    fn test_gen_witness_gt() {
+        let a = u128::MAX.into();
+        let b = 3.into();
+        let (arithmetic, result) = gen_witness(vec![b, a]);
+        let arith = arithmetic.clone();
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        witness.print_csv();
+
+        assert_eq!(
+            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
+            arith[1].operand_1_lo + arith[0].operand_0_lo
+        );
+        assert_eq!(
+            arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo,
+            arith[1].operand_1_hi + arith[0].operand_0_hi
+        );
+        assert_eq!(U256::from(1), result[1]);
+        // test a == b
+        let (arithmetic, result) = gen_witness(vec![b, b]);
+        assert_eq!(
+            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
+            arith[1].operand_1_lo + arith[0].operand_0_lo
+        );
+        assert_eq!(
+            arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo,
+            arith[1].operand_1_hi + arith[0].operand_0_hi
+        );
+        assert_eq!(U256::from(0), result[1]);
     }
 }
