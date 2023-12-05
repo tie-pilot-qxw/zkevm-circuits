@@ -74,7 +74,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
 
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
-        let log_stamp = meta.query_advice(log_stamp, Rotation((NUM_ROW as i32 * -1)));
+        let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
         // build constraints ---
         // append auxiliary constraints
         let copy_entry = config.get_copy_lookup(meta);
