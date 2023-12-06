@@ -1109,7 +1109,7 @@ impl core::Row {
     /// |cnt| 8 col | 8 col | 8 col | not used |
     /// +---+-------+-------+-------+----------+
     /// | 2 | 8 col (xx) | 8 col (xx) | 8 col (xx) |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 | 2 col (unused) |
-    /// | 1 | xx| xx |
+    /// | 1 | 8 col (xx) | 8 col (xx) | 8 col (xx) | 8 col (xx) |
     /// | 0 | DYNA_SELECTOR   | AUX            |
     /// +---+-------+-------+-------+----------+
     pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
