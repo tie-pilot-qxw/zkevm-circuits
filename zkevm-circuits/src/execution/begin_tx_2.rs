@@ -4,7 +4,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{arithmetic, copy, WitnessExecHelper, public};
+use crate::witness::{arithmetic, copy, public, WitnessExecHelper};
 use crate::witness::{core, state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
@@ -118,20 +118,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
-        let stack_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
+        let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
 
-        //TODO:Public lookup
-        let public_lookup = query_expression(meta, |meta| config.get_public_lookup_tx_from_value(meta, 0,(public::Tag::TxFromValue as u8).expr()));
+        let public_lookup = query_expression(meta, |meta| {
+            config.get_public_lookup_double(meta, 0, (public::Tag::TxFromValue as u8).expr())
+        });
 
         vec![
-            ("value write".into(), stack_lookup_0),
-            ("sender addr write".into(), stack_lookup_1),
-            ("parent pc write".into(), stack_lookup_2),
-            ("parent stack pointer write".into(), stack_lookup_3),
-            ("public lookup".into(),public_lookup),
+            ("value write".into(), state_lookup_0),
+            ("sender addr write".into(), state_lookup_1),
+            ("parent pc write".into(), state_lookup_2),
+            ("parent stack pointer write".into(), state_lookup_3),
+            ("public lookup".into(), public_lookup),
         ]
     }
 

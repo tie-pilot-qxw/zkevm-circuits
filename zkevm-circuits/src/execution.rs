@@ -303,7 +303,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-
     pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         const COL_START: usize = 26;
         let (tag, tx_idx_or_number_diff, value0, value1, value2, value3) = (
@@ -324,7 +323,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     ///note: each public lookup uses two state lookups
-    pub(crate) fn get_public_lookup_tx_from_value(
+    pub(crate) fn get_public_lookup_double(
         &self,
         meta: &mut VirtualCells<F>,
         num: usize,

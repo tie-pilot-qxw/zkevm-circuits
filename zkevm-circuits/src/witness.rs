@@ -915,7 +915,7 @@ impl WitnessExecHelper {
                 dst_stamp: log_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
-                acc:acc,
+                acc: acc,
             });
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }

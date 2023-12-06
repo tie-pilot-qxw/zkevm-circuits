@@ -4,11 +4,12 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, copy, WitnessExecHelper};
+use crate::witness::{arithmetic, copy, public, WitnessExecHelper};
 use crate::witness::{core, state, Witness};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
 use eth_types::GethExecStep;
+use eth_types::{Field, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -59,18 +60,74 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
-        let copy = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, copy_size) = extract_lookup_expression!(copy, copy);
+        let copy_entry = config.get_copy_lookup(meta);
+        let (_, _, _, _, _, _, _, _, copy_size) =
+            extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryDelta {
             state_stamp: 4.expr() + copy_size,
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
+        let mut operands: Vec<[Expression<F>; 2]> = vec![];
+        for i in 0..4 {
+            let entry = config.get_state_lookup(meta, i);
+            let call_context = if i == 0 {
+                state::CallContextTag::StorageContractAddr
+            } else if i == 1 {
+                state::CallContextTag::CallDataSize
+            } else if i == 2 {
+                state::CallContextTag::ParentCallId
+            } else {
+                state::CallContextTag::ParentCodeContractAddr
+            };
+            constraints.append(&mut config.get_call_context_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                true,
+                (call_context as u8).expr(),
+                call_id.clone(),
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            operands.push([value_hi, value_lo]);
+        }
+
+        constraints.extend([
+            ("parent call_id hi == 0".into(), operands[2][0].clone()),
+            ("parent call_id lo == 0".into(), operands[2][1].clone()),
+            ("parent code addr hi == 0".into(), operands[3][0].clone()),
+            ("parent code addr lo == 0".into(), operands[3][1].clone()),
+        ]);
+
+        //copy_constraints
+        let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let len_lo_inv = meta.query_advice(config.vers[10], Rotation(-2));
+        let is_zero_len =
+            SimpleIsZero::new(&operands[1][1], &len_lo_inv, String::from("length_lo"));
+        constraints.append(&mut is_zero_len.get_constraints());
+        constraints.append(&mut config.get_copy_contraints(
+            copy::Tag::PublicCalldata,
+            tx_idx,
+            0.expr(),
+            0.expr(), // stamp is None for PublicCalldata
+            copy::Tag::Calldata,
+            call_id,
+            0.expr(),
+            state_stamp_prev.clone() + 4.expr(),
+            operands[1][1].clone(),
+            is_zero_len.expr(),
+            copy_entry,
+        ));
+
         let delta = CoreSinglePurposeOutcome {
             tx_idx: ExpressionOutcome::Delta(1.expr()),
             call_id: ExpressionOutcome::To(state_stamp_prev + 1.expr()),
             ..Default::default()
         };
+
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
         let next_is_begin_tx_2 = config.execution_state_selector.selector(
             meta,
@@ -84,6 +141,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "next state is BEGIN_TX_2".into(),
             next_begin_tx_2_cnt_is_zero * next_is_begin_tx_2 - 1.expr(),
         )]);
+        let pc = meta.query_advice(config.pc, Rotation::cur());
+        constraints.extend([("pc == 0".into(), pc)]);
         constraints
     }
 
@@ -92,7 +151,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
+
+        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+
+        let public_lookup = query_expression(meta, |meta| {
+            config.get_public_lookup_double(meta, 0, (public::Tag::TxToCallDataSize as u8).expr())
+        });
+
+        vec![
+            ("contract addr write".into(), state_lookup_0),
+            ("calldata size write".into(), state_lookup_1),
+            ("parent call_id write".into(), state_lookup_2),
+            ("parent code addr write".into(), state_lookup_3),
+            ("copy lookup".into(), copy_lookup),
+            ("public lookup".into(), public_lookup),
+        ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -138,21 +215,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(
                 &copy::Row {
                     byte: 0.into(), //not used
-                    src_type: copy::Tag::PublicCalldata,
-                    src_id: tx_idx.into(),
+                    src_type: copy::Tag::Zero,
+                    src_id: 0.into(),
                     src_pointer: 0.into(),
                     src_stamp: 0.into(),
-                    dst_type: copy::Tag::Calldata,
-                    dst_id: call_id.into(),
+                    dst_type: copy::Tag::Zero,
+                    dst_id: 0.into(),
                     dst_pointer: 0.into(),
-                    dst_stamp: current_state.state_stamp.into(),
+                    dst_stamp: 0.into(),
                     cnt: 0.into(), //not used
-                    len: calldata_size.into(),
+                    len: 0.into(),
                     acc: 0.into(),
                 },
                 None,
             );
         }
+
+        let len_lo = F::from_u128(calldata_size as u128);
+        let len_lo_inv =
+            U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        core_row_2.vers_10 = Some(len_lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
@@ -177,6 +259,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // update current_state for tx_idx and call_id
         current_state.tx_idx = tx_idx;
         current_state.call_id = call_id;
+
+        //update current_state's calldata
+
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -195,6 +280,8 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use eth_types::U256;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -208,11 +295,13 @@ mod test {
         let stack_pointer = stack.0.len();
         let call_id = 1;
         let call_data = HashMap::from([(call_id, vec![0xa, 0xb])]);
+        let code_addr = U256::from(0x1234);
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             call_id,
             call_data,
+            code_addr,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack);
