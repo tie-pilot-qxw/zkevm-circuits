@@ -43,6 +43,7 @@ pub enum Tag {
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
+    TxOrigin, //
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
