@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::util::create_contract_addr_with_prefix;
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{ToBigEndian, U256};
-use gadgets::util::Expr;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -33,14 +32,14 @@ pub enum Tag {
     BlockBaseFee,
     BlockHash,
     TxStatus,
-    // combine From and Value together to reduce number of lookups
+    // Value
     TxValue,
     // combine To and CallDataLength together to reduce number of lookups
     TxToCallDataSize,
     TxIsCreate,
     TxGasLimit,
-    TxFromGasPrice,
-    TxCalldata, //TODO make sure this equals copy tag PublicCalldata
+    TxFromGasPrice, // combine From and tx gas price together to reduce number of lookups
+    TxCalldata,     //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
 }
@@ -177,8 +176,8 @@ impl Row {
                     ),
                     (format!("value_0"), format!("tx.from[..4]")),
                     (format!("value_1"), format!("tx.from[4..]")),
-                    (format!("value_2"), format!("tx.value[..16]")),
-                    (format!("value_3"), format!("tx.value[16..]")),
+                    (format!("value_2"), format!("tx.gas_price[..16]")),
+                    (format!("value_3"), format!("tx.gas_price[16..]")),
                 ]
                 .into_iter()
                 .collect(),
