@@ -32,12 +32,12 @@ enum BitOp {
 /// PublicContextGadget
 /// STATE0 record value
 /// TAGSELECTOR 6 columns
-/// TAG 1 column, means public tag (column 24)
-/// TX_IDX_0 1 column,default 0, means public table tx_idx (column 25)
-/// VALUE_HI 1 column , means public table value0 (column 26)
-/// VALUE_LOW 1 column, means public table value1 (column 27)
-/// VALUE_2 1 column , means public table value2 , here default 0 (column 28)
-/// VALUE_3 1 column ,means public table value3 , here default 0 (column 29)
+/// TAG 1 column, means public tag (column 26)
+/// TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
+/// VALUE_HI 1 column , means public table value0 (column 28)
+/// VALUE_LOW 1 column, means public table value1 (column 29)
+/// VALUE_2 1 column , means public table value2 , here default 0 (column 30)
+/// VALUE_3 1 column ,means public table value3 , here default 0 (column 31)
 /// IS_ORIGIN 1 column (column 0)
 /// INV OF HI 1 column (cllumn 1)
 /// IS_GASPRICE 1 column (column 2)
@@ -72,6 +72,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let auxiliary_delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
@@ -146,7 +147,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_gasprice = meta.query_advice(config.vers[2], Rotation(-2));
         constraints.extend([(
             "tx_id_o *(is_origin + is_gasprice)".into(),
-            tx_idx_or_number_diff * (is_origin + is_gasprice),
+            tx_idx.clone() - tx_idx_or_number_diff * (is_origin + is_gasprice),
         )]);
         let selector = SimpleSelector::new(&[
             timestamp_tag,

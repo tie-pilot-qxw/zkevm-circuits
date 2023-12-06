@@ -34,16 +34,15 @@ pub enum Tag {
     BlockHash,
     TxStatus,
     // combine From and Value together to reduce number of lookups
-    TxFromValue,
+    TxValue,
     // combine To and CallDataLength together to reduce number of lookups
     TxToCallDataSize,
     TxIsCreate,
     TxGasLimit,
-    TxGasPrice,
+    TxFromGasPrice,
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
-    TxOrigin, //
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -162,15 +161,16 @@ impl Row {
         for (tx_idx, tx) in geth_data.eth_block.transactions.iter().enumerate() {
             // due to we decide to start idx at 1 in witness
             let tx_idx = tx_idx + 1;
+            let gas_price = tx.gas_price.unwrap_or(0.into());
             result.push(Row {
-                tag: Tag::TxFromValue,
+                tag: Tag::TxFromGasPrice,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(tx.from.as_fixed_bytes()[..4].into()),
                 value_1: Some(tx.from.as_fixed_bytes()[4..].into()),
-                value_2: Some(tx.value.to_be_bytes()[..16].into()),
-                value_3: Some(tx.value.to_be_bytes()[16..].into()),
+                value_2: Some(gas_price.to_be_bytes()[..16].into()),
+                value_3: Some(gas_price.to_be_bytes()[16..].into()),
                 comments: [
-                    (format!("tag"), format!("TxFromValue")),
+                    (format!("tag"), format!("TxFromGasPrice")),
                     (
                         format!("tx_idx_or_number_diff"),
                         format!("tx_idx{}", tx_idx),
@@ -255,20 +255,20 @@ impl Row {
                 .collect(),
                 ..Default::default()
             });
-            let gas_price = tx.gas_price.unwrap_or(0.into());
+
             result.push(Row {
-                tag: Tag::TxGasPrice,
+                tag: Tag::TxValue,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
-                value_0: Some(gas_price.to_be_bytes()[..16].into()),
-                value_1: Some(gas_price.to_be_bytes()[16..].into()),
+                value_0: Some(tx.value.to_be_bytes()[..16].into()),
+                value_1: Some(tx.value.to_be_bytes()[16..].into()),
                 comments: [
-                    (format!("tag"), format!("TxGasPrice")),
+                    (format!("tag"), format!("TxValue")),
                     (
                         format!("tx_idx_or_number_diff"),
                         format!("tx_idx{}", tx_idx),
                     ),
-                    (format!("value_0"), format!("gas_price[..16]")),
-                    (format!("value_1"), format!("gas_price[16..]")),
+                    (format!("value_0"), format!("tx.value[..16]")),
+                    (format!("value_1"), format!("tx.value[16..]")),
                 ]
                 .into_iter()
                 .collect(),

@@ -27,12 +27,12 @@ enum BitOp {
 /// TxContextGadget
 /// STATE0 record value
 /// TAGSELECTOR 2 columns
-/// TAG 1 column, means public tag (column 24)
-/// TX_IDX_0 1 column,default 0, means public table tx_idx (column 25)
-/// VALUE_HI 1 column , means public table value0 (column 26)
-/// VALUE_LOW 1 column, means public table value1 (column 27)
-/// VALUE_2 1 column , means public table value2 , here default 0 (column 28)
-/// VALUE_3 1 column ,means public table value3 , here default 0 (column 29)
+/// TAG 1 column, means public tag (column 26)
+/// TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
+/// VALUE_HI 1 column , means public table value0 (column 28)
+/// VALUE_LOW 1 column, means public table value1 (column 29)
+/// VALUE_2 1 column , means public table value2 , here from_high (column 30)
+/// VALUE_3 1 column ,means public table value3 , here from_low (column 31)
 /// IS_ORIGIN 1 column (column 0)
 /// INV OF HI 1 column (cllumn 1)
 /// IS_GASPRICE 1 column (column 2)
@@ -99,11 +99,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_entry = config.get_public_lookup(meta);
         let (public_tag, tx_idx_or_number_diff, values) =
             extract_lookup_expression!(public, public_entry);
-        // value[2] =0 values[3] = 0
-        constraints.extend([
-            ("values[2] = 0".into(), values[2].clone()),
-            ("values[3] = 0".into(), values[3].clone()),
-        ]);
         let value_hi = values[0].clone();
         let value_lo = values[1].clone();
         let value_hi_inv = meta.query_advice(config.vers[1], Rotation(-2));
@@ -114,8 +109,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([(
             "tag constraints".into(),
             public_tag
-                - origin_tag.clone() * F::from(public::Tag::TxOrigin as u64)
-                - gasprice_tag.clone() * F::from(public::Tag::TxGasPrice as u64),
+                - origin_tag.clone() * F::from(public::Tag::TxFromGasPrice as u64)
+                - gasprice_tag.clone() * F::from(public::Tag::TxFromGasPrice as u64),
         )]);
         // value_hi constraints
         let is_value_hi_zero =
@@ -179,18 +174,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .as_ref(),
         );
         let (public_tag, tag) = match trace.op {
-            OpcodeId::ORIGIN => (public::Tag::TxOrigin, BitOp::ORIGIN),
-            OpcodeId::GASPRICE => (public::Tag::TxGasPrice, BitOp::GASPRICE),
+            OpcodeId::ORIGIN => (public::Tag::TxFromGasPrice, BitOp::ORIGIN),
+            OpcodeId::GASPRICE => (public::Tag::TxFromGasPrice, BitOp::GASPRICE),
             _ => panic!("not TX_CONTEXT op"),
         };
+        let tx_from = current_state
+            .sender
+            .get(&current_state.call_id)
+            .unwrap()
+            .clone();
         // core_row_2
         core_row_2.insert_public_lookup(&public::Row {
             tag: public_tag,
             tx_idx_or_number_diff: Some(U256::from(current_state.tx_idx)),
             value_0: Some(U256::from(value_hi)),
             value_1: Some(U256::from(value_lo)),
-            value_2: Some(0.into()),
-            value_3: Some(0.into()),
+            value_2: Some((tx_from >> 128).as_u128().into()),
+            value_3: Some(tx_from.low_u128().into()),
             ..Default::default()
         });
         if trace.op == OpcodeId::ORIGIN {
@@ -239,6 +239,8 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -252,9 +254,12 @@ mod test {
     fn run(op_code: OpcodeId) {
         let stack = Stack::from_slice(&[0.into(), 1.into()]);
         let stack_pointer = stack.0.len();
+        let mut sender = HashMap::new();
+        sender.insert(0_u64, U256::max_value() - 1);
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            sender,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, op_code, stack);

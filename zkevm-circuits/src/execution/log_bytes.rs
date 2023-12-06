@@ -22,7 +22,7 @@ use std::marker::PhantomData;
 // core rows
 /// LogBytes Execution State layout is as follows
 /// where COPY means copy table lookup , 9 cols
-/// PUBLIC means public table lookup 6 cols, origin from col 24
+/// PUBLIC means public table lookup 6 cols, origin from col 26
 /// STATE means state table lookup,
 /// LO_INV means length's inv , 1 col, located at col 24
 /// DYNA_SELECTOR is dynamic selector of the state,
@@ -31,7 +31,7 @@ use std::marker::PhantomData;
 /// +---+-------+-------+---------+---------+
 /// |cnt| 8 col | 8 col |  8 col  |  8col   |
 /// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |               | PUBLIC(6) |
+/// | 2 | Copy(9) |               | 1 col(not used)| 1 col(not used)| PUBLIC(6) |
 /// | 1 | STATE | STATE | notUsed | LO_INV(1 col) |
 /// | 0 | DYNA_SELECTOR | AUX               |
 /// +---+-------+-------+---------+---------+

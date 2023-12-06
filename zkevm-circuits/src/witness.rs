@@ -1108,29 +1108,29 @@ impl core::Row {
     /// +---+-------+-------+-------+----------+
     /// |cnt| 8 col | 8 col | 8 col | not used |
     /// +---+-------+-------+-------+----------+
-    /// | 2 | 8 col (xx) | 8 col (xx) | 8 col (xx) |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 | 2 col (unused) |
+    /// | 2 | 8 col (xx) | 8 col (xx) | 8 col (xx) | 1 col (not used) | 1 col(not used) | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
     /// | 1 | 8 col (xx) | 8 col (xx) | 8 col (xx) | 8 col (xx) |
     /// | 0 | DYNA_SELECTOR   | AUX            |
     /// +---+-------+-------+-------+----------+
     pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
         assert_eq!(self.cnt, 2.into());
         let cells = vec![
-            (&mut self.vers_24, Some((public_row.tag as u8).into())),
-            (&mut self.vers_25, public_row.tx_idx_or_number_diff),
+            (&mut self.vers_26, Some((public_row.tag as u8).into())),
+            (&mut self.vers_27, public_row.tx_idx_or_number_diff),
             (
-                &mut self.vers_26,
+                &mut self.vers_28,
                 Some(public_row.value_0.unwrap_or_default()),
             ),
             (
-                &mut self.vers_27,
+                &mut self.vers_29,
                 Some(public_row.value_1.unwrap_or_default()),
             ),
             (
-                &mut self.vers_28,
+                &mut self.vers_30,
                 Some(public_row.value_2.unwrap_or_default()),
             ),
             (
-                &mut self.vers_29,
+                &mut self.vers_31,
                 Some(public_row.value_3.unwrap_or_default()),
             ),
         ];
@@ -1139,12 +1139,12 @@ impl core::Row {
             *cell = value;
         }
         let comments = vec![
-            (format!("vers_{}", 24), format!("tag={:?}", public_row.tag)),
-            (format!("vers_{}", 25), format!("tx_idx_or_number_diff")),
-            (format!("vers_{}", 26), format!("value_0")),
-            (format!("vers_{}", 27), format!("value_1")),
-            (format!("vers_{}", 28), format!("value_2")),
-            (format!("vers_{}", 29), format!("value_3")),
+            (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
+            (format!("vers_{}", 27), format!("tx_idx_or_number_diff")),
+            (format!("vers_{}", 28), format!("value_0")),
+            (format!("vers_{}", 29), format!("value_1")),
+            (format!("vers_{}", 30), format!("value_2")),
+            (format!("vers_{}", 31), format!("value_3")),
         ];
         self.comments.extend(comments);
     }
