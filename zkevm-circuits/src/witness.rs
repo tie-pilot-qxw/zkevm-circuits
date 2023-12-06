@@ -875,7 +875,7 @@ impl WitnessExecHelper {
         (res, value.clone())
     }
 
-    pub fn get_log_bytes_rows(
+    pub fn get_log_bytes_rows<F: Field>(
         &mut self,
         trace: &GethExecStep,
         offset: usize,
@@ -886,8 +886,23 @@ impl WitnessExecHelper {
         let copy_stamp = self.state_stamp;
         let log_stamp = self.log_stamp;
 
+        let mut acc_pre = U256::from(0);
+        let temp_256_f = F::from(256);
+
         for i in 0..len {
             let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+
+            // calc acc
+            let acc: U256 = if i == 0 {
+                byte.into()
+            } else {
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                acc_f = byte_f + acc_f * temp_256_f;
+                convert_f_to_u256(&acc_f)
+            };
+            acc_pre = acc;
+
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Memory,
@@ -900,6 +915,7 @@ impl WitnessExecHelper {
                 dst_stamp: log_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
+                acc:acc,
             });
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }

@@ -303,6 +303,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+
     pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         const COL_START: usize = 26;
         let (tag, tx_idx_or_number_diff, value0, value1, value2, value3) = (
@@ -315,7 +316,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let values = [value0, value1, value2, value3];
+        LookupEntry::Public {
+            tag,
+            tx_idx_or_number_diff,
+            values,
+        }
+    }
 
+    ///note: each public lookup uses two state lookups
+    pub(crate) fn get_public_lookup_tx_from_value(
+        &self,
+        meta: &mut VirtualCells<F>,
+        num: usize,
+        tag: Expression<F>,
+    ) -> LookupEntry<F> {
+        assert!(num < 4);
+        const WIDTH: usize = 16;
+        let (tx_idx_or_number_diff, values) = (
+            meta.query_advice(self.tx_idx, Rotation::cur()),
+            [
+                meta.query_advice(self.vers[num * WIDTH + 2], Rotation::prev()),
+                meta.query_advice(self.vers[num * WIDTH + 3], Rotation::prev()),
+                meta.query_advice(self.vers[num * WIDTH + 10], Rotation::prev()),
+                meta.query_advice(self.vers[num * WIDTH + 11], Rotation::prev()),
+            ],
+        );
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
