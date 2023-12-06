@@ -101,6 +101,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("lengthlo"));
 
+        constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_contraints(
             copy::Tag::Returndata,
             call_id.clone(),

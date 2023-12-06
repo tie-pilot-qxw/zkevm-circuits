@@ -111,6 +111,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
 
+        constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_contraints(
             copy::Tag::Memory,
             call_id.clone(),

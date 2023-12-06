@@ -98,6 +98,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
+        constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_contraints(
             copy::Tag::Calldata,
             call_id.clone(),
