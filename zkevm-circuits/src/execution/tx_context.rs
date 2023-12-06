@@ -109,8 +109,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([(
             "tag constraints".into(),
             public_tag
-                - origin_tag.clone() * F::from(public::Tag::TxFromGasPrice as u64)
-                - gasprice_tag.clone() * F::from(public::Tag::TxFromGasPrice as u64),
+                - origin_tag.clone() * F::from(public::Tag::TxFromValue as u64)
+                - gasprice_tag.clone() * F::from(public::Tag::TxGasPrice as u64),
         )]);
         // value_hi constraints
         let is_value_hi_zero =
@@ -150,7 +150,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_context_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
-            ("public context value lookup".into(), public_context_lookup),
+            ("tx context value lookup".into(), public_context_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -173,24 +173,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        let (public_tag, tag) = match trace.op {
-            OpcodeId::ORIGIN => (public::Tag::TxFromGasPrice, BitOp::ORIGIN),
-            OpcodeId::GASPRICE => (public::Tag::TxFromGasPrice, BitOp::GASPRICE),
+        let (public_tag, tag, value_public_2, value_public_3) = match trace.op {
+            OpcodeId::ORIGIN => (
+                public::Tag::TxFromValue,
+                BitOp::ORIGIN,
+                current_state.tx_value >> 128,
+                current_state.tx_value.low_u128().into(),
+            ),
+            OpcodeId::GASPRICE => (
+                public::Tag::TxGasPrice,
+                BitOp::GASPRICE,
+                U256::from(0),
+                U256::from(0),
+            ),
             _ => panic!("not TX_CONTEXT op"),
         };
-        let tx_from = current_state
-            .sender
-            .get(&current_state.call_id)
-            .unwrap()
-            .clone();
+
         // core_row_2
         core_row_2.insert_public_lookup(&public::Row {
             tag: public_tag,
             tx_idx_or_number_diff: Some(U256::from(current_state.tx_idx)),
             value_0: Some(U256::from(value_hi)),
             value_1: Some(U256::from(value_lo)),
-            value_2: Some((tx_from >> 128).as_u128().into()),
-            value_3: Some(tx_from.low_u128().into()),
+            value_2: Some(value_public_2),
+            value_3: Some(value_public_3),
             ..Default::default()
         });
         if trace.op == OpcodeId::ORIGIN {
@@ -218,7 +224,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_1.vers_8, v[0]);
         assign_or_panic!(core_row_1.vers_9, v[1]);
         // core row 0
-        let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::TX_CONTEXT.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,

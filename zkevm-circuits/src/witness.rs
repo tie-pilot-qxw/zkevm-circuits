@@ -59,6 +59,7 @@ pub struct WitnessExecHelper {
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
+    pub tx_value: U256,
 }
 
 impl WitnessExecHelper {
@@ -83,6 +84,7 @@ impl WitnessExecHelper {
             read_only: 0,
             bytecode: HashMap::new(),
             stack_top: None,
+            tx_value: 0.into(),
         }
     }
 
@@ -128,6 +130,7 @@ impl WitnessExecHelper {
             self.call_data.insert(call_id, tx.input.to_vec());
         }
         self.value.insert(call_id, tx.value);
+        self.tx_value = tx.value;
         self.sender.insert(call_id, tx.from.as_bytes().into());
         self.code_addr = to;
         self.bytecode = bytecode;
