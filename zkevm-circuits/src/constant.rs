@@ -1,6 +1,6 @@
 pub const NUM_STATE_HI_COL: usize = 10;
 pub const NUM_STATE_LO_COL: usize = 10;
-pub const MAX_NUM_ROW: usize = 501;
+pub const MAX_NUM_ROW: usize = 80000;
 pub const MAX_CODESIZE: usize = 500;
 
 /// Index of vers[] column in core circuit for state stamp in execution gadgets

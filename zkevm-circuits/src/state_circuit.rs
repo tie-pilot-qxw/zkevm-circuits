@@ -1,15 +1,24 @@
+pub mod lookups;
+pub mod multiple_precision_integer;
+pub mod ordering;
+
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{FixedTable, StateTable};
+use crate::table::{FixedTable, LookupEntry, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
-use crate::witness::state::{Row, Tag};
+use crate::witness::state::{self, Row, Tag};
 use crate::witness::Witness;
-use eth_types::Field;
+use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
+use lookups::Chip as lookupChip;
+use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
+use ordering::{CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;
+
+use self::ordering::Config as OrderingConfig;
 
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
@@ -32,12 +41,29 @@ pub struct StateCircuitConfig<F> {
     pointer_lo: Column<Advice>,
     /// Whether it is write or read, binary value
     is_write: Column<Advice>,
+    /// Sort the state and calculate whether the current state is accessed for the first time.
+    /// sorted elements(tag, call_id_or_address, pointer_hi/_lo, stamp).
+    ordering_config: OrderingConfig,
+    sort_keys: SortedElements,
+    lookups: lookups::Config,
+    is_first_access: Column<Advice>,
+    fixed_table: FixedTable,
     _marker: PhantomData<F>,
 }
 
 pub struct StateCircuitConfigArgs {
     pub(crate) q_enable: Selector,
     pub(crate) state_table: StateTable,
+    pub(crate) fixed_table: FixedTable,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SortedElements {
+    tag: BinaryNumberConfig<Tag, LOG_NUM_STATE_TAG>,
+    call_id_or_address: MpiConfig<U256, CALLID_OR_ADDRESS_LIMBS>,
+    pointer_hi: MpiConfig<U256, POINTER_LIMBS>,
+    pointer_lo: MpiConfig<U256, POINTER_LIMBS>,
+    stamp: MpiConfig<u32, STAMP_LIMBS>,
 }
 
 impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
@@ -48,6 +74,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         Self::ConfigArgs {
             q_enable,
             state_table,
+            fixed_table,
         }: Self::ConfigArgs,
     ) -> Self {
         let StateTable {
@@ -60,6 +87,22 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_lo,
             is_write,
         } = state_table;
+
+        // assign elements to sorted and ordering tool
+        let lookups = lookupChip::configure(meta);
+        let mpi_call_id = MpiChip::configure(meta, q_enable, call_id_contract_addr, lookups);
+        let mpi_pointer_hi = MpiChip::configure(meta, q_enable, pointer_hi, lookups);
+        let mpi_pointer_lo = MpiChip::configure(meta, q_enable, pointer_lo, lookups);
+        let mpi_stamp = MpiChip::configure(meta, q_enable, stamp, lookups);
+        let keys = SortedElements {
+            tag,
+            call_id_or_address: mpi_call_id,
+            pointer_hi: mpi_pointer_hi,
+            pointer_lo: mpi_pointer_lo,
+            stamp: mpi_stamp,
+        };
+        let ordering_config = OrderingConfig::new(meta, q_enable, keys, lookups);
+
         let config: StateCircuitConfig<F> = Self {
             q_enable,
             tag,
@@ -70,18 +113,225 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_hi,
             pointer_lo,
             is_write,
+            lookups,
+            sort_keys: keys,
+            ordering_config,
+            is_first_access: meta.advice_column(),
+            fixed_table,
             _marker: PhantomData,
         };
-        meta.create_gate("STATE_is_write_0_1", |meta| {
+
+        meta.create_gate("STATE_constraint_in_different_region", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
+            let is_first_access = meta.query_advice(config.is_first_access, Rotation::cur());
+            let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
+            let memory_condition =
+                config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
+            let storage_condition =
+                config
+                    .tag
+                    .value_equals(state::Tag::Storage, Rotation::cur())(meta);
+            let callcontext_condition =
+                config
+                    .tag
+                    .value_equals(state::Tag::CallContext, Rotation::cur())(meta);
+            let calldata_condition =
+                config
+                    .tag
+                    .value_equals(state::Tag::CallData, Rotation::cur())(meta);
+            let return_condition =
+                config
+                    .tag
+                    .value_equals(state::Tag::ReturnData, Rotation::cur())(meta);
+            let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
+            let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
+            let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
-            vec![q_enable * (1.expr() - is_write.clone()) * is_write]
+
+            vec![
+                // is_write = 0/1
+                (
+                    "is_write",
+                    q_enable.clone() * (1.expr() - is_write.clone()) * is_write.clone(),
+                ),
+                // is_first_access = 0/1
+                (
+                    "first_access",
+                    q_enable.clone()
+                        * (1.expr() - is_first_access.clone())
+                        * is_first_access.clone(),
+                ),
+                //1. first_access=1 => is_write=1
+                //2. pointer_hi=0
+                (
+                    "stack_first_access",
+                    q_enable.clone()
+                        * stack_condition.clone()
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone()),
+                ),
+                (
+                    "stack_pointer_hi",
+                    q_enable.clone() * stack_condition * pointer_hi.clone(),
+                ),
+                //1. first_access=1 & is_write=0 => value=0
+                //2. pointer_hi=0
+                (
+                    "memory_first_access_value_lo",
+                    q_enable.clone()
+                        * memory_condition.clone()
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone())
+                        * value_lo.clone(),
+                ),
+                (
+                    "memory_value_hi",
+                    q_enable.clone() * memory_condition.clone() * value_hi.clone(),
+                ),
+                (
+                    "memory_pointer_hi",
+                    q_enable.clone() * memory_condition * pointer_hi.clone(),
+                ),
+                // TODO storage first_access=1 & is_write=0 & MPT check
+
+                //1. first_access=1 => is_write=1
+                //2. pointer_hi=0
+                (
+                    "callcontext_first_access",
+                    q_enable.clone()
+                        * callcontext_condition.clone()
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone()),
+                ),
+                (
+                    "callcontext_pointer_hi",
+                    q_enable.clone() * callcontext_condition.clone() * pointer_hi.clone(),
+                ),
+                //1. first_access=1 & is_write=0 => value_lo=0
+                //2. value_hi=0
+                //3. pointer_hi=0
+                (
+                    "calldata_first_access_write_value_lo",
+                    q_enable.clone()
+                        * calldata_condition.clone()
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone())
+                        * value_lo.clone(),
+                ),
+                (
+                    "calldata_value_hi",
+                    q_enable.clone() * calldata_condition.clone() * value_hi.clone(),
+                ),
+                (
+                    "calldata_pointer_hi",
+                    q_enable.clone() * calldata_condition * pointer_hi.clone(),
+                ),
+                //1. first_access=1 => is_write=1
+                //2. value_hi=0
+                //3. pointer_hi=0
+                (
+                    "returndata_first_access_write",
+                    q_enable.clone()
+                        * return_condition.clone()
+                        * is_first_access
+                        * (1.expr() - is_write),
+                ),
+                (
+                    "returndata_value_hi",
+                    q_enable.clone() * return_condition.clone() * value_hi,
+                ),
+                (
+                    "returndata_pointer_hi",
+                    q_enable * return_condition * pointer_hi,
+                ),
+            ]
         });
+
+        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        meta.lookup_any("STATE_lookup_stack", |meta| {
+            let mut constraints = vec![];
+
+            // 1<= pointer_lo <=1024 in stack
+            let entry = LookupEntry::U10(meta.query_advice(config.pointer_lo, Rotation::cur()));
+            let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
+            if let LookupEntry::Conditional(expr, entry) = entry.conditional(stack_condition) {
+                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
+                constraints = lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| {
+                        let q_enable = meta.query_selector(config.q_enable);
+                        (q_enable * left * expr.clone(), right)
+                    })
+                    .collect();
+            }
+            constraints
+        });
+        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        meta.lookup_any("STATE_lookup_memory", |meta| {
+            let mut constraints = vec![];
+            // 0<= value_lo < 256 in memory
+            let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
+            let memory_condition =
+                config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
+            if let LookupEntry::Conditional(expr, entry) = entry.conditional(memory_condition) {
+                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
+                constraints = lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| {
+                        let q_enable = meta.query_selector(config.q_enable);
+                        (q_enable * left * expr.clone(), right)
+                    })
+                    .collect();
+            }
+            constraints
+        });
+
         config
     }
 }
 
 impl<F: Field> StateCircuitConfig<F> {
+    fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.stamp)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.value_hi)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.value_lo)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.pointer_hi)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.pointer_lo)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id_contract_addr)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.is_first_access)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.is_write)?;
+        let tag = BinaryNumberChip::construct(self.tag);
+        tag.assign(region, offset, &state::Tag::EndPadding)?;
+
+        self.sort_keys
+            .call_id_or_address
+            .assign(region, offset, U256::zero())?;
+        self.sort_keys
+            .pointer_hi
+            .assign(region, offset, U256::zero())?;
+        self.sort_keys
+            .pointer_lo
+            .assign(region, offset, U256::zero())?;
+        self.sort_keys.stamp.assign(region, offset, 0)?;
+        let first_different_limb =
+            BinaryNumberChip::construct(self.ordering_config.first_different_limb);
+        first_different_limb.assign(region, offset, &ordering::LimbIndex::Stamp0)?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            &U256::zero(),
+            self.ordering_config.limb_difference,
+        )?;
+        assign_advice_or_fixed(
+            region,
+            offset,
+            &U256::zero(),
+            self.ordering_config.limb_difference_inverse,
+        )?;
+
+        Ok(())
+    }
+
     #[rustfmt::skip]
     fn assign_row(
         &self,
@@ -90,6 +340,7 @@ impl<F: Field> StateCircuitConfig<F> {
         row: &Row,
     ) -> Result<(), Error> {
         let tag = BinaryNumberChip::construct(self.tag);
+        tag.assign(region, offset, &row.tag.unwrap_or_default())?;
         assign_advice_or_fixed(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
         assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
         assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
@@ -97,8 +348,18 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
         assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
         assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
-        tag.assign(region, offset, &row.tag.unwrap_or_default())?;
-
+        self.sort_keys
+            .call_id_or_address
+            .assign(region, offset, row.call_id_contract_addr.unwrap_or_default())?;
+        self.sort_keys
+            .pointer_hi
+            .assign(region, offset, row.pointer_hi.unwrap_or_default())?;
+        self.sort_keys
+            .pointer_lo
+            .assign(region, offset, row.pointer_lo.unwrap_or_default())?;
+        self.sort_keys
+            .stamp
+            .assign(region, offset, row.stamp.unwrap_or_default().as_u32())?;
         Ok(())
     }
 
@@ -112,14 +373,27 @@ impl<F: Field> StateCircuitConfig<F> {
         for (offset, row) in witness.state.iter().enumerate() {
             self.assign_row(region, offset, row)?;
         }
-        let last_row = witness
-            .state
-            .last()
-            .expect("state witness must have last row");
         // pad the rest rows
         for offset in witness.state.len()..num_row_incl_padding {
-            self.assign_row(region, offset, last_row)?;
+            self.assign_padding_row(region, offset)?;
         }
+        for (i, state) in witness.state.iter().enumerate() {
+            if i > 0 {
+                let prev_row = &witness.state[i - 1];
+                let index = self.ordering_config.assign(region, i, state, prev_row)?;
+                let is_first_access = !matches!(
+                    index,
+                    ordering::LimbIndex::Stamp0 | ordering::LimbIndex::Stamp1
+                );
+                region.assign_advice(
+                    || "first_access",
+                    self.is_first_access,
+                    i,
+                    || Value::known(if is_first_access { F::ONE } else { F::ZERO }),
+                )?;
+            }
+        }
+
         Ok(())
     }
 
@@ -131,7 +405,29 @@ impl<F: Field> StateCircuitConfig<F> {
         region.name_column(|| "STATE_pointer_hi", self.pointer_hi);
         region.name_column(|| "STATE_pointer_lo", self.pointer_lo);
         region.name_column(|| "STATE_is_write", self.is_write);
-        self.tag.annotate_columns_in_region(region, "STATE");
+        self.tag
+            .annotate_columns_in_region(region, "STATE_config_tag");
+        self.sort_keys
+            .tag
+            .annotate_columns_in_region(region, "STATE_sort_elelents_tag");
+        self.sort_keys
+            .call_id_or_address
+            .annotate_colums_in_region(region, "STATE_sore_elelents_call_id_or_address");
+        self.sort_keys
+            .pointer_hi
+            .annotate_colums_in_region(region, "STATE_sore_elelents_pointer_hi");
+        self.sort_keys
+            .pointer_lo
+            .annotate_colums_in_region(region, "STATE_sore_elelents_pointer_lo");
+        self.sort_keys
+            .stamp
+            .annotate_colums_in_region(region, "STATE_sore_elelents_stamp");
+        self.ordering_config
+            .annotate_columns_in_region(region, "STATE_ordering");
+    }
+
+    pub(crate) fn load_aux_tables(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        lookupChip::construct(self.lookups).load(layouter)
     }
 }
 
@@ -158,6 +454,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
         mut layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
+        config.load_aux_tables(layouter)?;
         layouter.assign_region(
             || "state circuit",
             |mut region| {
@@ -187,7 +484,7 @@ mod test {
     use super::*;
     use crate::constant::MAX_NUM_ROW;
     use crate::util::{geth_data_test, log2_ceil};
-    use crate::witness::Witness;
+    use crate::witness::{state, Witness};
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
@@ -203,13 +500,15 @@ mod test {
             Self::default()
         }
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-            let q_enable: Selector = meta.selector(); //todo complex?
+            let q_enable: Selector = meta.complex_selector(); //todo complex?
             let state_table = StateTable::construct(meta, q_enable);
+            let fixed_table = FixedTable::construct(meta);
             Self::Config::new(
                 meta,
                 StateCircuitConfigArgs {
                     q_enable,
                     state_table,
+                    fixed_table,
                 },
             )
         }
@@ -248,5 +547,62 @@ mod test {
         ));
         let prover = test_state_circuit(witness);
         prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_valid_ordering_state() {
+        let witness = Witness {
+            state: vec![
+                state::Row {
+                    tag: Some(state::Tag::Stack),
+                    call_id_contract_addr: Some(1.into()),
+                    pointer_lo: Some(8.into()),
+                    stamp: Some(10.into()),
+                    is_write: Some(1.into()),
+                    ..Default::default()
+                },
+                state::Row {
+                    tag: Some(state::Tag::Stack),
+                    call_id_contract_addr: Some(1.into()),
+                    pointer_lo: Some(9.into()),
+                    stamp: Some(11.into()),
+                    is_write: Some(1.into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let prover = test_state_circuit(witness);
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_invalid_order() {
+        let witness = Witness {
+            state: vec![
+                state::Row {
+                    tag: Some(state::Tag::Stack),
+                    call_id_contract_addr: Some(1.into()),
+                    pointer_lo: Some(9.into()),
+                    stamp: Some(10.into()),
+                    is_write: Some(1.into()),
+                    ..Default::default()
+                },
+                state::Row {
+                    tag: Some(state::Tag::Stack),
+                    call_id_contract_addr: Some(1.into()),
+                    pointer_lo: Some(8.into()),
+                    stamp: Some(11.into()),
+                    is_write: Some(1.into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let prover = test_state_circuit(witness);
+        match prover.verify_par() {
+            Ok(()) => panic!("should be error"),
+            Err(errs) => println!("{:?}", errs),
+        };
     }
 }

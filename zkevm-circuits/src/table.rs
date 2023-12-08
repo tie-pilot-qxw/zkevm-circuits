@@ -1,5 +1,6 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
 use crate::constant::LOG_NUM_STATE_TAG;
+use crate::witness::fixed;
 use crate::witness::{arithmetic, state};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
@@ -272,25 +273,62 @@ impl<F: Field> BytecodeTable<F> {
         (addr_instance_column, bytecode_instance_column)
     }
 }
-// TODO re-write
+
 #[derive(Clone, Copy, Debug)]
 pub struct FixedTable {
-    pub u8: Column<Fixed>,
-    pub u10: Column<Fixed>,
-    pub u16: Column<Fixed>,
+    pub tag: Column<Fixed>,
+    pub values: [Column<Fixed>; 3],
 }
 
 impl FixedTable {
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let table = Self {
-            u8: meta.fixed_column(),
-            u10: meta.fixed_column(),
-            u16: meta.fixed_column(),
+            tag: meta.fixed_column(),
+            values: [
+                meta.fixed_column(),
+                meta.fixed_column(),
+                meta.fixed_column(),
+            ],
         };
-        meta.annotate_lookup_any_column(table.u8, || "LOOKUP_u8");
-        meta.annotate_lookup_any_column(table.u10, || "LOOKUP_u10");
-        meta.annotate_lookup_any_column(table.u16, || "LOOKUP_u16");
+        meta.annotate_lookup_any_column(table.tag, || "FIXED_Table_Tag");
+        meta.annotate_lookup_any_column(table.values[0], || "FIXED_Table_Value0");
+        meta.annotate_lookup_any_column(table.values[1], || "FIXED_Table_Value1");
+        meta.annotate_lookup_any_column(table.values[2], || "FIXED_Table_Value2");
         table
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>, // fixed 类型，
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = meta.query_fixed(self.tag, Rotation::cur());
+        let table_value_0 = meta.query_fixed(self.values[0], Rotation::cur());
+        let table_value_1 = meta.query_fixed(self.values[1], Rotation::cur());
+        let table_value_2 = meta.query_fixed(self.values[2], Rotation::cur());
+
+        match entry {
+            LookupEntry::Fixed { tag, values } => {
+                vec![
+                    (tag, table_tag),
+                    (values[0].clone(), table_value_0),
+                    (values[1].clone(), table_value_1),
+                    (values[2].clone(), table_value_2),
+                ]
+            }
+            LookupEntry::U8(value) => {
+                vec![
+                    ((fixed::Tag::And as u8).expr(), table_tag),
+                    (value, table_value_0),
+                ]
+            }
+            LookupEntry::U10(value) => {
+                vec![(256.expr(), table_value_1), (value, table_value_2)]
+            }
+            LookupEntry::U16(value) => {
+                vec![(value, table_value_0)]
+            }
+            _ => panic!("Not fixed lookup"),
+        }
     }
 }
 
@@ -369,6 +407,11 @@ impl PublicTable {
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug)]
 pub enum LookupEntry<F> {
+    // 0-255
+    U8(Expression<F>),
+    // 1-1024, not 0-1023
+    U10(Expression<F>),
+    U16(Expression<F>),
     /// Lookup to fixed table
     Fixed {
         /// Tag could be LogicAnd, LogicOr, LogicXor, or PushCnt
