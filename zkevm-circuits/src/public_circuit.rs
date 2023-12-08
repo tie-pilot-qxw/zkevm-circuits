@@ -1,23 +1,26 @@
 use crate::table::PublicTable;
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
-use crate::witness::state::{Row, Tag};
+use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
 use halo2_proofs::circuit::Layouter;
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Instance};
-use halo2_proofs::poly::Rotation;
+use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Instance};
 use std::marker::PhantomData;
 
+// NUM_VALUES values array's length
 const NUM_VALUES: usize = 4;
 
 #[derive(Clone, Debug)]
 pub struct PublicCircuitConfig {
+    // tag can be ChainId,BlockCoinbase....; refer witness/public.rs
     tag: Column<Instance>,
+    // tx_idx_or_number_diff (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
     tx_idx_or_number_diff: Column<Instance>,
+    // values , 4 columns
     values: [Column<Instance>; NUM_VALUES],
 }
 
 pub struct PublicCircuitConfigArgs {
+    // refer table.rs PublicTable
     pub public_table: PublicTable,
 }
 
@@ -28,6 +31,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
         meta: &mut ConstraintSystem<F>,
         Self::ConfigArgs { public_table }: Self::ConfigArgs,
     ) -> Self {
+        // unwrap public_table
         let PublicTable {
             tag,
             tx_idx_or_number_diff,
@@ -57,11 +61,14 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
             _marker: PhantomData,
         }
     }
-
+    // instance return vector of vector
+    /// +-----+-----------------------+--------+--------+--------+--------+
+    /// | tag | tx_idx_or_number_diff | value0 | value1 | value2 | value3 |
     fn instance(&self) -> Vec<Vec<F>> {
         let mut tag = vec![];
         let mut tx_idx_or_number_diff = vec![];
         let mut values: [Vec<F>; NUM_VALUES] = std::array::from_fn(|_| vec![]);
+        // assign values from witness of public
         for row in &self.witness.public {
             tag.push(F::from_u128(row.tag as u128));
             tx_idx_or_number_diff.push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
@@ -74,7 +81,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
                 )));
             }
         }
-        let mut res = vec![tag, tx_idx_or_number_diff];
+        let mut res: Vec<Vec<F>> = vec![tag, tx_idx_or_number_diff];
         res.extend(values);
         res
     }
@@ -84,6 +91,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
         _config: &Self::Config,
         mut _layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
+        // all instance column , do nothing
         Ok(())
     }
 
@@ -99,15 +107,15 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
 
 #[cfg(test)]
 mod test {
-    use std::default;
 
     use super::*;
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::{assign_advice_or_fixed, geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
-    use halo2_proofs::plonk::Circuit;
+    use halo2_proofs::plonk::{Advice, Circuit};
+    use halo2_proofs::poly::Rotation;
 
     #[derive(Clone, Default, Debug)]
     pub struct PublicTestCircuit<F: Field>(PublicCircuit<F>);
