@@ -106,10 +106,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("state_value_hi ".into(), state_value_hi - value_hi),
             ("state_value_lo".into(), state_value_lo - value_lo),
         ]);
-        // txid * (is_origin + is_gasprice) = 0
+        // tx_id = tx_idx_or_number_diff
         constraints.extend([(
-            "tx_id_o *(is_origin + is_gasprice)".into(),
-            tx_idx.clone() - tx_idx_or_number_diff * (origin_tag + gasprice_tag),
+            "tx_id = tx_idx_or_number_diff".into(),
+            tx_idx.clone() - tx_idx_or_number_diff,
         )]);
 
         let tx_context_tag = selector.select(&[
