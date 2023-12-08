@@ -6,7 +6,7 @@ use halo2_proofs::circuit::Layouter;
 use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Instance};
 use std::marker::PhantomData;
 
-// NUM_VALUES values array's length
+/// NUM_VALUES values array's length
 const NUM_VALUES: usize = 4;
 
 #[derive(Clone, Debug)]

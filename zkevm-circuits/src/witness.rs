@@ -1108,12 +1108,10 @@ impl core::Row {
         self.comments.extend(comments);
     }
     // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
     /// +---+-------+-------+-------+----------+
-    /// |cnt| 8 col | 8 col | 8 col | not used |
-    /// +---+-------+-------+-------+----------+
-    /// | 2 | 8 col (xx) | 8 col (xx) | 8 col (xx) | 1 col (not used) | 1 col(not used) | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
-    /// | 1 | 8 col (xx) | 8 col (xx) | 8 col (xx) | 8 col (xx) |
-    /// | 0 | DYNA_SELECTOR   | AUX            |
+    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
     /// +---+-------+-------+-------+----------+
     pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
         assert_eq!(self.cnt, 2.into());
