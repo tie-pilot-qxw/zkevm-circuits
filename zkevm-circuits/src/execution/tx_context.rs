@@ -92,12 +92,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let value_lo = values[1].clone();
         let origin_tag = meta.query_advice(config.vers[8], Rotation::prev());
         let gasprice_tag = meta.query_advice(config.vers[9], Rotation::prev());
+        let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
         // public tag constraints
         constraints.extend([(
             "tag constraints".into(),
             public_tag
-                - origin_tag.clone() * F::from(public::Tag::TxFromValue as u64)
-                - gasprice_tag.clone() * F::from(public::Tag::TxGasPrice as u64),
+                - selector.select(&[
+                    (public::Tag::TxFromValue as u64).expr(),
+                    (public::Tag::TxGasPrice as u64).expr(),
+                ]),
         )]);
         constraints.extend([
             ("state_value_hi ".into(), state_value_hi - value_hi),
@@ -106,9 +109,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // txid * (is_origin + is_gasprice) = 0
         constraints.extend([(
             "tx_id_o *(is_origin + is_gasprice)".into(),
-            tx_idx.clone() - tx_idx_or_number_diff * (origin_tag.clone() + gasprice_tag.clone()),
+            tx_idx.clone() - tx_idx_or_number_diff * (origin_tag + gasprice_tag),
         )]);
-        let selector = SimpleSelector::new(&[origin_tag, gasprice_tag]);
+
         let tx_context_tag = selector.select(&[
             opcode.clone() - (OpcodeId::ORIGIN.as_u64()).expr(),
             opcode.clone() - (OpcodeId::GASPRICE.as_u64()).expr(),

@@ -98,16 +98,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let gaslimit_tag = meta.query_advice(config.vers[11], Rotation::prev());
         let chainid_tag = meta.query_advice(config.vers[12], Rotation::prev());
         let basefee_tag = meta.query_advice(config.vers[13], Rotation::prev());
+        let selector = SimpleSelector::new(&[
+            timestamp_tag.clone(),
+            number_tag.clone(),
+            coinbase_tag.clone(),
+            gaslimit_tag.clone(),
+            chainid_tag.clone(),
+            basefee_tag.clone(),
+        ]);
         // public tag constraints
         constraints.extend([(
             "tag constraints".into(),
             public_tag
-                - timestamp_tag.clone() * F::from(public::Tag::BlockTimestamp as u64)
-                - number_tag.clone() * F::from(Tag::BlockNumber as u64)
-                - coinbase_tag.clone() * F::from(Tag::BlockCoinbase as u64)
-                - gaslimit_tag.clone() * F::from(Tag::BlockGasLimit as u64)
-                - chainid_tag.clone() * F::from(Tag::ChainId as u64)
-                - basefee_tag.clone() * F::from(Tag::BlockBaseFee as u64),
+                - selector.select(&[
+                    (public::Tag::BlockTimestamp as u64).expr(),
+                    (Tag::BlockNumber as u64).expr(),
+                    (Tag::BlockCoinbase as u64).expr(),
+                    (Tag::BlockGasLimit as u64).expr(),
+                    (Tag::ChainId as u64).expr(),
+                    (Tag::BlockBaseFee as u64).expr(),
+                ]),
         )]);
         let value_hi = values[0].clone();
         let value_lo = values[1].clone();
@@ -115,14 +125,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("state_value_hi ".into(), state_value_hi - value_hi),
             ("state_value_lo".into(), state_value_lo - value_lo),
         ]);
-        let selector = SimpleSelector::new(&[
-            timestamp_tag,
-            number_tag,
-            coinbase_tag,
-            gaslimit_tag,
-            chainid_tag,
-            basefee_tag,
-        ]);
+
         let public_context_tag = selector.select(&[
             opcode.clone() - (OpcodeId::TIMESTAMP.as_u64()).expr(),
             opcode.clone() - (OpcodeId::NUMBER.as_u64()).expr(),
