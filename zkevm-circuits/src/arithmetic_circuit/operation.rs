@@ -1,5 +1,7 @@
 pub(crate) mod add;
+pub(crate) mod mul;
 pub(crate) mod sub;
+
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
 use crate::witness::arithmetic::Tag;
 use eth_types::Field;

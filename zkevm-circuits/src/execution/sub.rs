@@ -1,16 +1,23 @@
 use crate::arithmetic_circuit::operation;
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::util::query_expression;
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
 
+const STATE_STAMP_DELTA: u64 = 3;
+const STACK_POINTER_DELTA: i32 = -1;
+const PC_DELTA: u64 = 1;
 pub struct SubGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -34,7 +41,51 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        // auxiliary constraints
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // core single constraints
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        let mut arithmetic_operands = vec![];
+        for i in 0..3 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                if i == 0 { 0 } else { -1 }.expr(),
+                i == 2,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            arithmetic_operands.extend([value_hi, value_lo]);
+        }
+        let (tag, arithmetic_operands_full) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+        // iterate over three operands (0..6), since we don't need constraint on the fourth
+        constraints.extend((0..6).map(|i| {
+            (
+                format!("operand[{}] in arithmetic = in state lookup", i),
+                arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
+            )
+        }));
+        constraints.extend([
+            ("opcode".into(), opcode - OpcodeId::SUB.as_u8().expr()),
+            (
+                "arithmetic tag".into(),
+                tag - (arithmetic::Tag::Sub as u8).expr(),
+            ),
+        ]);
+        constraints
     }
     fn get_lookups(
         &self,
@@ -53,7 +104,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert_eq!(trace.op, OpcodeId::ADD);
+        assert_eq!(trace.op, OpcodeId::SUB);
 
         let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
@@ -93,7 +144,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[2.into(), 3.into()]);
+        let stack = Stack::from_slice(&[300.into(), 3.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),

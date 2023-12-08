@@ -960,6 +960,14 @@ impl core::Row {
                     (format!("vers_{}", 7), format!("arithmetic carry lo")),
                 ]);
             }
+            arithmetic::Tag::Sub => {
+                self.comments.extend([
+                    (format!("vers_{}", 4), format!("arithmetic difference hi")),
+                    (format!("vers_{}", 5), format!("arithmetic difference lo")),
+                    (format!("vers_{}", 6), format!("arithmetic carry hi")),
+                    (format!("vers_{}", 7), format!("arithmetic carry lo")),
+                ]);
+            }
             _ => (),
         };
     }

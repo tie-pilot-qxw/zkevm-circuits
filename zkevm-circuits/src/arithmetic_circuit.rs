@@ -333,7 +333,7 @@ mod test {
     #[test]
     fn test_each_operation_witness() {
         let (arithmeticAdd, result) =
-            self::operation::add::gen_witness(vec![3.into(), u128::MAX.into()]);
+            self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
         let (arithmeticSub, result) =
             self::operation::sub::gen_witness(vec![3.into(), u128::MAX.into()]);
 
