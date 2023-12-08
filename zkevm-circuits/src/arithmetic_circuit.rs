@@ -104,7 +104,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
             region.name_column(|| format!("ARITHMETIC_u16_{}", index), *value);
         }
         for (index, value) in self.operands.iter().enumerate() {
-            region.name_column(|| format!("ARITHMETIC_operands_{}_hi", index), value[0]);
+            region.name_column(|| format!("ARITHMETIC_operand_{}_hi", index), value[0]);
             region.name_column(|| format!("ARITHMETIC_operand_{}_lo", index,), value[1]);
         }
     }
