@@ -1,5 +1,5 @@
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{BytecodeTable, LookupEntry, PublicTable, StateTable};
+use crate::table::{BytecodeTable, FixedTable, LookupEntry, PublicTable, StateTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -762,6 +762,7 @@ mod test {
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
             let public_table = PublicTable::construct(meta);
+            let fixed_table = FixedTable::construct(meta);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
                 BytecodeCircuitConfigArgs {
@@ -776,6 +777,7 @@ mod test {
                 StateCircuitConfigArgs {
                     q_enable: q_enable_state,
                     state_table,
+                    fixed_table,
                 },
             );
             let public_circuit =

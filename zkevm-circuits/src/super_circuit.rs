@@ -4,7 +4,7 @@ use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs}
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-use crate::table::{BytecodeTable, PublicTable, StateTable};
+use crate::table::{BytecodeTable, FixedTable, PublicTable, StateTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -37,6 +37,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let q_enable_state = meta.complex_selector();
         let state_table = StateTable::construct(meta, q_enable_state);
         let public_table = PublicTable::construct(meta);
+        let fixed_table = FixedTable::construct(meta);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
@@ -58,6 +59,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             StateCircuitConfigArgs {
                 q_enable: q_enable_state,
                 state_table,
+                fixed_table,
             },
         );
         let public_circuit =
