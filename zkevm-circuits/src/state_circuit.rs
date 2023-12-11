@@ -247,44 +247,44 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             ]
         });
 
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
-        meta.lookup_any("STATE_lookup_stack", |meta| {
-            let mut constraints = vec![];
+        // #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        // meta.lookup_any("STATE_lookup_stack", |meta| {
+        //     let mut constraints = vec![];
 
-            // 1<= pointer_lo <=1024 in stack
-            let entry = LookupEntry::U10(meta.query_advice(config.pointer_lo, Rotation::cur()));
-            let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
-            if let LookupEntry::Conditional(expr, entry) = entry.conditional(stack_condition) {
-                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
-                constraints = lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| {
-                        let q_enable = meta.query_selector(config.q_enable);
-                        (q_enable * left * expr.clone(), right)
-                    })
-                    .collect();
-            }
-            constraints
-        });
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
-        meta.lookup_any("STATE_lookup_memory", |meta| {
-            let mut constraints = vec![];
-            // 0<= value_lo < 256 in memory
-            let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
-            let memory_condition =
-                config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
-            if let LookupEntry::Conditional(expr, entry) = entry.conditional(memory_condition) {
-                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
-                constraints = lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| {
-                        let q_enable = meta.query_selector(config.q_enable);
-                        (q_enable * left * expr.clone(), right)
-                    })
-                    .collect();
-            }
-            constraints
-        });
+        //     // 1<= pointer_lo <=1024 in stack
+        //     let entry = LookupEntry::U10(meta.query_advice(config.pointer_lo, Rotation::cur()));
+        //     let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
+        //     if let LookupEntry::Conditional(expr, entry) = entry.conditional(stack_condition) {
+        //         let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
+        //         constraints = lookup_vec
+        //             .into_iter()
+        //             .map(|(left, right)| {
+        //                 let q_enable = meta.query_selector(config.q_enable);
+        //                 (q_enable * left * expr.clone(), right)
+        //             })
+        //             .collect();
+        //     }
+        //     constraints
+        // });
+        // #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        // meta.lookup_any("STATE_lookup_memory", |meta| {
+        //     let mut constraints = vec![];
+        //     // 0<= value_lo < 256 in memory
+        //     let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
+        //     let memory_condition =
+        //         config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
+        //     if let LookupEntry::Conditional(expr, entry) = entry.conditional(memory_condition) {
+        //         let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
+        //         constraints = lookup_vec
+        //             .into_iter()
+        //             .map(|(left, right)| {
+        //                 let q_enable = meta.query_selector(config.q_enable);
+        //                 (q_enable * left * expr.clone(), right)
+        //             })
+        //             .collect();
+        //     }
+        //     constraints
+        // });
 
         config
     }
@@ -529,6 +529,7 @@ mod test {
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
+        println!("K: {}", k);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         prover

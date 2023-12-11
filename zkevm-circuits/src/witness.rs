@@ -14,10 +14,11 @@ use crate::constant::{
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
+use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f,
-    create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
+    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
+    SubCircuit,
 };
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
@@ -136,7 +137,6 @@ impl WitnessExecHelper {
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
-
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -898,6 +898,7 @@ impl WitnessExecHelper {
                 acc_f = byte_f + acc_f * temp_256_f;
                 convert_f_to_u256(&acc_f)
             };
+            acc_pre = acc;
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Memory,
@@ -1381,6 +1382,11 @@ impl Witness {
             &mut current_state,
             &execution_gadgets_map,
         );
+        witness.state.sort_by(|a, b| {
+            let key_a = state_to_be_limbs(a);
+            let key_b = state_to_be_limbs(b);
+            key_a.cmp(&key_b)
+        });
         witness
     }
 
