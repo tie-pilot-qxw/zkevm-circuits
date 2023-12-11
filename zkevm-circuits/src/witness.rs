@@ -14,10 +14,11 @@ use crate::constant::{
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
+use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f,
-    create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
+    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
+    SubCircuit,
 };
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
@@ -136,7 +137,6 @@ impl WitnessExecHelper {
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
-
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -875,7 +875,7 @@ impl WitnessExecHelper {
         (res, value.clone())
     }
 
-    pub fn get_log_bytes_rows(
+    pub fn get_log_bytes_rows<F: Field>(
         &mut self,
         trace: &GethExecStep,
         offset: usize,
@@ -886,8 +886,19 @@ impl WitnessExecHelper {
         let copy_stamp = self.state_stamp;
         let log_stamp = self.log_stamp;
 
+        let mut acc_pre = U256::from(0);
+        let temp_256_f = F::from(256);
         for i in 0..len {
             let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+            let acc: U256 = if i == 0 {
+                byte.into()
+            } else {
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                acc_f = byte_f + acc_f * temp_256_f;
+                convert_f_to_u256(&acc_f)
+            };
+            acc_pre = acc;
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Memory,
@@ -900,6 +911,7 @@ impl WitnessExecHelper {
                 dst_stamp: log_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
+                acc,
             });
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }
@@ -1370,6 +1382,11 @@ impl Witness {
             &mut current_state,
             &execution_gadgets_map,
         );
+        witness.state.sort_by(|a, b| {
+            let key_a = state_to_be_limbs(a);
+            let key_b = state_to_be_limbs(b);
+            key_a.cmp(&key_b)
+        });
         witness
     }
 

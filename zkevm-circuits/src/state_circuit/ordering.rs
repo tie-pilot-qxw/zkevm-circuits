@@ -263,9 +263,9 @@ fn square_limb_differences<F: Field>(cur: Queries<F>, prev: Queries<F>) -> Vec<E
     result
 }
 
-fn state_to_be_limbs(row: &state::Row) -> Vec<u16> {
+pub fn state_to_be_limbs(row: &state::Row) -> Vec<u16> {
     let mut be_bytes = vec![0u8];
-    be_bytes.push(row.tag.unwrap() as u8);
+    be_bytes.push(row.tag.unwrap_or_default() as u8);
     be_bytes.extend_from_slice(&row.call_id_contract_addr.unwrap_or_default().to_be_bytes()[12..]); // 160bit = 20 byte
     be_bytes.extend_from_slice(&row.pointer_hi.unwrap_or_default().to_be_bytes()[16..]); //128bit = 16 byte
     be_bytes.extend_from_slice(&row.pointer_lo.unwrap_or_default().to_be_bytes()[16..]);
