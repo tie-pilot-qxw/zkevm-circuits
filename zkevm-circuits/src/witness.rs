@@ -1030,7 +1030,6 @@ impl core::Row {
         assert!(NUM_LOOKUP > 0);
         #[rustfmt::skip]
         let vec = [
-        let vec = [
             [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7],
             [&mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15],
             [&mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23],
@@ -1233,48 +1232,6 @@ impl core::Row {
             assert!(cell.is_none());
             *cell = value;
         }
-        self.comments.extend(comments);
-    }
-    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
-    /// +---+-------+-------+-------+------+-----------+
-    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
-    /// +---+-------+-------+-------+----------+
-    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
-    /// +---+-------+-------+-------+----------+
-    pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
-        assert_eq!(self.cnt, 2.into());
-        let cells = vec![
-            (&mut self.vers_26, Some((public_row.tag as u8).into())),
-            (&mut self.vers_27, public_row.tx_idx_or_number_diff),
-            (
-                &mut self.vers_28,
-                Some(public_row.value_0.unwrap_or_default()),
-            ),
-            (
-                &mut self.vers_29,
-                Some(public_row.value_1.unwrap_or_default()),
-            ),
-            (
-                &mut self.vers_30,
-                Some(public_row.value_2.unwrap_or_default()),
-            ),
-            (
-                &mut self.vers_31,
-                Some(public_row.value_3.unwrap_or_default()),
-            ),
-        ];
-        for (cell, value) in cells {
-            assert!(cell.is_none());
-            *cell = value;
-        }
-        let comments = vec![
-            (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
-            (format!("vers_{}", 27), format!("tx_idx_or_number_diff")),
-            (format!("vers_{}", 28), format!("value_0")),
-            (format!("vers_{}", 29), format!("value_1")),
-            (format!("vers_{}", 30), format!("value_2")),
-            (format!("vers_{}", 31), format!("value_3")),
-        ];
         self.comments.extend(comments);
     }
     // insert_public_lookup insert public lookup ,6 columns in row prev(-2)

@@ -251,12 +251,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         if current_state.log_left > 0 {
             current_state.log_left -= 1;
         }
-        // // increase state_stamp
-        // current_state.state_stamp +=1;  // TODO confirm
-        // // decrease stack_pointer
-        // if current_state.stack_pointer >0 {
-        //     current_state.stack_pointer -=1;  // TODO confirm
-        // }
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],

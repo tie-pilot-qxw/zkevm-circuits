@@ -22,7 +22,6 @@ pub mod jumpdest;
 pub mod jumpi;
 pub mod keccak;
 pub mod log_bytes;
-pub mod log_bytes;
 pub mod log_topic;
 pub mod lt;
 pub mod memory;
@@ -304,28 +303,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_hi,
             pointer_lo,
             is_write,
-        }
-    }
-
-    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
-    /// +---+-------+-------+-------+------+-----------+
-    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
-    /// +---+-------+-------+-------+----------+
-    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
-    /// +---+-------+-------+-------+----------+
-    pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
-            meta.query_advice(self.vers[26], Rotation(-2)),
-            meta.query_advice(self.vers[27], Rotation(-2)),
-            meta.query_advice(self.vers[28], Rotation(-2)),
-            meta.query_advice(self.vers[29], Rotation(-2)),
-            meta.query_advice(self.vers[30], Rotation(-2)),
-            meta.query_advice(self.vers[31], Rotation(-2)),
-        );
-        LookupEntry::Public {
-            tag,
-            tx_idx_or_number_diff,
-            values: [value_0, value_1, value_2, value_3],
         }
     }
 
