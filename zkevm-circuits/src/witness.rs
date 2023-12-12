@@ -1,4 +1,5 @@
 pub mod arithmetic;
+pub mod bitwise;
 pub mod bytecode;
 pub mod copy;
 pub mod core;
@@ -7,6 +8,7 @@ pub mod fixed;
 pub mod public;
 pub mod state;
 
+use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
@@ -39,6 +41,7 @@ pub struct Witness {
     pub public: Vec<public::Row>,
     pub state: Vec<state::Row>,
     pub arithmetic: Vec<arithmetic::Row>,
+    pub bitwise: Vec<bitwise::Row>,
 }
 
 pub struct WitnessExecHelper {
@@ -1346,6 +1349,8 @@ impl Witness {
             .for_each(|_| self.state.insert(0, Default::default()));
         (0..CopyCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| self.copy.insert(0, Default::default()));
+        (0..BitwiseCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| self.bitwise.insert(0, Default::default()));
     }
 
     /// Generate end padding of a witness of one block
@@ -1534,15 +1539,15 @@ impl ExecutionState {
         let mut row = current_state.get_core_row_without_versatile(&trace, 0);
         row.exec_state = Some(self);
         #[rustfmt::skip]
-        let vec = [
-            &mut row.vers_0, &mut row.vers_1, &mut row.vers_2, &mut row.vers_3, &mut row.vers_4,
-            &mut row.vers_5, &mut row.vers_6, &mut row.vers_7, &mut row.vers_8, &mut row.vers_9,
-            &mut row.vers_10, &mut row.vers_11, &mut row.vers_12, &mut row.vers_13, &mut row.vers_14,
-            &mut row.vers_15, &mut row.vers_16, &mut row.vers_17, &mut row.vers_18, &mut row.vers_19,
-            &mut row.vers_20, &mut row.vers_21, &mut row.vers_22, &mut row.vers_23, &mut row.vers_24,
-            &mut row.vers_25, &mut row.vers_26, &mut row.vers_27, &mut row.vers_28, &mut row.vers_29,
-            &mut row.vers_30, &mut row.vers_31,
-        ];
+		let vec = [
+			&mut row.vers_0, &mut row.vers_1, &mut row.vers_2, &mut row.vers_3, &mut row.vers_4,
+			&mut row.vers_5, &mut row.vers_6, &mut row.vers_7, &mut row.vers_8, &mut row.vers_9,
+			&mut row.vers_10, &mut row.vers_11, &mut row.vers_12, &mut row.vers_13, &mut row.vers_14,
+			&mut row.vers_15, &mut row.vers_16, &mut row.vers_17, &mut row.vers_18, &mut row.vers_19,
+			&mut row.vers_20, &mut row.vers_21, &mut row.vers_22, &mut row.vers_23, &mut row.vers_24,
+			&mut row.vers_25, &mut row.vers_26, &mut row.vers_27, &mut row.vers_28, &mut row.vers_29,
+			&mut row.vers_30, &mut row.vers_31,
+		];
         for (cell, value) in vec
             .into_iter()
             .zip(selector_hi.into_iter().chain(selector_lo).chain([
