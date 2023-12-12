@@ -37,6 +37,7 @@ pub mod returndatasize;
 pub mod selfbalance;
 pub mod sgt;
 pub mod shr;
+pub mod signextend;
 pub mod slt;
 pub mod stop;
 pub mod storage;
@@ -107,6 +108,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::returndatacopy::new(),
             crate::execution::returndatasize::new(),
             crate::execution::log_bytes::new(),
+            crate::execution::signextend::new(),
         ]
     }};
 }
@@ -1146,6 +1148,7 @@ pub enum ExecutionState {
     EXTCODECOPY,
     SELFBALANCE,
     RETURNDATACOPY,
+    SIGNEXTEND,
 }
 
 impl ExecutionState {
@@ -1169,7 +1172,7 @@ impl ExecutionState {
                 vec![Self::EXP]
             }
             OpcodeId::SIGNEXTEND => {
-                todo!()
+                vec![Self::SIGNEXTEND]
             }
             OpcodeId::LT => vec![Self::LT],
             OpcodeId::GT => vec![Self::GT],
