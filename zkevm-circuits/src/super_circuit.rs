@@ -1,4 +1,5 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
+use crate::bitwise_circuit::{BitwiseCircuit, BitwiseCircuitConfig, BitwiseCircuitConfigArgs};
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
@@ -22,6 +23,7 @@ pub struct SuperCircuitConfig<
     state_circuit: StateCircuitConfig<F>,
     public_circuit: PublicCircuitConfig,
     copy_circuit: CopyCircuitConfig<F>,
+    bitwise_circuit: BitwiseCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -73,6 +75,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 public_table,
             },
         );
+        let bitwise_circuit =
+            BitwiseCircuitConfig::new(meta, BitwiseCircuitConfigArgs { fixed_table });
 
         SuperCircuitConfig {
             core_circuit,
@@ -80,6 +84,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             state_circuit,
             public_circuit,
             copy_circuit,
+            bitwise_circuit,
         }
     }
 }
@@ -97,6 +102,7 @@ pub struct SuperCircuit<
     pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
     pub public_circuit: PublicCircuit<F>,
     pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
+    pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -123,12 +129,14 @@ impl<
         let state_circuit = StateCircuit::new_from_witness(witness);
         let public_circuit = PublicCircuit::new_from_witness(witness);
         let copy_circuit = CopyCircuit::new_from_witness(witness);
+        let bitwise_circuit = BitwiseCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
             state_circuit,
             public_circuit,
             copy_circuit,
+            bitwise_circuit,
         }
     }
 
@@ -139,6 +147,7 @@ impl<
         instance.extend(self.state_circuit.instance());
         instance.extend(self.public_circuit.instance());
         instance.extend(self.copy_circuit.instance());
+        instance.extend(self.bitwise_circuit.instance());
 
         instance
     }
@@ -158,6 +167,8 @@ impl<
             .synthesize_sub(&config.public_circuit, layouter)?;
         self.copy_circuit
             .synthesize_sub(&config.copy_circuit, layouter)?;
+        self.bitwise_circuit
+            .synthesize_sub(&config.bitwise_circuit, layouter)?;
         Ok(())
     }
 
@@ -168,6 +179,7 @@ impl<
             StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             PublicCircuit::<F>::unusable_rows(),
             CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+            BitwiseCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -181,6 +193,7 @@ impl<
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             PublicCircuit::<F>::num_rows(witness),
             CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+            BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
         itertools::max(num_rows).unwrap()
     }

@@ -1,4 +1,5 @@
 pub mod arithmetic_circuit;
+pub mod bitwise_circuit;
 pub mod bytecode_circuit;
 pub mod constant;
 pub mod copy_circuit;
