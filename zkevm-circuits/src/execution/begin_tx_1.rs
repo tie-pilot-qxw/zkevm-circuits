@@ -173,8 +173,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let tx_idx = current_state.tx_idx + 1;
+        let tx_idx = current_state.tx_idx;
         let call_id = current_state.state_stamp + 1;
+        // update call_id due to will be accessed in get_write_call_context_row
+        current_state.call_id = call_id;
         // todo: lookup addr from public table
         let addr = current_state.code_addr;
         let write_addr_row = current_state.get_write_call_context_row(
@@ -256,11 +258,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             write_parent_code_addr_row,
         ];
         state.extend(state_rows_from_copy);
-        // update current_state for tx_idx and call_id
-        current_state.tx_idx = tx_idx;
-        current_state.call_id = call_id;
-
-        //update current_state's calldata
+        // update current_state for tx_idx
+        current_state.tx_idx = tx_idx + 1;
 
         Witness {
             copy: copy_rows,
