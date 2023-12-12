@@ -1,16 +1,34 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::LookupEntry;
+use crate::util::ExpressionOutcome;
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 1;
+const PC_DELTA: u64 = 1;
 
+/// JumpDest Execution State layout is as follows
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col |  8 col   |
+/// +---+-------+-------+-------+----------+
+/// | 0 | DYNA_SELECTOR | AUX              |
+/// +---+-------+-------+-------+----------+
+///
 pub struct JumpdestGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for JumpdestGadget<F>
 {
@@ -31,7 +49,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
+        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+
+        let delta = AuxiliaryDelta {
+            ..Default::default()
+        };
+
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(1.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+
+        constraints.extend([(
+            "opcode is JUMPDEST".into(),
+            opcode - OpcodeId::JUMPDEST.as_u8().expr(),
+        )]);
+        constraints
     }
     fn get_lookups(
         &self,
@@ -75,7 +112,8 @@ mod test {
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
+
+        let trace = prepare_trace_step!(0, OpcodeId::JUMPDEST, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
