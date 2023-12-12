@@ -44,6 +44,7 @@ pub mod swap;
 pub mod tx_context;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
+use crate::witness::public::Tag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
@@ -303,23 +304,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
+    /// +---+-------+-------+-------+----------+
     pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        const COL_START: usize = 26;
-        let (tag, tx_idx_or_number_diff, value0, value1, value2, value3) = (
-            meta.query_advice(self.vers[COL_START + 0], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 1], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 2], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 3], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 4], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 5], Rotation::prev()),
+        let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
+            meta.query_advice(self.vers[26], Rotation(-2)),
+            meta.query_advice(self.vers[27], Rotation(-2)),
+            meta.query_advice(self.vers[28], Rotation(-2)),
+            meta.query_advice(self.vers[29], Rotation(-2)),
+            meta.query_advice(self.vers[30], Rotation(-2)),
+            meta.query_advice(self.vers[31], Rotation(-2)),
         );
-
-        let values = [value0, value1, value2, value3];
-
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
-            values,
+            values: [value_0, value_1, value_2, value_3],
         }
     }
 

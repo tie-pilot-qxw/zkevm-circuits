@@ -62,6 +62,7 @@ pub struct WitnessExecHelper {
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
+    pub tx_value: U256,
 }
 
 impl WitnessExecHelper {
@@ -86,6 +87,7 @@ impl WitnessExecHelper {
             read_only: 0,
             bytecode: HashMap::new(),
             stack_top: None,
+            tx_value: 0.into(),
         }
     }
 
@@ -131,6 +133,7 @@ impl WitnessExecHelper {
             self.call_data.insert(call_id, tx.input.to_vec());
         }
         self.value.insert(call_id, tx.value);
+        self.tx_value = tx.value;
         self.sender.insert(call_id, tx.from.as_bytes().into());
         self.code_addr = to;
         self.bytecode = bytecode;
@@ -1199,33 +1202,46 @@ impl core::Row {
         }
         self.comments.extend(comments);
     }
-
-    pub fn insert_public_lookup(&mut self, public: &public::Row) {
-        assert_eq!(self.cnt, 1.into());
-        let mut cells = vec![
-            // code copy
-            (&mut self.vers_26, (U256::from(public.tag as u64)).into()),
-            (&mut self.vers_27, public.tx_idx_or_number_diff),
-            (&mut self.vers_28, public.value_0),
-            (&mut self.vers_29, public.value_1),
-            (&mut self.vers_30, public.value_2),
-            (&mut self.vers_31, public.value_3),
-        ];
-
-        let mut comments = vec![
-            // copy comment
-            (format!("vers_{}", 0), format!("tag={:?}", public.tag)),
-            (format!("vers_{}", 1), format!("tx_idx_or_number_diff")),
-            (format!("vers_{}", 2), format!("value_0")),
-            (format!("vers_{}", 3), format!("value_1")),
-            (format!("vers_{}", 5), format!("value_2")),
-            (format!("vers_{}", 6), format!("value_3")),
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
+    /// +---+-------+-------+-------+----------+
+    pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
+        assert_eq!(self.cnt, 2.into());
+        let cells = vec![
+            (&mut self.vers_26, Some((public_row.tag as u8).into())),
+            (&mut self.vers_27, public_row.tx_idx_or_number_diff),
+            (
+                &mut self.vers_28,
+                Some(public_row.value_0.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_29,
+                Some(public_row.value_1.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_30,
+                Some(public_row.value_2.unwrap_or_default()),
+            ),
+            (
+                &mut self.vers_31,
+                Some(public_row.value_3.unwrap_or_default()),
+            ),
         ];
         for (cell, value) in cells {
-            // before inserting, these columns must be none
             assert!(cell.is_none());
             *cell = value;
         }
+        let comments = vec![
+            (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
+            (format!("vers_{}", 27), format!("tx_idx_or_number_diff")),
+            (format!("vers_{}", 28), format!("value_0")),
+            (format!("vers_{}", 29), format!("value_1")),
+            (format!("vers_{}", 30), format!("value_2")),
+            (format!("vers_{}", 31), format!("value_3")),
+        ];
         self.comments.extend(comments);
     }
 }

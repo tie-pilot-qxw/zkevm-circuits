@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::util::create_contract_addr_with_prefix;
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{ToBigEndian, U256};
-use gadgets::util::Expr;
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -24,6 +23,7 @@ pub struct Row {
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub enum Tag {
     #[default]
+    ChainId,
     BlockCoinbase,
     BlockTimestamp,
     BlockNumber,
@@ -38,7 +38,7 @@ pub enum Tag {
     TxToCallDataSize,
     TxIsCreate,
     TxGasLimit,
-    TxGasPrice,
+    TxGasPrice, // tx gas price
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
@@ -69,8 +69,25 @@ impl Row {
         let mut result = vec![];
         let block_constant: BlockConstants = (&geth_data.eth_block).try_into()?;
         result.push(Row {
+            tag: Tag::ChainId,
+            // chain_id high 16 byte
+            value_0: Some(geth_data.chain_id.to_be_bytes()[..16].into()),
+            // chain_id low 16 byte
+            value_1: Some(geth_data.chain_id.to_be_bytes()[16..].into()),
+            comments: [
+                (format!("tag"), format!("ChainId")),
+                (format!("value_0"), format!("ChainId[..16]")),
+                (format!("value_1"), format!("ChainId[16..]")),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
+        result.push(Row {
             tag: Tag::BlockCoinbase,
+            // coinbase high 4 byte
             value_0: Some(block_constant.coinbase.as_fixed_bytes()[..4].into()),
+            // coinbase low 16 byte
             value_1: Some(block_constant.coinbase.as_fixed_bytes()[4..].into()),
             comments: [
                 (format!("tag"), format!("BlockCoinbase")),
@@ -83,7 +100,9 @@ impl Row {
         });
         result.push(Row {
             tag: Tag::BlockTimestamp,
+            // timestamp high 16 byte
             value_0: Some(block_constant.timestamp.to_be_bytes()[..16].into()),
+            // timestamp low 16 byte
             value_1: Some(block_constant.timestamp.to_be_bytes()[16..].into()),
             comments: [
                 (format!("tag"), format!("BlockTimestamp")),
@@ -96,6 +115,7 @@ impl Row {
         });
         result.push(Row {
             tag: Tag::BlockNumber,
+            // block number as u64
             value_1: Some(block_constant.number.as_u64().into()),
             comments: [
                 (format!("tag"), format!("BlockNumber")),
@@ -107,7 +127,9 @@ impl Row {
         });
         result.push(Row {
             tag: Tag::BlockDifficulty,
+            // difficulty high 16 byte
             value_0: Some(block_constant.difficulty.to_be_bytes()[..16].into()),
+            // difficulty low 16 byte
             value_1: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
             comments: [
                 (format!("tag"), format!("BlockDifficulty")),
@@ -120,7 +142,9 @@ impl Row {
         });
         result.push(Row {
             tag: Tag::BlockGasLimit,
+            // gaslimit high 16 byte
             value_0: Some(block_constant.gas_limit.to_be_bytes()[..16].into()),
+            // gaslimit low 16 byte
             value_1: Some(block_constant.gas_limit.to_be_bytes()[16..].into()),
             comments: [
                 (format!("tag"), format!("BlockGasLimit")),
@@ -133,7 +157,9 @@ impl Row {
         });
         result.push(Row {
             tag: Tag::BlockBaseFee,
+            // basefee hight 16 byte
             value_0: Some(block_constant.base_fee.to_be_bytes()[..16].into()),
+            // basefee low 16 byte
             value_1: Some(block_constant.base_fee.to_be_bytes()[16..].into()),
             comments: [
                 (format!("tag"), format!("BlockBaseFee")),
@@ -147,12 +173,17 @@ impl Row {
         for (tx_idx, tx) in geth_data.eth_block.transactions.iter().enumerate() {
             // due to we decide to start idx at 1 in witness
             let tx_idx = tx_idx + 1;
+            let gas_price = tx.gas_price.unwrap_or(0.into());
             result.push(Row {
                 tag: Tag::TxFromValue,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
+                // tx.from high 4 byte
                 value_0: Some(tx.from.as_fixed_bytes()[..4].into()),
+                // tx.from low 4 byte
                 value_1: Some(tx.from.as_fixed_bytes()[4..].into()),
+                // tx.value high 16 byte
                 value_2: Some(tx.value.to_be_bytes()[..16].into()),
+                // tx.value low 16 byte
                 value_3: Some(tx.value.to_be_bytes()[16..].into()),
                 comments: [
                     (format!("tag"), format!("TxFromValue")),
@@ -185,9 +216,11 @@ impl Row {
             result.push(Row {
                 tag: Tag::TxToCallDataSize,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
+
                 value_0: Some(to_hi),
                 value_1: Some(to_lo),
                 value_2: Some(0.into()), //len won't > u128
+                // tx.input length
                 value_3: Some(tx.input.len().into()),
                 comments: [
                     (format!("tag"), format!("TxToCallDataSize")),
@@ -208,6 +241,7 @@ impl Row {
                 tag: Tag::TxIsCreate,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some(0.into()),
+                // if isCreate 1 ,else 0
                 value_1: Some((tx.to.is_none() as u8).into()),
                 comments: [
                     (format!("tag"), format!("TxIsCreate")),
@@ -225,7 +259,9 @@ impl Row {
             result.push(Row {
                 tag: Tag::TxGasLimit,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
+                // tx gas hight 16 byte
                 value_0: Some(tx.gas.to_be_bytes()[..16].into()),
+                // tx gas low 16 byte
                 value_1: Some(tx.gas.to_be_bytes()[16..].into()),
                 comments: [
                     (format!("tag"), format!("TxGasLimit")),
@@ -240,11 +276,13 @@ impl Row {
                 .collect(),
                 ..Default::default()
             });
-            let gas_price = tx.gas_price.unwrap_or(0.into());
+
             result.push(Row {
                 tag: Tag::TxGasPrice,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
+                // tx gas_price high 16 byte
                 value_0: Some(gas_price.to_be_bytes()[..16].into()),
+                // tx gas_price low 16 byte
                 value_1: Some(gas_price.to_be_bytes()[16..].into()),
                 comments: [
                     (format!("tag"), format!("TxGasPrice")),
@@ -263,7 +301,9 @@ impl Row {
                 result.push(Row {
                     tag: Tag::TxCalldata,
                     tx_idx_or_number_diff: Some(tx_idx.into()),
+                    // input index
                     value_0: Some(idx.into()),
+                    // input byte
                     value_1: Some((*byte).into()),
                     comments: [
                         (format!("tag"), format!("TxCalldata")),
@@ -283,8 +323,11 @@ impl Row {
         for (diff, hash) in geth_data.history_hashes.iter().rev().enumerate() {
             result.push(Row {
                 tag: Tag::BlockHash,
+                // block number diff
                 tx_idx_or_number_diff: Some((diff + 1).into()),
+                // hash high 16 byte
                 value_0: Some(hash.to_be_bytes()[..16].into()),
+                // hash low 16 byte
                 value_1: Some(hash.to_be_bytes()[16..].into()),
                 comments: [
                     (format!("tag"), format!("BlockHash")),
@@ -305,6 +348,7 @@ impl Row {
                 assert!(topic_num <= 4);
                 let tx_idx = U256::from(log.transaction_index.unwrap_or_default().as_u64());
                 let log_index = log.log_index.unwrap_or_default();
+                // compute log_tag by log.topics.length
                 let log_tag = if topic_num == 0 {
                     LogTag::AddrWith0Topic
                 } else if topic_num == 1 {
@@ -323,7 +367,9 @@ impl Row {
                     tx_idx_or_number_diff: Some(tx_idx),
                     value_0: Some(log_index),
                     value_1: Some(U256::from(log_tag as u64)),
+                    // address high 4 byte
                     value_2: Some(address[..4].into()),
+                    // address low 16 byte
                     value_3: Some(address[4..].into()),
                     comments: [
                         (format!("tag"), format!("{:?}", Tag::TxLog)),
@@ -356,6 +402,7 @@ impl Row {
                     tag: Tag::TxLogSize,
                     tx_idx_or_number_diff: Some(tx_idx),
                     value_0: Some(0.into()),
+                    // log data's length
                     value_1: Some(log.data.len().into()),
                     comments: [
                         (format!("tag"), format!("{:?}", Tag::TxLogSize)),
@@ -377,7 +424,9 @@ impl Row {
                         tx_idx_or_number_diff: Some(tx_idx),
                         value_0: Some(log_index),
                         value_1: Some(U256::from(LogTag::Data as u64)),
+                        // log data byte
                         value_2: Some(U256::from(data.clone())),
+                        // data byte index
                         value_3: Some(U256::from(data_idx as u64)),
                         comments: [
                             (format!("tag"), format!("{:?}", Tag::TxLog)),
@@ -407,7 +456,7 @@ impl Row {
             1 => LogTag::Topic2,
             2 => LogTag::Topic3,
             3 => LogTag::Topic4,
-            _ => panic!(),
+            _ => panic!("illegal log_topic_tag"),
         }
     }
     // get_log_topic_row return topic row
