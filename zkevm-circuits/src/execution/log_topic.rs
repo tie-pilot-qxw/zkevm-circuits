@@ -14,7 +14,7 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_seletor::SimpleSelector;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -211,24 +211,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_pop_topic]);
 
         // core_row_1: insert selector LOG_LEFT_4, LOG_LEFT_3, LOG_LEFT_2, LOG_LEFT_1, LOG_LEFT_0
-        match current_state.log_left {
-            4 => {
-                assign_or_panic!(core_row_1.vers_8, U256::from(1))
-            }
-            3 => {
-                assign_or_panic!(core_row_1.vers_9, U256::from(1))
-            }
-            2 => {
-                assign_or_panic!(core_row_1.vers_10, U256::from(1))
-            }
-            1 => {
-                assign_or_panic!(core_row_1.vers_11, U256::from(1))
-            }
-            0 => {
-                assign_or_panic!(core_row_1.vers_12, U256::from(1))
-            }
-            _ => panic!(),
-        }
+        simple_selector_assign(
+            [
+                &mut core_row_1.vers_12, // LOG_LEFT_0
+                &mut core_row_1.vers_11, // LOG_LEFT_1
+                &mut core_row_1.vers_10, // LOG_LEFT_2
+                &mut core_row_1.vers_9,  // LOG_LEFT_3
+                &mut core_row_1.vers_8,  // LOG_LEFT_4
+            ],
+            current_state.log_left, // if log_left is X, then the location for LOG_LEFT_X is assigned by 1
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+        core_row_1.comments.extend([
+            ("vers_8".into(), "LOG_LEFT_4 Selector (0/1)".into()),
+            ("vers_9".into(), "LOG_LEFT_3 Selector (0/1)".into()),
+            ("vers_10".into(), "LOG_LEFT_2 Selector (0/1)".into()),
+            ("vers_11".into(), "LOG_LEFT_1 Selector (0/1)".into()),
+            ("vers_12".into(), "LOG_LEFT_0 Selector (0/1)".into()),
+        ]);
 
         // core_row_1: insert Public lookUp: Core ----> addrWithXLog  to core_row_1.vers_26 ~ vers_31
         let public_row = current_state.get_public_log_topic_row(trace.op);
