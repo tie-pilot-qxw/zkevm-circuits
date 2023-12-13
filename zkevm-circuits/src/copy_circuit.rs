@@ -735,6 +735,7 @@ mod test {
     };
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::copy_circuit::CopyCircuit;
+    use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
@@ -750,6 +751,7 @@ mod test {
         pub public_circuit: PublicCircuitConfig,
         pub copy_circuit: CopyCircuitConfig<F>,
         pub state_circuit: StateCircuitConfig<F>,
+        pub fixed_circuit: FixedCircuitConfig<F>,
     }
 
     impl<F: Field> SubCircuitConfig<F> for CopyTestCircuitConfig<F> {
@@ -791,11 +793,14 @@ mod test {
                     public_table,
                 },
             );
+            let fixed_circuit =
+                FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
             CopyTestCircuitConfig {
                 bytecode_circuit,
                 public_circuit,
                 copy_circuit,
                 state_circuit,
+                fixed_circuit,
             }
         }
     }
@@ -806,6 +811,7 @@ mod test {
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
         pub public_circuit: PublicCircuit<F>,
+        pub fixed_circuit: FixedCircuit<F>,
     }
 
     impl<F: Field, const MAX_CODESIZE: usize> Circuit<F> for CopyTestCircuit<F, MAX_CODESIZE> {
@@ -829,7 +835,9 @@ mod test {
             self.copy_circuit
                 .synthesize_sub(&config.copy_circuit, &mut layouter)?;
             self.state_circuit
-                .synthesize_sub(&config.state_circuit, &mut layouter)
+                .synthesize_sub(&config.state_circuit, &mut layouter)?;
+            self.fixed_circuit
+                .synthesize_sub(&config.fixed_circuit, &mut layouter)
         }
     }
 
@@ -840,6 +848,7 @@ mod test {
                 public_circuit: PublicCircuit::new_from_witness(&witness),
                 copy_circuit: CopyCircuit::new_from_witness(&witness),
                 state_circuit: StateCircuit::new_from_witness(&witness),
+                fixed_circuit: FixedCircuit::new_from_witness(&witness),
             }
         }
         pub fn instance(&self) -> Vec<Vec<F>> {

@@ -478,6 +478,7 @@ mod test {
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::{state, Witness};
+    use eth_types::bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
@@ -559,11 +560,15 @@ mod test {
 
     #[test]
     fn test_state_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
+        let bytecode = bytecode! {
+            PUSH1(0x1)
+            PUSH1(0x2)
+            ADD
+        };
+        let trace = trace_parser::trace_program(bytecode.to_vec().as_slice());
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
-            &machine_code,
+            bytecode.to_vec().as_slice(),
             &[],
             false,
             Default::default(),

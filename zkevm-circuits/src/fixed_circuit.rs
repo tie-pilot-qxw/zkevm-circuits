@@ -150,18 +150,17 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        Self::unusable_rows().1
+        (1 << 8) * 4 + (1 << 10) + (1 << 16)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constant::MAX_NUM_ROW;
     use crate::table::FixedTable;
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
-    use eth_types::Field;
+    use eth_types::{bytecode, Field};
     use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
@@ -238,7 +237,7 @@ mod test {
         }
     }
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
         let circuit = FixedTestCircuit::<Fp>::new(witness);
         let instance: Vec<Vec<Fp>> = circuit.0.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
@@ -247,11 +246,15 @@ mod test {
 
     #[test]
     fn test_state_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
+        let bytecode = bytecode! {
+            PUSH1(0x1)
+            PUSH1(0x2)
+            ADD
+        };
+        let trace = trace_parser::trace_program(bytecode.to_vec().as_slice());
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
-            &machine_code,
+            bytecode.to_vec().as_slice(),
             &[],
             false,
             Default::default(),
