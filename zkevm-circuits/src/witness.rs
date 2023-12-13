@@ -19,13 +19,14 @@ use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionSt
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
-    SubCircuit,
+    convert_f_to_u256, convert_u256_to_16_bytes, convert_u256_to_f,
+    create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
 };
+use crate::witness::bitwise::Row;
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
-use eth_types::{Bytecode, Field, GethExecStep, Hash, U256};
+use eth_types::{Bytecode, Field, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
@@ -1125,7 +1126,7 @@ impl core::Row {
     /// +---+-------+-------+-------+----------+
     /// | 2 | 5*num | TAG | ACC_0 | ACC_1 | ACC_2 | SUM_2 |
     /// +---+-------+-------+-------+----------+
-    pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_rows: &bitwise::Row) {
+    pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_row: &bitwise::Row) {
         assert!(index <= 5);
         assert_eq!(self.cnt, 2.into());
         #[rustfmt::skip]
@@ -1137,15 +1138,15 @@ impl core::Row {
             [&mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23, &mut self.vers_24,],
             [&mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29,],
             ];
-        *vec[index][0] = Some(U256::from(bitwise_rows.tag as u8));
-        *vec[index][1] = Some(bitwise_rows.acc_0);
-        *vec[index][2] = Some(bitwise_rows.acc_1);
-        *vec[index][3] = Some(bitwise_rows.acc_2);
-        *vec[index][4] = Some(bitwise_rows.sum_2);
+        assign_or_panic!(*vec[index][0], U256::from(bitwise_row.tag as u8));
+        assign_or_panic!(*vec[index][1], bitwise_row.acc_0);
+        assign_or_panic!(*vec[index][2], bitwise_row.acc_1);
+        assign_or_panic!(*vec[index][3], bitwise_row.acc_2);
+        assign_or_panic!(*vec[index][4], bitwise_row.sum_2);
         self.comments.extend([
             (
                 format!("vers_{}", index * 5),
-                format!("tag:{:?}", bitwise_rows.tag),
+                format!("tag:{:?}", bitwise_row.tag),
             ),
             (format!("vers_{}", index * 5 + 1), format!("acc_0")),
             (format!("vers_{}", index * 5 + 2), format!("acc_1")),
@@ -1745,7 +1746,7 @@ impl ExecutionState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::geth_data_test;
+    use crate::util::{convert_u256_to_16_bytes, convert_u256_to_64_bytes, geth_data_test};
 
     #[test]
     fn test_data_print_csv() {
@@ -1759,5 +1760,52 @@ mod tests {
             Default::default(),
         ));
         witness.print_csv();
+    }
+
+    #[test]
+    fn test_get_bitwise_row() {
+        let operand1 = U256::from_little_endian(&[0xabu8, 0xcdu8, 0xefu8]);
+        let operand2 = U256::from_little_endian(&[0xaau8, 0xbbu8, 0xccu8]);
+
+        let operand1_hi = (operand1 >> 128).as_u128();
+        let operand1_low = operand1.low_u128();
+
+        let operand2_hi = (operand2 >> 128).as_u128();
+        let operand2_low = operand2.low_u128();
+
+        let bitwise_low_rows =
+            bitwise::get_bitwise_row::<Fr>(bitwise::Tag::And, operand1_low, operand2_low);
+
+        let bitwise_hi_rows =
+            bitwise::get_bitwise_row::<Fr>(bitwise::Tag::And, operand1_hi, operand1_hi);
+
+        for row in bitwise_low_rows {
+            println!("tag:{:?}, byte_0:{:?}, byte_1:{:?}, byte_2:{:?}, acc_0:{:?}, acc_1:{:?}, acc_2:{:?}, sum2:{:?}, cnt:{:?}",
+                     row.tag,
+                     hex::encode(&convert_u256_to_16_bytes(&row.byte_0)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.byte_1)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.byte_2)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.acc_0)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.acc_1)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.acc_2)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.sum_2)),
+                     row.cnt
+            );
+        }
+
+        println!();
+        for row in bitwise_hi_rows {
+            println!("tag:{:?}, byte_0:{:?}, byte_1:{:?}, byte_2:{:?}, acc_0:{:?}, acc_1:{:?}, acc_2:{:?}, sum2:{:?}, cnt:{:?}",
+                     row.tag,
+                     hex::encode(&convert_u256_to_16_bytes(&row.byte_0)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.byte_1)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.byte_2)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.acc_0)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.acc_1)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.acc_2)),
+                     hex::encode(&convert_u256_to_16_bytes(&row.sum_2)),
+                     row.cnt
+            );
+        }
     }
 }

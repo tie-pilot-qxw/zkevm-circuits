@@ -108,6 +108,18 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (bitwise, $value:expr) => {
+        match $value {
+            LookupEntry::Bitwise {
+                tag,
+                acc_0,
+                acc_1,
+                acc_2,
+                sum_2,
+            } => (tag, acc_0, acc_1, acc_2, sum_2),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
 }
 pub(crate) use extract_lookup_expression;
 
@@ -525,12 +537,12 @@ pub enum LookupEntry<F> {
 
     ///Bitwise lookup operation , lookup to bitwise table
     Bitwise {
+        /// Tag could be Nil, LogicAnd, LogicOr or LogicXor
+        tag: Expression<F>,
         acc_0: Expression<F>,
         acc_1: Expression<F>,
         acc_2: Expression<F>,
         sum_2: Expression<F>,
-        /// Tag could be Nil, LogicAnd, LogicOr or LogicXor
-        tag: Expression<F>,
     },
     /// Lookup to Public table
     Public {
