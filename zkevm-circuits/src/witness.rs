@@ -1087,31 +1087,8 @@ impl WitnessExecHelper {
         topic_hash_hi: Option<U256>,
         topic_hash_lo: Option<U256>,
     ) -> public::Row {
-        let topic_log_tag = match opcode_id {
-            OpcodeId::LOG1 => public::LogTag::Topic0,
-            OpcodeId::LOG2 => match self.log_left {
-                2 => public::LogTag::Topic0,
-                1 => public::LogTag::Topic1,
-                _ => panic!(),
-            },
-            OpcodeId::LOG3 => match self.log_left {
-                3 => public::LogTag::Topic0,
-                2 => public::LogTag::Topic1,
-                1 => public::LogTag::Topic2,
-                _ => panic!(),
-            },
-            OpcodeId::LOG4 => match self.log_left {
-                4 => public::LogTag::Topic0,
-                3 => public::LogTag::Topic1,
-                2 => public::LogTag::Topic2,
-                1 => public::LogTag::Topic3,
-                _ => panic!(),
-            },
-            _ => panic!(),
-        };
-
-        // let log_addr_hi = self.code_addr >> 128; // get address[..4]
-        // let log_addr_lo = U256::from(self.code_addr.low_u128()); // get address[4..]
+        let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG0).as_u8() - (self.log_left as u8)
+            + (public::LogTag::Topic0 as u8);
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
