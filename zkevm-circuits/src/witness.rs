@@ -1117,7 +1117,42 @@ impl core::Row {
     pub fn insert_bitwise_op_tag(&mut self, tag: usize) {
         assign_or_panic!(self.vers_25, tag.into());
     }
-
+    /// insert_bitwise_lookup insert bitwise lookup ,5 columns in row prev(-2)
+    ///
+    /// cnt = 2 can hold at most 6 bitwise operations
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 8 col |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | 5*num | TAG | ACC_0 | ACC_1 | ACC_2 | SUM_2 |
+    /// +---+-------+-------+-------+----------+
+    pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_rows: &bitwise::Row) {
+        assert!(index <= 5);
+        assert_eq!(self.cnt, 2.into());
+        #[rustfmt::skip]
+        let  vec = [
+            [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4,],
+            [&mut self.vers_5, &mut self.vers_6, &mut self.vers_7, &mut self.vers_8, &mut self.vers_9,],
+            [&mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14,],
+            [&mut self.vers_15, &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19,],
+            [&mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23, &mut self.vers_24,],
+            [&mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29,],
+            ];
+        *vec[index][0] = Some(U256::from(bitwise_rows.tag as u8));
+        *vec[index][1] = Some(bitwise_rows.acc_0);
+        *vec[index][2] = Some(bitwise_rows.acc_1);
+        *vec[index][3] = Some(bitwise_rows.acc_2);
+        *vec[index][4] = Some(bitwise_rows.sum_2);
+        self.comments.extend([
+            (
+                format!("vers_{}", index * 5),
+                format!("tag:{:?}", bitwise_rows.tag),
+            ),
+            (format!("vers_{}", index * 5 + 1), format!("acc_0")),
+            (format!("vers_{}", index * 5 + 2), format!("acc_1")),
+            (format!("vers_{}", index * 5 + 3), format!("acc_2")),
+            (format!("vers_{}", index * 5 + 4), format!("sum_2")),
+        ]);
+    }
     pub fn insert_state_lookups<const NUM_LOOKUP: usize>(
         &mut self,
         state_rows: [&state::Row; NUM_LOOKUP],

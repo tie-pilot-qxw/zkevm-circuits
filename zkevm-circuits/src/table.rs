@@ -522,6 +522,16 @@ pub enum LookupEntry<F> {
         /// Tag could be LogicAnd, LogicOr or LogicXor
         tag: Expression<F>,
     },
+
+    ///Bitwise lookup operation , lookup to bitwise table
+    Bitwise {
+        acc_0: Expression<F>,
+        acc_1: Expression<F>,
+        acc_2: Expression<F>,
+        sum_2: Expression<F>,
+        /// Tag could be Nil, LogicAnd, LogicOr or LogicXor
+        tag: Expression<F>,
+    },
     /// Lookup to Public table
     Public {
         tag: Expression<F>,
