@@ -41,14 +41,14 @@ impl From<Tag> for usize {
     }
 }
 
-// return value_hi_bitwise_row, value_low_bitwise_row
+// return bitwise rows
 pub fn get_bitwise_row<F: Field>(
     tag: bitwise::Tag,
     operand1: u128,
     operand2: u128,
 ) -> Vec<bitwise::Row> {
-    let operand1_bytes: [u8; 16] = operand1.to_le_bytes();
-    let operand2_bytes: [u8; 16] = operand2.to_le_bytes();
+    let operand1_bytes: [u8; 16] = operand1.to_be_bytes();
+    let operand2_bytes: [u8; 16] = operand2.to_be_bytes();
     get_bitwise_row_by_u8_bytes::<F>(tag, operand1_bytes, operand2_bytes)
 }
 

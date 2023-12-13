@@ -1420,6 +1420,7 @@ impl Witness {
         self.exp.append(&mut witness.exp);
         self.public.append(&mut witness.public);
         self.state.append(&mut witness.state);
+        self.bitwise.append(&mut witness.bitwise);
         self.arithmetic.append(&mut witness.arithmetic);
     }
 
@@ -1582,6 +1583,8 @@ impl Witness {
             self.state.len(),
             self.public.len(),
             self.arithmetic.len(),
+            self.copy.len(),
+            self.bitwise.len(),
         ])
         .unwrap();
         for i in 0..max_length {
@@ -1590,7 +1593,9 @@ impl Witness {
             let bytecode = self.bytecode.get(i).cloned().unwrap_or_default();
             let public = self.public.get(i).cloned().unwrap_or_default();
             let arithmetic = self.arithmetic.get(i).cloned().unwrap_or_default();
-            wtr.serialize((core, state, bytecode, public, arithmetic))
+            let copy = self.copy.get(i).cloned().unwrap_or_default();
+            let bitwise = self.bitwise.get(i).cloned().unwrap_or_default();
+            wtr.serialize((core, state, bytecode, public, arithmetic, copy, bitwise))
                 .unwrap()
         }
         wtr.flush().unwrap();
@@ -1677,6 +1682,7 @@ impl Witness {
         );
         self.write_one_table(&mut writer, &self.copy, "Copy", None);
         self.write_one_table(&mut writer, &self.exp, "Exp", None);
+        self.write_one_table(&mut writer, &self.bitwise, "Bitwise", None);
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
         writer.write(csv2html::epilogue().as_ref()).unwrap();
     }
