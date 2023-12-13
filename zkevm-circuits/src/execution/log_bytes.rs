@@ -238,16 +238,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_row = current_state.get_public_log_bytes_row(trace.op);
         core_row_2.insert_public_lookup(&public_row);
 
-        // set current_state log_left
-        match trace.op {
-            OpcodeId::LOG4 => current_state.log_left = 4,
-            OpcodeId::LOG3 => current_state.log_left = 3,
-            OpcodeId::LOG2 => current_state.log_left = 2,
-            OpcodeId::LOG1 => current_state.log_left = 1,
-            OpcodeId::LOG0 => current_state.log_left = 0,
-            _ => panic!(),
-        }
-
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // let len_lo = F::from_u128(length.low_u128());
         let len_lo = F::from_u128(length.as_u128());

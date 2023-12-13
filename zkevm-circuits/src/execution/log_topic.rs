@@ -10,12 +10,12 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::witness::{assign_or_panic, copy, public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::public::LogTag;
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::{pow_of_two, Expr};
+use gadgets::util::{Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -70,14 +70,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
-
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
-
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
 
@@ -103,26 +97,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // append stack constraints
         let mut stack_pop_values = vec![];
-        let mut stamp_start = 0.expr();
 
-        for i in 0..1 {
-            let state_entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_stack_constraints(
-                meta,
-                state_entry.clone(),
-                i,
-                NUM_ROW,
-                (-1 * i as i32).expr(),
-                false,
-            ));
-            let (_, stamp, value_hi, value_lo, _, _, _, _) =
-                extract_lookup_expression!(state, state_entry);
-            stack_pop_values.push(value_hi); // 0
-            stack_pop_values.push(value_lo);
-            if i == 1 {
-                stamp_start = stamp;
-            }
-        }
+        let state_entry = config.get_state_lookup(meta, 0);
+        constraints.append(&mut config.get_stack_constraints(
+            meta,
+            state_entry.clone(),
+            0,
+            NUM_ROW,
+            0.expr(),
+            false,
+        ));
+
+        let (_, stamp, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, state_entry);
+        stack_pop_values.push(value_hi);
+        stack_pop_values.push(value_lo);
 
         // append core single purpose constraints
         let delta = CoreSinglePurposeOutcome {
@@ -148,43 +137,42 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_tx_idx - tx_idx.clone(),
             ),
             (
-                format!("public log_stamp is correct").into(),
+                format!("public log stamp is correct").into(),
                 public_values[0].clone() - log_stamp,
             ),
             (
-                format!("public log tag is addrWithXLog").into(),
-                public_values[1].clone() - (opcode.clone() - (OpcodeId::LOG0).as_u8().expr()),
+                format!("public topic log tag is TopicX depends on LOG_LEFT_X and opcode").into(),
+                selector.select(&[
+                    public_values[1].clone() - (LogTag::Topic0 as u8).expr(), // LOG_LEFT_4
+                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                        - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
+                        - 3.expr(), // LOG_LEFT_3
+                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                        - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
+                        - 2.expr(), // LOG_LEFT_2
+                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                        - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
+                        - 1.expr(), // LOG_LEFT_1
+                    public_values[1].clone() - (LogTag::Topic3 as u8).expr(), // LOG_LEFT_0
+                ]),
             ),
             (
-                format!("public log addr hi and lo is code_addr").into(),
-                public_values[2].clone() * pow_of_two::<F>(128) + public_values[3].clone()
-                    - code_addr,
+                format!("public topic hash hi is stack value_hi").into(),
+                public_values[2].clone() - stack_pop_values[0].clone(),
+            ),
+            (
+                format!("public topic hash lo is stack value_lo").into(),
+                public_values[3].clone() - stack_pop_values[1].clone(),
             ),
         ]);
 
-        // extend opcode and pc constraints
-        constraints.extend([
-            (
-                "opcode is correct refer to LOG_LEFT_X".into(),
-                selector.select(&[
-                    opcode.clone() - OpcodeId::LOG4.as_u8().expr(),
-                    opcode.clone() - OpcodeId::LOG3.as_u8().expr(),
-                    opcode.clone() - OpcodeId::LOG2.as_u8().expr(),
-                    opcode.clone() - OpcodeId::LOG1.as_u8().expr(),
-                    opcode.clone() - OpcodeId::LOG0.as_u8().expr(),
-                ]),
-            ),
-            (
-                format!("next pc +1 only when LOG_LEFT_0").into(),
-                selector.select(&[
-                    pc_next.clone() - pc_cur.clone(),
-                    pc_next.clone() - pc_cur.clone(),
-                    pc_next.clone() - pc_cur.clone(),
-                    pc_next.clone() - pc_cur.clone(),
-                    pc_next - pc_cur - PC_DELTA.expr(),
-                ]),
-            ),
-        ]);
+        // extend pc constraints
+        let pc_delta = selector.select(&[0.expr(), 0.expr(), 0.expr(), 0.expr(), PC_DELTA.expr()]);
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(pc_delta.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         constraints
     }
@@ -203,7 +191,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // get topic from stack top
-        let (stack_pop_topic, topic) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_topic, _) = current_state.get_pop_stack_row_value(&trace);
 
         // core_row_1: state lookup (vers_0~vers_7) + selector LOG_LEFT_X (vers_8~vers_12) + Public Log LookUp (vers_26~vers_31)
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
@@ -231,7 +219,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         // core_row_1: insert Public lookUp: Core ----> addrWithXLog  to core_row_1.vers_26 ~ vers_31
-        let public_row = current_state.get_public_log_topic_row(trace.op);
+        let public_row = current_state.get_public_log_topic_row(
+            trace.op,
+            stack_pop_topic.value_hi,
+            stack_pop_topic.value_lo,
+        );
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_public_lookup(&public_row);
 
@@ -276,27 +268,28 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        // topic0='t0', topic1='t01', topic2='t02', topic3='t03', topic4='t04'
-        let stack =
-            Stack::from_slice(&[0x7430.into(), 0x7431.into(), 0x7432.into(), 0x7430.into()]);
-        let stack_pointer = stack.0.len();
-        let call_id: u64 = 0x33;
-        let tx_idx = 0x44;
-        let log_stamp = 0x55;
+        let opcode = OpcodeId::LOG1;
+        let log_left = 1;
+        let topic1 = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
+        let call_id: u64 = 0xa;
+        let tx_idx = 0xc;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
+        let log_stamp = 0xb;
+
+        let stack = Stack::from_slice(&[topic1.into()]);
+        let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer,
             stack_top: None,
             call_id,
             tx_idx,
-            log_stamp,
             code_addr,
-            log_left: 4,
+            log_left,
+            log_stamp,
             ..WitnessExecHelper::new()
         };
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::LOG4, stack);
-        trace.memory.push("hello");
+        let trace = prepare_trace_step!(0, opcode, stack);
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
