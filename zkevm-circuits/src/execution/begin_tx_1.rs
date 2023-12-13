@@ -60,7 +60,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let copy = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, copy_size) = extract_lookup_expression!(copy, copy);
+        let (_, _, _, _, _, _, _, _, _, copy_size, _) = extract_lookup_expression!(copy, copy);
         let delta = AuxiliaryDelta {
             state_stamp: 4.expr() + copy_size,
             ..Default::default()

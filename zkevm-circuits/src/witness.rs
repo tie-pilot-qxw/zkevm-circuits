@@ -546,7 +546,7 @@ impl WitnessExecHelper {
         len: usize,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         //TODO: src_id need use last_call_id (return_data_write maybe use last_call_id )
-        let mut copy_rows = vec![];
+        let mut copy_rows: Vec<copy::Row> = vec![];
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
         let dst_copy_stamp = self.state_stamp + len as u64;
@@ -759,6 +759,133 @@ impl WitnessExecHelper {
             });
             self.state_stamp += 1;
         }
+        (copy_rows, state_rows)
+    }
+
+    ///load 32-bytes value from memory
+    pub fn get_mload_rows<F: Field>(
+        &mut self,
+        trace: &GethExecStep,
+        offset: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let mut stamp_start = self.state_stamp;
+        let mut offset_start = offset;
+
+        let temp_256_f = F::from(256);
+
+        for i in 0..2 {
+            let mut acc_pre = U256::from(0);
+            for j in 0..16 {
+                let byte = trace
+                    .memory
+                    .0
+                    .get(offset_start + j)
+                    .cloned()
+                    .unwrap_or_default();
+                // calc acc
+                let acc: U256 = if j == 0 {
+                    byte.into()
+                } else {
+                    let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                    let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                    acc_f = byte_f + acc_f * temp_256_f;
+                    convert_f_to_u256(&acc_f)
+                };
+                acc_pre = acc;
+
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Tag::Memory,
+                    src_id: self.call_id.into(),
+                    src_pointer: offset_start.into(),
+                    src_stamp: stamp_start.into(),
+                    dst_type: copy::Tag::Null,
+                    dst_id: 0.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: 0.into(),
+                    cnt: j.into(),
+                    len: 16.into(),
+                    acc: acc,
+                });
+                state_rows.push(state::Row {
+                    tag: Some(state::Tag::Memory),
+                    stamp: Some((stamp_start + j as u64).into()),
+                    value_hi: None,
+                    value_lo: Some(byte.into()),
+                    call_id_contract_addr: Some(self.call_id.into()),
+                    pointer_hi: None,
+                    pointer_lo: Some((offset_start + j).into()),
+                    is_write: Some(0.into()),
+                });
+                self.state_stamp += 1;
+            }
+            stamp_start += 16;
+            offset_start += 16;
+        }
+
+        (copy_rows, state_rows)
+    }
+
+    pub fn get_mstore_rows<F: Field>(
+        &mut self,
+        offset: usize,
+        value: U256,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let mut stamp_start = self.state_stamp;
+        let mut offset_start = offset;
+
+        let temp_256_f = F::from(256);
+
+        for i in 0..2 {
+            let mut acc_pre = U256::from(0);
+            for j in 0..16 {
+                let byte = value.byte(i * 16 + j);
+
+                // calc acc
+                let acc: U256 = if j == 0 {
+                    byte.into()
+                } else {
+                    let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                    let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                    acc_f = byte_f + acc_f * temp_256_f;
+                    convert_f_to_u256(&acc_f)
+                };
+                acc_pre = acc;
+
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Tag::Null,
+                    src_id: 0.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Tag::Memory,
+                    dst_id: self.call_id.into(),
+                    dst_pointer: offset_start.into(),
+                    dst_stamp: stamp_start.into(),
+                    cnt: j.into(),
+                    len: 16.into(),
+                    acc: acc,
+                });
+                state_rows.push(state::Row {
+                    tag: Some(state::Tag::Memory),
+                    stamp: Some((stamp_start + j as u64).into()),
+                    value_hi: None,
+                    value_lo: Some(byte.into()),
+                    call_id_contract_addr: Some(self.call_id.into()),
+                    pointer_hi: None,
+                    pointer_lo: Some((offset_start + j).into()),
+                    is_write: Some(1.into()),
+                });
+                self.state_stamp += 1;
+            }
+            stamp_start += 16;
+            offset_start += 16;
+        }
+
         (copy_rows, state_rows)
     }
 
@@ -1121,87 +1248,6 @@ impl core::Row {
         };
     }
 
-    pub fn insert_copy_lookup(&mut self, copy: &copy::Row, padding_copy: Option<&copy::Row>) {
-        //
-        assert_eq!(self.cnt, 2.into());
-        let mut cells = vec![
-            // code copy
-            (&mut self.vers_0, Some((copy.src_type as u8).into())),
-            (&mut self.vers_1, Some(copy.src_id)),
-            (&mut self.vers_2, Some(copy.src_pointer)),
-            (&mut self.vers_3, Some(copy.src_stamp)),
-            (&mut self.vers_4, Some((copy.dst_type as u8).into())),
-            (&mut self.vers_5, Some(copy.dst_id)),
-            (&mut self.vers_6, Some(copy.dst_pointer)),
-            (&mut self.vers_7, Some(copy.dst_stamp)),
-            (&mut self.vers_8, Some(copy.len)),
-        ];
-        let mut comments = vec![
-            // copy comment
-            (
-                format!("vers_{}", 0),
-                format!("src_type={:?}", copy.src_type),
-            ),
-            (format!("vers_{}", 1), format!("src_id")),
-            (format!("vers_{}", 2), format!("src_pointer")),
-            (format!("vers_{}", 3), format!("src_stamp")),
-            (
-                format!("vers_{}", 4),
-                format!("dst_type={:?}", copy.dst_type),
-            ),
-            (format!("vers_{}", 5), format!("dst_id")),
-            (format!("vers_{}", 6), format!("dst_pointer")),
-            (format!("vers_{}", 7), format!("dst_stamp")),
-            (format!("vers_{}", 8), format!("len")),
-        ];
-        match padding_copy {
-            Some(padding_copy_new) => {
-                cells.extend([
-                    // padding copy
-                    (
-                        &mut self.vers_9,
-                        Some((padding_copy_new.src_type as u8).into()),
-                    ),
-                    (&mut self.vers_10, Some(padding_copy_new.src_id)),
-                    (&mut self.vers_11, Some(padding_copy_new.src_pointer)),
-                    (&mut self.vers_12, Some(padding_copy_new.src_stamp)),
-                    (
-                        &mut self.vers_13,
-                        Some((padding_copy_new.dst_type as u8).into()),
-                    ),
-                    (&mut self.vers_14, Some(padding_copy_new.dst_id)),
-                    (&mut self.vers_15, Some(padding_copy_new.dst_pointer)),
-                    (&mut self.vers_16, Some(padding_copy_new.dst_stamp)),
-                    (&mut self.vers_17, Some(padding_copy_new.len)),
-                ]);
-                comments.extend([
-                    // padding copy comment
-                    (
-                        format!("vers_{}", 9),
-                        format!("padding_src_type={:?}", padding_copy_new.src_type),
-                    ),
-                    (format!("vers_{}", 10), format!("padding_src_id")),
-                    (format!("vers_{}", 11), format!("padding_src_pointer")),
-                    (format!("vers_{}", 12), format!("padding_src_stamp")),
-                    (
-                        format!("vers_{}", 13),
-                        format!("padding_dst_type={:?}", padding_copy_new.dst_type),
-                    ),
-                    (format!("vers_{}", 14), format!("padding_dst_id")),
-                    (format!("vers_{}", 15), format!("padding_dst_pointer")),
-                    (format!("vers_{}", 16), format!("padding_dst_stamp")),
-                    (format!("vers_{}", 17), format!("padding_len")),
-                ]);
-            }
-            None => (),
-        }
-        for (cell, value) in cells {
-            // before inserting, these columns must be none
-            assert!(cell.is_none());
-            *cell = value;
-        }
-        self.comments.extend(comments);
-    }
     // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
     /// +---+-------+-------+-------+------+-----------+
     /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
@@ -1243,6 +1289,87 @@ impl core::Row {
             (format!("vers_{}", 31), format!("value_3")),
         ];
         self.comments.extend(comments);
+    }
+
+    pub fn insert_copy_lookup(&mut self, copy: &copy::Row, padding_copy: Option<&copy::Row>) {
+        //
+        assert_eq!(self.cnt, 2.into());
+        let mut cells = vec![
+            // code copy
+            (&mut self.vers_0, (copy.src_type as u8).into()),
+            (&mut self.vers_1, copy.src_id),
+            (&mut self.vers_2, copy.src_pointer),
+            (&mut self.vers_3, copy.src_stamp),
+            (&mut self.vers_4, (copy.dst_type as u8).into()),
+            (&mut self.vers_5, copy.dst_id),
+            (&mut self.vers_6, copy.dst_pointer),
+            (&mut self.vers_7, copy.dst_stamp),
+            (&mut self.vers_8, copy.cnt),
+            (&mut self.vers_9, copy.len),
+            (&mut self.vers_10, copy.acc),
+        ];
+        let mut comments = vec![
+            // copy comment
+            (
+                format!("vers_{}", 0),
+                format!("src_type={:?}", copy.src_type),
+            ),
+            (format!("vers_{}", 1), format!("src_id")),
+            (format!("vers_{}", 2), format!("src_pointer")),
+            (format!("vers_{}", 3), format!("src_stamp")),
+            (
+                format!("vers_{}", 4),
+                format!("dst_type={:?}", copy.dst_type),
+            ),
+            (format!("vers_{}", 5), format!("dst_id")),
+            (format!("vers_{}", 6), format!("dst_pointer")),
+            (format!("vers_{}", 7), format!("dst_stamp")),
+            (format!("vers_{}", 8), format!("cnt")),
+            (format!("vers_{}", 9), format!("len")),
+            (format!("vers_{}", 10), format!("acc")),
+        ];
+        match padding_copy {
+            Some(padding_copy_new) => {
+                cells.extend([
+                    // padding copy
+                    (&mut self.vers_11, (padding_copy_new.src_type as u8).into()),
+                    (&mut self.vers_12, padding_copy_new.src_id),
+                    (&mut self.vers_13, padding_copy_new.src_pointer),
+                    (&mut self.vers_14, padding_copy_new.src_stamp),
+                    (&mut self.vers_15, (padding_copy_new.dst_type as u8).into()),
+                    (&mut self.vers_16, padding_copy_new.dst_id),
+                    (&mut self.vers_17, padding_copy_new.dst_pointer),
+                    (&mut self.vers_18, padding_copy_new.dst_stamp),
+                    (&mut self.vers_19, padding_copy_new.cnt),
+                    (&mut self.vers_20, padding_copy_new.len),
+                    (&mut self.vers_21, padding_copy_new.acc),
+                ]);
+                comments.extend([
+                    // padding copy comment
+                    (
+                        format!("vers_{}", 11),
+                        format!("padding_src_type={:?}", padding_copy_new.src_type),
+                    ),
+                    (format!("vers_{}", 12), format!("padding_src_id")),
+                    (format!("vers_{}", 13), format!("padding_src_pointer")),
+                    (format!("vers_{}", 14), format!("padding_src_stamp")),
+                    (
+                        format!("vers_{}", 15),
+                        format!("padding_dst_type={:?}", padding_copy_new.dst_type),
+                    ),
+                    (format!("vers_{}", 16), format!("padding_dst_id")),
+                    (format!("vers_{}", 17), format!("padding_dst_pointer")),
+                    (format!("vers_{}", 18), format!("padding_dst_stamp")),
+                    (format!("vers_{}", 19), format!("padding_cnt")),
+                    (format!("vers_{}", 20), format!("padding_len")),
+                    (format!("vers_{}", 21), format!("padding_acc")),
+                ]);
+            }
+            None => (),
+        }
+        for (cell, value) in cells {
+            assign_or_panic!(*cell, value);
+        }
     }
 }
 

@@ -80,7 +80,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // build constraints ---
         // append auxiliary constraints
         let copy_entry = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, len) = extract_lookup_expression!(copy, copy_entry.clone());
+        let (_, _, _, _, _, _, _, _, _, len, _) =
+            extract_lookup_expression!(copy, copy_entry.clone());
 
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
@@ -123,7 +124,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
 
-        constraints.append(&mut config.get_copy_contraints(
+        constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Memory,
             call_id,
             stack_pop_values[1].clone(),
@@ -132,8 +133,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             tx_idx.clone(),
             0.expr(),          // index of PublicLog
             log_stamp.clone(), // log_stamp from Auxiliary
+            None,
             stack_pop_values[3].clone(),
             is_zero_len.expr(),
+            None,
             copy_entry,
         ));
 

@@ -73,7 +73,9 @@ macro_rules! extract_lookup_expression {
                 dst_id,
                 dst_pointer,
                 dst_stamp,
+                cnt,
                 len,
+                acc,
             } => (
                 src_type,
                 src_id,
@@ -83,18 +85,10 @@ macro_rules! extract_lookup_expression {
                 dst_id,
                 dst_pointer,
                 dst_stamp,
+                cnt,
                 len,
+                acc,
             ),
-            _ => panic!("Pattern doesn't match!"),
-        }
-    };
-    (public, $value:expr) => {
-        match $value {
-            LookupEntry::Public {
-                tag,
-                tx_idx_or_number_diff,
-                values,
-            } => (tag, tx_idx_or_number_diff, values),
             _ => panic!("Pattern doesn't match!"),
         }
     };
@@ -498,8 +492,12 @@ pub enum LookupEntry<F> {
         dst_pointer: Expression<F>,
         /// The destination stamp (state stamp or log stamp)
         dst_stamp: Expression<F>,
+        /// The counter for one copy operation
+        cnt: Expression<F>,
         /// The length of the copy event
         len: Expression<F>,
+        /// The accumulation of bytes in one copy
+        acc: Expression<F>,
     },
     /// Lookup to arithmetic table.
     Arithmetic {

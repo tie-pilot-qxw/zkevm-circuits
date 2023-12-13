@@ -326,7 +326,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_copy_contraints(
+    pub(crate) fn get_copy_constraints(
         &self,
         src_type: copy::Tag,
         src_id: Expression<F>,
@@ -336,10 +336,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         dst_id: Expression<F>,
         dst_pointer: Expression<F>,
         dst_stamp: Expression<F>,
+        cnt: Option<Expression<F>>,
         len: Expression<F>,
         len_is_zero: Expression<F>,
+        acc: Option<Expression<F>>,
         copy_lookup_entry: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
+        assert_eq!(cnt.is_some(), acc.is_some());
+
         let (
             copy_lookup_src_type,
             copy_lookup_src_id,
@@ -349,7 +353,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_lookup_dst_id,
             copy_lookup_dst_pointer,
             copy_lookup_dst_stamp,
+            copy_lookup_cnt,
             copy_lookup_length,
+            copy_lookup_acc,
         ) = extract_lookup_expression!(copy, copy_lookup_entry);
 
         let mut constraints = vec![];
@@ -397,9 +403,69 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     + len_is_zero.clone() * copy_lookup_dst_stamp,
             ),
             (format!("length of copy"), copy_lookup_length.expr() - len),
+            (
+                format!("cnt of copy"),
+                len_is_zero.clone() * copy_lookup_cnt.clone()
+                    + if let Some(cnt) = cnt {
+                        (1.expr() - len_is_zero.clone()) * (copy_lookup_cnt - cnt.clone())
+                    } else {
+                        0.expr()
+                    },
+            ),
+            (
+                format!("acc of copy"),
+                len_is_zero.clone() * copy_lookup_acc.clone()
+                    + if let Some(acc) = acc {
+                        (1.expr() - len_is_zero.clone()) * (copy_lookup_acc - acc.clone())
+                    } else {
+                        0.expr()
+                    },
+            ),
         ]);
 
         constraints
+    }
+
+    ///generate copy lookup's constraints which are controlled by the selector (enabled when selector != 0.expr() and disabled when selector == 0.expr())
+    pub(crate) fn get_copy_constraints_with_selector(
+        &self,
+        src_type: copy::Tag,
+        src_id: Expression<F>,
+        src_pointer: Expression<F>,
+        src_stamp: Expression<F>,
+        dst_type: copy::Tag,
+        dst_id: Expression<F>,
+        dst_pointer: Expression<F>,
+        dst_stamp: Expression<F>,
+        cnt: Option<Expression<F>>,
+        len: Expression<F>,
+        len_is_zero: Expression<F>,
+        acc: Option<Expression<F>>,
+        selector: Expression<F>,
+        copy_lookup_entry: LookupEntry<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints_raw = self.get_copy_constraints(
+            src_type,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            cnt,
+            len,
+            len_is_zero.clone(),
+            acc,
+            copy_lookup_entry.clone(),
+        );
+
+        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+            .into_iter()
+            .map(|constraint| (constraint.0, selector.clone() * constraint.1))
+            .collect();
+
+        res
     }
 
     pub(crate) fn get_stack_constraints(
@@ -674,10 +740,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         ) = (
-            meta.query_advice(self.vers[9], Rotation(-2)),
-            meta.query_advice(self.vers[10], Rotation(-2)),
             meta.query_advice(self.vers[11], Rotation(-2)),
             meta.query_advice(self.vers[12], Rotation(-2)),
             meta.query_advice(self.vers[13], Rotation(-2)),
@@ -685,6 +751,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[15], Rotation(-2)),
             meta.query_advice(self.vers[16], Rotation(-2)),
             meta.query_advice(self.vers[17], Rotation(-2)),
+            meta.query_advice(self.vers[18], Rotation(-2)),
+            meta.query_advice(self.vers[19], Rotation(-2)),
+            meta.query_advice(self.vers[20], Rotation(-2)),
+            meta.query_advice(self.vers[21], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,
@@ -695,7 +765,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         }
     }
 
@@ -709,7 +781,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         ) = (
             meta.query_advice(self.vers[0], Rotation(-2)),
             meta.query_advice(self.vers[1], Rotation(-2)),
@@ -720,6 +794,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[6], Rotation(-2)),
             meta.query_advice(self.vers[7], Rotation(-2)),
             meta.query_advice(self.vers[8], Rotation(-2)),
+            meta.query_advice(self.vers[9], Rotation(-2)),
+            meta.query_advice(self.vers[10], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,
@@ -730,7 +806,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         }
     }
 
@@ -1015,6 +1093,7 @@ pub enum ExecutionState {
     PUBLIC_CONTEXT,
     TX_CONTEXT,
     MEMORY,
+    MSTORE8,
     STORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
