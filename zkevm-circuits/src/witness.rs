@@ -1081,29 +1081,56 @@ impl WitnessExecHelper {
         public_row
     }
 
-    pub fn get_public_log_topic_row(&self, opcode_id: OpcodeId) -> public::Row {
-        let log_tag = match opcode_id {
-            OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
-            OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
-            OpcodeId::LOG2 => public::LogTag::AddrWith2Topic,
-            OpcodeId::LOG3 => public::LogTag::AddrWith3Topic,
-            OpcodeId::LOG4 => public::LogTag::AddrWith4Topic,
+    pub fn get_public_log_topic_row(
+        &self,
+        opcode_id: OpcodeId,
+        topic_hash_hi: Option<U256>,
+        topic_hash_lo: Option<U256>,
+    ) -> public::Row {
+        let topic_log_tag = match opcode_id {
+            OpcodeId::LOG1 => public::LogTag::Topic0,
+            OpcodeId::LOG2 => match self.log_left {
+                2 => public::LogTag::Topic0,
+                1 => public::LogTag::Topic1,
+                _ => panic!(),
+            },
+            OpcodeId::LOG3 => match self.log_left {
+                3 => public::LogTag::Topic0,
+                2 => public::LogTag::Topic1,
+                1 => public::LogTag::Topic2,
+                _ => panic!(),
+            },
+            OpcodeId::LOG4 => match self.log_left {
+                4 => public::LogTag::Topic0,
+                3 => public::LogTag::Topic1,
+                2 => public::LogTag::Topic2,
+                1 => public::LogTag::Topic3,
+                _ => panic!(),
+            },
             _ => panic!(),
         };
 
-        // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog value_h
-        let log_addr_hi = self.code_addr >> 128; // get address[..4]
-        let log_addr_lo = self.code_addr & U256::from("0xffffffffffffffffffffffffffffffff"); // get address[4..]
+        // let log_addr_hi = self.code_addr >> 128; // get address[..4]
+        // let log_addr_lo = U256::from(self.code_addr.low_u128()); // get address[4..]
+
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
+        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
+        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 29), format!("topic_log_tag"));
+        comments.insert(format!("vers_{}", 30), format!("topic_hash[..16]"));
+        comments.insert(format!("vers_{}", 31), format!("topic_hash[16..]"));
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
             tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
             value_0: Some(U256::from(self.log_stamp)),
-            value_1: Some(U256::from(log_tag as u64)),
-            value_2: Some(U256::from(log_addr_hi)),
-            value_3: Some(U256::from(log_addr_lo)),
-            comments: Default::default(),
+            value_1: Some(U256::from(topic_log_tag as u64)),
+            value_2: topic_hash_hi, // topic_hash[..16]
+            value_3: topic_hash_lo, // topic_hash[16..]
+            comments,
         };
+
         public_row
     }
 }
@@ -1639,6 +1666,7 @@ impl Witness {
             &mut current_state,
             &execution_gadgets_map,
         );
+
         witness.state.sort_by(|a, b| {
             let key_a = state_to_be_limbs(a);
             let key_b = state_to_be_limbs(b);
