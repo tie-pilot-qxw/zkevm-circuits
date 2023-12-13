@@ -63,7 +63,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // create custom gate constraints
         let copy_entry = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, len) = extract_lookup_expression!(copy, copy_entry.clone());
+        let (_, _, _, _, _, _, _, _, _, len, _) =
+            extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -98,7 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        constraints.append(&mut config.get_copy_contraints(
+        constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Calldata,
             call_id.clone(),
             stack_pop_values[1].clone(),
@@ -108,8 +109,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id,
             stack_pop_values[0].clone(),
             stamp + stack_pop_values[2].clone() + 1.expr(),
+            None,
             stack_pop_values[2].clone(),
             is_zero_len.expr(),
+            None,
             copy_entry,
         ));
         constraints.extend([
