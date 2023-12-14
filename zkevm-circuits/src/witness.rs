@@ -994,6 +994,7 @@ macro_rules! assign_or_panic {
     };
 }
 pub(crate) use assign_or_panic;
+use gadgets::simple_seletor::simple_selector_assign;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
@@ -1278,6 +1279,28 @@ impl core::Row {
             (format!("vers_{}", 31), format!("value_3")),
         ];
         self.comments.extend(comments);
+    }
+
+    pub fn insert_log_left_selector(&mut self, log_left: usize) {
+        assert_eq!(self.cnt, 1.into());
+        simple_selector_assign(
+            [
+                &mut self.vers_12, // LOG_LEFT_0
+                &mut self.vers_11, // LOG_LEFT_1
+                &mut self.vers_10, // LOG_LEFT_2
+                &mut self.vers_9,  // LOG_LEFT_3
+                &mut self.vers_8,  // LOG_LEFT_4
+            ],
+            log_left, // if log_left is X, then the location for LOG_LEFT_X is assigned by 1
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+        self.comments.extend([
+            ("vers_8".into(), "LOG_LEFT_4 Selector (0/1)".into()),
+            ("vers_9".into(), "LOG_LEFT_3 Selector (0/1)".into()),
+            ("vers_10".into(), "LOG_LEFT_2 Selector (0/1)".into()),
+            ("vers_11".into(), "LOG_LEFT_1 Selector (0/1)".into()),
+            ("vers_12".into(), "LOG_LEFT_0 Selector (0/1)".into()),
+        ]);
     }
 }
 

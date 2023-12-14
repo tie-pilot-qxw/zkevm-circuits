@@ -181,25 +181,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_pop_topic]);
 
         // core_row_1: insert selector LOG_LEFT_4, LOG_LEFT_3, LOG_LEFT_2, LOG_LEFT_1, LOG_LEFT_0
-        simple_selector_assign(
-            // Fixme 既然我们有3个gadget要用它，这个assign和comments也放到一个函数core_row_1.insert_log_left_selector()吧
-            [
-                &mut core_row_1.vers_12, // LOG_LEFT_0
-                &mut core_row_1.vers_11, // LOG_LEFT_1
-                &mut core_row_1.vers_10, // LOG_LEFT_2
-                &mut core_row_1.vers_9,  // LOG_LEFT_3
-                &mut core_row_1.vers_8,  // LOG_LEFT_4
-            ],
-            current_state.log_left, // if log_left is X, then the location for LOG_LEFT_X is assigned by 1
-            |cell, value| assign_or_panic!(*cell, value.into()),
-        );
-        core_row_1.comments.extend([
-            ("vers_8".into(), "LOG_LEFT_4 Selector (0/1)".into()),
-            ("vers_9".into(), "LOG_LEFT_3 Selector (0/1)".into()),
-            ("vers_10".into(), "LOG_LEFT_2 Selector (0/1)".into()),
-            ("vers_11".into(), "LOG_LEFT_1 Selector (0/1)".into()),
-            ("vers_12".into(), "LOG_LEFT_0 Selector (0/1)".into()),
-        ]);
+        core_row_1.insert_log_left_selector(current_state.log_left);
 
         // core_row_1: insert Public lookUp: Core ----> addrWithXLog  to core_row_1.vers_26 ~ vers_31
         let public_row = current_state.get_public_log_topic_row(
