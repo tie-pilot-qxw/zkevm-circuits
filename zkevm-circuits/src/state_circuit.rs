@@ -2,7 +2,6 @@ pub mod multiple_precision_integer;
 pub mod ordering;
 
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig};
 use crate::table::{FixedTable, LookupEntry, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{self, Row, Tag};
@@ -551,7 +550,7 @@ mod test {
     }
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
         println!("K: {}", k);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();

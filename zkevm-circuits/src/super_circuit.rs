@@ -245,7 +245,13 @@ mod tests {
         SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         MockProver<Fr>,
     ) {
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(SuperCircuit::<
+            Fr,
+            MAX_NUM_ROW,
+            MAX_CODESIZE,
+            NUM_STATE_HI_COL,
+            NUM_STATE_LO_COL,
+        >::num_rows(&witness));
         let circuit = SuperCircuit::new_from_witness(&witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();

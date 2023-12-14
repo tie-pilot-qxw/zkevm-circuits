@@ -1,10 +1,9 @@
-use crate::table::{FixedTable, LookupEntry, StateTable};
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::table::{FixedTable, U10_TAG};
+use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::{fixed, Witness};
-use eth_types::Field;
-use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Fixed, Instance};
-use std::fmt::format;
+use eth_types::{Field, U256};
+use halo2_proofs::circuit::{Layouter, Region};
+use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Fixed};
 use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
@@ -36,84 +35,69 @@ impl<F: Field> SubCircuitConfig<F> for FixedCircuitConfig<F> {
 
 impl<F: Field> FixedCircuitConfig<F> {
     fn assgin_with_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
+        #[rustfmt::skip]
+        let f = |row: &fixed::Row, index| -> Result<(), Error> {
+            assign_advice_or_fixed(region, index, &U256::from(row.tag as u32), self.tag)?;
+            assign_advice_or_fixed(region, index, &row.value_0.unwrap_or_default(), self.values[0])?;
+            assign_advice_or_fixed(region, index, &row.value_1.unwrap_or_default(), self.values[1])?;
+            assign_advice_or_fixed(region, index, &row.value_2.unwrap_or_default(), self.values[2])?;
+            Ok(())
+        };
+        Self::assign(f)?;
+        Ok(())
+    }
+
+    fn assign(mut f1: impl FnMut(&fixed::Row, usize) -> Result<(), Error>) -> Result<usize, Error> {
         // And/Or/Xor ==>  0-256行
         let operand_num = 1 << 8;
-        let tags = [fixed::Tag::And, fixed::Tag::Or, fixed::Tag::Xor];
-        for (i, tag) in tags.iter().enumerate() {
-            self.assign_with_tag_value(region, *tag, i * operand_num, operand_num)?;
+        let mut vec = vec![];
+        for tag in [fixed::Tag::And, fixed::Tag::Or, fixed::Tag::Xor].iter() {
+            vec.append(&mut Self::assign_with_tag_value(*tag, operand_num));
         }
-        let mut acc = 3 * operand_num;
-
-        // assign u8
-        for i in 0..1 << 8 {
-            region.assign_fixed(
-                || "",
-                self.tag,
-                acc + i,
-                || Value::known(F::from(fixed::Tag::And as u64)),
-            )?;
-
-            self.assign_value(region, 0, acc + i, "U8", i)?;
-        }
-        acc = acc + (1 << 8);
         // assign u10
         for i in 0..1 << 10 {
-            self.assign_value(region, 1, acc + i, "U10", 256)?;
-            self.assign_value(region, 2, acc + i, "U10", i)?;
+            vec.push(fixed::Row {
+                value_1: Some(U256::from(U10_TAG)),
+                value_2: Some(U256::from(i)),
+                ..Default::default()
+            });
         }
-        acc = acc + (1 << 10);
         //assign u16
         for i in 0..1 << 16 {
-            self.assign_value(region, 0, acc + i, "U16", i)?;
+            vec.push(fixed::Row {
+                value_0: Some(U256::from(i)),
+                ..Default::default()
+            });
         }
-        Ok(())
+
+        let num = vec.len();
+        for (i, row) in vec.iter().enumerate() {
+            f1(row, i)?;
+        }
+        Ok(num)
     }
 
-    fn assign_with_tag_value(
-        &self,
-        region: &mut Region<'_, F>,
-        tag: fixed::Tag,
-        start: usize,
-        row_num: usize,
-    ) -> Result<(), Error> {
-        let (f, s_tag): (fn(usize) -> usize, &str) = match tag {
-            fixed::Tag::And => (|i| i & i, "And"),
-            fixed::Tag::Or => (|i| i | i, "Or"),
-            fixed::Tag::Xor => (|i| i ^ i, "Xor"),
-            _ => (|i| i, "U16"),
+    fn assign_with_tag_value(tag: fixed::Tag, operand_num: usize) -> Vec<fixed::Row> {
+        let f = match tag {
+            fixed::Tag::And => |i, j| i & j,
+            fixed::Tag::Or => |i, j| i | j,
+            fixed::Tag::Xor => |i, j| i ^ j,
+            _ => panic!("not known tag {:?}", tag),
         };
 
-        for j in 0..row_num {
-            // tag
-            region.assign_fixed(
-                || format!("assign {} row in fixed table {:?}", start + j, s_tag),
-                self.tag,
-                start + j,
-                || Value::known(F::from(tag as u64)),
-            )?;
-            // value[0], value[1], value[2],
-            self.assign_value(region, 0, start + j, s_tag, j)?;
-            self.assign_value(region, 1, start + j, s_tag, j)?;
-            self.assign_value(region, 2, start + j, s_tag, f(j))?;
+        let mut vec = vec![];
+        for i in 0..operand_num {
+            for j in 0..operand_num {
+                let row = fixed::Row {
+                    tag: tag,
+                    value_0: Some(U256::from(i)),
+                    value_1: Some(U256::from(j)),
+                    value_2: Some(U256::from(f(i, j))),
+                };
+                vec.push(row);
+            }
         }
-        Ok(())
-    }
-
-    fn assign_value(
-        &self,
-        region: &mut Region<'_, F>,
-        index: usize,
-        row: usize,
-        tag: &str,
-        val: usize,
-    ) -> Result<(), Error> {
-        region.assign_fixed(
-            || format!("assign {} row in values{index} fixed column {:?}", row, tag),
-            self.values[index],
-            row,
-            || Value::known(F::from(val as u64)),
-        )?;
-        Ok(())
+        vec
     }
 }
 
@@ -142,7 +126,8 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
         layouter.assign_region(
             || "fixed circuit",
             |mut region| config.assgin_with_region(&mut region),
-        )
+        )?;
+        Ok(())
     }
 
     fn unusable_rows() -> (usize, usize) {
@@ -150,21 +135,24 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        (1 << 8) * 4 + (1 << 10) + (1 << 16)
+        let f = |row: &_, index| -> Result<(), Error> { Ok(()) };
+        let acc = FixedCircuitConfig::<F>::assign(f).unwrap();
+        println!("use rows: {}", acc);
+        acc
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::table::FixedTable;
+    use crate::table::{FixedTable, LookupEntry};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::{bytecode, Field};
-    use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
+    use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
-    use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
+    use halo2_proofs::plonk::{Advice, Circuit, ConstraintSystem, Error};
     use halo2_proofs::poly::Rotation;
 
     #[derive(Clone)]

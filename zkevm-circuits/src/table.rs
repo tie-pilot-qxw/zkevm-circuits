@@ -11,6 +11,7 @@ use halo2_proofs::plonk::{
 };
 use halo2_proofs::poly::Rotation;
 
+pub const U10_TAG: usize = 256;
 const PUBLIC_NUM_VALUES: usize = 4;
 
 macro_rules! extract_lookup_expression {
@@ -322,7 +323,7 @@ impl FixedTable {
                 ]
             }
             LookupEntry::U10(value) => {
-                vec![(256.expr(), table_value_1), (value, table_value_2)]
+                vec![(U10_TAG.expr(), table_value_1), (value, table_value_2)]
             }
             LookupEntry::U16(value) => {
                 vec![(value, table_value_0)]

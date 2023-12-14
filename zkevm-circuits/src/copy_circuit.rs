@@ -860,7 +860,7 @@ mod test {
     }
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
         let circuit = CopyTestCircuit::<Fp, MAX_CODESIZE>::new(witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
