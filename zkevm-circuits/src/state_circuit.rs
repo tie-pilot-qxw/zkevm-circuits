@@ -1,6 +1,7 @@
 pub mod multiple_precision_integer;
 pub mod ordering;
 
+use self::ordering::Config as OrderingConfig;
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{FixedTable, LookupEntry, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
@@ -12,8 +13,6 @@ use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
-// use lookups::Chip as lookupChip;
-use self::ordering::Config as OrderingConfig;
 use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
 use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;

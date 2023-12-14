@@ -36,18 +36,20 @@ impl<F: Field> SubCircuitConfig<F> for FixedCircuitConfig<F> {
 impl<F: Field> FixedCircuitConfig<F> {
     fn assgin_with_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
         #[rustfmt::skip]
-        let f = |row: &fixed::Row, index| -> Result<(), Error> {
+        let assign_row = |row: &fixed::Row, index| -> Result<(), Error> {
             assign_advice_or_fixed(region, index, &U256::from(row.tag as u32), self.tag)?;
             assign_advice_or_fixed(region, index, &row.value_0.unwrap_or_default(), self.values[0])?;
             assign_advice_or_fixed(region, index, &row.value_1.unwrap_or_default(), self.values[1])?;
             assign_advice_or_fixed(region, index, &row.value_2.unwrap_or_default(), self.values[2])?;
             Ok(())
         };
-        Self::assign(f)?;
+        Self::assign(assign_row)?;
         Ok(())
     }
 
-    fn assign(mut f1: impl FnMut(&fixed::Row, usize) -> Result<(), Error>) -> Result<usize, Error> {
+    fn assign(
+        mut assign_row: impl FnMut(&fixed::Row, usize) -> Result<(), Error>,
+    ) -> Result<usize, Error> {
         // And/Or/Xor ==>  0-256行
         let operand_num = 1 << 8;
         let mut vec = vec![];
@@ -72,7 +74,7 @@ impl<F: Field> FixedCircuitConfig<F> {
 
         let num = vec.len();
         for (i, row) in vec.iter().enumerate() {
-            f1(row, i)?;
+            assign_row(row, i)?;
         }
         Ok(num)
     }
@@ -136,9 +138,7 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
 
     fn num_rows(witness: &Witness) -> usize {
         let f = |row: &_, index| -> Result<(), Error> { Ok(()) };
-        let acc = FixedCircuitConfig::<F>::assign(f).unwrap();
-        println!("use rows: {}", acc);
-        acc
+        FixedCircuitConfig::<F>::assign(f).unwrap()
     }
 }
 
@@ -158,17 +158,19 @@ mod test {
     #[derive(Clone)]
     pub struct FixedTestCircuitConfig<F: Field> {
         pub fixed_circuit: FixedCircuitConfig<F>,
-        pub test_advice: Column<Advice>,
+        pub test_u16: Column<Advice>,
+        pub test_u10: Column<Advice>,
+        pub test_u8: Column<Advice>,
     }
 
     impl<F: Field> FixedTestCircuitConfig<F> {
         fn assign_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
-            region.assign_advice(
-                || "assign u16",
-                self.test_advice,
-                1,
-                || Value::known(F::from(1 << 10)),
-            )?;
+            assign_advice_or_fixed(region, 1, &U256::from(1 << 16 - 1), self.test_u16)?;
+            assign_advice_or_fixed(region, 10, &U256::from(1 << 13), self.test_u16)?;
+            assign_advice_or_fixed(region, 1, &U256::from(1 << 10 - 1), self.test_u10)?;
+            assign_advice_or_fixed(region, 9, &U256::from(1 << 9), self.test_u10)?;
+            assign_advice_or_fixed(region, 1, &U256::from(1 << 8 - 1), self.test_u8)?;
+            assign_advice_or_fixed(region, 3, &U256::from(1 << 5), self.test_u8)?;
             Ok(())
         }
     }
@@ -186,23 +188,40 @@ mod test {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let fixed_table = FixedTable::construct(meta);
-            let test_advice = meta.advice_column();
+            let config = FixedTestCircuitConfig {
+                fixed_circuit: FixedCircuitConfig::new(
+                    meta,
+                    FixedCircuitConfigArgs { fixed_table },
+                ),
+                test_u16: meta.advice_column(),
+                test_u10: meta.advice_column(),
+                test_u8: meta.advice_column(),
+            };
             meta.lookup_any("test lookup u16", |meta| {
-                let entry = LookupEntry::U16(meta.query_advice(test_advice, Rotation::cur()));
+                let entry = LookupEntry::U16(meta.query_advice(config.test_u16, Rotation::cur()));
                 let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
                 lookup_vec
                     .into_iter()
                     .map(|(left, right)| (left, right))
                     .collect()
             });
-
-            FixedTestCircuitConfig {
-                fixed_circuit: FixedCircuitConfig::new(
-                    meta,
-                    FixedCircuitConfigArgs { fixed_table },
-                ),
-                test_advice,
-            }
+            meta.lookup_any("test lookup u10", |meta| {
+                let entry = LookupEntry::U10(meta.query_advice(config.test_u10, Rotation::cur()));
+                let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
+                lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| (left, right))
+                    .collect()
+            });
+            meta.lookup_any("test lookup u8", |meta| {
+                let entry = LookupEntry::U8(meta.query_advice(config.test_u8, Rotation::cur()));
+                let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
+                lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| (left, right))
+                    .collect()
+            });
+            config
         }
 
         fn synthesize(
@@ -224,7 +243,7 @@ mod test {
             Self(FixedCircuit::new_from_witness(&witness))
         }
     }
-    fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
+    fn test_fixed_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
         let circuit = FixedTestCircuit::<Fp>::new(witness);
         let instance: Vec<Vec<Fp>> = circuit.0.instance();
@@ -233,7 +252,7 @@ mod test {
     }
 
     #[test]
-    fn test_state_parser() {
+    fn test_fixed_parser() {
         let bytecode = bytecode! {
             PUSH1(0x1)
             PUSH1(0x2)
@@ -248,7 +267,7 @@ mod test {
             Default::default(),
         ));
         witness.print_csv();
-        let prover = test_state_circuit(witness);
+        let prover = test_fixed_circuit(witness);
         prover.assert_satisfied_par();
     }
 }
