@@ -27,6 +27,7 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, Field, GethExecStep, Hash, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
+use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -994,7 +995,6 @@ macro_rules! assign_or_panic {
     };
 }
 pub(crate) use assign_or_panic;
-use gadgets::simple_seletor::simple_selector_assign;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
