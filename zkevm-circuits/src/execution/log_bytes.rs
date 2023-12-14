@@ -31,7 +31,7 @@ use std::marker::PhantomData;
 /// +---+-------+-------+---------+---------+
 /// |cnt| 8 col | 8 col |  8 col  |  8col   |
 /// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |               | 1 col(not used)| 1 col(not used)| PUBLIC(6) |
+/// | 2 | Copy(9) |9col(not used)| PUBLIC(6) |
 /// | 1 | STATE | STATE | notUsed | LO_INV(1 col) |
 /// | 0 | DYNA_SELECTOR | AUX               |
 /// +---+-------+-------+---------+---------+

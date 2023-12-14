@@ -53,6 +53,7 @@ use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
+use gadgets::simple_seletor::SimpleSelector;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -827,6 +828,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 ),
             ),
         ]
+    }
+
+    pub(crate) fn get_log_left_selector(&self, meta: &mut VirtualCells<F>) -> SimpleSelector<F, 5> {
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(self.vers[8], Rotation::prev()), // LOG_LEFT_4
+            meta.query_advice(self.vers[9], Rotation::prev()), // LOG_LEFT_3
+            meta.query_advice(self.vers[10], Rotation::prev()), // LOG_LEFT_2
+            meta.query_advice(self.vers[11], Rotation::prev()), // LOG_LEFT_1
+            meta.query_advice(self.vers[12], Rotation::prev()), // LOG_LEFT_0
+        ]);
+        selector
     }
 }
 
