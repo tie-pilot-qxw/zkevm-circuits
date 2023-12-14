@@ -141,7 +141,7 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
-    use ethers_core::k256::elliptic_curve::bigint::U128;
+
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
