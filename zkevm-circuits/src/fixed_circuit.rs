@@ -199,27 +199,15 @@ mod test {
             };
             meta.lookup_any("test lookup u16", |meta| {
                 let entry = LookupEntry::U16(meta.query_advice(config.test_u16, Rotation::cur()));
-                let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
-                lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| (left, right))
-                    .collect()
+                fixed_table.get_lookup_vector(meta, entry)
             });
             meta.lookup_any("test lookup u10", |meta| {
                 let entry = LookupEntry::U10(meta.query_advice(config.test_u10, Rotation::cur()));
-                let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
-                lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| (left, right))
-                    .collect()
+                fixed_table.get_lookup_vector(meta, entry)
             });
             meta.lookup_any("test lookup u8", |meta| {
                 let entry = LookupEntry::U8(meta.query_advice(config.test_u8, Rotation::cur()));
-                let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
-                lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| (left, right))
-                    .collect()
+                fixed_table.get_lookup_vector(meta, entry)
             });
             config
         }

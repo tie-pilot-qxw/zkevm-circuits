@@ -3,6 +3,7 @@ pub mod ordering;
 
 use self::ordering::Config as OrderingConfig;
 use crate::constant::LOG_NUM_STATE_TAG;
+use crate::execution::end_padding;
 use crate::table::{FixedTable, LookupEntry, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{self, Row, Tag};
@@ -244,23 +245,32 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 ),
             ];
 
+            let end_padding_condition =
+                config
+                    .tag
+                    .value_equals(state::Tag::EndPadding, Rotation::cur())(meta);
+            let mut index_is_stamp_expr = 1.expr();
+            let mut index_not_stamp_expr = 1.expr();
             for tag in LimbIndex::iter() {
                 if tag == LimbIndex::Stamp0 || tag == LimbIndex::Stamp1 {
-                    vec.push((
-                        "is_first_access=0 ==> index = Stamp0 | Stamp1",
-                        q_enable.clone()
-                            * (1.expr() - is_first_access.clone())
-                            * (index.clone() - (tag as u64).expr()),
-                    ));
+                    index_is_stamp_expr =
+                        index_is_stamp_expr.clone() * (index.clone() - (tag as u64).expr());
                 } else {
-                    vec.push((
-                        "is_first_access=1 ==> index = [Tag, Stamp0)",
-                        q_enable.clone()
-                            * is_first_access.clone()
-                            * (index.clone() - (tag as u64).expr()),
-                    ));
+                    index_not_stamp_expr =
+                        index_not_stamp_expr.clone() * (index.clone() - (tag as u64).expr());
                 }
             }
+            vec.push((
+                "is_first_access=0 ==> index = Stamp0 | Stamp1",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * index_is_stamp_expr
+                    * (1.expr() - end_padding_condition.clone()),
+            ));
+            vec.push((
+                "is_first_access=1 ==> index = [Tag, Stamp0)",
+                q_enable.clone() * is_first_access.clone() * index_not_stamp_expr,
+            ));
 
             vec
         });
@@ -318,6 +328,7 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id_contract_addr)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_first_access)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_write)?;
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.index)?;
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &state::Tag::EndPadding)?;
 
