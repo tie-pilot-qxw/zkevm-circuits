@@ -27,12 +27,10 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, Field, GethExecStep, Hash, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
-use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
-use gadgets::simple_seletor::simple_selector_assign;
 
 #[derive(Debug, Default, Clone)]
 pub struct Witness {
@@ -1057,7 +1055,7 @@ impl WitnessExecHelper {
     }
 
     // core_row_1.vers_26 ~ vers31
-    pub fn get_public_log_bytes_row(&self, opcode_id: OpcodeId) -> public::Row {
+    pub fn get_public_log_row(&self, opcode_id: OpcodeId) -> public::Row {
         let log_tag = match opcode_id {
             OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
             OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
@@ -1080,6 +1078,36 @@ impl WitnessExecHelper {
             value_3: Some(U256::from(value_lo)),
             comments: Default::default(),
         };
+        public_row
+    }
+
+    pub fn get_public_log_topic_row(
+        &self,
+        opcode_id: OpcodeId,
+        topic_hash_hi: Option<U256>,
+        topic_hash_lo: Option<U256>,
+    ) -> public::Row {
+        let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG0).as_u8() - (self.log_left as u8)
+            + (public::LogTag::Topic0 as u8);
+
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
+        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
+        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 29), format!("topic_log_tag"));
+        comments.insert(format!("vers_{}", 30), format!("topic_hash[..16]"));
+        comments.insert(format!("vers_{}", 31), format!("topic_hash[16..]"));
+
+        let public_row = public::Row {
+            tag: public::Tag::TxLog,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: Some(U256::from(self.log_stamp)),
+            value_1: Some(U256::from(topic_log_tag as u64)),
+            value_2: topic_hash_hi, // topic_hash[..16]
+            value_3: topic_hash_lo, // topic_hash[16..]
+            comments,
+        };
+
         public_row
     }
 
@@ -1488,6 +1516,28 @@ impl core::Row {
         for (cell, value) in cells {
             assign_or_panic!(*cell, value);
         }
+    }
+
+    pub fn insert_log_left_selector(&mut self, log_left: usize) {
+        assert_eq!(self.cnt, 1.into());
+        simple_selector_assign(
+            [
+                &mut self.vers_12, // LOG_LEFT_0
+                &mut self.vers_11, // LOG_LEFT_1
+                &mut self.vers_10, // LOG_LEFT_2
+                &mut self.vers_9,  // LOG_LEFT_3
+                &mut self.vers_8,  // LOG_LEFT_4
+            ],
+            log_left, // if log_left is X, then the location for LOG_LEFT_X is assigned by 1
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+        self.comments.extend([
+            ("vers_8".into(), "LOG_LEFT_4 Selector (0/1)".into()),
+            ("vers_9".into(), "LOG_LEFT_3 Selector (0/1)".into()),
+            ("vers_10".into(), "LOG_LEFT_2 Selector (0/1)".into()),
+            ("vers_11".into(), "LOG_LEFT_1 Selector (0/1)".into()),
+            ("vers_12".into(), "LOG_LEFT_0 Selector (0/1)".into()),
+        ]);
     }
 
     pub fn insert_log_left_selector(&mut self, log_left: usize) {
