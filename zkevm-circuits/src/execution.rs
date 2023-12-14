@@ -45,7 +45,6 @@ pub mod swap;
 pub mod tx_context;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
-use crate::witness::public::Tag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
@@ -746,8 +745,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             len,
             acc,
         ) = (
-            meta.query_advice(self.vers[9], Rotation(-2)),
-            meta.query_advice(self.vers[10], Rotation(-2)),
             meta.query_advice(self.vers[11], Rotation(-2)),
             meta.query_advice(self.vers[12], Rotation(-2)),
             meta.query_advice(self.vers[13], Rotation(-2)),
@@ -785,7 +782,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         ) = (
             meta.query_advice(self.vers[0], Rotation(-2)),
             meta.query_advice(self.vers[1], Rotation(-2)),
