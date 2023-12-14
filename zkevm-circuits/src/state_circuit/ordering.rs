@@ -22,7 +22,7 @@ pub const STAMP_LIMBS: usize = 2;
 pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
 /// 512bit. every element is 16bit. so have number of 32 elements;
 /// 1 + 10 + 8 + 8 + 2 = 22 * 16 = 352 bit
-#[derive(Clone, Copy, Debug, EnumIter)]
+#[derive(Clone, Copy, Debug, EnumIter, PartialEq)]
 pub enum LimbIndex {
     Tag,
     CallIdOrAddress9,

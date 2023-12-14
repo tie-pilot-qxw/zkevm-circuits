@@ -9,15 +9,15 @@ use crate::witness::Witness;
 use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 // use lookups::Chip as lookupChip;
-use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
-use ordering::{CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
-use std::marker::PhantomData;
-
 use self::ordering::Config as OrderingConfig;
+use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
+use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
+use std::marker::PhantomData;
+use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
@@ -45,6 +45,7 @@ pub struct StateCircuitConfig<F> {
     ordering_config: OrderingConfig,
     sort_keys: SortedElements,
     is_first_access: Column<Advice>,
+    index: Column<Advice>,
     fixed_table: FixedTable,
     _marker: PhantomData<F>,
 }
@@ -99,7 +100,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             stamp: mpi_stamp,
         };
         let ordering_config = OrderingConfig::new(meta, q_enable, keys, fixed_table);
-
+        let index = meta.advice_column();
         let config: StateCircuitConfig<F> = Self {
             q_enable,
             tag,
@@ -114,6 +115,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             ordering_config,
             is_first_access: meta.advice_column(),
             fixed_table,
+            index,
             _marker: PhantomData,
         };
 
@@ -143,8 +145,9 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
+            let index = meta.query_advice(config.index, Rotation::cur());
 
-            vec![
+            let mut vec = vec![
                 // is_write = 0/1
                 (
                     "is_write",
@@ -229,7 +232,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     "returndata_first_access_write",
                     q_enable.clone()
                         * return_condition.clone()
-                        * is_first_access
+                        * is_first_access.clone()
                         * (1.expr() - is_write),
                 ),
                 (
@@ -238,9 +241,29 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 ),
                 (
                     "returndata_pointer_hi",
-                    q_enable * return_condition * pointer_hi,
+                    q_enable.clone() * return_condition * pointer_hi,
                 ),
-            ]
+            ];
+
+            for tag in LimbIndex::iter() {
+                if tag == LimbIndex::Stamp0 || tag == LimbIndex::Stamp1 {
+                    vec.push((
+                        "is_first_access=0 ==> index = Stamp0 | Stamp1",
+                        q_enable.clone()
+                            * (1.expr() - is_first_access.clone())
+                            * (index.clone() - (tag as u64).expr()),
+                    ));
+                } else {
+                    vec.push((
+                        "is_first_access=1 ==> index = [Tag, Stamp0)",
+                        q_enable.clone()
+                            * is_first_access.clone()
+                            * (index.clone() - (tag as u64).expr()),
+                    ));
+                }
+            }
+
+            vec
         });
 
         #[cfg(not(feature = "no_intersubcircuit_lookup"))]
@@ -311,7 +334,7 @@ impl<F: Field> StateCircuitConfig<F> {
         self.sort_keys.stamp.assign(region, offset, 0)?;
         let first_different_limb =
             BinaryNumberChip::construct(self.ordering_config.first_different_limb);
-        first_different_limb.assign(region, offset, &ordering::LimbIndex::Stamp0)?;
+        first_different_limb.assign(region, offset, &LimbIndex::Stamp0)?;
         assign_advice_or_fixed(
             region,
             offset,
@@ -377,15 +400,14 @@ impl<F: Field> StateCircuitConfig<F> {
             if i > 0 {
                 let prev_row = &witness.state[i - 1];
                 let index = self.ordering_config.assign(region, i, state, prev_row)?;
-                let is_first_access = !matches!(
-                    index,
-                    ordering::LimbIndex::Stamp0 | ordering::LimbIndex::Stamp1
-                );
-                region.assign_advice(
-                    || "first_access",
-                    self.is_first_access,
+                let is_first_access = !matches!(index, LimbIndex::Stamp0 | LimbIndex::Stamp1);
+                #[rustfmt::skip]
+                assign_advice_or_fixed(region, i, &U256::from(index as u32), self.index)?;
+                assign_advice_or_fixed(
+                    region,
                     i,
-                    || Value::known(if is_first_access { F::ONE } else { F::ZERO }),
+                    &U256::from(if is_first_access { 1 } else { 0 }),
+                    self.is_first_access,
                 )?;
             }
         }
