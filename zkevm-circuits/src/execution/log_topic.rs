@@ -1,6 +1,3 @@
-// Code generated - COULD HAVE BUGS!
-// This file is a generated execution gadget definition.
-
 use crate::execution::{
     Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
     ExecutionState,
@@ -14,7 +11,6 @@ use crate::witness::public::LogTag;
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
