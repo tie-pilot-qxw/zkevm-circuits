@@ -48,7 +48,7 @@ impl<F: Field> OperationGadget<F> for SubGadget<F> {
             expr_from_u16s(&u16s)
         };
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
-        for i in 0..1 {
+        for i in 0..2 {
             let hi_or_lo = if i == 0 { "hi" } else { "lo" };
             let last_overflow = if i == 0 { carry[1].clone() } else { 0.expr() };
             constraints.push((

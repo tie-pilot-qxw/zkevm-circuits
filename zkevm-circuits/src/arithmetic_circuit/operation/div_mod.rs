@@ -1,13 +1,11 @@
-use crate::arithmetic_circuit::operation::{get_row, get_u16s, OperationConfig, OperationGadget};
+use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
-use gadgets::util::{
-    expr_from_u16s, pow_of_two, split_u256, split_u256_hi_lo, split_u256_limb64, Expr,
-};
+use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, Expr, split_u256_limb64, split_u256};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-use sha3::digest::consts::U16;
 use std::marker::PhantomData;
+use sha3::digest::consts::U16;
 
 pub(crate) struct AddGadget<F>(PhantomData<F>);
 
@@ -40,10 +38,10 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
         let carry = config.get_operand(3)(meta);
         // step
         // 1. get the u16s sum for a,b,c
-        let (u16_sum_for_a_hi, a_hi_1, a_hi_2) = get_u16s(config, meta, Rotation::cur());
-        let (u16_sum_for_a_lo, a_lo_1, a_lo_2) = get_u16s(config, meta, Rotation::prev());
-        let (u16_sum_for_b_hi, b_hi_1, b_hi_2) = get_u16s(config, meta, Rotation(-2));
-        let (u16_sum_for_b_lo, b_lo_1, b_lo_2) = get_u16s(config, meta, Rotation(-3));
+        let (u16_sum_for_a_hi,a_hi_1,a_hi_2) = get_u16s(config,meta,Rotation::cur());
+        let (u16_sum_for_a_lo,a_lo_1,a_lo_2) = get_u16s(config,meta,Rotation::prev());
+        let (u16_sum_for_b_hi,b_hi_1,b_hi_2) = get_u16s(config,meta,Rotation(-2));
+        let (u16_sum_for_b_lo,b_lo_1,b_lo_2) = get_u16s(config,meta,Rotation(-3));
 
         let u16_sum_for_c_hi = {
             let u16s: Vec<_> = (0..8)
@@ -85,7 +83,7 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
             + a_limbs[3].clone() * b_limbs[0].clone();
 
         //constraints
-        for i in 0..2 {
+        for i in 0..1 {
             let hi_or_lo = if i == 0 { "hi" } else { "lo" };
             constraints.push((
                 format!("a_{} = u16 sum", hi_or_lo),
@@ -102,15 +100,15 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
         }
 
         constraints.push((
-            format!("(a * b)_lo == c_lo + carry_lo ⋅ 2^128"),
-            t0.expr() + (t1.expr() * pow_of_two::<F>(64))
-                - (c[1].clone() + carry[1].clone() * pow_of_two::<F>(128)),
+            format!("(a * b)_lo == d_lo + carry_lo ⋅ 2^128"),
+            (t0.expr() + t1.expr() *  pow_of_two::<F>(64)) -
+                (c[0].clone() + carry[0].clone() * pow_of_two::<F>(128)),
         ));
         constraints.push((
-            format!("(a * b)_hi + carry_lo == c_hi + carry_hi ⋅ 2^128"),
-            (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + carry[1].clone()
-                - (c[0].clone() + carry[0].clone() * pow_of_two::<F>(128)),
-        ));
+            format!("(a * b)_hi + carry_lo == d_hi + carry_hi ⋅ 2^128"),
+            (t2.expr() + t3.expr() *  pow_of_two::<F>(64)) + carry[0].clone() -
+                (c[1].clone() + carry[1].clone() * pow_of_two::<F>(128)),
+            ));
 
         constraints
     }
@@ -137,7 +135,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         + a_limbs[2] * b_limbs[1]
         + a_limbs[3] * b_limbs[0];
 
-    let carry_lo = (t0 + (t1 << 64)).saturating_sub(c_lo) >> 128;
+    let carry_lo = (t0 + (t1 << 64) ).saturating_sub(c_lo) >> 128;
     let carry_hi = (t2 + (t3 << 64) + carry_lo).saturating_sub(c_hi) >> 128;
 
     let mut a_u16s: Vec<u16> = operands[0]
@@ -162,48 +160,53 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(16, c_u16s.len());
 
     let a_hi_u16s = a_u16s.split_off(8);
-    let row_0 = get_row(a, b, a_hi_u16s, 0, Tag::Mul);
+    let row_0 = get_row(a,b,a_hi_u16s,Tag::Mul);
 
     let c_split = split_u256_hi_lo(&c);
-    let row_1 = get_row(c_split, [carry_hi, carry_lo], a_u16s, 1, Tag::Mul);
+    let row_1 = get_row(c_split, [carry_hi,carry_lo], a_u16s, Tag::Mul);
 
     let b_hi_u16s = b_u16s.split_off(8);
-    let row_2 = get_row(
-        [U256::zero(), U256::zero()],
-        [U256::zero(), U256::zero()],
-        b_hi_u16s,
-        2,
-        Tag::Mul,
-    );
-    let row_3 = get_row(
-        [U256::zero(), U256::zero()],
-        [U256::zero(), U256::zero()],
-        b_u16s,
-        3,
-        Tag::Mul,
-    );
+    let row_2 = get_row([U256::zero(),U256::zero()],[U256::zero(),U256::zero()],b_hi_u16s,Tag::Mul);
+    let row_3 = get_row([U256::zero(),U256::zero()],[U256::zero(),U256::zero()],b_u16s,Tag::Mul);
 
     let c_hi_u16s = c_u16s.split_off(8);
-    let row_4 = get_row(
-        [U256::zero(), U256::zero()],
-        [U256::zero(), U256::zero()],
-        c_hi_u16s,
-        4,
-        Tag::Mul,
-    );
-    let row_5 = get_row(
-        [U256::zero(), U256::zero()],
-        [U256::zero(), U256::zero()],
-        c_u16s,
-        5,
-        Tag::Mul,
-    );
+    let row_4 = get_row([U256::zero(),U256::zero()],[U256::zero(),U256::zero()],c_hi_u16s,Tag::Mul);
+    let row_5 = get_row([U256::zero(),U256::zero()],[U256::zero(),U256::zero()],c_u16s,Tag::Mul);
 
     let carry = (carry_hi << 128) + carry_lo;
-    (
-        vec![row_5, row_4, row_3, row_2, row_1, row_0],
-        vec![c, carry],
-    )
+    (vec![row_5,row_4, row_3,row_2,row_1, row_0], vec![c, carry])
+}
+
+pub(crate) fn get_row(a: [U256;2], b: [U256;2], u16s: Vec<u16>, tag: Tag) -> Row {
+    Row{
+        tag: tag,
+        cnt: 0.into(),
+        operand_0_hi: a[0],
+        operand_0_lo: a[1],
+        operand_1_hi: b[0],
+        operand_1_lo: b[1],
+        u16_0: u16s[0].into(),
+        u16_1: u16s[1].into(),
+        u16_2: u16s[2].into(),
+        u16_3: u16s[3].into(),
+        u16_4: u16s[4].into(),
+        u16_5: u16s[5].into(),
+        u16_6: u16s[6].into(),
+        u16_7: u16s[7].into(),
+    }
+}
+
+//calculate the u16 sum
+pub(crate) fn get_u16s<F: Field>(config: &OperationConfig<F>,
+                       meta: &mut VirtualCells<F>,rotation: Rotation) ->  (Expression<F>, Expression<F>, Expression<F>){
+    let mut u16s: Vec<_> = (0..8)
+        .map(|i| config.get_u16(i, rotation)(meta))
+        .collect();
+    let u16_sum = expr_from_u16s(&u16s);
+    let u16_a_3 = u16s.split_off(4);
+    let a_2 = expr_from_u16s(&u16s);
+    let a_3 = expr_from_u16s(&u16_a_3);
+    (u16_sum,a_2,a_3)
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {

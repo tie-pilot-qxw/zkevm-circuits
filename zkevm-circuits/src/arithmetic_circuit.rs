@@ -117,11 +117,13 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         &self,
         index: usize,
     ) -> impl FnOnce(&mut VirtualCells<'_, F>) -> [Expression<F>; 2] {
-        assert!(index < 4);
-        let rotation = if index < NUM_OPERAND {
+        assert!(index < 6);
+        let (rotation) = if index < 2 {
             Rotation::cur()
-        } else {
+        } else if index < 4 {
             Rotation::prev()
+        } else {
+            Rotation(-2)
         };
         let index = index % NUM_OPERAND;
         let operands = self.operands[index];
@@ -290,9 +292,11 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ArithmeticCircuit<F, 
 mod test {
     use super::*;
     use crate::{constant::MAX_NUM_ROW, util::log2_ceil};
+    use eth_types::U256;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
+
     #[derive(Clone, Default, Debug)]
     pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, MAX_NUM_ROW>);
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
@@ -336,9 +340,15 @@ mod test {
             self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
         let (arithmeticSub, result) =
             self::operation::sub::gen_witness(vec![3.into(), u128::MAX.into()]);
+        let (arithmeticMul, result) =
+            self::operation::mul::gen_witness(vec![3.into(), u128::MAX.into()]);
+        let (arithmeticDivMod, result) =
+            self::operation::div_mod::gen_witness(vec![(U256::MAX), 2.into()]);
 
         let mut arithmetic = arithmeticAdd.clone();
         arithmetic.extend(arithmeticSub);
+        arithmetic.extend(arithmeticMul);
+        arithmetic.extend(arithmeticDivMod);
         // TODO add more operation's witness
         let witness = Witness {
             arithmetic,
