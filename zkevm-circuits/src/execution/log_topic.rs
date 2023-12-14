@@ -71,32 +71,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
+        let s_log_left_0 = meta.query_advice(config.vers[12], Rotation::prev());
 
         // build constraints ---
         // append auxiliary constraints
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: LOG_STAMP_DELTA.expr(),
+            log_stamp: s_log_left_0 * LOG_STAMP_DELTA.expr(),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // new selector LOG_LEFT_X and append selector constraints
-        let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[8], Rotation::prev()), // LOG_LEFT_4
-            meta.query_advice(config.vers[9], Rotation::prev()), // LOG_LEFT_3
-            meta.query_advice(config.vers[10], Rotation::prev()), // LOG_LEFT_2
-            meta.query_advice(config.vers[11], Rotation::prev()), // LOG_LEFT_1
-            meta.query_advice(config.vers[12], Rotation::prev()), // LOG_LEFT_0
-        ]);
+        let selector = config.get_log_left_selector(meta);
         constraints.extend(selector.get_constraints());
-
-        // append stack constraints
-        let mut stack_pop_values = vec![];
 
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
@@ -108,17 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             false,
         ));
 
-        let (_, stamp, value_hi, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, state_entry);
-        stack_pop_values.push(value_hi);
-        stack_pop_values.push(value_lo);
-
-        // append core single purpose constraints
-        let delta = CoreSinglePurposeOutcome {
-            // pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
         // append public log lookup (addrWithXLog) constraints
         let (
@@ -153,16 +134,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 1.expr(), // LOG_LEFT_1
-                    public_values[1].clone() - (LogTag::Topic3 as u8).expr(), // LOG_LEFT_0
+                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                        - (public_values[1].clone() - (LogTag::Topic0 as u8).expr()), // LOG_LEFT_0
                 ]),
             ),
             (
                 format!("public topic hash hi is stack value_hi").into(),
-                public_values[2].clone() - stack_pop_values[0].clone(),
+                public_values[2].clone() - value_hi.clone(),
             ),
             (
                 format!("public topic hash lo is stack value_lo").into(),
-                public_values[3].clone() - stack_pop_values[1].clone(),
+                public_values[3].clone() - value_lo.clone(),
             ),
         ]);
 
@@ -200,6 +182,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // core_row_1: insert selector LOG_LEFT_4, LOG_LEFT_3, LOG_LEFT_2, LOG_LEFT_1, LOG_LEFT_0
         simple_selector_assign(
+            // Fixme 既然我们有3个gadget要用它，这个assign和comments也放到一个函数core_row_1.insert_log_left_selector()吧
             [
                 &mut core_row_1.vers_12, // LOG_LEFT_0
                 &mut core_row_1.vers_11, // LOG_LEFT_1
@@ -228,7 +211,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_public_lookup(&public_row);
 
         // increase log_stamp
-        current_state.log_stamp += 1;
+        if current_state.log_left == 0 {
+            current_state.log_stamp += 1;
+        }
 
         let core_row_0 = ExecutionState::LOG_TOPIC.into_exec_state_core_row(
             trace,
@@ -299,6 +284,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -309,6 +295,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let (witness, prover) =
