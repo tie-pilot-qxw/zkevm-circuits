@@ -1091,11 +1091,22 @@ impl WitnessExecHelper {
         let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG0).as_u8() - (self.log_left as u8)
             + (public::LogTag::Topic0 as u8);
 
+        let topic_tag = match topic_log_tag {
+            5 => "Topic0",
+            6 => "Topic1",
+            7 => "Topic2",
+            8 => "Topic3",
+            _ => panic!(),
+        };
+
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
         comments.insert(format!("vers_{}", 27), format!("tx_idx"));
         comments.insert(format!("vers_{}", 28), format!("log_index"));
-        comments.insert(format!("vers_{}", 29), format!("topic_log_tag"));
+        comments.insert(
+            format!("vers_{}", 29),
+            format!("topic_log_tag={}", topic_tag),
+        );
         comments.insert(format!("vers_{}", 30), format!("topic_hash[..16]"));
         comments.insert(format!("vers_{}", 31), format!("topic_hash[16..]"));
 
@@ -1121,6 +1132,7 @@ macro_rules! assign_or_panic {
         }
     };
 }
+use crate::witness::public::LogTag;
 pub(crate) use assign_or_panic;
 
 impl core::Row {
