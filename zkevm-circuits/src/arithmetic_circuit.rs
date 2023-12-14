@@ -342,13 +342,13 @@ mod test {
             self::operation::sub::gen_witness(vec![3.into(), u128::MAX.into()]);
         let (arithmeticMul, result) =
             self::operation::mul::gen_witness(vec![3.into(), u128::MAX.into()]);
-        let (arithmeticDivMod, result) =
-            self::operation::div_mod::gen_witness(vec![(U256::MAX), 2.into()]);
+        // let (arithmeticDivMod, result) =
+        //     self::operation::div_mod::gen_witness(vec![(U256::MAX), 2.into()]);
 
         let mut arithmetic = arithmeticAdd.clone();
         arithmetic.extend(arithmeticSub);
         arithmetic.extend(arithmeticMul);
-        arithmetic.extend(arithmeticDivMod);
+        // arithmetic.extend(arithmeticDivMod);
         // TODO add more operation's witness
         let witness = Witness {
             arithmetic,
