@@ -84,15 +84,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                format!("operand[{}] in state = 0", 5),
-                arithmetic_operands[4].clone(),
+                format!(
+                    "operand[{}] carry_lo in arithmetic = operand[{}] carry_lo in state lookup ",
+                    5, 7
+                ),
+                arithmetic_operands[5].clone() - arithmetic_operands_full[7].clone(),
             ),
             (
-                format!(
-                    "operand[{}] in arithmetic = operand[{}] in state lookup ",
-                    6, 4
-                ),
-                arithmetic_operands[5].clone() - arithmetic_operands_full[6].clone(),
+                format!("operand[{}] carry_hi in state = 0", 4),
+                arithmetic_operands[4].clone(),
             ),
         ]);
         constraints.extend([

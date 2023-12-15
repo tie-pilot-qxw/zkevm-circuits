@@ -84,7 +84,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         // self.assign_row(region, 0, &Default::default())?;
         // assign the rows
         for (offset, row) in witness.arithmetic.iter().enumerate() {
-            self.assign_row(region, offset + 0, row)?;
+            self.assign_row(region, offset, row)?;
         }
 
         // pad the rest rows

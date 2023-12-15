@@ -81,13 +81,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 format!(
-                    "operand[{}] in arithmetic = operand[{}] in state lookup ",
-                    6, 4
+                    "operand[{}] carry_lo in arithmetic = operand[{}] carry_lo in state lookup ",
+                    5, 7
                 ),
-                arithmetic_operands[5].clone() - arithmetic_operands_full[6].clone(),
+                arithmetic_operands[5].clone() - arithmetic_operands_full[7].clone(),
             ),
             (
-                format!("operand[{}] in state = 0", 5),
+                format!("operand[{}] carry_hi in state = 0", 4),
                 arithmetic_operands[4].clone(),
             ),
         ]);
@@ -158,7 +158,10 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[4.into(), 4.into()]);
+        let stack = Stack::from_slice(&[
+            U256::MAX,
+            U256::from(u128::MAX) + U256::from(123123123 as u64),
+        ]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),

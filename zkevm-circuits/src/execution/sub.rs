@@ -144,7 +144,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[300.into(), 3.into()]);
+        let stack = Stack::from_slice(&[U256::MAX, 3.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
