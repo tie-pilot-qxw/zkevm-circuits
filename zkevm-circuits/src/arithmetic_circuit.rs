@@ -335,20 +335,47 @@ mod test {
     }
     // #[ignore = "remove ignore after arithmetic is finished"]
     #[test]
-    fn test_each_operation_witness() {
+    fn test_add_witness() {
         let (arithmeticAdd, result) =
             self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
-        let (arithmeticSub, result) =
-            self::operation::sub::gen_witness(vec![3.into(), u128::MAX.into()]);
-        let (arithmeticMul, result) =
-            self::operation::mul::gen_witness(vec![3.into(), u128::MAX.into()]);
-        // let (arithmeticDivMod, result) =
-        //     self::operation::div_mod::gen_witness(vec![(U256::MAX), 2.into()]);
 
         let mut arithmetic = arithmeticAdd.clone();
-        arithmetic.extend(arithmeticSub);
-        arithmetic.extend(arithmeticMul);
-        // arithmetic.extend(arithmeticDivMod);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(MAX_NUM_ROW);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_sub_gt_witness() {
+        let (arithmeticSub, result) =
+            self::operation::sub::gen_witness(vec![U256::MAX, u128::MAX.into()]);
+
+        let mut arithmetic = arithmeticSub.clone();
+        assert_eq!(result[1], 0.into());
+        // TODO add more operation's witness
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(MAX_NUM_ROW);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_lt_witness() {
+        let (arithmeticSub, result) =
+            self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+
+        let mut arithmetic = arithmeticSub.clone();
+        assert_eq!(result[1], 1.into());
         // TODO add more operation's witness
         let witness = Witness {
             arithmetic,

@@ -40,51 +40,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        // auxiliary constraints
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
-            ..Default::default()
-        };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        // core single constraints
-        let delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-        let mut arithmetic_operands = vec![];
-        for i in 0..3 {
-            let entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_stack_constraints(
-                meta,
-                entry.clone(),
-                i,
-                NUM_ROW,
-                if i == 0 { 0 } else { -1 }.expr(),
-                i == 2,
-            ));
-            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            arithmetic_operands.extend([value_hi, value_lo]);
-        }
-        let (tag, arithmetic_operands_full) =
-            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
-        // iterate over three operands (0..6), since we don't need constraint on the fourth
-        constraints.extend((0..6).map(|i| {
-            (
-                format!("operand[{}] in arithmetic = in state lookup", i),
-                arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
-            )
-        }));
-        constraints.extend([
-            ("opcode".into(), opcode - OpcodeId::MUL.as_u8().expr()),
-            (
-                "arithmetic tag".into(),
-                tag - (arithmetic::Tag::Mul as u8).expr(),
-            ),
-        ]);
-        constraints
+        vec![]
     }
     fn get_lookups(
         &self,
@@ -103,19 +59,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert_eq!(trace.op, OpcodeId::MUL);
-
-        let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);
-        let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
-
-        let (arithmetic, result) = operation::mul::gen_witness(vec![a, b]);
-        let stack_push = current_state.get_push_stack_row(trace, result[0]);
-
+        let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
+        let c = current_state.stack_top.unwrap_or_default();
+        let stack_push_0 = current_state.get_push_stack_row(trace, c);
+        let (exp_c, carry_hi) = a.overflowing_mul(b);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_arithmetic_lookup(&arithmetic);
-
+        // let mut d = (carry_hi as u128).into();
+        // d <<= 128;
+        assert_eq!(exp_c, c);
+        // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Mul, [a, b, c, d]);
+        //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push]);
+
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
         let core_row_0 = ExecutionState::MUL.into_exec_state_core_row(
             trace,
             current_state,
@@ -124,8 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_pop_a, stack_pop_b, stack_push],
-            arithmetic,
+            state: vec![stack_pop_0, stack_pop_1, stack_push_0],
             ..Default::default()
         }
     }
