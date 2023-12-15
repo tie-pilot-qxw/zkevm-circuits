@@ -54,7 +54,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-        let mut arithmetic_operands = vec![];
+        let mut stack_operands = vec![];
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
@@ -66,26 +66,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 i == 2,
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            arithmetic_operands.extend([value_hi, value_lo]);
+            stack_operands.extend([value_hi, value_lo]);
         }
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
-        // iterate over three operands (0..6), since we don't need constraint on the fourth
+        // iterate over three operands (0..4), which are first two operands
         constraints.extend((0..4).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),
-                arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
+                stack_operands[i].clone() - arithmetic_operands_full[i].clone(),
             )
         }));
 
-        constraints.extend([(
-            format!(
-                "operand[{}] carry_hi in arithmetic = operand[{}] carry_hi in state lookup ",
-                4, 6
-            ),
-            arithmetic_operands[4].clone() - arithmetic_operands_full[6].clone(),
-        )]);
         constraints.extend([
+            (
+                "result hi in state push = 0".into(),
+                stack_operands[4].clone(),
+            ),
+            (
+                "operand[6] carry_hi in arithemetic = result in state push lo".into(),
+                stack_operands[5].clone() - arithmetic_operands_full[6].clone(),
+            ),
+            // we don't need any constaint for operand[4,5,7] in arithemetic
             ("opcode".into(), opcode - OpcodeId::LT.as_u8().expr()),
             (
                 "arithmetic tag".into(),
@@ -117,7 +119,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
 
         let (arithmetic, result) = operation::sub::gen_witness(vec![a, b]);
-        let stack_push = current_state.get_push_stack_row(trace, result[1]);
+        // get carry hi, which is at 128-th bit
+        let stack_result = result[1] >> 128;
+        assert_eq!(stack_result, current_state.stack_top.unwrap());
+        let stack_push = current_state.get_push_stack_row(trace, stack_result);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_arithmetic_lookup(&arithmetic);
@@ -159,7 +164,7 @@ mod test {
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(0.into()),
+            stack_top: Some(1.into()),
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::LT, stack);

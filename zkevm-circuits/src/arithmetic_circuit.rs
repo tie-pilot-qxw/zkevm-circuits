@@ -291,14 +291,16 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ArithmeticCircuit<F, 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{constant::MAX_NUM_ROW, util::log2_ceil};
+    use crate::util::log2_ceil;
     use eth_types::U256;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
 
+    const TEST_SIZE: usize = 50;
+
     #[derive(Clone, Default, Debug)]
-    pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, MAX_NUM_ROW>);
+    pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
         type Config = ArithmeticCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
@@ -335,51 +337,51 @@ mod test {
     }
     #[test]
     fn test_add_witness() {
-        let (arithmetic_add, result) =
+        let (arithmetic, result) =
             self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
 
-        let mut arithmetic = arithmetic_add.clone();
-
+        // there is carry for low 128-bit
+        assert_eq!(result[1], 1.into());
         let witness = Witness {
             arithmetic,
             ..Default::default()
         };
         let circuit = ArithmeticTestCircuit::new(witness);
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied_par();
     }
 
     #[test]
     fn test_sub_gt_witness() {
-        let (arithmetic_sub, result) =
+        let (arithmetic, result) =
             self::operation::sub::gen_witness(vec![U256::MAX, u128::MAX.into()]);
 
-        let mut arithmetic = arithmetic_sub.clone();
+        // there is no carry, so it is 0
         assert_eq!(result[1], 0.into());
         let witness = Witness {
             arithmetic,
             ..Default::default()
         };
         let circuit = ArithmeticTestCircuit::new(witness);
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied_par();
     }
 
     #[test]
     fn test_lt_witness() {
-        let (arithmetic_sub, result) =
+        let (arithmetic, result) =
             self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
 
-        let mut arithmetic = arithmetic_sub.clone();
+        // there is carry for high 128-bit, so it is 1<<128
         assert_eq!(result[1], U256::from(1) << 128);
         let witness = Witness {
             arithmetic,
             ..Default::default()
         };
         let circuit = ArithmeticTestCircuit::new(witness);
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied_par();
     }
