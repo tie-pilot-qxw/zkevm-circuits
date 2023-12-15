@@ -333,13 +333,12 @@ mod test {
             Self(ArithmeticCircuit::new_from_witness(&witness))
         }
     }
-    // #[ignore = "remove ignore after arithmetic is finished"]
     #[test]
     fn test_add_witness() {
-        let (arithmeticAdd, result) =
+        let (arithmetic_add, result) =
             self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
 
-        let mut arithmetic = arithmeticAdd.clone();
+        let mut arithmetic = arithmetic_add.clone();
 
         let witness = Witness {
             arithmetic,
@@ -353,12 +352,11 @@ mod test {
 
     #[test]
     fn test_sub_gt_witness() {
-        let (arithmeticSub, result) =
+        let (arithmetic_sub, result) =
             self::operation::sub::gen_witness(vec![U256::MAX, u128::MAX.into()]);
 
-        let mut arithmetic = arithmeticSub.clone();
+        let mut arithmetic = arithmetic_sub.clone();
         assert_eq!(result[1], 0.into());
-        // TODO add more operation's witness
         let witness = Witness {
             arithmetic,
             ..Default::default()
@@ -371,12 +369,11 @@ mod test {
 
     #[test]
     fn test_lt_witness() {
-        let (arithmeticSub, result) =
+        let (arithmetic_sub, result) =
             self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
 
-        let mut arithmetic = arithmeticSub.clone();
+        let mut arithmetic = arithmetic_sub.clone();
         assert_eq!(result[1], 1.into());
-        // TODO add more operation's witness
         let witness = Witness {
             arithmetic,
             ..Default::default()
