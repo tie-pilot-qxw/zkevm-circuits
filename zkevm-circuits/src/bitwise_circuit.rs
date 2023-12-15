@@ -318,9 +318,9 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::log2_ceil;
     use crate::witness::{bitwise, Witness};
-    use eth_types::{bytecode, U256};
+    use eth_types::U256;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr;
@@ -489,24 +489,8 @@ mod test {
         op2: u128,
         lookup_expect_acc_row: BitwiseTestRow,
     ) {
-        let code = bytecode! {
-            PUSH16(op1)
-            PUSH16(op2)
-            BYTE
-            STOP
-        };
-        let machine_code = code.to_vec();
-        let trace = trace_parser::trace_program(&machine_code);
-        let mut witness: Witness = Witness::new(&geth_data_test(
-            trace,
-            &machine_code,
-            &[],
-            false,
-            Default::default(),
-        ));
-
         // generate bitwise row
-        witness.bitwise = vec![];
+        let mut witness = Witness::default();
         (0..BitwiseCircuit::<Fr, TEST_SIZE>::unusable_rows().0)
             .for_each(|_| witness.bitwise.insert(0, Default::default()));
 
