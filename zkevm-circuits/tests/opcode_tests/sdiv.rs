@@ -2,35 +2,35 @@ use crate::test_super_circuit_short_bytecode;
 use eth_types::{bytecode, U256};
 
 #[test]
-fn add_bytecode() {
+fn sdiv_bytecode() {
     let a = U256::from_str_radix(
-        "0xff03210321032103210303210321032103210321032103210321032103210321",
+        "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE",
         16,
     )
     .unwrap();
     let b = U256::from_str_radix(
-        "0xff10321032103210321032103210321032103210321032103210321032103210",
+        "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
         16,
     )
     .unwrap();
     let bytecode = bytecode! {
         PUSH32(b)
         PUSH32(a)
-        ADD //a+b
+        SDIV // a/b
         STOP
-    }; //add with overflow
+    };
     test_super_circuit_short_bytecode!(bytecode);
-}
+} // signed integer division with remainder
 
 #[test]
-fn add_without_overflow_bytecode() {
+fn sdiv_without_remainder_bytecode() {
     let a = U256::from_str_radix("10", 10).unwrap();
     let b = U256::from_str_radix("10", 10).unwrap();
     let bytecode = bytecode! {
-        PUSH32(b)
-        PUSH32(a)
-        ADD //a+b
+        PUSH1(b)
+        PUSH1(a)
+        SDIV // a/b
         STOP
-    }; //add without overflow
+    };
     test_super_circuit_short_bytecode!(bytecode);
-}
+} // signed integer division without reminder
