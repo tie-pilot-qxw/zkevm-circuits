@@ -4,9 +4,8 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, copy, public, WitnessExecHelper};
-use crate::witness::{core, state, Witness};
-use eth_types::evm_types::OpcodeId;
+use crate::witness::{copy, public, WitnessExecHelper};
+use crate::witness::{state::CallContextTag, Witness};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -71,24 +70,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let mut operands: Vec<[Expression<F>; 2]> = vec![];
-        for i in 0..4 {
+        // for i in 0..4 {
+        for (i, call_context) in [
+            CallContextTag::StorageContractAddr,
+            CallContextTag::CallDataSize,
+            CallContextTag::ParentCallId,
+            CallContextTag::ParentCodeContractAddr,
+        ]
+        .iter()
+        .enumerate()
+        {
             let entry = config.get_state_lookup(meta, i);
-            let call_context = if i == 0 {
-                state::CallContextTag::StorageContractAddr
-            } else if i == 1 {
-                state::CallContextTag::CallDataSize
-            } else if i == 2 {
-                state::CallContextTag::ParentCallId
-            } else {
-                state::CallContextTag::ParentCodeContractAddr
-            };
             constraints.append(&mut config.get_call_context_constraints(
                 meta,
                 entry.clone(),
                 i,
                 NUM_ROW,
                 true,
-                (call_context as u8).expr(),
+                (*call_context as u8).expr(),
                 call_id.clone(),
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
@@ -182,7 +181,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let write_addr_row = current_state.get_write_call_context_row(
             Some((addr >> 128).as_u128().into()),
             Some(addr.low_u128().into()),
-            state::CallContextTag::StorageContractAddr,
+            CallContextTag::StorageContractAddr,
         );
         let calldata_size = current_state
             .call_data
@@ -192,17 +191,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let write_calldata_size_row = current_state.get_write_call_context_row(
             None,
             Some(calldata_size.into()),
-            state::CallContextTag::CallDataSize,
+            CallContextTag::CallDataSize,
         );
         let write_parent_call_id_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
-            state::CallContextTag::ParentCallId,
+            CallContextTag::ParentCallId,
         );
         let write_parent_code_addr_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
-            state::CallContextTag::ParentCodeContractAddr,
+            CallContextTag::ParentCodeContractAddr,
         );
         let (copy_rows, state_rows_from_copy) = if calldata_size > 0 {
             current_state.get_load_calldata_copy_rows::<F>()

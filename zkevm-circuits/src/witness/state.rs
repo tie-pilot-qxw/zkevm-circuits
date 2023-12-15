@@ -41,7 +41,7 @@ impl From<Tag> for usize {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Copy)]
 pub enum CallContextTag {
     #[default]
     ParentCallId,

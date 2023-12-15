@@ -1,20 +1,14 @@
-use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
-};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{arithmetic, copy, public, WitnessExecHelper};
-use crate::witness::{core, state, Witness};
-use eth_types::evm_types::OpcodeId;
+use crate::witness::{public, WitnessExecHelper};
+use crate::witness::{state::CallContextTag, Witness};
 use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
-use super::call_context;
 
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 4;
@@ -66,24 +60,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let mut operands: Vec<[Expression<F>; 2]> = vec![];
-        for i in 0..4 {
+        for (i, call_context) in [
+            CallContextTag::SenderAddr,
+            CallContextTag::Value,
+            CallContextTag::ParentProgramCounter,
+            CallContextTag::ParentStackPointer,
+        ]
+        .iter()
+        .enumerate()
+        {
             let entry = config.get_state_lookup(meta, i);
-            let call_context = if i == 0 {
-                state::CallContextTag::SenderAddr
-            } else if i == 1 {
-                state::CallContextTag::Value
-            } else if i == 2 {
-                state::CallContextTag::ParentProgramCounter
-            } else {
-                state::CallContextTag::ParentStackPointer
-            };
             constraints.append(&mut config.get_call_context_constraints(
                 meta,
                 entry.clone(),
                 i,
                 NUM_ROW,
                 true,
-                (call_context as u8).expr(),
+                (*call_context as u8).expr(),
                 call_id.clone(),
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
@@ -92,7 +85,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             ("parent pc hi == 0".into(), operands[2][0].clone()),
             ("parent pc lo == 0".into(), operands[2][1].clone()),
-            ("parent stack pc hi == 0".into(), operands[3][0].clone()),
+            (
+                "parent stack pointer hi == 0".into(),
+                operands[3][0].clone(),
+            ),
             (
                 "parent stack pointer lo == 0".into(),
                 operands[3][1].clone(),
@@ -144,22 +140,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let write_sender_row = current_state.get_write_call_context_row(
             Some((sender >> 128).as_u128().into()),
             Some(sender.low_u128().into()),
-            state::CallContextTag::SenderAddr,
+            CallContextTag::SenderAddr,
         );
         let write_value_row = current_state.get_write_call_context_row(
             Some((value >> 128).as_u128().into()),
             Some(value.low_u128().into()),
-            state::CallContextTag::Value,
+            CallContextTag::Value,
         );
         let write_parent_pc_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
-            state::CallContextTag::ParentProgramCounter,
+            CallContextTag::ParentProgramCounter,
         );
         let write_parent_stack_pointer_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
-            state::CallContextTag::ParentStackPointer,
+            CallContextTag::ParentStackPointer,
         );
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
