@@ -8,7 +8,6 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
-
 pub struct MulGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -89,6 +88,7 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
+
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
