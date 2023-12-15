@@ -1132,7 +1132,6 @@ macro_rules! assign_or_panic {
         }
     };
 }
-use crate::witness::public::LogTag;
 pub(crate) use assign_or_panic;
 
 impl core::Row {
