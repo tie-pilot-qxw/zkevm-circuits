@@ -1,8 +1,7 @@
-use crate::arithmetic_circuit::operation;
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::util::query_expression;
-use crate::witness::{arithmetic, assign_or_panic, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};

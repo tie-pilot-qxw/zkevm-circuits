@@ -1,22 +1,13 @@
-use crate::arithmetic_circuit::operation;
-use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
-};
-use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::{query_expression, ExpressionOutcome};
+use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::table::LookupEntry;
+use crate::util::query_expression;
 use crate::witness::{arithmetic, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256, U512};
-use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 3;
-const STACK_POINTER_DELTA: i32 = -1;
-const PC_DELTA: u64 = 1;
 pub struct MulGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -101,7 +92,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[78327498.into(), U256::MAX.into()]);
+        let stack = Stack::from_slice(&[2.into(), 3.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
