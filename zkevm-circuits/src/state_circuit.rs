@@ -142,6 +142,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     .tag
                     .value_equals(state::Tag::ReturnData, Rotation::cur())(meta);
             let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
+            let prev_value_hi = meta.query_advice(config.value_hi, Rotation::prev());
+            let prev_value_lo = meta.query_advice(config.value_lo, Rotation::prev());
             let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
@@ -233,11 +235,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     q_enable.clone()
                         * return_condition.clone()
                         * is_first_access.clone()
-                        * (1.expr() - is_write),
+                        * (1.expr() - is_write.clone()),
                 ),
                 (
                     "returndata_value_hi",
-                    q_enable.clone() * return_condition.clone() * value_hi,
+                    q_enable.clone() * return_condition.clone() * value_hi.clone(),
                 ),
                 (
                     "returndata_pointer_hi",
@@ -271,7 +273,22 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 "is_first_access=1 ==> index = [Tag, Stamp0)",
                 q_enable.clone() * is_first_access.clone() * index_not_stamp_expr,
             ));
-
+            vec.push((
+                "is_first_access=0 & is_write=0 ==> prev_value_lo=cur_value_lo",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * (1.expr() - end_padding_condition.clone())
+                    * (prev_value_lo - value_lo)
+                    * (1.expr() - is_write.clone()),
+            ));
+            vec.push((
+                "is_first_access=0 & is_write=0 ==> prev_value_hi=cur_value_hi",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * (1.expr() - end_padding_condition.clone())
+                    * (prev_value_hi - value_hi)
+                    * (1.expr() - is_write.clone()),
+            ));
             vec
         });
 
