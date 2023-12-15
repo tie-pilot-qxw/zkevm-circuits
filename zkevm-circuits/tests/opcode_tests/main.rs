@@ -29,8 +29,8 @@ mod stop; //00
 mod sub; //03
 mod test;
 mod xor; //18 //3A
-              // mod extcodecopy;    //3C
-              // mod returndatacopy; //3E
+         // mod extcodecopy;    //3C
+         // mod returndatacopy; //3E
 mod basefee; //48
 mod chainid; //46
 mod coinbase; //41
@@ -118,13 +118,13 @@ mod swap7; //96
 mod swap8; //97
 mod swap9; //98
 mod timestamp; //42 //FD
-                    // mod sdiv;           //05
-                    // mod smod;           //07
-                    // mod blockhash;      //40
-                    // mod push;           //B0
-                    // mod dup;            //B1
-                    // mod swap;           //B2
-                    // mod create;         //F0
+               // mod sdiv;           //05
+               // mod smod;           //07
+               // mod blockhash;      //40
+               // mod push;           //B0
+               // mod dup;            //B1
+               // mod swap;           //B2
+               // mod create;         //F0
 
 macro_rules! test_super_circuit_short_bytecode {
     ($bytecode:expr) => {{
