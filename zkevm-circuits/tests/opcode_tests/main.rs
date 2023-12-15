@@ -116,7 +116,7 @@ mod log1;           //A1
 mod log2;           //A2
 mod log3;           //A3
 mod log4;           //A4
-mod _return;        //F2
+mod return_;        //F2
 mod revert;         //FD
 // mod sdiv;           //05
 // mod smod;           //07
