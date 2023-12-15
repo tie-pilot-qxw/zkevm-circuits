@@ -122,7 +122,10 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         u16_6: c_u16s[6].into(),
         u16_7: c_u16s[7].into(),
     };
-    (vec![row_1, row_0], vec![c, (carry_hi as u8).into()])
+    (
+        vec![row_1, row_0],
+        vec![c, U256::from(carry_hi as u8) << 128],
+    )
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {

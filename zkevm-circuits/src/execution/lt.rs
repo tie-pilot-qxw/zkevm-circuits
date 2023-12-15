@@ -78,19 +78,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             )
         }));
 
-        constraints.extend([
-            (
-                format!(
-                    "operand[{}] carry_lo in arithmetic = operand[{}] carry_lo in state lookup ",
-                    5, 7
-                ),
-                arithmetic_operands[5].clone() - arithmetic_operands_full[7].clone(),
+        constraints.extend([(
+            format!(
+                "operand[{}] carry_hi in arithmetic = operand[{}] carry_hi in state lookup ",
+                4, 6
             ),
-            (
-                format!("operand[{}] carry_hi in state = 0", 4),
-                arithmetic_operands[4].clone(),
-            ),
-        ]);
+            arithmetic_operands[4].clone() - arithmetic_operands_full[6].clone(),
+        )]);
         constraints.extend([
             ("opcode".into(), opcode - OpcodeId::LT.as_u8().expr()),
             (

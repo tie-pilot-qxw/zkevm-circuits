@@ -373,7 +373,7 @@ mod test {
             self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
 
         let mut arithmetic = arithmetic_sub.clone();
-        assert_eq!(result[1], 1.into());
+        assert_eq!(result[1], U256::from(1) << 128);
         let witness = Witness {
             arithmetic,
             ..Default::default()
