@@ -19,10 +19,9 @@ use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionSt
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_16_bytes, convert_u256_to_f,
-    create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
+    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
+    SubCircuit,
 };
-use crate::witness::bitwise::Row;
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
@@ -1601,7 +1600,7 @@ impl Witness {
         wtr.flush().unwrap();
     }
 
-    pub fn write_one_as_csv<W: Write, T: Serialize>(&self, writer: W, table: &Vec<T>) {
+    pub fn write_one_as_csv<W: Write, T: Serialize>(writer: W, table: &Vec<T>) {
         let mut wtr = csv::Writer::from_writer(writer);
         table.iter().for_each(|row| {
             wtr.serialize(row).unwrap();
@@ -1628,7 +1627,7 @@ impl Witness {
             return;
         }
         let mut buf = Vec::new();
-        self.write_one_as_csv(&mut buf, table);
+        Self::write_one_as_csv(&mut buf, table);
         let csv_string = String::from_utf8(buf).unwrap();
 
         writer.write(csv2html::start("").as_ref()).unwrap();
@@ -1752,7 +1751,7 @@ impl ExecutionState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{convert_u256_to_16_bytes, convert_u256_to_64_bytes, geth_data_test};
+    use crate::util::geth_data_test;
 
     #[test]
     fn test_data_print_csv() {
@@ -1766,52 +1765,5 @@ mod tests {
             Default::default(),
         ));
         witness.print_csv();
-    }
-
-    #[test]
-    fn test_get_bitwise_row() {
-        let operand1 = U256::from_little_endian(&[0xabu8, 0xcdu8, 0xefu8]);
-        let operand2 = U256::from_little_endian(&[0xaau8, 0xbbu8, 0xccu8]);
-
-        let operand1_hi = (operand1 >> 128).as_u128();
-        let operand1_low = operand1.low_u128();
-
-        let operand2_hi = (operand2 >> 128).as_u128();
-        let operand2_low = operand2.low_u128();
-
-        let bitwise_low_rows =
-            bitwise::get_bitwise_row::<Fr>(bitwise::Tag::And, operand1_low, operand2_low);
-
-        let bitwise_hi_rows =
-            bitwise::get_bitwise_row::<Fr>(bitwise::Tag::And, operand1_hi, operand1_hi);
-
-        for row in bitwise_low_rows {
-            println!("tag:{:?}, byte_0:{:?}, byte_1:{:?}, byte_2:{:?}, acc_0:{:?}, acc_1:{:?}, acc_2:{:?}, sum2:{:?}, cnt:{:?}",
-                     row.tag,
-                     hex::encode(&convert_u256_to_16_bytes(&row.byte_0)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.byte_1)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.byte_2)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.acc_0)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.acc_1)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.acc_2)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.sum_2)),
-                     row.cnt
-            );
-        }
-
-        println!();
-        for row in bitwise_hi_rows {
-            println!("tag:{:?}, byte_0:{:?}, byte_1:{:?}, byte_2:{:?}, acc_0:{:?}, acc_1:{:?}, acc_2:{:?}, sum2:{:?}, cnt:{:?}",
-                     row.tag,
-                     hex::encode(&convert_u256_to_16_bytes(&row.byte_0)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.byte_1)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.byte_2)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.acc_0)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.acc_1)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.acc_2)),
-                     hex::encode(&convert_u256_to_16_bytes(&row.sum_2)),
-                     row.cnt
-            );
-        }
     }
 }

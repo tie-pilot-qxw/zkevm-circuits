@@ -126,36 +126,6 @@ pub fn convert_u256_to_f<F: Field>(value: &U256) -> F {
     F::from_uniform_bytes(&convert_u256_to_64_bytes(value))
 }
 
-pub fn convert_u256_to_low_hi_u8_bytes(value: U256) -> ([u8; 16], [u8; 16]) {
-    let value_bytes = convert_u256_to_64_bytes(&value);
-    let array_u8_16: Vec<[u8; 16]> = value_bytes
-        .chunks_exact(16)
-        .take(2)
-        .enumerate()
-        .map(|(idx, chunk)| {
-            let mut arr_u8_16_elem: [u8; 16] = [0; 16];
-            arr_u8_16_elem.copy_from_slice(chunk);
-            arr_u8_16_elem
-        })
-        .collect();
-    (array_u8_16[0], array_u8_16[1])
-}
-
-pub fn convert_u256_to_16_bytes(value: &U256) -> [u8; 16] {
-    let value_bytes = convert_u256_to_64_bytes(&value);
-    let array_u8_16: Vec<[u8; 16]> = value_bytes
-        .chunks_exact(16)
-        .take(1)
-        .enumerate()
-        .map(|(idx, chunk)| {
-            let mut arr_u8_16_elem: [u8; 16] = [0; 16];
-            arr_u8_16_elem.copy_from_slice(chunk);
-            arr_u8_16_elem
-        })
-        .collect();
-    array_u8_16[0]
-}
-
 pub fn uint64_with_overflow(value: &U256) -> bool {
     value.leading_zeros() < 3 * 8 * 8
 }
@@ -249,8 +219,7 @@ impl<F: Field> ExpressionOutcome<F> {
 #[cfg(test)]
 mod tests {
     use crate::util::{
-        convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f,
-        convert_u256_to_low_hi_u8_bytes, uint64_with_overflow,
+        convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f, uint64_with_overflow,
     };
     use eth_types::U256;
     use halo2_proofs::halo2curves::bn256::Fr;
@@ -343,25 +312,5 @@ mod tests {
         let v = U256::from_little_endian(&x);
         let field_max = convert_u256_to_f::<Fr>(&v);
         assert_eq!(v, convert_f_to_u256(&field_max));
-    }
-
-    #[test]
-    fn test_u256_convert_low_hi_u8_bytes() {
-        let value = U256::from(U256::MAX >> 1);
-        let (value_low_bytes, value_hi_bytes) = convert_u256_to_low_hi_u8_bytes(value);
-
-        let expect_value_low_bytes: [u8; 16] = [
-            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        ];
-        let expect_value_hi_bytes: [u8; 16] = [
-            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127,
-        ];
-
-        // println!("value_bytes: {:?}", value_bytes);
-        // println!("value_low_bytes: {:?}", value_low_bytes);
-        // println!("value_hi_bytes: {:?}", value_hi_bytes);
-
-        assert_eq!(value_low_bytes, expect_value_low_bytes);
-        assert_eq!(value_hi_bytes, expect_value_hi_bytes);
     }
 }

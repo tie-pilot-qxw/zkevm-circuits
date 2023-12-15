@@ -253,11 +253,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assert!(index <= 5);
         const WIDTH: usize = 5;
         LookupEntry::Bitwise {
-            acc_0: meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-2)),
-            acc_1: meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-2)),
-            acc_2: meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-2)),
-            sum_2: meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-2)),
             tag: meta.query_advice(self.vers[index * WIDTH], Rotation(-2)),
+            acc: [
+                meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-2)),
+                meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-2)),
+                meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-2)),
+            ],
+            sum_2: meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-2)),
         }
     }
 

@@ -318,16 +318,17 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constant::MAX_CODESIZE;
-    use crate::util::{convert_u256_to_16_bytes, geth_data_test, log2_ceil};
+    use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::{bitwise, Witness};
-    use eth_types::U256;
+    use eth_types::{bytecode, U256};
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
-    use halo2_proofs::halo2curves::bn256::{Fr as Fp, Fr};
+    use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::plonk::Circuit;
     use serde::Serialize;
     use std::fs::File;
+
+    const TEST_SIZE: usize = 50;
 
     #[derive(Clone, Debug, Default, Serialize)]
     pub struct BitwiseTestRow {
@@ -474,9 +475,9 @@ mod test {
     fn test_simple_bitwise_circuit<F: Field>(
         witness: Witness,
         rows: Vec<BitwiseTestRow>,
-    ) -> MockProver<Fp> {
-        let k = log2_ceil(MAX_CODESIZE);
-        let mut circuit = BitwiseTestCircuit::<Fp, MAX_CODESIZE>::new(witness, rows);
+    ) -> MockProver<Fr> {
+        let k = log2_ceil(TEST_SIZE);
+        let circuit = BitwiseTestCircuit::<Fr, TEST_SIZE>::new(witness, rows);
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         prover
@@ -488,9 +489,13 @@ mod test {
         op2: u128,
         lookup_expect_acc_row: BitwiseTestRow,
     ) {
-        // STOP
-        let bytes = hex::decode("64123456789a601f1a00").unwrap();
-        let machine_code = Vec::from(bytes);
+        let code = bytecode! {
+            PUSH16(op1)
+            PUSH16(op2)
+            BYTE
+            STOP
+        };
+        let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code);
         let mut witness: Witness = Witness::new(&geth_data_test(
             trace,
@@ -502,52 +507,23 @@ mod test {
 
         // generate bitwise row
         witness.bitwise = vec![];
-        (0..BitwiseCircuit::<Fr, MAX_CODESIZE>::unusable_rows().0)
+        (0..BitwiseCircuit::<Fr, TEST_SIZE>::unusable_rows().0)
             .for_each(|_| witness.bitwise.insert(0, Default::default()));
 
-        let operand1 = U256::from(op1); // 0x123456789a
-        let operand2 = U256::from(op2); // 0xff
+        let operand1 = U256::from(op1);
+        let operand2 = U256::from(op2);
 
         let operand1_hi = (operand1 >> 128).as_u128();
-        let operand1_low = operand1.low_u128();
+        let operand1_lo = operand1.low_u128();
 
         let operand2_hi = (operand2 >> 128).as_u128();
-        let operand2_low = operand2.low_u128();
+        let operand2_lo = operand2.low_u128();
 
         // get bitwise rows
-        let bitwise_low_rows = bitwise::get_bitwise_row::<Fp>(Tag::And, operand1_low, operand2_low);
-        let bitwise_hi_rows = bitwise::get_bitwise_row::<Fp>(Tag::And, operand1_hi, operand2_hi);
+        let bitwise_lo_rows = bitwise::Row::from_operation::<Fr>(tag, operand1_lo, operand2_lo);
+        let bitwise_hi_rows = bitwise::Row::from_operation::<Fr>(tag, operand1_hi, operand2_hi);
 
-        for row in bitwise_low_rows.clone() {
-            println!("tag:{:?}, byte_0:{:?}, byte_1:{:?}, byte_2:{:?}, acc_0:{:?}, acc_1:{:?}, acc_2:{:?}, sum2:{:?}, cnt:{:?}",
-                     row.tag,
-                     hex::encode(convert_u256_to_16_bytes(&row.byte_0)),
-                     hex::encode(convert_u256_to_16_bytes(&row.byte_1)),
-                     hex::encode(convert_u256_to_16_bytes(&row.byte_2)),
-                     hex::encode(convert_u256_to_16_bytes(&row.acc_0)),
-                     hex::encode(convert_u256_to_16_bytes(&row.acc_1)),
-                     hex::encode(convert_u256_to_16_bytes(&row.acc_2)),
-                     hex::encode(convert_u256_to_16_bytes(&row.sum_2)),
-                     row.cnt
-            );
-        }
-
-        println!();
-        for row in bitwise_hi_rows.clone() {
-            println!("tag:{:?}, byte_0:{:?}, byte_1:{:?}, byte_2:{:?}, acc_0:{:?}, acc_1:{:?}, acc_2:{:?}, sum2:{:?}, cnt:{:?}",
-                     row.tag,
-                     hex::encode(convert_u256_to_16_bytes(&row.byte_0)),
-                     hex::encode(convert_u256_to_16_bytes(&row.byte_1)),
-                     hex::encode(convert_u256_to_16_bytes(&row.byte_2)),
-                     hex::encode(convert_u256_to_16_bytes(&row.acc_0)),
-                     hex::encode(convert_u256_to_16_bytes(&row.acc_1)),
-                     hex::encode(convert_u256_to_16_bytes(&row.acc_2)),
-                     hex::encode(convert_u256_to_16_bytes(&row.sum_2)),
-                     row.cnt
-            );
-        }
-
-        witness.bitwise.extend(bitwise_low_rows);
+        witness.bitwise.extend(bitwise_lo_rows);
         witness.bitwise.extend(bitwise_hi_rows);
 
         // generate bitwise test row
@@ -556,39 +532,75 @@ mod test {
         let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
         witness.write_html(&mut buf);
         witness.print_csv();
-        let prover = test_simple_bitwise_circuit::<Fp>(witness, bitwise_test_rows);
+        let prover = test_simple_bitwise_circuit::<Fr>(witness, bitwise_test_rows);
         prover.assert_satisfied_par();
     }
 
     #[test]
     fn test_bitwise_acc_lookup1() {
-        let operand1 = 0x123456789a_u128; // 0x123456789a
-        let operand2 = 0xff_u128; // 0xff
+        let tag = Tag::And;
+        let operand1 = 0x123456789a_u128;
+        let operand2 = 0xff_u128;
 
         let lookup_expect_acc_row = BitwiseTestRow {
-            tag: Tag::And,
-            acc_0: U256::from(0x123456789a_u128), // 0x123456789a,
-            acc_1: U256::from(0xff_u128),         // 0xff
-            acc_2: U256::from(0x123456789a_u128 & 0xff_u128), // 0x9a
-            sum_2: U256::from(0x9a_u128),         // 0x9a
+            tag,
+            acc_0: U256::from(0x123456789a_u128),
+            acc_1: U256::from(0xff_u128),
+            acc_2: U256::from(0x123456789a_u128 & 0xff_u128),
+            sum_2: U256::from(0x9a_u128), // sum of acc_2 bytes
         };
 
-        test_bitwise_circuit_lookup(Tag::And, operand1, operand2, lookup_expect_acc_row)
+        test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
     }
 
     #[test]
     fn test_bitwise_acc_lookup2() {
-        let operand1 = 0xabcdef_u128; // 0x123456789a
-        let operand2 = 0xaabbcc_u128; // 0xff
+        let tag = Tag::And;
+        let operand1 = 0xabcdef_u128;
+        let operand2 = 0xaabbcc_u128;
 
         let lookup_expect_acc_row = BitwiseTestRow {
-            tag: Tag::And,
-            acc_0: U256::from(0xabcdef_u128), // 0xabcdef,
-            acc_1: U256::from(0xaabbcc_u128), // 0xaabbcc
-            acc_2: U256::from(0xaa89cc_u128), // 0xaa89cc
-            sum_2: U256::from(0x01ff_u128),   // 0x01ff
+            tag,
+            acc_0: U256::from(0xabcdef_u128),
+            acc_1: U256::from(0xaabbcc_u128),
+            acc_2: U256::from(0xaa89cc_u128),
+            sum_2: U256::from(0x01ff_u128), // sum of acc_2 bytes
         };
 
-        test_bitwise_circuit_lookup(Tag::And, operand1, operand2, lookup_expect_acc_row)
+        test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
+    }
+
+    #[test]
+    fn test_bitwise_acc_lookup3() {
+        let tag = Tag::Or;
+        let operand1 = 0xabcdef_u128;
+        let operand2 = 0xaabbcc_u128;
+
+        let lookup_expect_acc_row = BitwiseTestRow {
+            tag,
+            acc_0: U256::from(0xabcdef_u128),
+            acc_1: U256::from(0xaabbcc_u128),
+            acc_2: U256::from(0xabcdef_u128 | 0xaabbcc_u128),
+            sum_2: U256::from(0x0299_u128), // sum of acc_2 bytes
+        };
+
+        test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
+    }
+
+    #[test]
+    fn test_bitwise_acc_lookup4() {
+        let tag = Tag::Xor;
+        let operand1 = 0xabcdef_u128;
+        let operand2 = 0xaabbcc_u128;
+
+        let lookup_expect_acc_row = BitwiseTestRow {
+            tag,
+            acc_0: U256::from(0xabcdef_u128),
+            acc_1: U256::from(0xaabbcc_u128),
+            acc_2: U256::from(0xabcdef_u128 ^ 0xaabbcc_u128),
+            sum_2: U256::from(0x9a_u128), // sum of acc_2 bytes
+        };
+
+        test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
     }
 }

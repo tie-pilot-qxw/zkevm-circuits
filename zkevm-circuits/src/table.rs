@@ -110,13 +110,7 @@ macro_rules! extract_lookup_expression {
     };
     (bitwise, $value:expr) => {
         match $value {
-            LookupEntry::Bitwise {
-                tag,
-                acc_0,
-                acc_1,
-                acc_2,
-                sum_2,
-            } => (tag, acc_0, acc_1, acc_2, sum_2),
+            LookupEntry::Bitwise { tag, acc, sum_2 } => (tag, acc, sum_2),
             _ => panic!("Pattern doesn't match!"),
         }
     };
@@ -527,6 +521,7 @@ pub enum LookupEntry<F> {
         power: [Expression<F>; 2],
     },
     /// Bitwise operation, lookup to Fixed table
+    // todo remove this
     BitOp {
         value_1: Expression<F>,
         value_2: Expression<F>,
@@ -535,13 +530,13 @@ pub enum LookupEntry<F> {
         tag: Expression<F>,
     },
 
-    ///Bitwise lookup operation , lookup to bitwise table
+    /// Bitwise lookup operation, lookup to bitwise table
     Bitwise {
-        /// Tag could be Nil, LogicAnd, LogicOr or LogicXor
+        /// Tag could be Nil, And, Or or Xor
         tag: Expression<F>,
-        acc_0: Expression<F>,
-        acc_1: Expression<F>,
-        acc_2: Expression<F>,
+        /// Three operands of 128-bit
+        acc: [Expression<F>; 3],
+        /// The sum of bytes for operand 2, used for BYTE opcode
         sum_2: Expression<F>,
     },
     /// Lookup to Public table
