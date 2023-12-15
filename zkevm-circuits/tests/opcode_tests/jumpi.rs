@@ -9,7 +9,7 @@ fn jumpi_bytecode() {
         JUMPI
         PUSH1(1)
         PUSH1(12)
-        JUMPI  
+        JUMPI
         JUMPDEST
         STOP
         JUMPDEST

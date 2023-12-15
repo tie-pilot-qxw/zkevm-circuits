@@ -12,7 +12,7 @@ fn lt1_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a<b
+} // a<b
 
 #[test]
 fn lt0_bytecode() {
@@ -25,4 +25,4 @@ fn lt0_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a>=b
+} // a>=b

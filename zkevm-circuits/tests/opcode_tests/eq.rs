@@ -12,7 +12,7 @@ fn eq1_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a=b
+} // a=b
 
 #[test]
 fn eq0_bytecode() {
@@ -25,4 +25,4 @@ fn eq0_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a!=b
+} // a!=b
