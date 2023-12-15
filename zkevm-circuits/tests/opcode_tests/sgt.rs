@@ -12,7 +12,7 @@ fn sgt1_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a>b
+} // a>b
 
 #[test]
 fn sgt0_bytecode() {
@@ -25,4 +25,4 @@ fn sgt0_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a<=b
+} // a<=b

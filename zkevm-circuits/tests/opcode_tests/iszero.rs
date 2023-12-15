@@ -10,7 +10,7 @@ fn iszero1_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a=0
+} // a=0
 
 #[test]
 fn iszero0_bytecode() {
@@ -21,4 +21,4 @@ fn iszero0_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a!=0
+} // a!=0
