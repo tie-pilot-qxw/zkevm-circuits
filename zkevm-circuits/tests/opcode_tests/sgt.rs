@@ -19,7 +19,7 @@ fn sgt1_bytecode() {
     let a = U256::from_str_radix("10", 10).unwrap();
     let b = U256::max_value();
     let bytecode = bytecode! {
-        PUSH1(b)
+        PUSH32(b)
         PUSH1(a)
         SGT // a>b : 1 if a is bigger, 0 otherwise
         STOP
