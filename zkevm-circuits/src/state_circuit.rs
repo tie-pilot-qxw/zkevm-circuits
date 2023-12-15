@@ -3,7 +3,6 @@ pub mod ordering;
 
 use self::ordering::Config as OrderingConfig;
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::execution::end_padding;
 use crate::table::{FixedTable, LookupEntry, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{self, Row, Tag};
@@ -43,9 +42,11 @@ pub struct StateCircuitConfig<F> {
     /// Sort the state and calculate whether the current state is accessed for the first time.
     /// sorted elements(tag, call_id_or_address, pointer_hi/_lo, stamp).
     ordering_config: OrderingConfig,
+    /// Elements will be sorted in the state circuit
     sort_keys: SortedElements,
+    /// Indicates whether the location is visited for the first time;
+    /// 0 if the difference between the state row is Stamp0|Stamp1, otherwise is 1.
     is_first_access: Column<Advice>,
-    index: Column<Advice>,
     fixed_table: FixedTable,
     _marker: PhantomData<F>,
 }
@@ -100,7 +101,6 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             stamp: mpi_stamp,
         };
         let ordering_config = OrderingConfig::new(meta, q_enable, keys, fixed_table);
-        let index = meta.advice_column();
         let config: StateCircuitConfig<F> = Self {
             q_enable,
             tag,
@@ -115,7 +115,6 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             ordering_config,
             is_first_access: meta.advice_column(),
             fixed_table,
-            index,
             _marker: PhantomData,
         };
 
@@ -147,7 +146,6 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
-            let index = meta.query_advice(config.index, Rotation::cur());
 
             let mut vec = vec![
                 // is_write = 0/1
@@ -247,37 +245,29 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 ),
             ];
 
-            let end_padding_condition =
-                config
-                    .tag
-                    .value_equals(state::Tag::EndPadding, Rotation::cur())(meta);
-            let mut index_is_stamp_expr = 1.expr();
-            let mut index_not_stamp_expr = 1.expr();
-            for tag in LimbIndex::iter() {
-                if tag == LimbIndex::Stamp0 || tag == LimbIndex::Stamp1 {
-                    index_is_stamp_expr =
-                        index_is_stamp_expr.clone() * (index.clone() - (tag as u64).expr());
-                } else {
-                    index_not_stamp_expr =
-                        index_not_stamp_expr.clone() * (index.clone() - (tag as u64).expr());
-                }
+            let mut index_is_stamp_expr = 0.expr();
+            for tag in [LimbIndex::Stamp0, LimbIndex::Stamp1] {
+                index_is_stamp_expr = index_is_stamp_expr.clone()
+                    + config
+                        .ordering_config
+                        .first_different_limb
+                        .value_equals(tag, Rotation::cur())(meta);
             }
+            // is_first_access=0 ==> index_is_stamp_expr=1
             vec.push((
                 "is_first_access=0 ==> index = Stamp0 | Stamp1",
                 q_enable.clone()
-                    * (1.expr() - is_first_access.clone())
-                    * index_is_stamp_expr
-                    * (1.expr() - end_padding_condition.clone()),
+                    * (index_is_stamp_expr.clone() + is_first_access.clone() - 1.expr()),
             ));
+            // is_first_access=1 ==> index_is_stamp_expr=0
             vec.push((
                 "is_first_access=1 ==> index = [Tag, Stamp0)",
-                q_enable.clone() * is_first_access.clone() * index_not_stamp_expr,
+                q_enable.clone() * is_first_access.clone() * index_is_stamp_expr,
             ));
             vec.push((
                 "is_first_access=0 & is_write=0 ==> prev_value_lo=cur_value_lo",
                 q_enable.clone()
                     * (1.expr() - is_first_access.clone())
-                    * (1.expr() - end_padding_condition.clone())
                     * (prev_value_lo - value_lo)
                     * (1.expr() - is_write.clone()),
             ));
@@ -285,7 +275,6 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 "is_first_access=0 & is_write=0 ==> prev_value_hi=cur_value_hi",
                 q_enable.clone()
                     * (1.expr() - is_first_access.clone())
-                    * (1.expr() - end_padding_condition.clone())
                     * (prev_value_hi - value_hi)
                     * (1.expr() - is_write.clone()),
             ));
@@ -345,7 +334,6 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id_contract_addr)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_first_access)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_write)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.index)?;
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &state::Tag::EndPadding)?;
 
@@ -429,7 +417,6 @@ impl<F: Field> StateCircuitConfig<F> {
                 let index = self.ordering_config.assign(region, i, state, prev_row)?;
                 let is_first_access = !matches!(index, LimbIndex::Stamp0 | LimbIndex::Stamp1);
                 #[rustfmt::skip]
-                assign_advice_or_fixed(region, i, &U256::from(index as u32), self.index)?;
                 assign_advice_or_fixed(
                     region,
                     i,
