@@ -89,7 +89,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
 
         // pad the rest rows
         for offset in witness.arithmetic.len()..num_row_incl_padding {
-            self.assign_row(region, offset + 0, &Default::default())?;
+            self.assign_row(region, offset, &Default::default())?;
         }
         Ok(())
     }
