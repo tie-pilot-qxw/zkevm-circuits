@@ -1,6 +1,3 @@
-// Code generated - COULD HAVE BUGS!
-// This file is a generated execution gadget definition.
-
 use crate::execution::{
     Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
     ExecutionState,
@@ -31,7 +28,7 @@ use std::marker::PhantomData;
 /// +---+-------+-------+---------+---------+
 /// |cnt| 8 col | 8 col |  8 col  |  8col   |
 /// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |               | 1 col(not used)| 1 col(not used)| PUBLIC(6) |
+/// | 2 | Copy(9) |9col(not used)| PUBLIC(6) |
 /// | 1 | STATE | STATE | notUsed | LO_INV(1 col) |
 /// | 0 | DYNA_SELECTOR | AUX               |
 /// +---+-------+-------+---------+---------+
@@ -94,6 +91,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // append stack constraints
         let mut stack_pop_values = vec![];
+        let mut stamp_start = 0.expr();
         for i in 0..2 {
             let state_entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
@@ -108,6 +106,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 extract_lookup_expression!(state, state_entry);
             stack_pop_values.push(value_hi); // 0
             stack_pop_values.push(value_lo);
+            if i == 1 {
+                stamp_start = stamp;
+            }
         }
 
         // append core single purpose constraints
@@ -128,7 +129,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy::Tag::Memory,
             call_id,
             stack_pop_values[1].clone(),
-            stamp.clone() + 1.expr(),
+            stamp_start + 1.expr(),
             copy::Tag::PublicLog,
             tx_idx.clone(),
             0.expr(),          // index of PublicLog
@@ -224,10 +225,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             core_row_2.insert_copy_lookup(&copy_rows[0], None);
         }
+
+        // set current_state log_left
+        match trace.op {
+            OpcodeId::LOG4 => current_state.log_left = 4,
+            OpcodeId::LOG3 => current_state.log_left = 3,
+            OpcodeId::LOG2 => current_state.log_left = 2,
+            OpcodeId::LOG1 => current_state.log_left = 1,
+            OpcodeId::LOG0 => current_state.log_left = 0,
+            _ => panic!(),
+        }
         // write addrWithXLog to core_row_2.vers_26 ~ vers_31
         // insert lookUp: Core ----> addrWithXLog
-        let public_row = current_state.get_public_log_row(trace.op);
+        let public_row = current_state.get_public_log_bytes_row(trace.op);
         core_row_2.insert_public_lookup(&public_row);
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // let len_lo = F::from_u128(length.low_u128());
         let len_lo = F::from_u128(length.as_u128());

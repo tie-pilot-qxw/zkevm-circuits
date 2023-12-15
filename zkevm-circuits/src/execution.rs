@@ -22,6 +22,7 @@ pub mod jumpdest;
 pub mod jumpi;
 pub mod keccak;
 pub mod log_bytes;
+pub mod log_topic;
 pub mod lt;
 pub mod memory;
 pub mod mul;
@@ -44,7 +45,6 @@ pub mod swap;
 pub mod tx_context;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
-use crate::witness::public::Tag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
@@ -52,6 +52,7 @@ use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
+use gadgets::simple_seletor::SimpleSelector;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -905,6 +906,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]
     }
+
+    pub(crate) fn get_log_left_selector(&self, meta: &mut VirtualCells<F>) -> SimpleSelector<F, 5> {
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(self.vers[8], Rotation::prev()), // LOG_LEFT_4
+            meta.query_advice(self.vers[9], Rotation::prev()), // LOG_LEFT_3
+            meta.query_advice(self.vers[10], Rotation::prev()), // LOG_LEFT_2
+            meta.query_advice(self.vers[11], Rotation::prev()), // LOG_LEFT_1
+            meta.query_advice(self.vers[12], Rotation::prev()), // LOG_LEFT_0
+        ]);
+        selector
+    }
 }
 
 /// Execution Gadget for the configure and witness generation of an execution state
@@ -1304,8 +1316,31 @@ impl ExecutionState {
                 todo!()
             }
             //LOG TOPIC LOG BYTES
-            OpcodeId::LOG0 | OpcodeId::LOG1 | OpcodeId::LOG2 | OpcodeId::LOG3 | OpcodeId::LOG4 => {
+            OpcodeId::LOG0 => {
                 vec![Self::LOG_BYTES]
+            }
+            OpcodeId::LOG1 => {
+                vec![Self::LOG_BYTES, Self::LOG_TOPIC]
+            }
+            OpcodeId::LOG2 => {
+                vec![Self::LOG_BYTES, Self::LOG_TOPIC, Self::LOG_TOPIC]
+            }
+            OpcodeId::LOG3 => {
+                vec![
+                    Self::LOG_BYTES,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                ]
+            }
+            OpcodeId::LOG4 => {
+                vec![
+                    Self::LOG_BYTES,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                ]
             }
             OpcodeId::CREATE => {
                 todo!()

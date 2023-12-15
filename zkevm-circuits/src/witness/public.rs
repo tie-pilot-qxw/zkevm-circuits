@@ -56,10 +56,10 @@ pub enum LogTag {
     AddrWith3Topic,
     /// Tag for log source addr, also indicates 4 topic
     AddrWith4Topic,
+    Topic0,
     Topic1,
     Topic2,
     Topic3,
-    Topic4,
     Data,
 }
 
@@ -452,10 +452,10 @@ impl Row {
     // get_log_topic_tag return log topic tag
     fn get_log_topic_tag(idx: u8) -> LogTag {
         match idx {
-            0 => LogTag::Topic1,
-            1 => LogTag::Topic2,
-            2 => LogTag::Topic3,
-            3 => LogTag::Topic4,
+            0 => LogTag::Topic0,
+            1 => LogTag::Topic1,
+            2 => LogTag::Topic2,
+            3 => LogTag::Topic3,
             _ => panic!("illegal log_topic_tag"),
         }
     }
