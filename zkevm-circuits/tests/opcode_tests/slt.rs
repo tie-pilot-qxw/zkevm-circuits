@@ -15,7 +15,7 @@ fn slt0_bytecode() {
 }// a<b
 
 #[test]
-fn slt2_bytecode() {
+fn slt0_bytecode() {
     let a = U256::from_str_radix("10", 10).unwrap();
     let b = U256::from_str_radix("10", 10).unwrap();
     let bytecode = bytecode! {
@@ -25,4 +25,4 @@ fn slt2_bytecode() {
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
-}// a>=b
+} // a>=b
