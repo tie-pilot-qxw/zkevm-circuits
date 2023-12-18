@@ -74,7 +74,9 @@ macro_rules! extract_lookup_expression {
                 dst_id,
                 dst_pointer,
                 dst_stamp,
+                cnt,
                 len,
+                acc,
             } => (
                 src_type,
                 src_id,
@@ -84,7 +86,9 @@ macro_rules! extract_lookup_expression {
                 dst_id,
                 dst_pointer,
                 dst_stamp,
+                cnt,
                 len,
+                acc,
             ),
             _ => panic!("Pattern doesn't match!"),
         }
@@ -102,6 +106,12 @@ macro_rules! extract_lookup_expression {
                 tx_idx_or_number_diff,
                 values,
             } => (tag, tx_idx_or_number_diff, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (bitwise, $value:expr) => {
+        match $value {
+            LookupEntry::Bitwise { tag, acc, sum_2 } => (tag, acc, sum_2),
             _ => panic!("Pattern doesn't match!"),
         }
     };
@@ -489,8 +499,12 @@ pub enum LookupEntry<F> {
         dst_pointer: Expression<F>,
         /// The destination stamp (state stamp or log stamp)
         dst_stamp: Expression<F>,
+        /// The counter for one copy operation
+        cnt: Expression<F>,
         /// The length of the copy event
         len: Expression<F>,
+        /// The accumulation of bytes in one copy
+        acc: Expression<F>,
     },
     /// Lookup to arithmetic table.
     Arithmetic {
@@ -508,12 +522,23 @@ pub enum LookupEntry<F> {
         power: [Expression<F>; 2],
     },
     /// Bitwise operation, lookup to Fixed table
+    // todo remove this
     BitOp {
         value_1: Expression<F>,
         value_2: Expression<F>,
         result: Expression<F>,
         /// Tag could be LogicAnd, LogicOr or LogicXor
         tag: Expression<F>,
+    },
+
+    /// Bitwise lookup operation, lookup to bitwise table
+    Bitwise {
+        /// Tag could be Nil, And, Or or Xor
+        tag: Expression<F>,
+        /// Three operands of 128-bit
+        acc: [Expression<F>; 3],
+        /// The sum of bytes for operand 2, used for BYTE opcode
+        sum_2: Expression<F>,
     },
     /// Lookup to Public table
     Public {

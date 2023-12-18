@@ -13,6 +13,9 @@ pub const NUM_VERS: usize = 32;
 
 pub(crate) const LOG_NUM_STATE_TAG: usize = 4;
 
+/// Number of tags in bitwise
+pub(crate) const LOG_NUM_BITWISE_TAG: usize = 2;
+
 /// The number of columns used by auxiliary
 /// this+NUM_STATE_HI_COL+NUM_STATE_LO_COL should be no greater than 32
 pub(crate) const NUM_AUXILIARY: usize = 7;
