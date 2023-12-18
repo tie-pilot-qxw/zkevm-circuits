@@ -640,7 +640,10 @@ mod test {
 
     // when feature `no_fixed_lookup` is on, we skip the test
     // this is due to the test relies on lookup the `limb_difference` value in range U16
-    #[cfg(not(feature = "no_fixed_lookup"))]
+    #[cfg_attr(
+        feature = "no_fixed_lookup",
+        ignore = "feature `no_fixed_lookup` is on, we skip the test"
+    )]
     #[test]
     fn test_invalid_order() {
         let witness = Witness {

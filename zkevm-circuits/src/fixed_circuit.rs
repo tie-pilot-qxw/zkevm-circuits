@@ -238,7 +238,10 @@ mod test {
     }
 
     // when feature `no_fixed_lookup` is on, we skip the test
-    #[cfg(not(feature = "no_fixed_lookup"))]
+    #[cfg_attr(
+        feature = "no_fixed_lookup",
+        ignore = "feature `no_fixed_lookup` is on, we skip the test"
+    )]
     #[test]
     fn test_fixed_parser() {
         let witness = Witness::default();
