@@ -513,8 +513,6 @@ mod test {
         // generate bitwise test row
         let bitwise_test_rows = vec![lookup_expect_acc_row];
 
-        let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
-        witness.write_html(&mut buf);
         witness.print_csv();
         let prover = test_simple_bitwise_circuit::<Fr>(witness, bitwise_test_rows);
         prover.assert_satisfied_par();
