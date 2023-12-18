@@ -253,16 +253,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                         .first_different_limb
                         .value_equals(tag, Rotation::cur())(meta);
             }
-            // is_first_access=0 ==> index_is_stamp_expr=1
+            // 1 - is_first_access === index = Stamp0 | Stamp1
             vec.push((
-                "is_first_access=0 ==> index = Stamp0 | Stamp1",
+                "1 - is_first_access === index = Stamp0 | Stamp1",
                 q_enable.clone()
                     * (index_is_stamp_expr.clone() + is_first_access.clone() - 1.expr()),
-            ));
-            // is_first_access=1 ==> index_is_stamp_expr=0
-            vec.push((
-                "is_first_access=1 ==> index = [Tag, Stamp0)",
-                q_enable.clone() * is_first_access.clone() * index_is_stamp_expr,
             ));
             vec.push((
                 "is_first_access=0 & is_write=0 ==> prev_value_lo=cur_value_lo",
@@ -281,7 +276,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             vec
         });
 
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        // when feature `no_fixed_lookup` is on, we don't do lookup
+        #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("STATE_lookup_stack", |meta| {
             let mut constraints = vec![];
 
@@ -300,7 +296,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             }
             constraints
         });
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        // when feature `no_fixed_lookup` is on, we don't do lookup
+        #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("STATE_lookup_memory", |meta| {
             let mut constraints = vec![];
             // 0<= value_lo < 256 in memory
@@ -570,6 +567,8 @@ mod test {
         ) -> Result<(), Error> {
             self.state_circuit
                 .synthesize_sub(&config.state_circuit, &mut layouter)?;
+            // when feature `no_fixed_lookup` is on, we don't do synthesize
+            #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit
                 .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
             Ok(())
@@ -586,7 +585,7 @@ mod test {
     }
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
+        let k = log2_ceil(MAX_NUM_ROW);
         println!("K: {}", k);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
@@ -639,6 +638,9 @@ mod test {
         prover.assert_satisfied_par();
     }
 
+    // when feature `no_fixed_lookup` is on, we skip the test
+    // this is due to the test relies on lookup the `limb_difference` value in range U16
+    #[cfg(not(feature = "no_fixed_lookup"))]
     #[test]
     fn test_invalid_order() {
         let witness = Witness {

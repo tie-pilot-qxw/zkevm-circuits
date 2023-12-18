@@ -729,6 +729,8 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use super::*;
     use crate::bytecode_circuit::{
         BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
@@ -740,6 +742,7 @@ mod test {
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
+    use eth_types::{bytecode, U256};
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
@@ -806,7 +809,7 @@ mod test {
     }
 
     #[derive(Clone, Default, Debug)]
-    pub struct CopyTestCircuit<F: Field, const MAX_CODESIZE: usize> {
+    pub struct CopyTestCircuit<F: Field> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
@@ -814,7 +817,7 @@ mod test {
         pub fixed_circuit: FixedCircuit<F>,
     }
 
-    impl<F: Field, const MAX_CODESIZE: usize> Circuit<F> for CopyTestCircuit<F, MAX_CODESIZE> {
+    impl<F: Field> Circuit<F> for CopyTestCircuit<F> {
         type Config = CopyTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
@@ -836,12 +839,15 @@ mod test {
                 .synthesize_sub(&config.copy_circuit, &mut layouter)?;
             self.state_circuit
                 .synthesize_sub(&config.state_circuit, &mut layouter)?;
+            // when feature `no_fixed_lookup` is on, we don't do synthesize
+            #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit
-                .synthesize_sub(&config.fixed_circuit, &mut layouter)
+                .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
+            Ok(())
         }
     }
 
-    impl<F: Field, const MAX_CODESIZE: usize> CopyTestCircuit<F, MAX_CODESIZE> {
+    impl<F: Field> CopyTestCircuit<F> {
         pub fn new(witness: Witness) -> Self {
             Self {
                 bytecode_circuit: BytecodeCircuit::new_from_witness(&witness),
@@ -860,16 +866,38 @@ mod test {
     }
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
-        let circuit = CopyTestCircuit::<Fp, MAX_CODESIZE>::new(witness);
+        let k = log2_ceil(MAX_NUM_ROW);
+        let circuit = CopyTestCircuit::<Fp>::new(witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
     }
 
     #[test]
-    fn test_core_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+    fn test_copy_parser() {
+        let a = U256::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+        let code = bytecode! {
+            PUSH1(0x1E)
+            PUSH1(0x03)
+            PUSH1(0x00)
+            CODECOPY
+            PUSH1(0x1E)
+            PUSH1(0x03)
+            PUSH1(0x00)
+            PUSH32(a)
+            EXTCODECOPY
+            PUSH1(0x1E)
+            PUSH1(0xef)
+            PUSH1(0x1F)
+            CODECOPY
+            PUSH1(0x1E)
+            PUSH1(0xef)
+            PUSH1(0x1F)
+            PUSH32(a)
+            EXTCODECOPY
+            STOP
+        };
+        let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code);
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
@@ -878,6 +906,7 @@ mod test {
             false,
             Default::default(),
         ));
+        witness.print_csv();
         let prover = test_simple_copy_circuit(witness);
         prover.assert_satisfied_par();
     }

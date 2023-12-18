@@ -109,6 +109,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
 mod test {
 
     use super::*;
+    use crate::constant::MAX_NUM_ROW;
     use crate::util::{assign_advice_or_fixed, geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
@@ -204,7 +205,7 @@ mod test {
     }
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(PublicCircuit::<Fp>::num_rows(&witness));
+        let k = log2_ceil(MAX_NUM_ROW);
         let circuit = PublicTestCircuit::<Fp>::new(witness);
         let instance = circuit.0.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();

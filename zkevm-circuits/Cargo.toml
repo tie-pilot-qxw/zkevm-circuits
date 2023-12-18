@@ -38,6 +38,9 @@ default = []
 plot = ["dep:plotters", "halo2_proofs/dev-graph"]
 gen_code = ["dep:genco", "dep:convert_case", "dep:proc-macro2"]
 no_intersubcircuit_lookup = []
+k_9 = []
+no_fixed_lookup = []
+fast_test = ["k_9", "no_fixed_lookup"]
 
 [[bench]]
 name = "super_circuit"

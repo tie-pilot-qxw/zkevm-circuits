@@ -155,6 +155,9 @@ where
         fixed_table: FixedTable,
     ) -> Config<T, N> {
         let limbs = [0; N].map(|_| meta.advice_column());
+
+        // when feature `no_fixed_lookup` is on, we don't do lookup
+        #[cfg(not(feature = "no_fixed_lookup"))]
         for limb in limbs {
             meta.lookup_any("mpi limb fits into u16", |meta| {
                 let entry = LookupEntry::U16(meta.query_advice(limb, Rotation::cur()));

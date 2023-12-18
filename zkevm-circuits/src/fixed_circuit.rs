@@ -105,7 +105,6 @@ impl<F: Field> FixedCircuitConfig<F> {
 
 #[derive(Clone, Default, Debug)]
 pub struct FixedCircuit<F: Field> {
-    witness: Witness,
     _marker: PhantomData<F>,
 }
 
@@ -113,9 +112,8 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
     type Config = FixedCircuitConfig<F>;
     type Cells = ();
 
-    fn new_from_witness(witness: &Witness) -> Self {
+    fn new_from_witness(_witness: &Witness) -> Self {
         FixedCircuit {
-            witness: witness.clone(),
             _marker: PhantomData,
         }
     }
@@ -128,15 +126,14 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
         layouter.assign_region(
             || "fixed circuit",
             |mut region| config.assgin_with_region(&mut region),
-        )?;
-        Ok(())
+        )
     }
 
     fn unusable_rows() -> (usize, usize) {
         (0, 0)
     }
 
-    fn num_rows(witness: &Witness) -> usize {
+    fn num_rows(_witness: &Witness) -> usize {
         let f = |row: &_, index| -> Result<(), Error> { Ok(()) };
         FixedCircuitConfig::<F>::assign(f).unwrap()
     }
@@ -145,6 +142,7 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::constant::MAX_NUM_ROW;
     use crate::table::{FixedTable, LookupEntry};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
@@ -232,29 +230,18 @@ mod test {
         }
     }
     fn test_fixed_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
+        let k = log2_ceil(MAX_NUM_ROW);
         let circuit = FixedTestCircuit::<Fp>::new(witness);
         let instance: Vec<Vec<Fp>> = circuit.0.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
     }
 
+    // when feature `no_fixed_lookup` is on, we skip the test
+    #[cfg(not(feature = "no_fixed_lookup"))]
     #[test]
     fn test_fixed_parser() {
-        let bytecode = bytecode! {
-            PUSH1(0x1)
-            PUSH1(0x2)
-            ADD
-        };
-        let trace = trace_parser::trace_program(bytecode.to_vec().as_slice());
-        let witness: Witness = Witness::new(&geth_data_test(
-            trace,
-            bytecode.to_vec().as_slice(),
-            &[],
-            false,
-            Default::default(),
-        ));
-        witness.print_csv();
+        let witness = Witness::default();
         let prover = test_fixed_circuit(witness);
         prover.assert_satisfied_par();
     }

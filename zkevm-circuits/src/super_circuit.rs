@@ -175,6 +175,8 @@ impl<
             .synthesize_sub(&config.public_circuit, layouter)?;
         self.copy_circuit
             .synthesize_sub(&config.copy_circuit, layouter)?;
+        // when feature `no_fixed_lookup` is on, we don't do synthesize
+        #[cfg(not(feature = "no_fixed_lookup"))]
         self.fixed_circuit
             .synthesize_sub(&config.fixed_circuit, layouter)?;
         self.bitwise_circuit
@@ -197,15 +199,18 @@ impl<
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let num_rows = [
+        let mut num_rows = vec![
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             PublicCircuit::<F>::num_rows(witness),
             CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
-            FixedCircuit::<F>::num_rows(witness),
             BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
+
+        // when feature `no_fixed_lookup` is on, we don't count the rows in fixed circuit
+        #[cfg(not(feature = "no_fixed_lookup"))]
+        num_rows.push(FixedCircuit::<F>::num_rows(witness));
         itertools::max(num_rows).unwrap()
     }
 }
