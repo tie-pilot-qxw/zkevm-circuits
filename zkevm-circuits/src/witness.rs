@@ -1161,7 +1161,42 @@ impl core::Row {
     pub fn insert_bitwise_op_tag(&mut self, tag: usize) {
         assign_or_panic!(self.vers_25, tag.into());
     }
-
+    /// insert_bitwise_lookup insert bitwise lookup ,5 columns in row prev(-2)
+    ///
+    /// cnt = 2 can hold at most 6 bitwise operations
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 8 col |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | 5*num | TAG | ACC_0 | ACC_1 | ACC_2 | SUM_2 |
+    /// +---+-------+-------+-------+----------+
+    pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_row: &bitwise::Row) {
+        assert!(index <= 5);
+        assert_eq!(self.cnt, 2.into());
+        #[rustfmt::skip]
+        let  vec = [
+            [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4,],
+            [&mut self.vers_5, &mut self.vers_6, &mut self.vers_7, &mut self.vers_8, &mut self.vers_9,],
+            [&mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14,],
+            [&mut self.vers_15, &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19,],
+            [&mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23, &mut self.vers_24,],
+            [&mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29,],
+            ];
+        assign_or_panic!(*vec[index][0], U256::from(bitwise_row.tag as u8));
+        assign_or_panic!(*vec[index][1], bitwise_row.acc_0);
+        assign_or_panic!(*vec[index][2], bitwise_row.acc_1);
+        assign_or_panic!(*vec[index][3], bitwise_row.acc_2);
+        assign_or_panic!(*vec[index][4], bitwise_row.sum_2);
+        self.comments.extend([
+            (
+                format!("vers_{}", index * 5),
+                format!("tag:{:?}", bitwise_row.tag),
+            ),
+            (format!("vers_{}", index * 5 + 1), format!("acc_0")),
+            (format!("vers_{}", index * 5 + 2), format!("acc_1")),
+            (format!("vers_{}", index * 5 + 3), format!("acc_2")),
+            (format!("vers_{}", index * 5 + 4), format!("sum_2")),
+        ]);
+    }
     pub fn insert_state_lookups<const NUM_LOOKUP: usize>(
         &mut self,
         state_rows: [&state::Row; NUM_LOOKUP],
@@ -1458,6 +1493,7 @@ impl Witness {
         self.exp.append(&mut witness.exp);
         self.public.append(&mut witness.public);
         self.state.append(&mut witness.state);
+        self.bitwise.append(&mut witness.bitwise);
         self.arithmetic.append(&mut witness.arithmetic);
     }
 
@@ -1621,6 +1657,8 @@ impl Witness {
             self.state.len(),
             self.public.len(),
             self.arithmetic.len(),
+            self.copy.len(),
+            self.bitwise.len(),
         ])
         .unwrap();
         for i in 0..max_length {
@@ -1629,13 +1667,15 @@ impl Witness {
             let bytecode = self.bytecode.get(i).cloned().unwrap_or_default();
             let public = self.public.get(i).cloned().unwrap_or_default();
             let arithmetic = self.arithmetic.get(i).cloned().unwrap_or_default();
-            wtr.serialize((core, state, bytecode, public, arithmetic))
+            let copy = self.copy.get(i).cloned().unwrap_or_default();
+            let bitwise = self.bitwise.get(i).cloned().unwrap_or_default();
+            wtr.serialize((core, state, bytecode, public, arithmetic, copy, bitwise))
                 .unwrap()
         }
         wtr.flush().unwrap();
     }
 
-    pub fn write_one_as_csv<W: Write, T: Serialize>(&self, writer: W, table: &Vec<T>) {
+    pub fn write_one_as_csv<W: Write, T: Serialize>(writer: W, table: &Vec<T>) {
         let mut wtr = csv::Writer::from_writer(writer);
         table.iter().for_each(|row| {
             wtr.serialize(row).unwrap();
@@ -1662,7 +1702,7 @@ impl Witness {
             return;
         }
         let mut buf = Vec::new();
-        self.write_one_as_csv(&mut buf, table);
+        Self::write_one_as_csv(&mut buf, table);
         let csv_string = String::from_utf8(buf).unwrap();
 
         writer.write(csv2html::start("").as_ref()).unwrap();
@@ -1716,6 +1756,7 @@ impl Witness {
         );
         self.write_one_table(&mut writer, &self.copy, "Copy", None);
         self.write_one_table(&mut writer, &self.exp, "Exp", None);
+        self.write_one_table(&mut writer, &self.bitwise, "Bitwise", None);
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
         writer.write(csv2html::epilogue().as_ref()).unwrap();
     }
