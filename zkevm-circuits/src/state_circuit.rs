@@ -1,7 +1,7 @@
-pub mod lookups;
 pub mod multiple_precision_integer;
 pub mod ordering;
 
+use self::ordering::Config as OrderingConfig;
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{FixedTable, LookupEntry, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
@@ -10,15 +10,13 @@ use crate::witness::Witness;
 use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
-use lookups::Chip as lookupChip;
 use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
-use ordering::{CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
+use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;
-
-use self::ordering::Config as OrderingConfig;
+use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
@@ -44,8 +42,10 @@ pub struct StateCircuitConfig<F> {
     /// Sort the state and calculate whether the current state is accessed for the first time.
     /// sorted elements(tag, call_id_or_address, pointer_hi/_lo, stamp).
     ordering_config: OrderingConfig,
+    /// Elements will be sorted in the state circuit
     sort_keys: SortedElements,
-    lookups: lookups::Config,
+    /// Indicates whether the location is visited for the first time;
+    /// 0 if the difference between the state row is Stamp0|Stamp1, otherwise is 1.
     is_first_access: Column<Advice>,
     fixed_table: FixedTable,
     _marker: PhantomData<F>,
@@ -89,11 +89,10 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         } = state_table;
 
         // assign elements to sorted and ordering tool
-        let lookups = lookupChip::configure(meta);
-        let mpi_call_id = MpiChip::configure(meta, q_enable, call_id_contract_addr, lookups);
-        let mpi_pointer_hi = MpiChip::configure(meta, q_enable, pointer_hi, lookups);
-        let mpi_pointer_lo = MpiChip::configure(meta, q_enable, pointer_lo, lookups);
-        let mpi_stamp = MpiChip::configure(meta, q_enable, stamp, lookups);
+        let mpi_call_id = MpiChip::configure(meta, q_enable, call_id_contract_addr, fixed_table);
+        let mpi_pointer_hi = MpiChip::configure(meta, q_enable, pointer_hi, fixed_table);
+        let mpi_pointer_lo = MpiChip::configure(meta, q_enable, pointer_lo, fixed_table);
+        let mpi_stamp = MpiChip::configure(meta, q_enable, stamp, fixed_table);
         let keys = SortedElements {
             tag,
             call_id_or_address: mpi_call_id,
@@ -101,8 +100,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_lo: mpi_pointer_lo,
             stamp: mpi_stamp,
         };
-        let ordering_config = OrderingConfig::new(meta, q_enable, keys, lookups);
-
+        let ordering_config = OrderingConfig::new(meta, q_enable, keys, fixed_table);
         let config: StateCircuitConfig<F> = Self {
             q_enable,
             tag,
@@ -113,7 +111,6 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_hi,
             pointer_lo,
             is_write,
-            lookups,
             sort_keys: keys,
             ordering_config,
             is_first_access: meta.advice_column(),
@@ -144,11 +141,13 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     .tag
                     .value_equals(state::Tag::ReturnData, Rotation::cur())(meta);
             let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
+            let prev_value_hi = meta.query_advice(config.value_hi, Rotation::prev());
+            let prev_value_lo = meta.query_advice(config.value_lo, Rotation::prev());
             let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
 
-            vec![
+            let mut vec = vec![
                 // is_write = 0/1
                 (
                     "is_write",
@@ -233,58 +232,93 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     "returndata_first_access_write",
                     q_enable.clone()
                         * return_condition.clone()
-                        * is_first_access
-                        * (1.expr() - is_write),
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone()),
                 ),
                 (
                     "returndata_value_hi",
-                    q_enable.clone() * return_condition.clone() * value_hi,
+                    q_enable.clone() * return_condition.clone() * value_hi.clone(),
                 ),
                 (
                     "returndata_pointer_hi",
-                    q_enable * return_condition * pointer_hi,
+                    q_enable.clone() * return_condition * pointer_hi,
                 ),
-            ]
+            ];
+
+            let mut index_is_stamp_expr = 0.expr();
+            for tag in [LimbIndex::Stamp0, LimbIndex::Stamp1] {
+                index_is_stamp_expr = index_is_stamp_expr.clone()
+                    + config
+                        .ordering_config
+                        .first_different_limb
+                        .value_equals(tag, Rotation::cur())(meta);
+            }
+            // is_first_access=0 ==> index_is_stamp_expr=1
+            vec.push((
+                "is_first_access=0 ==> index = Stamp0 | Stamp1",
+                q_enable.clone()
+                    * (index_is_stamp_expr.clone() + is_first_access.clone() - 1.expr()),
+            ));
+            // is_first_access=1 ==> index_is_stamp_expr=0
+            vec.push((
+                "is_first_access=1 ==> index = [Tag, Stamp0)",
+                q_enable.clone() * is_first_access.clone() * index_is_stamp_expr,
+            ));
+            vec.push((
+                "is_first_access=0 & is_write=0 ==> prev_value_lo=cur_value_lo",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * (prev_value_lo - value_lo)
+                    * (1.expr() - is_write.clone()),
+            ));
+            vec.push((
+                "is_first_access=0 & is_write=0 ==> prev_value_hi=cur_value_hi",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * (prev_value_hi - value_hi)
+                    * (1.expr() - is_write.clone()),
+            ));
+            vec
         });
 
-        // #[cfg(not(feature = "no_intersubcircuit_lookup"))]
-        // meta.lookup_any("STATE_lookup_stack", |meta| {
-        //     let mut constraints = vec![];
+        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        meta.lookup_any("STATE_lookup_stack", |meta| {
+            let mut constraints = vec![];
 
-        //     // 1<= pointer_lo <=1024 in stack
-        //     let entry = LookupEntry::U10(meta.query_advice(config.pointer_lo, Rotation::cur()));
-        //     let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
-        //     if let LookupEntry::Conditional(expr, entry) = entry.conditional(stack_condition) {
-        //         let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
-        //         constraints = lookup_vec
-        //             .into_iter()
-        //             .map(|(left, right)| {
-        //                 let q_enable = meta.query_selector(config.q_enable);
-        //                 (q_enable * left * expr.clone(), right)
-        //             })
-        //             .collect();
-        //     }
-        //     constraints
-        // });
-        // #[cfg(not(feature = "no_intersubcircuit_lookup"))]
-        // meta.lookup_any("STATE_lookup_memory", |meta| {
-        //     let mut constraints = vec![];
-        //     // 0<= value_lo < 256 in memory
-        //     let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
-        //     let memory_condition =
-        //         config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
-        //     if let LookupEntry::Conditional(expr, entry) = entry.conditional(memory_condition) {
-        //         let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
-        //         constraints = lookup_vec
-        //             .into_iter()
-        //             .map(|(left, right)| {
-        //                 let q_enable = meta.query_selector(config.q_enable);
-        //                 (q_enable * left * expr.clone(), right)
-        //             })
-        //             .collect();
-        //     }
-        //     constraints
-        // });
+            // 1<= pointer_lo <=1024 in stack
+            let entry = LookupEntry::U10(meta.query_advice(config.pointer_lo, Rotation::cur()));
+            let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
+            if let LookupEntry::Conditional(expr, entry) = entry.conditional(stack_condition) {
+                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
+                constraints = lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| {
+                        let q_enable = meta.query_selector(config.q_enable);
+                        (q_enable * left * expr.clone(), right)
+                    })
+                    .collect();
+            }
+            constraints
+        });
+        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
+        meta.lookup_any("STATE_lookup_memory", |meta| {
+            let mut constraints = vec![];
+            // 0<= value_lo < 256 in memory
+            let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
+            let memory_condition =
+                config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
+            if let LookupEntry::Conditional(expr, entry) = entry.conditional(memory_condition) {
+                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
+                constraints = lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| {
+                        let q_enable = meta.query_selector(config.q_enable);
+                        (q_enable * left * expr.clone(), right)
+                    })
+                    .collect();
+            }
+            constraints
+        });
 
         config
     }
@@ -315,7 +349,7 @@ impl<F: Field> StateCircuitConfig<F> {
         self.sort_keys.stamp.assign(region, offset, 0)?;
         let first_different_limb =
             BinaryNumberChip::construct(self.ordering_config.first_different_limb);
-        first_different_limb.assign(region, offset, &ordering::LimbIndex::Stamp0)?;
+        first_different_limb.assign(region, offset, &LimbIndex::Stamp0)?;
         assign_advice_or_fixed(
             region,
             offset,
@@ -381,15 +415,13 @@ impl<F: Field> StateCircuitConfig<F> {
             if i > 0 {
                 let prev_row = &witness.state[i - 1];
                 let index = self.ordering_config.assign(region, i, state, prev_row)?;
-                let is_first_access = !matches!(
-                    index,
-                    ordering::LimbIndex::Stamp0 | ordering::LimbIndex::Stamp1
-                );
-                region.assign_advice(
-                    || "first_access",
-                    self.is_first_access,
+                let is_first_access = !matches!(index, LimbIndex::Stamp0 | LimbIndex::Stamp1);
+                #[rustfmt::skip]
+                assign_advice_or_fixed(
+                    region,
                     i,
-                    || Value::known(if is_first_access { F::ONE } else { F::ZERO }),
+                    &U256::from(if is_first_access { 1 } else { 0 }),
+                    self.is_first_access,
                 )?;
             }
         }
@@ -425,10 +457,6 @@ impl<F: Field> StateCircuitConfig<F> {
         self.ordering_config
             .annotate_columns_in_region(region, "STATE_ordering");
     }
-
-    pub(crate) fn load_aux_tables(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
-        lookupChip::construct(self.lookups).load(layouter)
-    }
 }
 
 #[derive(Clone, Default, Debug)]
@@ -454,7 +482,6 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
         mut layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
-        config.load_aux_tables(layouter)?;
         layouter.assign_region(
             || "state circuit",
             |mut region| {
@@ -483,52 +510,83 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
 mod test {
     use super::*;
     use crate::constant::MAX_NUM_ROW;
+    use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::{state, Witness};
+    use eth_types::bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::Circuit;
 
+    #[derive(Clone)]
+    pub struct StateTestCircuitConfig<F: Field> {
+        pub state_circuit: StateCircuitConfig<F>,
+        pub fixed_circuit: FixedCircuitConfig<F>,
+    }
+
     #[derive(Clone, Default, Debug)]
-    pub struct StateTestCircuit<F: Field, const MAX_NUM_ROW: usize>(StateCircuit<F, MAX_NUM_ROW>);
+    pub struct StateTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
+        state_circuit: StateCircuit<F, MAX_NUM_ROW>,
+        fixed_circuit: FixedCircuit<F>,
+    }
+
+    impl<F: Field> SubCircuitConfig<F> for StateTestCircuitConfig<F> {
+        type ConfigArgs = ();
+        fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+            let q_enable: Selector = meta.complex_selector(); //todo complex?
+            let state_table = StateTable::construct(meta, q_enable);
+            let fixed_table = FixedTable::construct(meta);
+            StateTestCircuitConfig {
+                state_circuit: StateCircuitConfig::new(
+                    meta,
+                    StateCircuitConfigArgs {
+                        q_enable,
+                        state_table,
+                        fixed_table,
+                    },
+                ),
+                fixed_circuit: FixedCircuitConfig::new(
+                    meta,
+                    FixedCircuitConfigArgs { fixed_table },
+                ),
+            }
+        }
+    }
 
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for StateTestCircuit<F, MAX_NUM_ROW> {
-        type Config = StateCircuitConfig<F>;
+        type Config = StateTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-            let q_enable: Selector = meta.complex_selector(); //todo complex?
-            let state_table = StateTable::construct(meta, q_enable);
-            let fixed_table = FixedTable::construct(meta);
-            Self::Config::new(
-                meta,
-                StateCircuitConfigArgs {
-                    q_enable,
-                    state_table,
-                    fixed_table,
-                },
-            )
+            Self::Config::new(meta, ())
         }
         fn synthesize(
             &self,
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.0.synthesize_sub(&config, &mut layouter)
+            self.state_circuit
+                .synthesize_sub(&config.state_circuit, &mut layouter)?;
+            self.fixed_circuit
+                .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
+            Ok(())
         }
     }
 
     impl<F: Field, const MAX_NUM_ROW: usize> StateTestCircuit<F, MAX_NUM_ROW> {
         pub fn new(witness: Witness) -> Self {
-            Self(StateCircuit::new_from_witness(&witness))
+            Self {
+                state_circuit: StateCircuit::new_from_witness(&witness),
+                fixed_circuit: FixedCircuit::new_from_witness(&witness),
+            }
         }
     }
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
         println!("K: {}", k);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
@@ -537,11 +595,15 @@ mod test {
 
     #[test]
     fn test_state_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
+        let bytecode = bytecode! {
+            PUSH1(0x1)
+            PUSH1(0x2)
+            ADD
+        };
+        let trace = trace_parser::trace_program(bytecode.to_vec().as_slice());
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
-            &machine_code,
+            bytecode.to_vec().as_slice(),
             &[],
             false,
             Default::default(),

@@ -1,10 +1,9 @@
 use std::marker::PhantomData;
 use std::usize;
 
-use crate::state_circuit::lookups::Config as lookupConfig;
 use crate::state_circuit::ordering::{CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
+use crate::table::{FixedTable, LookupEntry};
 use eth_types::{Field, ToLittleEndian, U256};
-use ethers_core::k256::pkcs8::der::Length;
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::Error;
@@ -153,15 +152,22 @@ where
         meta: &mut ConstraintSystem<F>,
         selector: Selector,
         value: Column<Advice>,
-        lookup: lookupConfig,
+        fixed_table: FixedTable,
     ) -> Config<T, N> {
         let limbs = [0; N].map(|_| meta.advice_column());
         for limb in limbs {
-            lookup.range_check_u16(meta, "mpi limb fits into u16", |meta| {
-                meta.query_advice(limb, Rotation::cur())
+            meta.lookup_any("mpi limb fits into u16", |meta| {
+                let entry = LookupEntry::U16(meta.query_advice(limb, Rotation::cur()));
+                let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
+                lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| {
+                        let selector: Expression<F> = meta.query_selector(selector);
+                        (selector * left, right)
+                    })
+                    .collect()
             });
         }
-
         meta.create_gate("mpi value matches claimed limbs", |meta| {
             let selector: Expression<F> = meta.query_selector(selector);
             let value: Expression<F> = meta.query_advice(value, Rotation::cur());

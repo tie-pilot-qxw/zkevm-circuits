@@ -1,5 +1,6 @@
-use crate::state_circuit::{lookups, SortedElements};
+use crate::table::LookupEntry;
 use crate::witness::state;
+use crate::{state_circuit::SortedElements, table::FixedTable};
 use eth_types::{Field, ToBigEndian};
 use itertools::Itertools;
 use std::iter::once;
@@ -21,7 +22,7 @@ pub const STAMP_LIMBS: usize = 2;
 pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
 /// 512bit. every element is 16bit. so have number of 32 elements;
 /// 1 + 10 + 8 + 8 + 2 = 22 * 16 = 352 bit
-#[derive(Clone, Copy, Debug, EnumIter)]
+#[derive(Clone, Copy, Debug, EnumIter, PartialEq)]
 pub enum LimbIndex {
     Tag,
     CallIdOrAddress9,
@@ -81,7 +82,7 @@ impl Config {
         meta: &mut ConstraintSystem<F>,
         selector: Selector,
         keys: SortedElements,
-        lookup: lookups::Config,
+        fixed_table: FixedTable,
     ) -> Self {
         let first_different_limb = BinaryNumberChip::configure(meta, selector, None);
         let limb_difference = meta.advice_column();
@@ -94,8 +95,16 @@ impl Config {
             limb_difference_inverse,
         };
 
-        lookup.range_check_u16(meta, "limb_difference fits into u16", |meta| {
-            meta.query_advice(limb_difference, Rotation::cur())
+        meta.lookup_any("limb_difference fits into u16", |meta| {
+            let entry = LookupEntry::U16(meta.query_advice(limb_difference, Rotation::cur()));
+            let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
+            lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let selector = meta.query_selector(selector);
+                    (selector * left, right)
+                })
+                .collect()
         });
 
         meta.create_gate("limb_difference is not zero", |meta| {
