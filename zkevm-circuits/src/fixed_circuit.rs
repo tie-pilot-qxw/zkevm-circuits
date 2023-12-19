@@ -168,7 +168,6 @@ mod test {
     }
 
     impl<F: Field> FixedTestCircuitConfig<F> {
-        // 对测试的不同字段进行赋值，验证lookup范围查询功能
         // Assign values to different fields to verify the lookup range query function
         fn assign_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
             assign_advice_or_fixed(region, 1, &U256::from(1 << 16 - 1), self.test_u16)?;

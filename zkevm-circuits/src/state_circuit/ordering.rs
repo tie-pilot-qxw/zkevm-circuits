@@ -20,11 +20,7 @@ use strum_macros::EnumIter;
 pub const POINTER_LIMBS: usize = 8;
 pub const STAMP_LIMBS: usize = 2;
 pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
-/// 512bit. every element is 16bit. so have number of 32 elements;
-/// 1 + 10 + 8 + 8 + 2 = 22 * 16 = 352 bit
-/// 定义不同类型数据类型所需的Limb类型，每个limb是个u16类型.
-/// Tag 由一个limb表示；CallIdOrAddress由10个limb表示，
-/// pointer_hi/lo 由8个limb表示，stamp由2个limb表示
+
 /// Define the Limb types required for different types of data types.
 /// Each limb is a u16 type.
 ///
@@ -101,7 +97,7 @@ impl Config {
     ) -> Self {
         let first_different_limb = BinaryNumberChip::configure(meta, selector, None);
         let limb_difference = meta.advice_column();
-        let limb_difference_inverse: Column<Advice> = meta.advice_column();
+        let limb_difference_inverse = meta.advice_column();
 
         let config = Config {
             selector,
@@ -112,7 +108,7 @@ impl Config {
 
         // The difference between the two states is within the range of u16,
         // and the adjacent states must be sorted from small to big.
-        
+
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("limb_difference fits into u16", |meta| {
