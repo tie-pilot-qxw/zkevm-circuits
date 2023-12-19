@@ -554,3 +554,84 @@ impl<F: Field> LookupEntry<F> {
         Self::Conditional(condition, self.into())
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::*;
+    use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
+    use crate::witness::{bytecode, Witness};
+    use gadgets::is_zero::IsZeroInstruction;
+    use halo2_proofs::circuit::{Region, Value};
+    use halo2_proofs::plonk::Error;
+
+    impl<F: Field> BytecodeTable<F> {
+        /// assign one row of values from witness in a region, used for test
+        #[rustfmt::skip]
+        fn assign_row(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &bytecode::Row,
+        ) -> Result<(), Error> {
+            let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
+            assign_advice_or_fixed(region, offset, &row.addr.unwrap_or_default(), self.addr)?;
+            assign_advice_or_fixed(region, offset, &row.bytecode.unwrap_or_default(), self.bytecode)?;
+            assign_advice_or_fixed(region, offset, &row.pc.unwrap_or_default(), self.pc)?;
+            assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+            assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+            assign_advice_or_fixed(region, offset, &row.cnt.unwrap_or_default(), self.cnt)?;
+            cnt_is_zero.assign(
+                region,
+                offset,
+                Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                    &row.cnt.unwrap_or_default(),
+                ))),
+            )?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.bytecode.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl StateTable {
+        /// assign one row of values from witness in a region, used for test
+        #[rustfmt::skip]
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &state::Row,
+        ) -> Result<(), Error> {
+            let tag = BinaryNumberChip::construct(self.tag);
+            tag.assign(region, offset, &row.tag.unwrap_or_default())?;
+            assign_advice_or_fixed(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
+            assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+            assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+            assign_advice_or_fixed(region, offset, &row.call_id_contract_addr.unwrap_or_default(), self.call_id_contract_addr)?;
+            assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
+            assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
+            assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.state.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+}

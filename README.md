@@ -7,19 +7,14 @@ After preparation, you can run all tests.
 
 Run one test
 ```shell
-cargo test super_circuit::tests::test_super_circuit
+cargo test -p zkevm-circuits super_circuit::tests::test_super_circuit
 ```
 
 or run all tests
 ```shell
-cargo test
+cargo test -p zkevm-circuits
 ```
 
-also we have tests that ignore intersubcircuit lookups
-
-```shell
-cargo test --features no_intersubcircuit_lookup
-```
 
 # How to run gen_code
 ```shell

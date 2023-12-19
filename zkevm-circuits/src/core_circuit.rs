@@ -172,9 +172,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             ]
         });
 
-        // tx_id, call_id, code_addr constraints?
-
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
         meta.lookup_any("CORE_bytecode", |meta| {
             let entry = LookupEntry::Bytecode {
                 addr: meta.query_advice(config.code_addr, Rotation::cur()),
@@ -374,22 +371,35 @@ impl<
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+    use crate::bytecode_circuit::{
+        BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
+    };
+    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::core_circuit::CoreCircuit;
+    use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
+    use crate::table::FixedTable;
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
+    use eth_types::bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::Circuit;
 
+    #[derive(Clone)]
+    pub struct CoreTestCircuitConfig<F: Field> {
+        pub core_circuit: CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        pub bytecode_table: BytecodeTable<F>,
+        pub state_table: StateTable,
+    }
     #[derive(Clone, Default, Debug)]
-    pub struct CoreTestCircuit<F: Field>(
-        CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-    );
+    pub struct CoreTestCircuit<F: Field> {
+        core_circuit: CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        witness: Witness,
+    }
 
     impl<F: Field> Circuit<F> for CoreTestCircuit<F> {
-        type Config = CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
+        type Config = CoreTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
             Self::default()
@@ -399,26 +409,67 @@ mod test {
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
-            Self::Config::new(
+            let core_circuit = CoreCircuitConfig::new(
                 meta,
                 CoreCircuitConfigArgs {
                     bytecode_table,
                     state_table,
                 },
-            )
+            );
+            Self::Config {
+                core_circuit,
+                bytecode_table,
+                state_table,
+            }
+
+            // let q_enable_bytecode = meta.complex_selector();
+            // let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+            // let q_enable_state = meta.complex_selector();
+            // let state_table = StateTable::construct(meta, q_enable_state);
+            // let core_circuit = CoreCircuitConfig::new(
+            //     meta,
+            //     CoreCircuitConfigArgs {
+            //         bytecode_table,
+            //         state_table,
+            //     },
+            // )
         }
+
         fn synthesize(
             &self,
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.0.synthesize_sub(&config, &mut layouter)
+            self.core_circuit
+                .synthesize_sub(&config.core_circuit, &mut layouter)?;
+            // assign bytecode table, but do not enable selector, since we are not testing it here
+            layouter.assign_region(
+                || "test, bytecode circuit",
+                |mut region| {
+                    config
+                        .bytecode_table
+                        .assign_with_region(&mut region, &self.witness)
+                },
+            )?;
+            // assign state table, but do not enable selector, since we are not testing it here
+            layouter.assign_region(
+                || "test, state circuit",
+                |mut region| {
+                    config
+                        .state_table
+                        .assign_with_region(&mut region, &self.witness)
+                },
+            )?;
+            Ok(())
         }
     }
 
     impl<F: Field> CoreTestCircuit<F> {
         pub fn new(witness: Witness) -> Self {
-            Self(CoreCircuit::new_from_witness(&witness))
+            Self {
+                core_circuit: CoreCircuit::new_from_witness(&witness),
+                witness: witness.clone(),
+            }
         }
     }
 
@@ -429,12 +480,23 @@ mod test {
         prover
     }
 
-    #[cfg(feature = "no_intersubcircuit_lookup")]
     #[test]
     fn test_core_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+        let code = bytecode! {
+            PUSH1(1)
+            PUSH1(2)
+            ADD
+            STOP
+        };
+        let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code);
-        let witness: Witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
+        let witness: Witness = Witness::new(&geth_data_test(
+            trace,
+            &machine_code,
+            &[],
+            false,
+            Default::default(),
+        ));
         let prover = test_simple_core_circuit(witness);
         prover.assert_satisfied_par();
     }

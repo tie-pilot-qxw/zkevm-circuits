@@ -43,6 +43,7 @@ pub struct Witness {
     pub state: Vec<state::Row>,
     pub arithmetic: Vec<arithmetic::Row>,
     pub bitwise: Vec<bitwise::Row>,
+    // we omit fixed table rows on purpose due to its large size
 }
 
 pub struct WitnessExecHelper {

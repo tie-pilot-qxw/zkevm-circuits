@@ -118,7 +118,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             _marker: PhantomData,
         };
 
-        meta.create_gate("STATE_constraint_in_different_region", |meta| {
+        meta.create_gate("STATE_constraint_for_different_tags", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let is_first_access = meta.query_advice(config.is_first_access, Rotation::cur());
             let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
@@ -253,16 +253,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                         .first_different_limb
                         .value_equals(tag, Rotation::cur())(meta);
             }
-            // is_first_access=0 ==> index_is_stamp_expr=1
+            // 1 - is_first_access === index = Stamp0 | Stamp1
             vec.push((
-                "is_first_access=0 ==> index = Stamp0 | Stamp1",
+                "1 - is_first_access === index = Stamp0 | Stamp1",
                 q_enable.clone()
                     * (index_is_stamp_expr.clone() + is_first_access.clone() - 1.expr()),
-            ));
-            // is_first_access=1 ==> index_is_stamp_expr=0
-            vec.push((
-                "is_first_access=1 ==> index = [Tag, Stamp0)",
-                q_enable.clone() * is_first_access.clone() * index_is_stamp_expr,
             ));
             vec.push((
                 "is_first_access=0 & is_write=0 ==> prev_value_lo=cur_value_lo",
@@ -281,8 +276,9 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             vec
         });
 
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
-        meta.lookup_any("STATE_lookup_stack", |meta| {
+        // when feature `no_fixed_lookup` is on, we don't do lookup
+        #[cfg(not(feature = "no_fixed_lookup"))]
+        meta.lookup_any("STATE_lookup_stack_pointer", |meta| {
             let mut constraints = vec![];
 
             // 1<= pointer_lo <=1024 in stack
@@ -300,8 +296,9 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             }
             constraints
         });
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
-        meta.lookup_any("STATE_lookup_memory", |meta| {
+        // when feature `no_fixed_lookup` is on, we don't do lookup
+        #[cfg(not(feature = "no_fixed_lookup"))]
+        meta.lookup_any("STATE_lookup_memory_pointer", |meta| {
             let mut constraints = vec![];
             // 0<= value_lo < 256 in memory
             let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
@@ -570,6 +567,8 @@ mod test {
         ) -> Result<(), Error> {
             self.state_circuit
                 .synthesize_sub(&config.state_circuit, &mut layouter)?;
+            // when feature `no_fixed_lookup` is on, we don't do synthesize
+            #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit
                 .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
             Ok(())
@@ -586,7 +585,7 @@ mod test {
     }
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
+        let k = log2_ceil(MAX_NUM_ROW);
         println!("K: {}", k);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
@@ -639,6 +638,12 @@ mod test {
         prover.assert_satisfied_par();
     }
 
+    // when feature `no_fixed_lookup` is on, we skip the test
+    // this is due to the test relies on lookup the `limb_difference` value in range U16
+    #[cfg_attr(
+        feature = "no_fixed_lookup",
+        ignore = "feature `no_fixed_lookup` is on, we skip the test"
+    )]
     #[test]
     fn test_invalid_order() {
         let witness = Witness {

@@ -95,6 +95,8 @@ impl Config {
             limb_difference_inverse,
         };
 
+        // when feature `no_fixed_lookup` is on, we don't do lookup
+        #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("limb_difference fits into u16", |meta| {
             let entry = LookupEntry::U16(meta.query_advice(limb_difference, Rotation::cur()));
             let lookup_vec = fixed_table.get_lookup_vector(meta, entry);
