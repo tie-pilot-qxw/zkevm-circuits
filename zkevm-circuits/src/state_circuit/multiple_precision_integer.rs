@@ -13,6 +13,8 @@ use halo2_proofs::{
 };
 use itertools::Itertools;
 
+/// Compute the little-endian representation of a data structure.
+/// N is the number of u16 required in little endian order.
 pub trait Tolimbs<const N: usize> {
     fn to_limbs(&self) -> [u16; N];
 }
@@ -41,6 +43,8 @@ impl Tolimbs<STAMP_LIMBS> for u32 {
     }
 }
 
+/// Assign the value represented in little-endian order of data
+/// type T to the corresponding Column.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<T, const N: usize>
 where
@@ -129,6 +133,8 @@ impl Config<U256, CALLID_OR_ADDRESS_LIMBS> {
     }
 }
 
+/// Create the Columns required by the Config<T,N> structure and
+/// add corresponding constraints to these Columns
 pub struct Chip<F: Field, T, const N: usize>
 where
     T: Tolimbs<N>,
@@ -156,6 +162,8 @@ where
     ) -> Config<T, N> {
         let limbs = [0; N].map(|_| meta.advice_column());
 
+        // Constrain all Column's values to be within the u16 range
+
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         for limb in limbs {
@@ -171,6 +179,7 @@ where
                     .collect()
             });
         }
+        // Constrains the little-endian result represented by limbs to be equal to value<T>
         meta.create_gate("mpi value matches claimed limbs", |meta| {
             let selector: Expression<F> = meta.query_selector(selector);
             let value: Expression<F> = meta.query_advice(value, Rotation::cur());

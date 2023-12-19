@@ -16,7 +16,6 @@ use halo2_proofs::poly::Rotation;
 use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
 use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;
-use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
@@ -47,6 +46,7 @@ pub struct StateCircuitConfig<F> {
     /// Indicates whether the location is visited for the first time;
     /// 0 if the difference between the state row is Stamp0|Stamp1, otherwise is 1.
     is_first_access: Column<Advice>,
+    /// Lookup table for some information，such as value of cell U16/U0/U8 range lookup.
     fixed_table: FixedTable,
     _marker: PhantomData<F>,
 }
@@ -88,7 +88,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             is_write,
         } = state_table;
 
-        // assign elements to sorted and ordering tool
+        // new sorted element with Advice that will be sorted
         let mpi_call_id = MpiChip::configure(meta, q_enable, call_id_contract_addr, fixed_table);
         let mpi_pointer_hi = MpiChip::configure(meta, q_enable, pointer_hi, fixed_table);
         let mpi_pointer_lo = MpiChip::configure(meta, q_enable, pointer_lo, fixed_table);
@@ -100,6 +100,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_lo: mpi_pointer_lo,
             stamp: mpi_stamp,
         };
+        // Passes the element to be sorted as a parameter to the sorting function
         let ordering_config = OrderingConfig::new(meta, q_enable, keys, fixed_table);
         let config: StateCircuitConfig<F> = Self {
             q_enable,
@@ -118,7 +119,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             _marker: PhantomData,
         };
 
-        meta.create_gate("STATE_constraint_for_different_tags", |meta| {
+        // create custom gate with different column and rotation
+        meta.create_gate("STATE_constraint_in_different_region", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let is_first_access = meta.query_advice(config.is_first_access, Rotation::cur());
             let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
@@ -322,6 +324,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
 }
 
 impl<F: Field> StateCircuitConfig<F> {
+    /// padding assignment on rows with no data, and fill most columns with 0.
+    /// Only first_different_limb and tag columns are assigned the specified value,
+    /// EndPadding indicates the tag of padding in this column.
+    /// Stamp* that increments for each state operation, if the value of difference
+    /// is it, the first_access constraint logics is not enabled.
     fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.stamp)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.value_hi)?;
@@ -379,6 +386,7 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
         assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
         assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+        // Assign value to the column of elements to be sorted
         self.sort_keys
             .call_id_or_address
             .assign(region, offset, row.call_id_contract_addr.unwrap_or_default())?;
@@ -401,6 +409,7 @@ impl<F: Field> StateCircuitConfig<F> {
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
+        // Assign data of the status to circuit row with row offset
         for (offset, row) in witness.state.iter().enumerate() {
             self.assign_row(region, offset, row)?;
         }
@@ -408,11 +417,16 @@ impl<F: Field> StateCircuitConfig<F> {
         for offset in witness.state.len()..num_row_incl_padding {
             self.assign_padding_row(region, offset)?;
         }
+        // 1. assign ordering with curr and prev state.
+        // 2. if and only if the difference with two status not in Stamp*,
+        // indicates that the location by the pointer is accessed for the first time,
         for (i, state) in witness.state.iter().enumerate() {
             if i > 0 {
                 let prev_row = &witness.state[i - 1];
                 let index = self.ordering_config.assign(region, i, state, prev_row)?;
                 let is_first_access = !matches!(index, LimbIndex::Stamp0 | LimbIndex::Stamp1);
+                // If the location by pointer is accessed for the first time, set the
+                // is_first_access column of the current row to 1, otherwise it is 0.
                 #[rustfmt::skip]
                 assign_advice_or_fixed(
                     region,
@@ -426,6 +440,7 @@ impl<F: Field> StateCircuitConfig<F> {
         Ok(())
     }
 
+    /// Annotate and name columns
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
         region.name_column(|| "STATE_value_hi", self.value_hi);
         region.name_column(|| "STATE_value_lo", self.value_lo);

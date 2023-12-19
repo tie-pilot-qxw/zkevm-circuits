@@ -22,6 +22,14 @@ pub const STAMP_LIMBS: usize = 2;
 pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
 /// 512bit. every element is 16bit. so have number of 32 elements;
 /// 1 + 10 + 8 + 8 + 2 = 22 * 16 = 352 bit
+/// 定义不同类型数据类型所需的Limb类型，每个limb是个u16类型.
+/// Tag 由一个limb表示；CallIdOrAddress由10个limb表示，
+/// pointer_hi/lo 由8个limb表示，stamp由2个limb表示
+/// Define the Limb types required for different types of data types.
+/// Each limb is a u16 type.
+///
+/// Tag is represented by one limb; CallIdOrAddress is represented by 10 limbs.
+/// Pointer_hi/lo is represented by 8 limbs, Stamp is represented by 2 limbs
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq)]
 pub enum LimbIndex {
     Tag,
@@ -55,6 +63,9 @@ pub enum LimbIndex {
     Stamp0,
 }
 
+/// Calculate the bit representation of the LimbIndex enum element;
+/// Because the maximum index of an enum element is 0x1C, 5 bits
+/// are needed to represent all enumeration elements.
 impl AsBits<5> for LimbIndex {
     fn as_bits(&self) -> [bool; 5] {
         let mut bits = [false; 5];
@@ -71,12 +82,16 @@ impl AsBits<5> for LimbIndex {
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
     pub(crate) selector: Selector,
-    // tag: Tag,
+    /// The first difference within a limbindex with between two adjacent states
     pub first_different_limb: BinaryNumberConfig<LimbIndex, 5>,
+    /// The difference between two adjacent states
     pub limb_difference: Column<Advice>,
+    /// The inverse value of the difference between two adjacent states
     pub limb_difference_inverse: Column<Advice>,
 }
 
+/// Create the Columns required by the Config structure and
+/// add corresponding constraints to these Columns.
 impl Config {
     pub fn new<F: Field>(
         meta: &mut ConstraintSystem<F>,
@@ -86,7 +101,7 @@ impl Config {
     ) -> Self {
         let first_different_limb = BinaryNumberChip::configure(meta, selector, None);
         let limb_difference = meta.advice_column();
-        let limb_difference_inverse = meta.advice_column();
+        let limb_difference_inverse: Column<Advice> = meta.advice_column();
 
         let config = Config {
             selector,
@@ -95,6 +110,9 @@ impl Config {
             limb_difference_inverse,
         };
 
+        // The difference between the two states is within the range of u16,
+        // and the adjacent states must be sorted from small to big.
+        
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("limb_difference fits into u16", |meta| {
@@ -109,6 +127,8 @@ impl Config {
                 .collect()
         });
 
+        // The difference between two adjacent states is not 0, because
+        // the two adjacent states have at least different Stamp values.
         meta.create_gate("limb_difference is not zero", |meta| {
             let selector = meta.query_selector(selector);
             let limb_difference = meta.query_advice(limb_difference, Rotation::cur());
@@ -117,7 +137,7 @@ impl Config {
             let tag = keys
                 .tag
                 .value_equals(state::Tag::EndPadding, Rotation::cur())(meta);
-            // limb_difference with the offset = cur-prev
+            // limb_difference with the diff = cur-prev in current position.
             // when tag is EndPadding on the cur, the value = EndPadding - prev(tag),
             // should not enable constraint in the cur.
             vec![
@@ -185,9 +205,11 @@ impl Config {
         cur: &state::Row,
         prev: &state::Row,
     ) -> Result<LimbIndex, Error> {
+        // get the big-endian representation of the status
         let cur_be_limbs = state_to_be_limbs(cur);
         let prev_be_limbs = state_to_be_limbs(prev);
 
+        // find the difference between two states in limb representation
         let find_result = LimbIndex::iter()
             .zip(cur_be_limbs)
             .zip(prev_be_limbs)
@@ -198,7 +220,9 @@ impl Config {
             find_result.expect("repeated state row stamp")
         };
 
+        // Write the first different limbindex of the two states into the first_different_limb.
         BinaryNumberChip::construct(self.first_different_limb).assign(region, offset, &index)?;
+        // Calculate the difference between the two states and write it into the column.
         let limb_difference = F::from(cur_limb as u64) - F::from(prev_limb as u64);
         region.assign_advice(
             || "limb_difference",
@@ -228,6 +252,7 @@ impl Config {
     }
 }
 
+/// Convert the Column of SortedElements elements into an expression.
 pub struct Queries<F: Field> {
     tag: Expression<F>,
     call_id_or_address: [Expression<F>; CALLID_OR_ADDRESS_LIMBS],

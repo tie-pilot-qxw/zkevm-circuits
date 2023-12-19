@@ -50,6 +50,8 @@ impl<F: Field> FixedCircuitConfig<F> {
     fn assign(
         mut assign_row: impl FnMut(&fixed::Row, usize) -> Result<(), Error>,
     ) -> Result<usize, Error> {
+        // Create rows with different states required by fixed_table
+
         // And/Or/Xor ==>  0-256行
         let operand_num = 1 << 8;
         let mut vec = vec![];
@@ -73,9 +75,11 @@ impl<F: Field> FixedCircuitConfig<F> {
         }
 
         let num = vec.len();
+        // Write the data of each row into the corresponding column
         for (i, row) in vec.iter().enumerate() {
             assign_row(row, i)?;
         }
+        // return the number of rows
         Ok(num)
     }
 
@@ -156,12 +160,16 @@ mod test {
     #[derive(Clone)]
     pub struct FixedTestCircuitConfig<F: Field> {
         pub fixed_circuit: FixedCircuitConfig<F>,
+        /// Test data, query the data in different fields belonging
+        /// to the corresponding range (u16/u10/u8)
         pub test_u16: Column<Advice>,
         pub test_u10: Column<Advice>,
         pub test_u8: Column<Advice>,
     }
 
     impl<F: Field> FixedTestCircuitConfig<F> {
+        // 对测试的不同字段进行赋值，验证lookup范围查询功能
+        // Assign values to different fields to verify the lookup range query function
         fn assign_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
             assign_advice_or_fixed(region, 1, &U256::from(1 << 16 - 1), self.test_u16)?;
             assign_advice_or_fixed(region, 10, &U256::from(1 << 13), self.test_u16)?;
@@ -191,10 +199,13 @@ mod test {
                     meta,
                     FixedCircuitConfigArgs { fixed_table },
                 ),
+                // Create the corresponding column fot tests
                 test_u16: meta.advice_column(),
                 test_u10: meta.advice_column(),
                 test_u8: meta.advice_column(),
             };
+            // Add corresponding lookup constraints to verify the correctness
+            // of the fixed circuit range query function
             meta.lookup_any("test lookup u16", |meta| {
                 let entry = LookupEntry::U16(meta.query_advice(config.test_u16, Rotation::cur()));
                 fixed_table.get_lookup_vector(meta, entry)
