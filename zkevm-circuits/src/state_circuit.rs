@@ -118,7 +118,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             _marker: PhantomData,
         };
 
-        meta.create_gate("STATE_constraint_in_different_region", |meta| {
+        meta.create_gate("STATE_constraint_for_different_tags", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let is_first_access = meta.query_advice(config.is_first_access, Rotation::cur());
             let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
@@ -278,7 +278,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
 
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
-        meta.lookup_any("STATE_lookup_stack", |meta| {
+        meta.lookup_any("STATE_lookup_stack_pointer", |meta| {
             let mut constraints = vec![];
 
             // 1<= pointer_lo <=1024 in stack
@@ -298,7 +298,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         });
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
-        meta.lookup_any("STATE_lookup_memory", |meta| {
+        meta.lookup_any("STATE_lookup_memory_pointer", |meta| {
             let mut constraints = vec![];
             // 0<= value_lo < 256 in memory
             let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));

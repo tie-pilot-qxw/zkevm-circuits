@@ -729,8 +729,6 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
     use super::*;
     use crate::bytecode_circuit::{
         BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
@@ -747,6 +745,7 @@ mod test {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::Circuit;
+    use std::str::FromStr;
 
     #[derive(Clone)]
     pub struct CopyTestCircuitConfig<F: Field> {

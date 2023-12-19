@@ -1049,7 +1049,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // todo
         // merge lookups from all gadgets
         // currently there is no merge
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
         for (string, lookup, execution_state) in lookups_to_merge {
             match lookup {
                 LookupEntry::BytecodeFull { .. } | LookupEntry::State { .. } => {
