@@ -89,11 +89,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        // [a_hi,a_lo,d_hi,d_lo,not_is_zero]
-        let mut query_operands = vec![];
-        for i in 20..25 {
-            query_operands.push(meta.query_advice(config.vers[i], Rotation(-2)));
-        }
+        // [a_hi,a_lo]
+        let query_a = vec![
+            meta.query_advice(config.vers[20], Rotation(-2)),
+            meta.query_advice(config.vers[21], Rotation(-2)),
+        ];
+        // [d_hi,d_lo]
+        let query_d = vec![
+            meta.query_advice(config.vers[22], Rotation(-2)),
+            meta.query_advice(config.vers[23], Rotation(-2)),
+        ];
+        // not_is_zero
+        let query_not_is_zero = meta.query_advice(config.vers[24], Rotation(-2));
+
         let auxiliary_delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
@@ -123,7 +131,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 i == 2,
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            operands.extend([value_hi, value_lo]);
+            operands.push([value_hi, value_lo]);
         }
         // exp constraints
         let exp_entry = config.get_exp_lookup(meta);
@@ -131,76 +139,74 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             ("base hi".into(), base[0].clone()),
             ("base lo".into(), base[1].clone() - 256.expr()),
-            ("index hi".into(), index[0].clone() - operands[0].clone()),
-            ("index lo".into(), index[1].clone() - operands[1].clone()),
+            ("index hi".into(), index[0].clone() - operands[0][0].clone()),
+            ("index lo".into(), index[1].clone() - operands[0][1].clone()),
         ]);
         // pow[0] * 128 = a_hi
         // pow[1] * 128 = a_lo
-        // 128 & pow[0/1] no overflow , for pow is 256's index power
+        // 128 * pow[0/1] no overflow , for pow is 256's index power
         constraints.extend([
             (
                 "pow[0] * 128 = a_hi".into(),
-                pow[0].clone() * 128.expr() - query_operands[0].clone(),
+                pow[0].clone() * 128.expr() - query_a[0].clone(),
             ),
             (
                 "pow[1] * 128 = a_lo".into(),
-                pow[1].clone() * 128.expr() - query_operands[1].clone(),
+                pow[1].clone() * 128.expr() - query_a[1].clone(),
             ),
         ]);
-        // [hi,lo], every hi/lo means[acc0,acc1,acc2,sum2,tag],
-        let mut bit_wise_operands = vec![];
-        for i in 0..4 {
-            let entry = config.get_bitwise_lookup(i, meta);
-            let (tag, accs, sum) = extract_lookup_expression!(bitwise, entry);
-            bit_wise_operands.push((accs[0].clone(), accs[1].clone(), accs[2].clone(), sum, tag));
-        }
         // bitwise lookup constraints
         // operand_1 & a
-        // bit_wise_operands[0/1][0] = operand_1 high/low
-        // operands[0/1][1] = a_hi/lo
         // operand_1 operator d  constraints
-        // bit_wise_operands[2/3][0] = operand_1_hi/lo
-        // bit_wise_operands[2/3][1] = d_hi/lo
         for i in 0..4 {
-            // operand constraints
-            constraints.extend([
+            let entry = config.get_bitwise_lookup(i, meta);
+            let (tag, acc, _) = extract_lookup_expression!(bitwise, entry);
+            // left operand constraints
+            let left_operand_constraint = (
+                format!("bitwise[{}] left operand = operands[1][{}]", i, i % 2),
+                acc[0].clone() - operands[1][i % 2].clone(),
+            );
+            // right operand constraints
+            let right_operand_constraints = if i < 2 {
                 (
-                    format!("bit_wise_operand[{}].[{}] = operands[{}]", i, 0, 2),
-                    bit_wise_operands[i].0.clone() - operands[2 + i % 2].clone(),
-                ),
-                (
-                    format!("bit_wise_operand[{}].[{}] = query_operands[{}]", i, 1, 0),
-                    bit_wise_operands[i].1.clone() - query_operands[i].clone(),
-                ),
-            ]);
-            // operator constraints
-            if i < 2 {
-                constraints.extend([(
-                    format!("tag operator [{}] = opAnd", i),
-                    bit_wise_operands[i].4.clone() - (bitwise::Tag::And as u8).expr(),
-                )])
+                    format!("bitwise[{}] right operand = query_a[{}]", i, i % 2),
+                    acc[1].clone() - query_a[i % 2].clone(),
+                )
             } else {
+                (
+                    format!("bitwise[{}] right operand = query_d[{}]", i, i % 2),
+                    acc[1].clone() - query_d[i % 2].clone(),
+                )
+            };
+            // operator constraints
+            let operator_constraints = if i < 2 {
+                (
+                    format!("bitwise[{}] operator = opAnd ", i),
+                    tag.clone() - (bitwise::Tag::And as u8).expr(),
+                )
+            } else {
+                (
+                    format!("bitwise[{}] operator", i),
+                    (1.expr() - query_not_is_zero.expr())
+                        * (tag.clone() - (bitwise::Tag::And as u8).expr())
+                        + query_not_is_zero.expr()
+                            * (tag.clone() - (bitwise::Tag::Or as u8).expr()),
+                )
+            };
+            // constraints
+            constraints.extend([
+                left_operand_constraint,
+                right_operand_constraints,
+                operator_constraints,
+            ]);
+            // i > 2: final_result constraints
+            if i > 2 {
                 constraints.extend([(
-                    format!("tag operator [{}] constraints", i),
-                    (1.expr() - query_operands[4].expr())
-                        * (bit_wise_operands[i].4.clone() - (bitwise::Tag::And as u8).expr())
-                        + query_operands[4].expr()
-                            * (bit_wise_operands[i].4.clone() - (bitwise::Tag::Or as u8).expr()),
+                    format!("stack push[2][{}] = acc[2]", i),
+                    acc[2].clone() - operands[2][i % 2].clone(),
                 )]);
             }
         }
-        // final result constraints
-        constraints.extend([
-            (
-                "stack push hi = bitwise acc2 hi".into(),
-                operands[4].clone() - bit_wise_operands[2].2.clone(),
-            ),
-            (
-                "stack push lo = bitwise acc2 lo".into(),
-                operands[5].clone() - bit_wise_operands[3].2.clone(),
-            ),
-        ]);
-
         constraints
     }
     fn get_lookups(
