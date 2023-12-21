@@ -158,9 +158,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // bitwise lookup constraints
         // operand_1 & a
         // operand_1 operator d  constraints
+        let mut query_not_zero_sum = 0.expr();
         for i in 0..4 {
             let entry = config.get_bitwise_lookup(i, meta);
-            let (tag, acc, _) = extract_lookup_expression!(bitwise, entry);
+            let (tag, acc, sum) = extract_lookup_expression!(bitwise, entry);
+            if i < 2 {
+                query_not_zero_sum = query_not_zero_sum + sum;
+            }
             // left operand constraints
             let left_operand_constraint = (
                 format!("bitwise[{}] left operand = operands[1][{}]", i, i % 2),
@@ -207,6 +211,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 )]);
             }
         }
+        // query_not_zero constraints
+        constraints.extend([(
+            "query_not_zero * 128 = query_not_zero_sum".into(),
+            query_not_zero_sum.clone() - query_not_is_zero * 128.expr(),
+        )]);
         constraints
     }
     fn get_lookups(
