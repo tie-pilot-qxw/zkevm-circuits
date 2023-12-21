@@ -19,6 +19,8 @@ use strum::EnumCount;
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 {
+    /// only enable for BEGIN_BLOCK
+    pub q_first_exec_state: Selector,
     pub q_enable: Selector,
     /// Transaction index, the index inside the block, repeated for rows in one execution state
     pub tx_idx: Column<Advice>,
@@ -64,6 +66,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         }: Self::ConfigArgs,
     ) -> Self {
         let q_enable = meta.complex_selector();
+        let q_first_exec_state = meta.complex_selector();
         let tx_idx = meta.advice_column();
         let call_id = meta.advice_column();
         let code_addr = meta.advice_column();
@@ -90,6 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         );
 
         let execution_config = ExecutionConfig {
+            q_first_exec_state,
             q_enable,
             tx_idx,
             call_id,
@@ -106,6 +110,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         // all execution gadgets are created here
         let execution_gadgets = ExecutionGadgets::configure(meta, execution_config);
         let config = Self {
+            q_first_exec_state,
             q_enable,
             tx_idx,
             call_id,
@@ -348,6 +353,10 @@ impl<
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+                // -1 because index start from 0
+                config
+                    .q_first_exec_state
+                    .enable(&mut region, CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)?;
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
@@ -370,6 +379,8 @@ impl<
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+
     use super::*;
     use crate::bytecode_circuit::{
         BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
