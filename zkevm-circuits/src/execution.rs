@@ -44,6 +44,7 @@ pub mod swap;
 pub mod tx_context;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
+use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
@@ -765,6 +766,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             memory_chunk: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 5],
             read_only: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 6],
         }
+    }
+
+    pub(crate) fn get_begin_tx_constrains(
+        &self,
+        meta: &mut VirtualCells<F>,
+        prev_exec_state_row: usize,
+        call_id: Expression<F>,
+        tags: [CallContextTag; 4],
+        comments: [&str; 4],
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        let mut operands = vec![];
+        for (i, tag) in tags.iter().enumerate() {
+            let entry = self.get_state_lookup(meta, i);
+            constraints.append(&mut self.get_call_context_constraints(
+                meta,
+                entry.clone(),
+                i,
+                prev_exec_state_row,
+                true,
+                (*tag as u8).expr(),
+                call_id.clone(),
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            operands.push([value_hi, value_lo]);
+        }
+
+        constraints.extend([
+            (comments[0].into(), operands[2][0].clone()),
+            (comments[1].into(), operands[2][1].clone()),
+            (comments[2].into(), operands[3][0].clone()),
+            (comments[3].into(), operands[3][1].clone()),
+        ]);
+        constraints
     }
 
     #[allow(unused)]

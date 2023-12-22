@@ -52,51 +52,37 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        // auxiliary and single purpose constraints
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let mut operands: Vec<[Expression<F>; 2]> = vec![];
-        for (i, call_context) in [
-            CallContextTag::SenderAddr,
-            CallContextTag::Value,
-            CallContextTag::ParentProgramCounter,
-            CallContextTag::ParentStackPointer,
-        ]
-        .iter()
-        .enumerate()
-        {
-            let entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_call_context_constraints(
-                meta,
-                entry.clone(),
-                i,
-                NUM_ROW,
-                true,
-                (*call_context as u8).expr(),
-                call_id.clone(),
-            ));
-            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            operands.push([value_hi, value_lo]);
-        }
-        constraints.extend([
-            ("parent pc hi == 0".into(), operands[2][0].clone()),
-            ("parent pc lo == 0".into(), operands[2][1].clone()),
-            (
-                "parent stack pointer hi == 0".into(),
-                operands[3][0].clone(),
-            ),
-            (
-                "parent stack pointer lo == 0".into(),
-                operands[3][1].clone(),
-            ),
-        ]);
-
+        constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         let delta = Default::default();
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+
+        // begin_tx constrains
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
+        constraints.append(&mut config.get_begin_tx_constrains(
+            meta,
+            NUM_ROW,
+            call_id,
+            [
+                CallContextTag::SenderAddr,
+                CallContextTag::Value,
+                CallContextTag::ParentProgramCounter,
+                CallContextTag::ParentStackPointer,
+            ],
+            [
+                "parent pc hi == 0",
+                "parent pc lo == 0",
+                "parent stack pointer hi == 0",
+                "parent stack pointer lo == 0",
+            ],
+        ));
+
+        // prev state constraint
         let prev_is_begin_tx_1 = config.execution_state_selector.selector(
             meta,
             ExecutionState::BEGIN_TX_1 as usize,

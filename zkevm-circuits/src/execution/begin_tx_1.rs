@@ -57,8 +57,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
-        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
+        let mut constraints = vec![];
+        // auxiliary and single purpose constraints
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, copy_size) =
             extract_lookup_expression!(copy, copy_entry.clone());
@@ -66,46 +66,47 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: 4.expr() + copy_size,
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
+        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
+        let delta = CoreSinglePurposeOutcome {
+            call_id: ExpressionOutcome::To(state_stamp_prev.clone() + 1.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+
+        // pc constraint
+        let pc = meta.query_advice(config.pc, Rotation::cur());
+        constraints.extend([("pc == 0".into(), pc)]);
+
+        // begin_tx constraint
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let mut operands: Vec<[Expression<F>; 2]> = vec![];
-        // for i in 0..4 {
-        for (i, call_context) in [
-            CallContextTag::StorageContractAddr,
-            CallContextTag::CallDataSize,
-            CallContextTag::ParentCallId,
-            CallContextTag::ParentCodeContractAddr,
-        ]
-        .iter()
-        .enumerate()
-        {
-            let entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_call_context_constraints(
-                meta,
-                entry.clone(),
-                i,
-                NUM_ROW,
-                true,
-                (*call_context as u8).expr(),
-                call_id.clone(),
-            ));
-            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            operands.push([value_hi, value_lo]);
-        }
+        config.get_begin_tx_constrains(
+            meta,
+            NUM_ROW,
+            call_id.clone(),
+            [
+                CallContextTag::StorageContractAddr,
+                CallContextTag::CallDataSize,
+                CallContextTag::ParentCallId,
+                CallContextTag::ParentCodeContractAddr,
+            ],
+            [
+                "parent call_id hi == 0",
+                "parent call_id lo == 0",
+                "parent code addr hi == 0",
+                "parent code addr lo == 0",
+            ],
+        );
 
-        constraints.extend([
-            ("parent call_id hi == 0".into(), operands[2][0].clone()),
-            ("parent call_id lo == 0".into(), operands[2][1].clone()),
-            ("parent code addr hi == 0".into(), operands[3][0].clone()),
-            ("parent code addr lo == 0".into(), operands[3][1].clone()),
-        ]);
-
-        //copy_constraints
+        // calldata size constraint
+        let entry = config.get_state_lookup(meta, 1);
+        let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+        // copy_constraints
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let len_lo_inv = meta.query_advice(config.vers[10], Rotation(-2));
-        let is_zero_len =
-            SimpleIsZero::new(&operands[1][1], &len_lo_inv, String::from("length_lo"));
+        let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_contraints(
             copy::Tag::PublicCalldata,
@@ -116,18 +117,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id,
             0.expr(),
             state_stamp_prev.clone() + 4.expr(),
-            operands[1][1].clone(),
+            value_lo,
             is_zero_len.expr(),
             copy_entry,
         ));
+        constraints.push(("calldata size value_hi=0".into(), value_hi));
 
-        let delta = CoreSinglePurposeOutcome {
-            tx_idx: ExpressionOutcome::Delta(1.expr()),
-            call_id: ExpressionOutcome::To(state_stamp_prev + 1.expr()),
-            ..Default::default()
-        };
-
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        // next state constraints
         let next_is_begin_tx_2 = config.execution_state_selector.selector(
             meta,
             ExecutionState::BEGIN_TX_2 as usize,
@@ -140,8 +136,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "next state is BEGIN_TX_2".into(),
             next_begin_tx_2_cnt_is_zero * next_is_begin_tx_2 - 1.expr(),
         )]);
-        let pc = meta.query_advice(config.pc, Rotation::cur());
-        constraints.extend([("pc == 0".into(), pc)]);
+
         constraints
     }
 
@@ -172,11 +167,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let tx_idx = current_state.tx_idx;
         let call_id = current_state.state_stamp + 1;
-        // update call_id due to will be accessed in get_write_call_context_row
+        // update call_id and tx_idx due to will be accessed in get_write_call_context_row
         current_state.call_id = call_id;
-        // todo: lookup addr from public table
+        current_state.tx_idx += 1;
+
         let addr = current_state.code_addr;
         let write_addr_row = current_state.get_write_call_context_row(
             Some((addr >> 128).as_u128().into()),
@@ -257,8 +252,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             write_parent_code_addr_row,
         ];
         state.extend(state_rows_from_copy);
-        // update current_state for tx_idx
-        current_state.tx_idx = tx_idx + 1;
 
         Witness {
             copy: copy_rows,
