@@ -324,11 +324,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
 }
 
 impl<F: Field> StateCircuitConfig<F> {
-    /// padding assignment on rows with no data, and fill most columns with 0.
+    /// Padding assignment on rows with no data, and fill most columns with 0.
     /// Only first_different_limb and tag columns are assigned the specified value,
     /// EndPadding indicates the tag of padding in this column.
-    /// Stamp* that increments for each state operation, if the value of difference
-    /// is it, the first_access constraint logics is not enabled.
+    /// If the value of first_different_limb is Stamp0|Stamp1, the first_access
+    /// constraint logics is not enabled.
     fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.stamp)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.value_hi)?;

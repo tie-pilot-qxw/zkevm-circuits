@@ -31,12 +31,14 @@ impl Tolimbs<POINTER_LIMBS> for U256 {
     }
 }
 
+// Gets the little-endian of U256, taking the first N elements in byte order.
 fn to_limbs_for_u256<T: ToLittleEndian, const N: usize>(val: &T) -> [u16; N] {
     le_bytes_to_limbs(&val.to_le_bytes())[..N]
         .try_into()
         .unwrap()
 }
 
+// Gets the little-endian of u32
 impl Tolimbs<STAMP_LIMBS> for u32 {
     fn to_limbs(&self) -> [u16; STAMP_LIMBS] {
         le_bytes_to_limbs(&self.to_le_bytes()).try_into().unwrap()
@@ -196,6 +198,7 @@ where
     }
 }
 
+/// Convert the bytes of little-endian to limbs
 fn le_bytes_to_limbs(bytes: &[u8]) -> Vec<u16> {
     bytes
         .iter()
@@ -203,6 +206,8 @@ fn le_bytes_to_limbs(bytes: &[u8]) -> Vec<u16> {
         .map(|(lo, hi)| u16::from_le_bytes([*lo, *hi]))
         .collect()
 }
+
+/// The little-endian order of the limb is converted to a big-endian order expression
 fn value_from_limbs<F: Field>(limbs: &[Expression<F>]) -> Expression<F> {
     limbs.iter().rev().fold(0u64.expr(), |result, limb| {
         limb.clone() + result * (1u64 << 16).expr()
@@ -218,15 +223,16 @@ mod test {
 
     #[test]
     pub fn test_to_limbs_u32() {
+        // little-endian
         let biga = U256::from(10);
         let a: [u16; POINTER_LIMBS] = biga.to_limbs();
-        println!("POINTER_LIMBS limbs with 10 is {:?}", a);
+        assert_eq!([10, 0, 0, 0, 0, 0, 0, 0], a);
 
         let a: [u16; CALLID_OR_ADDRESS_LIMBS] = biga.to_limbs();
-        println!("CALLID_OR_ADDRESS_LIMBS limbs with 10 is {:?}", a);
+        assert_eq!([10, 0, 0, 0, 0, 0, 0, 0, 0, 0], a);
 
         let val = 10u32;
         let a = val.to_limbs();
-        println!("STAMP_LIMBS limbs with 10 is {:?}", a);
+        assert_eq!([10, 0], a);
     }
 }

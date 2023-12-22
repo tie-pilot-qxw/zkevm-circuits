@@ -23,6 +23,7 @@ pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
 
 /// Define the Limb types required for different types of data types.
 /// Each limb is a u16 type.
+/// order of the element is big-endian.
 ///
 /// Tag is represented by one limb; CallIdOrAddress is represented by 10 limbs.
 /// Pointer_hi/lo is represented by 8 limbs, Stamp is represented by 2 limbs
@@ -147,6 +148,7 @@ impl Config {
             "limb difference before first_different_limb are all 0",
             |meta| {
                 let selector = meta.query_selector(selector);
+                // Get the big-endian expression of the sorted element to calculate.
                 let cur = Queries::new(meta, keys, Rotation::cur());
                 let prev = Queries::new(meta, keys, Rotation::prev());
                 let tag = keys
@@ -171,6 +173,7 @@ impl Config {
         meta.create_gate("limb_difference equals of limbs at index", |meta| {
             let mut constraints = vec![];
             let selector = meta.query_selector(selector);
+            // Get the big-endian expression of the sorted element to calculate.
             let cur: Queries<F> = Queries::new(meta, keys, Rotation::cur());
             let prev = Queries::new(meta, keys, Rotation::prev());
             let limb_difference = meta.query_advice(limb_difference, Rotation::cur());
@@ -201,7 +204,8 @@ impl Config {
         cur: &state::Row,
         prev: &state::Row,
     ) -> Result<LimbIndex, Error> {
-        // get the big-endian representation of the status
+        // get the big-endian representation of the status.
+        // because the order of the LimbIndex.
         let cur_be_limbs = state_to_be_limbs(cur);
         let prev_be_limbs = state_to_be_limbs(prev);
 
@@ -257,6 +261,9 @@ pub struct Queries<F: Field> {
     stamp: [Expression<F>; STAMP_LIMBS],
 }
 
+/// Gets the expression of the sorted element. The expression
+/// is a big-endian representation that is converted from
+/// the sorted element of the little-endian order.
 impl<F: Field> Queries<F> {
     fn new(meta: &mut VirtualCells<'_, F>, keys: SortedElements, ratation: Rotation) -> Self {
         let tag = keys.tag.value(ratation)(meta);
@@ -270,6 +277,7 @@ impl<F: Field> Queries<F> {
         }
     }
 
+    /// Convert the order from little-endian to the big-endian.
     fn be_limbs(&self) -> Vec<Expression<F>> {
         once(&self.tag)
             .chain(self.call_id_or_address.iter().rev())
@@ -295,6 +303,7 @@ fn square_limb_differences<F: Field>(cur: Queries<F>, prev: Queries<F>) -> Vec<E
     result
 }
 
+// big-endian of row
 pub fn state_to_be_limbs(row: &state::Row) -> Vec<u16> {
     let mut be_bytes = vec![0u8];
     be_bytes.push(row.tag.unwrap_or_default() as u8);
