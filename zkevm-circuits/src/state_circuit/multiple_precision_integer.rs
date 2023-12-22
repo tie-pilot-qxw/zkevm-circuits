@@ -13,6 +13,8 @@ use halo2_proofs::{
 };
 use itertools::Itertools;
 
+/// Compute the little-endian representation of a data structure.
+/// N is the number of u16 required in little endian order.
 pub trait Tolimbs<const N: usize> {
     fn to_limbs(&self) -> [u16; N];
 }
@@ -29,18 +31,22 @@ impl Tolimbs<POINTER_LIMBS> for U256 {
     }
 }
 
+// Gets the little-endian of U256, taking the first N elements in byte order.
 fn to_limbs_for_u256<T: ToLittleEndian, const N: usize>(val: &T) -> [u16; N] {
     le_bytes_to_limbs(&val.to_le_bytes())[..N]
         .try_into()
         .unwrap()
 }
 
+// Gets the little-endian of u32
 impl Tolimbs<STAMP_LIMBS> for u32 {
     fn to_limbs(&self) -> [u16; STAMP_LIMBS] {
         le_bytes_to_limbs(&self.to_le_bytes()).try_into().unwrap()
     }
 }
 
+/// Assign the value represented in little-endian order of data
+/// type T to the corresponding Column.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<T, const N: usize>
 where
@@ -129,6 +135,8 @@ impl Config<U256, CALLID_OR_ADDRESS_LIMBS> {
     }
 }
 
+/// Create the Columns required by the Config<T,N> structure and
+/// add corresponding constraints to these Columns
 pub struct Chip<F: Field, T, const N: usize>
 where
     T: Tolimbs<N>,
@@ -156,6 +164,8 @@ where
     ) -> Config<T, N> {
         let limbs = [0; N].map(|_| meta.advice_column());
 
+        // Constrain all Column's values to be within the u16 range
+
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         for limb in limbs {
@@ -171,6 +181,7 @@ where
                     .collect()
             });
         }
+        // Constrains the little-endian result represented by limbs to be equal to value<T>
         meta.create_gate("mpi value matches claimed limbs", |meta| {
             let selector: Expression<F> = meta.query_selector(selector);
             let value: Expression<F> = meta.query_advice(value, Rotation::cur());
@@ -187,6 +198,7 @@ where
     }
 }
 
+/// Convert the bytes of little-endian to limbs
 fn le_bytes_to_limbs(bytes: &[u8]) -> Vec<u16> {
     bytes
         .iter()
@@ -194,6 +206,8 @@ fn le_bytes_to_limbs(bytes: &[u8]) -> Vec<u16> {
         .map(|(lo, hi)| u16::from_le_bytes([*lo, *hi]))
         .collect()
 }
+
+/// The little-endian order of the limb is converted to a big-endian order expression
 fn value_from_limbs<F: Field>(limbs: &[Expression<F>]) -> Expression<F> {
     limbs.iter().rev().fold(0u64.expr(), |result, limb| {
         limb.clone() + result * (1u64 << 16).expr()
@@ -209,15 +223,16 @@ mod test {
 
     #[test]
     pub fn test_to_limbs_u32() {
+        // little-endian
         let biga = U256::from(10);
         let a: [u16; POINTER_LIMBS] = biga.to_limbs();
-        println!("POINTER_LIMBS limbs with 10 is {:?}", a);
+        assert_eq!([10, 0, 0, 0, 0, 0, 0, 0], a);
 
         let a: [u16; CALLID_OR_ADDRESS_LIMBS] = biga.to_limbs();
-        println!("CALLID_OR_ADDRESS_LIMBS limbs with 10 is {:?}", a);
+        assert_eq!([10, 0, 0, 0, 0, 0, 0, 0, 0, 0], a);
 
         let val = 10u32;
         let a = val.to_limbs();
-        println!("STAMP_LIMBS limbs with 10 is {:?}", a);
+        assert_eq!([10, 0], a);
     }
 }
