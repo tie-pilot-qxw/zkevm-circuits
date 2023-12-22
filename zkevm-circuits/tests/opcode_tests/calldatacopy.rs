@@ -1,7 +1,7 @@
 use crate::test_super_circuit_short_bytecode;
 use eth_types::bytecode;
 
-#[ignore = "restore after begin_tx is fixed"]
+// #[ignore = "restore after begin_tx is fixed"]
 #[test]
 fn calldatacopy_bytecode() {
     let bytecode = bytecode! {
@@ -15,4 +15,5 @@ fn calldatacopy_bytecode() {
     let (witness, ..) = test_super_circuit_short_bytecode!(bytecode, calldata);
     let mut buf = std::io::BufWriter::new(std::fs::File::create("demo.html").unwrap());
     witness.write_html(&mut buf);
+    // test_super_circuit_short_bytecode!(bytecode);
 }

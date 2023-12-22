@@ -68,6 +68,7 @@ mod push7; //66
 mod push8; //67
 mod push9; //68
 mod return_; //F2
+             // mod returndatacopy;
 mod revert;
 mod selfbalance; //47
 mod sload; //54
@@ -89,13 +90,13 @@ mod swap7; //96
 mod swap8; //97
 mod swap9; //98
 mod timestamp; //42 //FD
-                    // mod sdiv;           //05
-                    // mod smod;           //07
-                    // mod blockhash;      //40
-                    // mod push;           //B0
-                    // mod dup;            //B1
-                    // mod swap;           //B2
-                    // mod create;         //F0
+               // mod sdiv;           //05
+               // mod smod;           //07
+               // mod blockhash;      //40
+               // mod push;           //B0
+               // mod dup;            //B1
+               // mod swap;           //B2
+               // mod create;         //F0
 
 macro_rules! test_super_circuit_short_bytecode {
     ($bytecode:expr) => {{

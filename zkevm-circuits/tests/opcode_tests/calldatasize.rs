@@ -7,5 +7,9 @@ fn calldatasize_bytecode() {
         CALLDATASIZE
         STOP
     };
-    test_super_circuit_short_bytecode!(bytecode);
+    let calldata = "123456789a";
+    let (witness, ..) = test_super_circuit_short_bytecode!(bytecode, calldata);
+    let mut buf = std::io::BufWriter::new(std::fs::File::create("demo.html").unwrap());
+    witness.write_html(&mut buf);
+    // test_super_circuit_short_bytecode!(bytecode);
 }
