@@ -8,11 +8,11 @@ fn extcodecopy_bytecode() {
     let offset: i32 = 31;
     let size: i32 = 8;
     let bytecode = bytecode! {
-        PUSH1(size)
-        PUSH1(offset)
-        PUSH1(dest_offset)
-        CODECOPY
-        STOP
+        PUSH1(32)
+        PUSH1(0)
+        PUSH1(0)
+        DUP4
+        EXTCODECOPY
     };
     test_super_circuit_short_bytecode!(bytecode);
 }
