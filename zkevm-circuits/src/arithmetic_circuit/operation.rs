@@ -60,7 +60,7 @@ pub(crate) fn get_row(a: [U256; 2], b: [U256; 2], u16s: Vec<u16>, cnt: u8, tag: 
     }
 }
 
-//calculate the u16 sum
+//calculate the u16 sum.u16_lo_sum and u16_hi_sum are 64-bit.
 pub(crate) fn get_u16s<F: Field>(
     config: &OperationConfig<F>,
     meta: &mut VirtualCells<F>,
@@ -68,8 +68,8 @@ pub(crate) fn get_u16s<F: Field>(
 ) -> (Expression<F>, Expression<F>, Expression<F>) {
     let mut u16s: Vec<_> = (0..8).map(|i| config.get_u16(i, rotation)(meta)).collect();
     let u16_sum = expr_from_u16s(&u16s);
-    let u16_a_3 = u16s.split_off(4);
-    let a_2 = expr_from_u16s(&u16s);
-    let a_3 = expr_from_u16s(&u16_a_3);
-    (u16_sum, a_2, a_3)
+    let u16_hi = u16s.split_off(4);
+    let u16_lo_sum = expr_from_u16s(&u16s);
+    let u16_hi_sum = expr_from_u16s(&u16_hi);
+    (u16_sum, u16_lo_sum, u16_hi_sum)
 }

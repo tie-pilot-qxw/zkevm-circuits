@@ -8,9 +8,11 @@ use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(crate) struct AddGadget<F>(PhantomData<F>);
+/// Construct the MulGadget that checks a * b == c + carry (modulo 2**256),
+/// where a, b, c, carry are 256-bit words.
+pub(crate) struct MulGadget<F>(PhantomData<F>);
 
-impl<F: Field> OperationGadget<F> for AddGadget<F> {
+impl<F: Field> OperationGadget<F> for MulGadget<F> {
     fn name(&self) -> &'static str {
         "MUL"
     }
@@ -43,24 +45,25 @@ impl<F: Field> OperationGadget<F> for AddGadget<F> {
         let (u16_sum_for_a_lo, a_lo_1, a_lo_2) = get_u16s(config, meta, Rotation::prev());
         let (u16_sum_for_b_hi, b_hi_1, b_hi_2) = get_u16s(config, meta, Rotation(-2));
         let (u16_sum_for_b_lo, b_lo_1, b_lo_2) = get_u16s(config, meta, Rotation(-3));
+        let (u16_sum_for_c_hi, _, _) = get_u16s(config, meta, Rotation(-4));
+        let (u16_sum_for_c_lo, _, _) = get_u16s(config, meta, Rotation(-5));
 
-        let u16_sum_for_c_hi = {
-            let u16s: Vec<_> = (0..8)
-                .map(|i| config.get_u16(i, Rotation(-4))(meta))
-                .collect();
-            expr_from_u16s(&u16s)
-        };
-        let u16_sum_for_c_lo = {
-            let u16s: Vec<_> = (0..8)
-                .map(|i| config.get_u16(i, Rotation(-5))(meta))
-                .collect();
-            expr_from_u16s(&u16s)
-        };
         let u16_sum_for_a = [u16_sum_for_a_hi, u16_sum_for_a_lo];
         let u16_sum_for_b = [u16_sum_for_b_hi, u16_sum_for_b_lo];
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
 
-        // 2. calculate the t0,t1,t2,t3 for carry_lo and carry_hi
+        // 2. calculate the t0,t1,t2,t3 for carry_lo and carry_hi.
+        /// We execute a multi-limb multiplication as follows:
+        /// a and b is divided into 4 64-bit limbs, denoted as a0~a3 and b0~b3
+        /// defined t0, t1, t2, t3
+        ///   t0 = a0 * b0, contribute to 0 ~ 128 bit
+        ///   t1 = a0 * b1 + a1 * b0, contribute to 64 ~ 193 bit (include the carry)
+        ///   t2 = a0 * b2 + a2 * b0 + a1 * b1, contribute to above 128 bit
+        ///   t3 = a0 * b3 + a3 * b0 + a2 * b1 + a1 * b2, contribute to above 192 bit
+        ///
+        /// Finally we have:
+        ///  carry_lo = (t0 + (t1 << 64)) - c_lo
+        ///  carry_hi = (t2 + (t3 << 64) + carry_lo) - c_hi
         let mut a_limbs = vec![];
         let mut b_limbs = vec![];
         a_limbs.push(a_lo_1);
@@ -122,7 +125,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let b = split_u256_hi_lo(&operands[1]);
     let (c, _) = operands[0].overflowing_mul(operands[1]);
 
-    // Calculate the overflow of multiplication. carry_hi and carry_lo
+    // Calculate the overflow of multiplication. carry_hi and carry_lo a_limb and b_limb are 64-bit.
     let a_limbs = split_u256_limb64(&operands[0]);
     let b_limbs = split_u256_limb64(&operands[1]);
     let (c_lo, c_hi) = split_u256(&c);
@@ -205,7 +208,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
-    Box::new(AddGadget(PhantomData))
+    Box::new(MulGadget(PhantomData))
 }
 
 #[cfg(test)]
