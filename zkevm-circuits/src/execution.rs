@@ -23,6 +23,7 @@ pub mod jumpi;
 pub mod keccak;
 pub mod log_bytes;
 pub mod log_topic;
+pub mod log_topic_num_addr;
 pub mod lt;
 pub mod memory;
 pub mod mul;
@@ -1132,6 +1133,7 @@ pub enum ExecutionState {
     //CALLDATA_FROMPUBLIC,
     LOG_BYTES,
     LOG_TOPIC,
+    LOG_TOPIC_NUM_ADDR,
     EQ,
     LT,
     GT,
@@ -1337,17 +1339,23 @@ impl ExecutionState {
             }
             //LOG TOPIC LOG BYTES
             OpcodeId::LOG0 => {
-                vec![Self::LOG_BYTES]
+                vec![Self::LOG_BYTES, Self::LOG_TOPIC_NUM_ADDR]
             }
             OpcodeId::LOG1 => {
-                vec![Self::LOG_BYTES, Self::LOG_TOPIC]
+                vec![Self::LOG_BYTES, Self::LOG_TOPIC_NUM_ADDR, Self::LOG_TOPIC]
             }
             OpcodeId::LOG2 => {
-                vec![Self::LOG_BYTES, Self::LOG_TOPIC, Self::LOG_TOPIC]
+                vec![
+                    Self::LOG_BYTES,
+                    Self::LOG_TOPIC_NUM_ADDR,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                ]
             }
             OpcodeId::LOG3 => {
                 vec![
                     Self::LOG_BYTES,
+                    Self::LOG_TOPIC_NUM_ADDR,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,
@@ -1356,6 +1364,7 @@ impl ExecutionState {
             OpcodeId::LOG4 => {
                 vec![
                     Self::LOG_BYTES,
+                    Self::LOG_TOPIC_NUM_ADDR,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,

@@ -67,7 +67,7 @@ pub struct WitnessExecHelper {
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
-    pub log_left: usize,
+    pub topic_left: usize,
     pub tx_value: U256,
 }
 
@@ -93,7 +93,7 @@ impl WitnessExecHelper {
             read_only: 0,
             bytecode: HashMap::new(),
             stack_top: None,
-            log_left: 0,
+            topic_left: 0,
             tx_value: 0.into(),
         }
     }
@@ -1057,28 +1057,23 @@ impl WitnessExecHelper {
     }
 
     // core_row_1.vers_26 ~ vers31
-    pub fn get_public_log_bytes_row(&self, opcode_id: OpcodeId) -> public::Row {
-        let log_tag = match opcode_id {
-            OpcodeId::LOG0 => public::LogTag::AddrWith0Topic,
-            OpcodeId::LOG1 => public::LogTag::AddrWith1Topic,
-            OpcodeId::LOG2 => public::LogTag::AddrWith2Topic,
-            OpcodeId::LOG3 => public::LogTag::AddrWith3Topic,
-            OpcodeId::LOG4 => public::LogTag::AddrWith4Topic,
-            _ => panic!(),
-        };
-
-        // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog	0x0	0x0
-        let value_hi = (self.code_addr >> 128).as_u128();
-        let value_lo = self.code_addr.low_u128();
+    pub fn get_public_log_data_size_row(&self, data_len: U256) -> public::Row {
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
+        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
+        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 29), format!("log tag={}", "DataSize"));
+        comments.insert(format!("vers_{}", 30), format!("0"));
+        comments.insert(format!("vers_{}", 31), format!("data_len"));
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
             tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
             value_0: Some(U256::from(self.log_stamp)),
-            value_1: Some(U256::from(log_tag as u64)),
-            value_2: Some(U256::from(value_hi)),
-            value_3: Some(U256::from(value_lo)),
-            comments: Default::default(),
+            value_1: Some(U256::from(LogTag::DataSize as u64)),
+            value_2: Some(0.into()),
+            value_3: Some(data_len),
+            comments,
         };
         public_row
     }
@@ -1089,8 +1084,8 @@ impl WitnessExecHelper {
         topic_hash_hi: Option<U256>,
         topic_hash_lo: Option<U256>,
     ) -> public::Row {
-        let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG0).as_u8() - (self.log_left as u8)
-            + (public::LogTag::Topic0 as u8);
+        let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG0).as_u8() - (self.topic_left as u8)
+            + (LogTag::Topic0 as u8);
 
         let topic_tag = match topic_log_tag {
             5 => "Topic0",
@@ -1123,6 +1118,58 @@ impl WitnessExecHelper {
 
         public_row
     }
+
+    pub fn get_public_log_topic_num_addr_row(&self, opcode_id: OpcodeId) -> public::Row {
+        let mut log_tag: LogTag;
+        let mut log_tag_name: &str;
+
+        match opcode_id {
+            OpcodeId::LOG0 => {
+                log_tag = LogTag::AddrWith0Topic;
+                log_tag_name = "AddrWith0Topic"
+            }
+            OpcodeId::LOG1 => {
+                log_tag = LogTag::AddrWith1Topic;
+                log_tag_name = "AddrWith1Topic"
+            }
+            OpcodeId::LOG2 => {
+                log_tag = LogTag::AddrWith2Topic;
+                log_tag_name = "AddrWith2Topic"
+            }
+            OpcodeId::LOG3 => {
+                log_tag = LogTag::AddrWith3Topic;
+                log_tag_name = "AddrWith3Topic"
+            }
+            OpcodeId::LOG4 => {
+                log_tag = LogTag::AddrWith4Topic;
+                log_tag_name = "AddrWith4Topic"
+            }
+            _ => panic!(),
+        };
+
+        // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog	0x0	0x0
+        let value_hi = (self.code_addr >> 128).as_u128();
+        let value_lo = self.code_addr.low_u128();
+
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
+        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
+        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 29), format!("log_tag={}", log_tag_name));
+        comments.insert(format!("vers_{}", 30), format!("address[..4]"));
+        comments.insert(format!("vers_{}", 31), format!("address[4..]"));
+
+        let public_row = public::Row {
+            tag: public::Tag::TxLog,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: Some(U256::from(self.log_stamp)),
+            value_1: Some(U256::from(log_tag as u64)),
+            value_2: Some(U256::from(value_hi)),
+            value_3: Some(U256::from(value_lo)),
+            comments,
+        };
+        public_row
+    }
 }
 
 macro_rules! assign_or_panic {
@@ -1133,7 +1180,9 @@ macro_rules! assign_or_panic {
         }
     };
 }
+use crate::witness::public::LogTag;
 pub(crate) use assign_or_panic;
+use gadgets::util::Expr;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
@@ -1148,7 +1197,7 @@ impl core::Row {
 
     pub fn fill_versatile_with_values(&mut self, values: &[U256]) {
         #[rustfmt::skip]
-        let cells = [
+            let cells = [
             &mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7,
             &mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15,
             &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23,
@@ -1174,14 +1223,14 @@ impl core::Row {
         assert!(index <= 5);
         assert_eq!(self.cnt, 2.into());
         #[rustfmt::skip]
-        let  vec = [
+            let  vec = [
             [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4,],
             [&mut self.vers_5, &mut self.vers_6, &mut self.vers_7, &mut self.vers_8, &mut self.vers_9,],
             [&mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14,],
             [&mut self.vers_15, &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19,],
             [&mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23, &mut self.vers_24,],
             [&mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29,],
-            ];
+        ];
         assign_or_panic!(*vec[index][0], U256::from(bitwise_row.tag as u8));
         assign_or_panic!(*vec[index][1], bitwise_row.acc_0);
         assign_or_panic!(*vec[index][2], bitwise_row.acc_1);
@@ -1207,7 +1256,7 @@ impl core::Row {
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
         #[rustfmt::skip]
-        let vec = [
+            let vec = [
             [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7],
             [&mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15],
             [&mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23],
@@ -1783,15 +1832,15 @@ impl ExecutionState {
         let mut row = current_state.get_core_row_without_versatile(&trace, 0);
         row.exec_state = Some(self);
         #[rustfmt::skip]
-		let vec = [
-			&mut row.vers_0, &mut row.vers_1, &mut row.vers_2, &mut row.vers_3, &mut row.vers_4,
-			&mut row.vers_5, &mut row.vers_6, &mut row.vers_7, &mut row.vers_8, &mut row.vers_9,
-			&mut row.vers_10, &mut row.vers_11, &mut row.vers_12, &mut row.vers_13, &mut row.vers_14,
-			&mut row.vers_15, &mut row.vers_16, &mut row.vers_17, &mut row.vers_18, &mut row.vers_19,
-			&mut row.vers_20, &mut row.vers_21, &mut row.vers_22, &mut row.vers_23, &mut row.vers_24,
-			&mut row.vers_25, &mut row.vers_26, &mut row.vers_27, &mut row.vers_28, &mut row.vers_29,
-			&mut row.vers_30, &mut row.vers_31,
-		];
+            let vec = [
+            &mut row.vers_0, &mut row.vers_1, &mut row.vers_2, &mut row.vers_3, &mut row.vers_4,
+            &mut row.vers_5, &mut row.vers_6, &mut row.vers_7, &mut row.vers_8, &mut row.vers_9,
+            &mut row.vers_10, &mut row.vers_11, &mut row.vers_12, &mut row.vers_13, &mut row.vers_14,
+            &mut row.vers_15, &mut row.vers_16, &mut row.vers_17, &mut row.vers_18, &mut row.vers_19,
+            &mut row.vers_20, &mut row.vers_21, &mut row.vers_22, &mut row.vers_23, &mut row.vers_24,
+            &mut row.vers_25, &mut row.vers_26, &mut row.vers_27, &mut row.vers_28, &mut row.vers_29,
+            &mut row.vers_30, &mut row.vers_31,
+        ];
         for (cell, value) in vec
             .into_iter()
             .zip(selector_hi.into_iter().chain(selector_lo).chain([

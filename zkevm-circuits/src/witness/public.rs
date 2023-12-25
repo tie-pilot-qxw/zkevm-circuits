@@ -61,6 +61,7 @@ pub enum LogTag {
     Topic2,
     Topic3,
     Data,
+    DataSize,
 }
 
 impl Row {
@@ -399,9 +400,11 @@ impl Row {
                 }
                 // insert log data size
                 result.push(Row {
-                    tag: Tag::TxLogSize,
+                    tag: Tag::TxLog,
                     tx_idx_or_number_diff: Some(tx_idx),
-                    value_0: Some(0.into()),
+                    value_0: Some(log_index),
+                    value_1: Some((LogTag::DataSize as u64).into()),
+                    value_2: Some(0.into()),
                     // log data's length
                     value_1: Some(log.data.len().into()),
                     comments: [
@@ -410,8 +413,10 @@ impl Row {
                             format!("tx_idx_or_number_diff"),
                             format!("transactionIndex"),
                         ),
-                        (format!("value_0"), format!("0")),
-                        (format!("value_1"), format!("logSize = {}", log.data.len())),
+                        (format!("value_0"), format!("log_index")),
+                        (format!("value_1"), format!("log_tag = {}", "DataSize")),
+                        (format!("value_1"), format!("0")),
+                        (format!("value_1"), format!("data_len = {}", log.data.len())),
                     ]
                     .into_iter()
                     .collect(),
