@@ -62,7 +62,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = Default::default();
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
-        // begin_tx constrains
+        // begin_tx constraints
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut config.get_begin_tx_constrains(
             meta,
@@ -74,13 +74,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 CallContextTag::ParentProgramCounter,
                 CallContextTag::ParentStackPointer,
             ],
-            [
-                "parent pc hi == 0",
-                "parent pc lo == 0",
-                "parent stack pointer hi == 0",
-                "parent stack pointer lo == 0",
-            ],
         ));
+
+        // constraint parent pc = 0
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
+        constraints.extend([
+            ("parent pc hi=0".into(), value_hi),
+            ("parent pc lo=0".into(), value_lo),
+        ]);
+
+        // constraint stack pointer = 0
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 3));
+        constraints.extend([
+            ("parent stack pointer hi=0".into(), value_hi),
+            ("parent stack pointer lo=0".into(), value_lo),
+        ]);
 
         // prev state constraint
         let prev_is_begin_tx_1 = config.execution_state_selector.selector(

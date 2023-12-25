@@ -80,9 +80,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc = meta.query_advice(config.pc, Rotation::cur());
         constraints.extend([("pc == 0".into(), pc)]);
 
-        // begin_tx constraint
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        config.get_begin_tx_constrains(
+        // call_id constraint for current
+        constraints.push((
+            "call_id in curr=prev_stamp+1".into(),
+            state_stamp_prev.clone() + 1.expr() - call_id.clone(),
+        ));
+
+        // begin_tx constraint
+        constraints.append(&mut config.get_begin_tx_constrains(
             meta,
             NUM_ROW,
             call_id.clone(),
@@ -92,18 +98,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 CallContextTag::ParentCallId,
                 CallContextTag::ParentCodeContractAddr,
             ],
-            [
-                "parent call_id hi == 0",
-                "parent call_id lo == 0",
-                "parent code addr hi == 0",
-                "parent code addr lo == 0",
-            ],
-        );
+        ));
 
         // calldata size constraint
-        let entry = config.get_state_lookup(meta, 1);
-        let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-        // copy_constraints
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let len_lo_inv = meta.query_advice(config.vers[10], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
@@ -122,6 +121,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_entry,
         ));
         constraints.push(("calldata size value_hi=0".into(), value_hi));
+
+        // constraint parent call_id = 0
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
+        constraints.extend([
+            ("parent call_id hi=0".into(), value_hi),
+            ("parent call_id lo=0".into(), value_lo),
+        ]);
+
+        // constraint parent code_addr = 0
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 3));
+        constraints.extend([
+            ("parent code_addr hi=0".into(), value_hi),
+            ("parent code_addr lo=0".into(), value_lo),
+        ]);
 
         // next state constraints
         let next_is_begin_tx_2 = config.execution_state_selector.selector(
