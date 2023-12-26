@@ -1137,7 +1137,9 @@ pub(crate) use assign_or_panic;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
-        assert_eq!(base.pow(index), power);
+        // todo: exp overflow
+        let (expect_power, _) = base.overflowing_pow(index);
+        assert_eq!(expect_power, power);
         assign_or_panic!(self.vers_26, base >> 128);
         assign_or_panic!(self.vers_27, base.low_u128().into());
         assign_or_panic!(self.vers_28, index >> 128);
