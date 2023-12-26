@@ -39,7 +39,6 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = -2;
 const PC_DELTA: u64 = 0;
-const LOG_STAMP_DELTA: u64 = 1;
 
 pub struct LogBytesGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -80,7 +79,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: LOG_STAMP_DELTA.expr(),
             ..Default::default()
         };
 
@@ -230,9 +228,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // insert lookUp: Core ----> addrWithXLog
         let public_row = current_state.get_public_log_data_size_row(length);
         core_row_2.insert_public_lookup(&public_row);
-
-        // increase the pre log_stamp before gen witness
-        current_state.log_stamp += 1;
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 

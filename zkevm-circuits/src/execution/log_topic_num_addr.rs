@@ -35,8 +35,7 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 0;
 const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 1;
-
-const LOG_STAMP_DELTA: u64 = 0;
+const LOG_STAMP_DELTA: u64 = 1;
 pub struct LogTopicNumAddrGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -66,13 +65,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
+        let s_topic_left_0 = meta.query_advice(config.vers[12], Rotation::prev());
 
         // build constraints ---
         // append auxiliary constraints
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: LOG_STAMP_DELTA.expr(),
+            log_stamp: s_topic_left_0 * LOG_STAMP_DELTA.expr(),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -161,6 +161,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_public_lookup(&public_row);
 
+        // increase log_stamp when topic_left == 0
+        if current_state.topic_left == 0 {
+            current_state.log_stamp += 1;
+        }
+
         let core_row_0 = ExecutionState::LOG_TOPIC_NUM_ADDR.into_exec_state_core_row(
             trace,
             current_state,
@@ -231,7 +236,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 1.into();
-            row.vers_22 = Some(log_stamp.into());
+            row.vers_22 = Some((log_stamp + 1).into());
             row
         };
         let (witness, prover) =
