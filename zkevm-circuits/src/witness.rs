@@ -1025,8 +1025,11 @@ impl WitnessExecHelper {
 
         let mut acc_pre = U256::from(0);
         let temp_256_f = F::from(256);
+
         for i in 0..len {
             let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+
+            // calc acc
             let acc: U256 = if i == 0 {
                 byte.into()
             } else {

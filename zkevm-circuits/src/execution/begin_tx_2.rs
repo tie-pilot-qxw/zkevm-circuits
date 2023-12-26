@@ -1,12 +1,8 @@
-use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
-};
+use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{arithmetic, copy, WitnessExecHelper};
-use crate::witness::{core, state, Witness};
-use eth_types::evm_types::OpcodeId;
+use crate::witness::{public, WitnessExecHelper};
+use crate::witness::{state::CallContextTag, Witness};
 use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::util::Expr;
@@ -14,7 +10,8 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(super) const NUM_ROW: usize = 3;
+pub(super) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: u64 = 4;
 
 pub struct BeginTx2Gadget<F: Field> {
     _marker: PhantomData<F>,
@@ -28,7 +25,6 @@ pub struct BeginTx2Gadget<F: Field> {
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
-/// | 2 |        |      |       |          |
 /// | 1 | STATE | STATE | STATE | STATE    |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -56,13 +52,47 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        // auxiliary and single purpose constraints
         let delta = AuxiliaryDelta {
-            state_stamp: 4.expr(),
+            state_stamp: STATE_STAMP_DELTA.expr(),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         let delta = Default::default();
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+
+        // begin_tx constraints
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
+        constraints.append(&mut config.get_begin_tx_constrains(
+            meta,
+            NUM_ROW,
+            call_id,
+            [
+                CallContextTag::SenderAddr,
+                CallContextTag::Value,
+                CallContextTag::ParentProgramCounter,
+                CallContextTag::ParentStackPointer,
+            ],
+        ));
+
+        // constraint parent pc = 0
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
+        constraints.extend([
+            ("parent pc hi=0".into(), value_hi),
+            ("parent pc lo=0".into(), value_lo),
+        ]);
+
+        // constraint stack pointer = 0
+        let (_, _, value_hi, value_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 3));
+        constraints.extend([
+            ("parent stack pointer hi=0".into(), value_hi),
+            ("parent stack pointer lo=0".into(), value_lo),
+        ]);
+
+        // prev state constraint
         let prev_is_begin_tx_1 = config.execution_state_selector.selector(
             meta,
             ExecutionState::BEGIN_TX_1 as usize,
@@ -80,7 +110,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
+        let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
+
+        let public_lookup = query_expression(meta, |meta| {
+            config.get_public_lookup_double(meta, 0, (public::Tag::TxFromValue as u8).expr())
+        });
+
+        vec![
+            ("value write".into(), state_lookup_0),
+            ("sender addr write".into(), state_lookup_1),
+            ("parent pc write".into(), state_lookup_2),
+            ("parent stack pointer write".into(), state_lookup_3),
+            ("public lookup".into(), public_lookup),
+        ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -88,32 +133,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = current_state.call_id;
         let value = *current_state.value.get(&call_id).unwrap();
         let sender = *current_state.sender.get(&call_id).unwrap();
-        let write_value_row = current_state.get_write_call_context_row(
-            Some((value >> 128).as_u128().into()),
-            Some(value.low_u128().into()),
-            state::CallContextTag::Value,
-        );
         let write_sender_row = current_state.get_write_call_context_row(
             Some((sender >> 128).as_u128().into()),
             Some(sender.low_u128().into()),
-            state::CallContextTag::SenderAddr,
+            CallContextTag::SenderAddr,
+        );
+        let write_value_row = current_state.get_write_call_context_row(
+            Some((value >> 128).as_u128().into()),
+            Some(value.low_u128().into()),
+            CallContextTag::Value,
         );
         let write_parent_pc_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
-            state::CallContextTag::ParentProgramCounter,
+            CallContextTag::ParentProgramCounter,
         );
         let write_parent_stack_pointer_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
-            state::CallContextTag::ParentStackPointer,
+            CallContextTag::ParentStackPointer,
         );
-        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
-            &write_value_row,
             &write_sender_row,
+            &write_value_row,
             &write_parent_pc_row,
             &write_parent_stack_pointer_row,
         ]);
@@ -124,10 +168,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         Witness {
-            core: vec![core_row_2, core_row_1, core_row_0],
+            core: vec![core_row_1, core_row_0],
             state: vec![
-                write_value_row,
                 write_sender_row,
+                write_value_row,
                 write_parent_pc_row,
                 write_parent_stack_pointer_row,
             ],

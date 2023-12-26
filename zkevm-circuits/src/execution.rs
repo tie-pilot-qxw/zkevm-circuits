@@ -46,6 +46,7 @@ pub mod swap;
 pub mod tx_context;
 
 use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
+use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
@@ -340,10 +341,38 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[30], Rotation(-2)),
             meta.query_advice(self.vers[31], Rotation(-2)),
         );
+
+        let values = [value_0, value_1, value_2, value_3];
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
-            values: [value_0, value_1, value_2, value_3],
+            values,
+        }
+    }
+
+    ///note: each public lookup uses two state lookups
+    pub(crate) fn get_public_lookup_double(
+        &self,
+        meta: &mut VirtualCells<F>,
+        num: usize,
+        tag: Expression<F>,
+    ) -> LookupEntry<F> {
+        assert!(num < 4);
+        const WIDTH: usize = 16;
+        let (tx_idx_or_number_diff, values) = (
+            meta.query_advice(self.tx_idx, Rotation::cur()),
+            [
+                meta.query_advice(self.vers[num * WIDTH + 2], Rotation::prev()),
+                meta.query_advice(self.vers[num * WIDTH + 3], Rotation::prev()),
+                meta.query_advice(self.vers[num * WIDTH + 10], Rotation::prev()),
+                meta.query_advice(self.vers[num * WIDTH + 11], Rotation::prev()),
+            ],
+        );
+
+        LookupEntry::Public {
+            tag,
+            tx_idx_or_number_diff,
+            values: values,
         }
     }
 
@@ -843,6 +872,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             memory_chunk: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 5],
             read_only: self.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + 6],
         }
+    }
+
+    pub(crate) fn get_begin_tx_constrains(
+        &self,
+        meta: &mut VirtualCells<F>,
+        prev_exec_state_row: usize,
+        call_id: Expression<F>,
+        tags: [CallContextTag; 4],
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        for (i, tag) in tags.iter().enumerate() {
+            let entry = self.get_state_lookup(meta, i);
+            constraints.append(&mut self.get_call_context_constraints(
+                meta,
+                entry.clone(),
+                i,
+                prev_exec_state_row,
+                true,
+                (*tag as u8).expr(),
+                call_id.clone(),
+            ));
+        }
+        constraints
     }
 
     #[allow(unused)]
