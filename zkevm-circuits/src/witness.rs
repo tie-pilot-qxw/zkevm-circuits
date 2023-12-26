@@ -22,12 +22,14 @@ use crate::util::{
     convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
     SubCircuit,
 };
+use crate::witness::public::LogTag;
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, Field, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
+use gadgets::util::Expr;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -1180,9 +1182,8 @@ macro_rules! assign_or_panic {
         }
     };
 }
-use crate::witness::public::LogTag;
+
 pub(crate) use assign_or_panic;
-use gadgets::util::Expr;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {

@@ -65,14 +65,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
-        let s_topic_left_0 = meta.query_advice(config.vers[12], Rotation::prev());
+        let selector = config.get_log_left_selector(meta);
 
         // build constraints ---
         // append auxiliary constraints
+        let log_stamp_delta = selector.select(&[
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            LOG_STAMP_DELTA.expr(),
+        ]);
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: s_topic_left_0 * LOG_STAMP_DELTA.expr(),
+            log_stamp: log_stamp_delta,
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);

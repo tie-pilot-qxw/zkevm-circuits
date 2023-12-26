@@ -69,19 +69,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
-        let s_topic_left_0 = meta.query_advice(config.vers[12], Rotation::prev());
+        let selector = config.get_log_left_selector(meta);
         // build constraints ---
         // append auxiliary constraints
+        let log_stamp_delta = selector.select(&[
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            LOG_STAMP_DELTA.expr(),
+        ]);
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: s_topic_left_0 * LOG_STAMP_DELTA.expr(),
+            log_stamp: log_stamp_delta,
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // new selector LOG_LEFT_X and append selector constraints
-        let selector = config.get_log_left_selector(meta);
         constraints.extend(selector.get_constraints());
 
         let state_entry = config.get_state_lookup(meta, 0);
@@ -167,6 +173,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // decrease topic_left
+        if current_state.topic_left > 0 {
+            current_state.topic_left -= 1;
+        }
         // get topic from stack top
         let (stack_pop_topic, _) = current_state.get_pop_stack_row_value(&trace);
 
@@ -198,11 +208,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         let mut state_rows = vec![stack_pop_topic];
-
-        // decrease topic_left
-        if current_state.topic_left > 0 {
-            current_state.topic_left -= 1;
-        }
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -248,7 +253,6 @@ mod test {
             log_stamp,
             ..WitnessExecHelper::new()
         };
-
         let trace = prepare_trace_step!(0, opcode, stack);
 
         let padding_begin_row = |current_state| {
