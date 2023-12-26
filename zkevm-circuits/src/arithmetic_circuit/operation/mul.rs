@@ -22,11 +22,11 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
     }
 
     fn num_row(&self) -> usize {
-        6
+        8
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (6, 1)
+        (8, 1)
     }
 
     fn get_constraints(
@@ -48,10 +48,21 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
         let (u16_sum_for_c_hi, _, _) = get_u16s(config, meta, Rotation(-4));
         let (u16_sum_for_c_lo, _, _) = get_u16s(config, meta, Rotation(-5));
 
+        //get the u16s sum for carry_hi and carry_lo
+        let mut carry_hi_u16s: Vec<_> = (0..5)
+            .map(|i| config.get_u16(i, Rotation(-6))(meta))
+            .collect();
+        let u16_sum_for_carry_hi = expr_from_u16s(&carry_hi_u16s);
+
+        let mut carry_lo_u16s: Vec<_> = (0..5)
+            .map(|i| config.get_u16(i, Rotation(-7))(meta))
+            .collect();
+        let u16_sum_for_carry_lo = expr_from_u16s(&carry_lo_u16s);
+
         let u16_sum_for_a = [u16_sum_for_a_hi, u16_sum_for_a_lo];
         let u16_sum_for_b = [u16_sum_for_b_hi, u16_sum_for_b_lo];
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
-
+        let u16_sum_for_carry = [u16_sum_for_carry_hi, u16_sum_for_carry_lo];
         // 2. calculate the t0,t1,t2,t3 for carry_lo and carry_hi.
         /// We execute a multi-limb multiplication as follows:
         /// a and b is divided into 4 64-bit limbs, denoted as a0~a3 and b0~b3
@@ -101,6 +112,10 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
                 format!("c_{} = u16 sum", hi_or_lo),
                 c[i].clone() - u16_sum_for_c[i].clone(),
             ));
+            constraints.push((
+                format!("carry_{} = u16 sum", hi_or_lo),
+                carry[i].clone() - u16_sum_for_carry[i].clone(),
+            ));
         }
 
         constraints.push((
@@ -124,8 +139,8 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let a = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
     let (c, _) = operands[0].overflowing_mul(operands[1]);
-    /// TODO 增加两行5个u16进行carry_lo 和 carry_hi的约束
-    // Calculate the overflow of multiplication. carry_hi and carry_lo a_limb and b_limb are 64-bit.
+    // Calculate the overflow of multiplication.
+    // carry_hi and carry_lo a_limb and b_limb are 64-bit.
     let a_limbs = split_u256_limb64(&operands[0]);
     let b_limbs = split_u256_limb64(&operands[1]);
     let (c_lo, c_hi) = split_u256(&c);
@@ -162,6 +177,20 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         .collect();
     assert_eq!(16, c_u16s.len());
 
+    let mut carry_lo_u16s: Vec<u16> = carry_lo
+        .to_le_bytes()
+        .chunks(2)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .collect();
+    assert_eq!(16, carry_lo_u16s.len());
+
+    let mut carry_hi_u16s: Vec<u16> = carry_hi
+        .to_le_bytes()
+        .chunks(2)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .collect();
+    assert_eq!(16, carry_hi_u16s.len());
+
     let a_hi_u16s = a_u16s.split_off(8);
     let row_0 = get_row(a, b, a_hi_u16s, 0, Tag::Mul);
 
@@ -192,6 +221,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         4,
         Tag::Mul,
     );
+
     let row_5 = get_row(
         [U256::zero(), U256::zero()],
         [U256::zero(), U256::zero()],
@@ -200,9 +230,29 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         Tag::Mul,
     );
 
+    let _ = carry_hi_u16s.split_off(5);
+    carry_hi_u16s.extend(vec![0; 3]);
+    let row_6 = get_row(
+        [U256::zero(), U256::zero()],
+        [U256::zero(), U256::zero()],
+        carry_hi_u16s,
+        6,
+        Tag::Mul,
+    );
+
+    let _ = carry_lo_u16s.split_off(5);
+    carry_lo_u16s.extend(vec![0; 3]);
+    let row_7 = get_row(
+        [U256::zero(), U256::zero()],
+        [U256::zero(), U256::zero()],
+        carry_lo_u16s,
+        7,
+        Tag::Mul,
+    );
+
     let carry = (carry_hi << 128) + carry_lo;
     (
-        vec![row_5, row_4, row_3, row_2, row_1, row_0],
+        vec![row_7, row_6, row_5, row_4, row_3, row_2, row_1, row_0],
         vec![c, carry],
     )
 }
@@ -228,17 +278,5 @@ mod test {
         };
 
         witness.print_csv();
-    }
-
-    #[test]
-    fn test_gen_witness_2() {
-        let a = U256::zero();
-        let b: U256 = u128::MAX.into();
-        let (c, _) = a.overflowing_sub(b);
-        let d = c + a;
-
-        println!("c:{}", c);
-        println!("d:{}", d);
-        println!("b:{}", b);
     }
 }
