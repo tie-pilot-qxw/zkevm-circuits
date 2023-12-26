@@ -66,7 +66,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         }: Self::ConfigArgs,
     ) -> Self {
         let q_enable = meta.complex_selector();
-        let q_first_exec_state = meta.complex_selector();
+        let q_first_exec_state = meta.selector();
         let tx_idx = meta.advice_column();
         let call_id = meta.advice_column();
         let code_addr = meta.advice_column();
@@ -353,7 +353,7 @@ impl<
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
-                // -1 because index start from 0
+                // because index start from 0
                 config
                     .q_first_exec_state
                     .enable(&mut region, CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)?;
@@ -379,7 +379,6 @@ impl<
 
 #[cfg(test)]
 mod test {
-    use std::fs::File;
 
     use super::*;
     use crate::bytecode_circuit::{
