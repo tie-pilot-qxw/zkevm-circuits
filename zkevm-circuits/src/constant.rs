@@ -1,6 +1,9 @@
 pub const NUM_STATE_HI_COL: usize = 10;
 pub const NUM_STATE_LO_COL: usize = 10;
-pub const MAX_NUM_ROW: usize = 501;
+#[cfg(not(feature = "k_9"))]
+pub const MAX_NUM_ROW: usize = 280000;
+#[cfg(feature = "k_9")]
+pub const MAX_NUM_ROW: usize = 500;
 pub const MAX_CODESIZE: usize = 500;
 
 /// Index of vers[] column in core circuit for state stamp in execution gadgets
@@ -12,6 +15,9 @@ pub const INDEX_LOG_STAMP: usize = 2;
 pub const NUM_VERS: usize = 32;
 
 pub(crate) const LOG_NUM_STATE_TAG: usize = 4;
+
+/// Number of tags in bitwise
+pub(crate) const LOG_NUM_BITWISE_TAG: usize = 2;
 
 /// The number of columns used by auxiliary
 /// this+NUM_STATE_HI_COL+NUM_STATE_LO_COL should be no greater than 32

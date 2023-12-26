@@ -1,14 +1,20 @@
 pub(crate) mod add;
+pub(crate) mod sub;
 
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
-use crate::witness::arithmetic::Tag;
-use eth_types::Field;
+use crate::witness::arithmetic::{Row, Tag};
+use eth_types::{Field, U256};
+use gadgets::util::expr_from_u16s;
 use halo2_proofs::plonk::{Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 
 /// Get all operation gadgets by using this
 macro_rules! get_every_operation_gadgets {
     () => {{
-        vec![crate::arithmetic_circuit::operation::add::new()]
+        vec![
+            crate::arithmetic_circuit::operation::add::new(),
+            crate::arithmetic_circuit::operation::sub::new(),
+        ]
     }};
 }
 pub(crate) use get_every_operation_gadgets;

@@ -1,5 +1,6 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
 use crate::constant::LOG_NUM_STATE_TAG;
+use crate::witness::fixed;
 use crate::witness::{arithmetic, state};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
@@ -10,6 +11,7 @@ use halo2_proofs::plonk::{
 };
 use halo2_proofs::poly::Rotation;
 
+pub const U10_TAG: usize = 256;
 const PUBLIC_NUM_VALUES: usize = 4;
 
 macro_rules! extract_lookup_expression {
@@ -72,7 +74,9 @@ macro_rules! extract_lookup_expression {
                 dst_id,
                 dst_pointer,
                 dst_stamp,
+                cnt,
                 len,
+                acc,
             } => (
                 src_type,
                 src_id,
@@ -82,7 +86,9 @@ macro_rules! extract_lookup_expression {
                 dst_id,
                 dst_pointer,
                 dst_stamp,
+                cnt,
                 len,
+                acc,
             ),
             _ => panic!("Pattern doesn't match!"),
         }
@@ -100,6 +106,12 @@ macro_rules! extract_lookup_expression {
                 tx_idx_or_number_diff,
                 values,
             } => (tag, tx_idx_or_number_diff, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
+    (bitwise, $value:expr) => {
+        match $value {
+            LookupEntry::Bitwise { tag, acc, sum_2 } => (tag, acc, sum_2),
             _ => panic!("Pattern doesn't match!"),
         }
     };
@@ -272,25 +284,62 @@ impl<F: Field> BytecodeTable<F> {
         (addr_instance_column, bytecode_instance_column)
     }
 }
-// TODO re-write
+
 #[derive(Clone, Copy, Debug)]
 pub struct FixedTable {
-    pub u8: Column<Fixed>,
-    pub u10: Column<Fixed>,
-    pub u16: Column<Fixed>,
+    pub tag: Column<Fixed>,
+    pub values: [Column<Fixed>; 3],
 }
 
 impl FixedTable {
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let table = Self {
-            u8: meta.fixed_column(),
-            u10: meta.fixed_column(),
-            u16: meta.fixed_column(),
+            tag: meta.fixed_column(),
+            values: [
+                meta.fixed_column(),
+                meta.fixed_column(),
+                meta.fixed_column(),
+            ],
         };
-        meta.annotate_lookup_any_column(table.u8, || "LOOKUP_u8");
-        meta.annotate_lookup_any_column(table.u10, || "LOOKUP_u10");
-        meta.annotate_lookup_any_column(table.u16, || "LOOKUP_u16");
+        meta.annotate_lookup_any_column(table.tag, || "FIXED_Table_Tag");
+        meta.annotate_lookup_any_column(table.values[0], || "FIXED_Table_Value0");
+        meta.annotate_lookup_any_column(table.values[1], || "FIXED_Table_Value1");
+        meta.annotate_lookup_any_column(table.values[2], || "FIXED_Table_Value2");
         table
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>, // fixed 类型，
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = meta.query_fixed(self.tag, Rotation::cur());
+        let table_value_0 = meta.query_fixed(self.values[0], Rotation::cur());
+        let table_value_1 = meta.query_fixed(self.values[1], Rotation::cur());
+        let table_value_2 = meta.query_fixed(self.values[2], Rotation::cur());
+
+        match entry {
+            LookupEntry::Fixed { tag, values } => {
+                vec![
+                    (tag, table_tag),
+                    (values[0].clone(), table_value_0),
+                    (values[1].clone(), table_value_1),
+                    (values[2].clone(), table_value_2),
+                ]
+            }
+            LookupEntry::U8(value) => {
+                vec![
+                    ((fixed::Tag::And as u8).expr(), table_tag),
+                    (value, table_value_0),
+                ]
+            }
+            LookupEntry::U10(value) => {
+                vec![(U10_TAG.expr(), table_value_1), (value, table_value_2)]
+            }
+            LookupEntry::U16(value) => {
+                vec![(value, table_value_0)]
+            }
+            _ => panic!("Not fixed lookup"),
+        }
     }
 }
 
@@ -369,6 +418,11 @@ impl PublicTable {
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug)]
 pub enum LookupEntry<F> {
+    // 0-255
+    U8(Expression<F>),
+    // 1-1024, not 0-1023
+    U10(Expression<F>),
+    U16(Expression<F>),
     /// Lookup to fixed table
     Fixed {
         /// Tag could be LogicAnd, LogicOr, LogicXor, or PushCnt
@@ -445,8 +499,12 @@ pub enum LookupEntry<F> {
         dst_pointer: Expression<F>,
         /// The destination stamp (state stamp or log stamp)
         dst_stamp: Expression<F>,
+        /// The counter for one copy operation
+        cnt: Expression<F>,
         /// The length of the copy event
         len: Expression<F>,
+        /// The accumulation of bytes in one copy
+        acc: Expression<F>,
     },
     /// Lookup to arithmetic table.
     Arithmetic {
@@ -464,12 +522,23 @@ pub enum LookupEntry<F> {
         power: [Expression<F>; 2],
     },
     /// Bitwise operation, lookup to Fixed table
+    // todo remove this
     BitOp {
         value_1: Expression<F>,
         value_2: Expression<F>,
         result: Expression<F>,
         /// Tag could be LogicAnd, LogicOr or LogicXor
         tag: Expression<F>,
+    },
+
+    /// Bitwise lookup operation, lookup to bitwise table
+    Bitwise {
+        /// Tag could be Nil, And, Or or Xor
+        tag: Expression<F>,
+        /// Three operands of 128-bit
+        acc: [Expression<F>; 3],
+        /// The sum of bytes for operand 2, used for BYTE opcode
+        sum_2: Expression<F>,
     },
     /// Lookup to Public table
     Public {
@@ -483,5 +552,86 @@ pub enum LookupEntry<F> {
 impl<F: Field> LookupEntry<F> {
     pub(crate) fn conditional(self, condition: Expression<F>) -> Self {
         Self::Conditional(condition, self.into())
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::*;
+    use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
+    use crate::witness::{bytecode, Witness};
+    use gadgets::is_zero::IsZeroInstruction;
+    use halo2_proofs::circuit::{Region, Value};
+    use halo2_proofs::plonk::Error;
+
+    impl<F: Field> BytecodeTable<F> {
+        /// assign one row of values from witness in a region, used for test
+        #[rustfmt::skip]
+        fn assign_row(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &bytecode::Row,
+        ) -> Result<(), Error> {
+            let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
+            assign_advice_or_fixed(region, offset, &row.addr.unwrap_or_default(), self.addr)?;
+            assign_advice_or_fixed(region, offset, &row.bytecode.unwrap_or_default(), self.bytecode)?;
+            assign_advice_or_fixed(region, offset, &row.pc.unwrap_or_default(), self.pc)?;
+            assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+            assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+            assign_advice_or_fixed(region, offset, &row.cnt.unwrap_or_default(), self.cnt)?;
+            cnt_is_zero.assign(
+                region,
+                offset,
+                Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                    &row.cnt.unwrap_or_default(),
+                ))),
+            )?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.bytecode.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl StateTable {
+        /// assign one row of values from witness in a region, used for test
+        #[rustfmt::skip]
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &state::Row,
+        ) -> Result<(), Error> {
+            let tag = BinaryNumberChip::construct(self.tag);
+            tag.assign(region, offset, &row.tag.unwrap_or_default())?;
+            assign_advice_or_fixed(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
+            assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+            assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+            assign_advice_or_fixed(region, offset, &row.call_id_contract_addr.unwrap_or_default(), self.call_id_contract_addr)?;
+            assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
+            assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
+            assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.state.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
     }
 }

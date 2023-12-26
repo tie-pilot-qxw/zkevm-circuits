@@ -69,9 +69,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let copy_entry = config.get_copy_lookup(meta);
         let padding_entry = config.get_copy_padding_lookup(meta);
-        let (_, _, _, _, _, _, _, _, copy_lookup_len) =
+        let (_, _, _, _, _, _, _, _, _, copy_lookup_len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-        let (_, _, _, _, _, _, _, _, copy_padding_lookup_len) =
+        let (_, _, _, _, _, _, _, _, _, copy_padding_lookup_len, _) =
             extract_lookup_expression!(copy, padding_entry.clone());
         let auxiliary_delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr()
@@ -110,8 +110,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // copy constraints
-        let copy_len_lo_inv = meta.query_advice(config.vers[19], Rotation(-2));
-        let copy_len_lo = meta.query_advice(config.vers[18], Rotation(-2));
+        let copy_len_lo_inv = meta.query_advice(config.vers[23], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[22], Rotation(-2));
         let is_copy_zero_len = SimpleIsZero::new(
             &copy_len_lo,
             &copy_len_lo_inv,
@@ -119,7 +119,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         constraints.extend(is_copy_zero_len.get_constraints());
 
-        constraints.extend(config.get_copy_contraints(
+        constraints.extend(config.get_copy_constraints(
             copy::Tag::Bytecode,
             copy_operands[0][0].clone() * pow_of_two::<F>(128) + copy_operands[0][1].clone(),
             copy_operands[2][1].clone(),
@@ -128,14 +128,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id.clone(),
             copy_operands[1][1].clone(),
             copy_code_stamp_start.clone() + 1.expr(),
+            None,
             copy_len_lo.clone(),
             is_copy_zero_len.expr(),
+            None,
             copy_entry.clone(),
         ));
 
         // padding constraints
-        let padding_len_lo = meta.query_advice(config.vers[20], Rotation(-2));
-        let padding_len_lo_inv = meta.query_advice(config.vers[21], Rotation(-2));
+        let padding_len_lo = meta.query_advice(config.vers[24], Rotation(-2));
+        let padding_len_lo_inv = meta.query_advice(config.vers[25], Rotation(-2));
         let is_padding_zero_len = SimpleIsZero::new(
             &padding_len_lo,
             &padding_len_lo_inv,
@@ -143,7 +145,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         constraints.extend(is_padding_zero_len.get_constraints());
 
-        constraints.extend(config.get_copy_contraints(
+        constraints.extend(config.get_copy_constraints(
             copy::Tag::Zero,
             0.expr(),
             0.expr(),
@@ -152,8 +154,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id.clone(),
             copy_operands[1][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
+            None,
             padding_len_lo.expr(),
             is_padding_zero_len.expr(),
+            None,
             padding_entry.clone(),
         ));
         constraints.extend([
@@ -229,7 +233,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
         // code copy len
-        assign_or_panic!(core_row_2.vers_18, U256::from(code_copy_length));
+        assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);
         let code_copy_lenlo_inv = U256::from_little_endian(
             code_copy_len_lo
@@ -238,9 +242,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_19, code_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_23, code_copy_lenlo_inv);
         // padding copy len
-        assign_or_panic!(core_row_2.vers_20, U256::from(padding_length));
+        assign_or_panic!(core_row_2.vers_24, U256::from(padding_length));
         let padding_copy_len_lo = F::from(padding_length);
         let padding_copy_lenlo_inv = U256::from_little_endian(
             padding_copy_len_lo
@@ -249,7 +253,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_21, padding_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_25, padding_copy_lenlo_inv);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);

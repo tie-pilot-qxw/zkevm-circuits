@@ -57,11 +57,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let mut constraints = vec![];
-        // auxiliary and single purpose constraints
-        let copy_entry = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, copy_size) =
-            extract_lookup_expression!(copy, copy_entry.clone());
+        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
+        let copy = config.get_copy_lookup(meta);
+        let (_, _, _, _, _, _, _, _, _, copy_size, _) = extract_lookup_expression!(copy, copy);
         let delta = AuxiliaryDelta {
             state_stamp: 4.expr() + copy_size,
             ..Default::default()

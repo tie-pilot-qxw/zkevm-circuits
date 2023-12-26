@@ -1,13 +1,34 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::{assign_or_panic, copy, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
 use eth_types::GethExecStep;
+use eth_types::{Field, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::SimpleSelector;
+use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+use std::str::FromStr;
+
+use super::{AuxiliaryDelta, CoreSinglePurposeOutcome};
+
+/// +---+-------+--------+--------+----------+
+/// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
+/// +---+-------+--------+--------+----------+
+/// | 2 | COPY1(11) | COPY2(11) |            |
+/// | 1 | STATE1| STATE2 |                   |
+/// | 0 | DYNA_SELECTOR         | AUX        |
+/// +---+-------+--------+--------+----------+
 
 const NUM_ROW: usize = 3;
+
+const STATE_STAMP_DELTA: u64 = 34;
+const STACK_POINTER_DELTA_MLOAD: i32 = 0;
+const STACK_POINTER_DELTA_MSTORE: i32 = -2;
+const PC_DELTA: u64 = 1;
 
 pub struct MemoryGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -32,44 +53,171 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
+
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA_MLOAD.expr()
+                * (OpcodeId::MSTORE.as_u8().expr() - opcode.clone())
+                + STACK_POINTER_DELTA_MSTORE.expr()
+                    * (opcode.clone() - OpcodeId::MLOAD.as_u8().expr()), //the property OpcodeId::MSTORE - OpcodeId::MLOAD == 1 is used
+            ..Default::default()
+        };
+
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let mut operands = vec![];
+        for i in 0..2 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints_with_selector(
+                meta,
+                entry.clone(),
+                if i == 0 { 0 } else { 33 }, // we let the stamps for memory read (32 in total) be between the stack read and the stack write for convenience, so the stamp for stack read and stack write is 0 and 33 respectively.
+                NUM_ROW,
+                0.expr(),
+                i == 1,
+                OpcodeId::MSTORE.as_u8().expr() - opcode.clone(), //enable the constraints when opcode == MLOAD
+            ));
+            constraints.append(&mut config.get_stack_constraints_with_selector(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                if i == 0 { 0 } else { -1 }.expr(),
+                false,
+                opcode.clone() - OpcodeId::MLOAD.as_u8().expr(), //enable the constraints when opcode == MSTORE
+            ));
+
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            operands.push([value_hi, value_lo]);
+        }
+
+        constraints.extend([("offset_hi == 0".into(), operands[0][0].clone())]);
+
+        for i in 0..2 {
+            let copy_entry = if i == 0 {
+                config.get_copy_lookup(meta)
+            } else {
+                config.get_copy_padding_lookup(meta)
+            };
+
+            let (_, stamp, ..) =
+                extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
+            constraints.append(&mut config.get_copy_constraints_with_selector(
+                copy::Tag::Memory,
+                call_id.clone(),
+                operands[0][1].clone() + 16.expr() * i.expr(),
+                stamp.clone() + 1.expr() + 16.expr() * i.expr(), // the src_pointer and src_stamp of the second copy lookup has an increase of 16 compared to the first one
+                copy::Tag::Null,
+                0.expr(),
+                0.expr(),
+                0.expr(),
+                Some(15.expr()), //the last cnt (16 - 1)
+                16.expr(),
+                0.expr(),
+                Some(operands[1][i].clone()),
+                OpcodeId::MSTORE.as_u8().expr() - opcode.clone(), //enable the constraints when opcode == MLOAD
+                copy_entry.clone(),
+            ));
+            constraints.append(&mut config.get_copy_constraints_with_selector(
+                copy::Tag::Null,
+                0.expr(),
+                0.expr(),
+                0.expr(),
+                copy::Tag::Memory,
+                call_id.clone(),
+                operands[0][1].clone() + 16.expr() * i.expr(),
+                stamp.clone() + 2.expr() + 16.expr() * i.expr(), // the dst_pointer and dst_stamp of the second copy lookup has an increase of 16 compared to the first one
+                Some(15.expr()),
+                16.expr(),
+                0.expr(),
+                Some(operands[1][i].clone()),
+                opcode.clone() - OpcodeId::MLOAD.as_u8().expr(), //enable the constraints when opcode == MSTORE
+                copy_entry.clone(),
+            ));
+        }
+
+        constraints.extend([(
+            "opcode".into(),
+            (opcode.clone() - (OpcodeId::MLOAD).expr()) * (opcode - (OpcodeId::MSTORE).expr()),
+        )]);
+
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+
+        constraints
     }
+
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        vec![]
-    }
-    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert!(
-            trace.op == OpcodeId::MLOAD
-                || trace.op == OpcodeId::MSTORE
-                || trace.op == OpcodeId::MSTORE8
-        );
-        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
 
+        vec![
+            ("stack lookup 0".into(), stack_lookup_0),
+            ("stack lookup 1".into(), stack_lookup_1),
+            ("copy lookup 0".into(), copy_lookup_0),
+            ("copy lookup 1".into(), copy_lookup_1),
+        ]
+    }
+
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        assert!(trace.op == OpcodeId::MLOAD || trace.op == OpcodeId::MSTORE);
+
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
-        let (stack_0, stack_1) = if trace.op == OpcodeId::MLOAD {
-            let (stack_0, ost) = current_state.get_pop_stack_row_value(&trace);
-            let stack_1 = current_state.get_push_stack_row(trace, current_state.stack_top.unwrap());
-            (stack_0, stack_1)
+        let (stack_row_0, offset) = current_state.get_pop_stack_row_value(&trace);
+
+        let (stack_row_1, mut state_rows, copy_rows) = if trace.op == OpcodeId::MLOAD {
+            let (copy_rows, mut state_rows) =
+                current_state.get_mload_rows::<F>(trace, offset.as_usize());
+
+            let copy_row_0 = copy_rows.get(15).unwrap();
+            let copy_row_1 = copy_rows.get(31).unwrap();
+            core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
+
+            let value = (copy_row_0.acc << 128) + copy_row_1.acc;
+            let stack_row_1 = current_state.get_push_stack_row(trace, value);
+
+            (stack_row_1, state_rows, copy_rows)
         } else {
-            let (stack_0, ost) = current_state.get_pop_stack_row_value(&trace);
-            let (stack_1, val) = current_state.get_pop_stack_row_value(&trace);
-            (stack_0, stack_1)
+            let (stack_row_1, value) = current_state.get_pop_stack_row_value(&trace);
+
+            let (copy_rows, mut state_rows) =
+                current_state.get_mstore_rows::<F>(offset.as_usize(), value);
+
+            let copy_row_0 = copy_rows.get(15).unwrap();
+            let copy_row_1 = copy_rows.get(31).unwrap();
+            core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
+
+            (stack_row_1, state_rows, copy_rows)
         };
-        core_row_1.insert_state_lookups([&stack_0, &stack_1]);
+
+        state_rows.extend(vec![stack_row_0.clone(), stack_row_1.clone()]);
+
+        core_row_1.insert_state_lookups([&stack_row_0, &stack_row_1]);
         let core_row_0 = ExecutionState::MEMORY.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+
         Witness {
+            copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_0, stack_1],
+            state: state_rows,
             ..Default::default()
         }
     }
@@ -87,15 +235,62 @@ mod test {
     };
     generate_execution_gadget_test_circuit!();
     #[test]
-    fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into(), 1.into()]);
+    fn assign_and_constraint_mload() {
+        let stack = Stack::from_slice(&[0xffff.into()]);
+        let stack_pointer = stack.0.len();
+        let value_vec = [0x12; 32];
+        let value = U256::from_big_endian(&value_vec);
+
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(value),
+            ..WitnessExecHelper::new()
+        };
+
+        let mut trace = prepare_trace_step!(0, OpcodeId::MLOAD, stack);
+        trace.memory.0 = vec![0; 0x1001f];
+        for i in 0..32 {
+            trace.memory.0.insert(0xffff + i, value_vec[i]);
+        }
+
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 1.into();
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
+    #[test]
+    fn assign_and_constraint_mstore() {
+        let value = U256::from_big_endian(&[0x12; 32]);
+        let stack = Stack::from_slice(&[value, 0xffff.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::MSTORE, stack);
+
+        let mut trace = prepare_trace_step!(0, OpcodeId::MSTORE, stack);
+
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,

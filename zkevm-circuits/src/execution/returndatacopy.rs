@@ -60,7 +60,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
         let copy_entry = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, len) = extract_lookup_expression!(copy, copy_entry.clone());
+        let (_, _, _, _, _, _, _, _, _, len, _) =
+            extract_lookup_expression!(copy, copy_entry.clone());
 
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + copy_lookup_len(copied code)
@@ -102,7 +103,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("lengthlo"));
 
         constraints.append(&mut is_zero_len.get_constraints());
-        constraints.append(&mut config.get_copy_contraints(
+        constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Returndata,
             call_id.clone(),
             stack_pop_values[1].clone(),
@@ -111,8 +112,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id,
             stack_pop_values[0].clone(),
             top2_stamp + stack_pop_values[2].clone() + 1.expr(),
+            None,
             stack_pop_values[2].clone(),
             is_zero_len.expr(),
+            None,
             copy_entry,
         ));
 

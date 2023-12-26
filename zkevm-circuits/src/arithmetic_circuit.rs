@@ -6,7 +6,7 @@ use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, 
 use crate::witness::{arithmetic, Witness};
 use arithmetic::{Row, Tag};
 use eth_types::Field;
-use gadgets::binary_number_with_real_selector::BinaryNumberConfig;
+use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
@@ -50,6 +50,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
     ) -> Result<(), Error> {
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        let tag = BinaryNumberChip::construct(self.tag);
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
         assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
         assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
@@ -68,6 +69,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt))),
         )?;
+        tag.assign(region, offset, &row.tag)?;
         Ok(())
     }
 
@@ -78,11 +80,33 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
-        todo!()
+        // pad the first row. The helper row helps us define the first row cnt is 0
+        // self.assign_row(region, 0, &Default::default())?;
+        // assign the rows
+        for (offset, row) in witness.arithmetic.iter().enumerate() {
+            self.assign_row(region, offset, row)?;
+        }
+
+        // pad the rest rows
+        for offset in witness.arithmetic.len()..num_row_incl_padding {
+            self.assign_row(region, offset, &Default::default())?;
+        }
+        Ok(())
     }
 
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
-        todo!()
+        region.name_column(|| "ARITHMETIC_cnt", self.cnt);
+        self.tag
+            .annotate_columns_in_region(region, "ARITHMETIC_tag");
+        self.cnt_is_zero
+            .annotate_columns_in_region(region, "ARITHMETIC_cnt_is_zero");
+        for (index, value) in self.u16s.iter().enumerate() {
+            region.name_column(|| format!("ARITHMETIC_u16_{}", index), *value);
+        }
+        for (index, value) in self.operands.iter().enumerate() {
+            region.name_column(|| format!("ARITHMETIC_operand_{}_hi", index), value[0]);
+            region.name_column(|| format!("ARITHMETIC_operand_{}_lo", index,), value[1]);
+        }
     }
 }
 
@@ -93,11 +117,13 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         &self,
         index: usize,
     ) -> impl FnOnce(&mut VirtualCells<'_, F>) -> [Expression<F>; 2] {
-        assert!(index < 4);
-        let rotation = if index < NUM_OPERAND {
+        assert!(index < 6);
+        let (rotation) = if index < 2 {
             Rotation::cur()
-        } else {
+        } else if index < 4 {
             Rotation::prev()
+        } else {
+            Rotation(-2)
         };
         let index = index % NUM_OPERAND;
         let operands = self.operands[index];
@@ -265,12 +291,16 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ArithmeticCircuit<F, 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{constant::MAX_NUM_ROW, util::log2_ceil};
+    use crate::util::log2_ceil;
+    use eth_types::U256;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
+
+    const TEST_SIZE: usize = 50;
+
     #[derive(Clone, Default, Debug)]
-    pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, MAX_NUM_ROW>);
+    pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
         type Config = ArithmeticCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
@@ -305,18 +335,53 @@ mod test {
             Self(ArithmeticCircuit::new_from_witness(&witness))
         }
     }
-    #[ignore = "remove ignore after arithmetic is finished"]
     #[test]
-    fn test_each_operation_witness() {
+    fn test_add_witness() {
         let (arithmetic, result) =
-            self::operation::add::gen_witness(vec![3.into(), u128::MAX.into()]);
-        // TODO add more operation's witness
+            self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
+
+        // there is carry for low 128-bit
+        assert_eq!(result[1], 1.into());
         let witness = Witness {
             arithmetic,
             ..Default::default()
         };
         let circuit = ArithmeticTestCircuit::new(witness);
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_sub_gt_witness() {
+        let (arithmetic, result) =
+            self::operation::sub::gen_witness(vec![U256::MAX, u128::MAX.into()]);
+
+        // there is no carry, so it is 0
+        assert_eq!(result[1], 0.into());
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_lt_witness() {
+        let (arithmetic, result) =
+            self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+
+        // there is carry for high 128-bit, so it is 1<<128
+        assert_eq!(result[1], U256::from(1) << 128);
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied_par();
     }

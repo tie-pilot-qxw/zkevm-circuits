@@ -22,6 +22,7 @@ pub mod jumpdest;
 pub mod jumpi;
 pub mod keccak;
 pub mod log_bytes;
+pub mod log_topic;
 pub mod lt;
 pub mod memory;
 pub mod mul;
@@ -36,6 +37,7 @@ pub mod returndatasize;
 pub mod selfbalance;
 pub mod sgt;
 pub mod shr;
+pub mod signextend;
 pub mod slt;
 pub mod stop;
 pub mod storage;
@@ -52,6 +54,7 @@ use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
+use gadgets::simple_seletor::SimpleSelector;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -106,6 +109,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::returndatacopy::new(),
             crate::execution::returndatasize::new(),
             crate::execution::log_bytes::new(),
+            crate::execution::signextend::new(),
         ]
     }};
 }
@@ -245,6 +249,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_bitwise_lookup(
+        &self,
+        index: usize,
+        meta: &mut VirtualCells<F>,
+    ) -> LookupEntry<F> {
+        assert!(index <= 5);
+        const WIDTH: usize = 5;
+        LookupEntry::Bitwise {
+            tag: meta.query_advice(self.vers[index * WIDTH], Rotation(-2)),
+            acc: [
+                meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-2)),
+                meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-2)),
+                meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-2)),
+            ],
+            sum_2: meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-2)),
+        }
+    }
+
     pub(crate) fn get_calldata_load_lookup(
         &self,
         meta: &mut VirtualCells<F>,
@@ -304,15 +326,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    /// +---+-------+-------+-------+------+-----------+
+    /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
+    /// +---+-------+-------+-------+----------+
+    /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
+    /// +---+-------+-------+-------+----------+
     pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        const COL_START: usize = 26;
-        let (tag, tx_idx_or_number_diff, value0, value1, value2, value3) = (
-            meta.query_advice(self.vers[COL_START + 0], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 1], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 2], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 3], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 4], Rotation::prev()),
-            meta.query_advice(self.vers[COL_START + 5], Rotation::prev()),
+        let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
+            meta.query_advice(self.vers[26], Rotation(-2)),
+            meta.query_advice(self.vers[27], Rotation(-2)),
+            meta.query_advice(self.vers[28], Rotation(-2)),
+            meta.query_advice(self.vers[29], Rotation(-2)),
+            meta.query_advice(self.vers[30], Rotation(-2)),
+            meta.query_advice(self.vers[31], Rotation(-2)),
         );
 
         let values = [value0, value1, value2, value3];
@@ -341,14 +368,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 meta.query_advice(self.vers[num * WIDTH + 11], Rotation::prev()),
             ],
         );
+
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
-            values,
+            values: [value_0, value_1, value_2, value_3],
         }
     }
 
-    pub(crate) fn get_copy_contraints(
+    pub(crate) fn get_copy_constraints(
         &self,
         src_type: copy::Tag,
         src_id: Expression<F>,
@@ -358,10 +386,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         dst_id: Expression<F>,
         dst_pointer: Expression<F>,
         dst_stamp: Expression<F>,
+        cnt: Option<Expression<F>>,
         len: Expression<F>,
         len_is_zero: Expression<F>,
+        acc: Option<Expression<F>>,
         copy_lookup_entry: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
+        assert_eq!(cnt.is_some(), acc.is_some());
+
         let (
             copy_lookup_src_type,
             copy_lookup_src_id,
@@ -371,7 +403,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_lookup_dst_id,
             copy_lookup_dst_pointer,
             copy_lookup_dst_stamp,
+            copy_lookup_cnt,
             copy_lookup_length,
+            copy_lookup_acc,
         ) = extract_lookup_expression!(copy, copy_lookup_entry);
 
         let mut constraints = vec![];
@@ -419,9 +453,69 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     + len_is_zero.clone() * copy_lookup_dst_stamp,
             ),
             (format!("length of copy"), copy_lookup_length.expr() - len),
+            (
+                format!("cnt of copy"),
+                len_is_zero.clone() * copy_lookup_cnt.clone()
+                    + if let Some(cnt) = cnt {
+                        (1.expr() - len_is_zero.clone()) * (copy_lookup_cnt - cnt.clone())
+                    } else {
+                        0.expr()
+                    },
+            ),
+            (
+                format!("acc of copy"),
+                len_is_zero.clone() * copy_lookup_acc.clone()
+                    + if let Some(acc) = acc {
+                        (1.expr() - len_is_zero.clone()) * (copy_lookup_acc - acc.clone())
+                    } else {
+                        0.expr()
+                    },
+            ),
         ]);
 
         constraints
+    }
+
+    ///generate copy lookup's constraints which are controlled by the selector (enabled when selector != 0.expr() and disabled when selector == 0.expr())
+    pub(crate) fn get_copy_constraints_with_selector(
+        &self,
+        src_type: copy::Tag,
+        src_id: Expression<F>,
+        src_pointer: Expression<F>,
+        src_stamp: Expression<F>,
+        dst_type: copy::Tag,
+        dst_id: Expression<F>,
+        dst_pointer: Expression<F>,
+        dst_stamp: Expression<F>,
+        cnt: Option<Expression<F>>,
+        len: Expression<F>,
+        len_is_zero: Expression<F>,
+        acc: Option<Expression<F>>,
+        selector: Expression<F>,
+        copy_lookup_entry: LookupEntry<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints_raw = self.get_copy_constraints(
+            src_type,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            cnt,
+            len,
+            len_is_zero.clone(),
+            acc,
+            copy_lookup_entry.clone(),
+        );
+
+        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+            .into_iter()
+            .map(|constraint| (constraint.0, selector.clone() * constraint.1))
+            .collect();
+
+        res
     }
 
     pub(crate) fn get_stack_constraints(
@@ -696,10 +790,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         ) = (
-            meta.query_advice(self.vers[9], Rotation(-2)),
-            meta.query_advice(self.vers[10], Rotation(-2)),
             meta.query_advice(self.vers[11], Rotation(-2)),
             meta.query_advice(self.vers[12], Rotation(-2)),
             meta.query_advice(self.vers[13], Rotation(-2)),
@@ -707,6 +801,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[15], Rotation(-2)),
             meta.query_advice(self.vers[16], Rotation(-2)),
             meta.query_advice(self.vers[17], Rotation(-2)),
+            meta.query_advice(self.vers[18], Rotation(-2)),
+            meta.query_advice(self.vers[19], Rotation(-2)),
+            meta.query_advice(self.vers[20], Rotation(-2)),
+            meta.query_advice(self.vers[21], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,
@@ -717,7 +815,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         }
     }
 
@@ -731,7 +831,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         ) = (
             meta.query_advice(self.vers[0], Rotation(-2)),
             meta.query_advice(self.vers[1], Rotation(-2)),
@@ -742,6 +844,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[6], Rotation(-2)),
             meta.query_advice(self.vers[7], Rotation(-2)),
             meta.query_advice(self.vers[8], Rotation(-2)),
+            meta.query_advice(self.vers[9], Rotation(-2)),
+            meta.query_advice(self.vers[10], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,
@@ -752,7 +856,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             dst_id,
             dst_pointer,
             dst_stamp,
+            cnt,
             len,
+            acc,
         }
     }
 
@@ -872,6 +978,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]
     }
+
+    pub(crate) fn get_log_left_selector(&self, meta: &mut VirtualCells<F>) -> SimpleSelector<F, 5> {
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(self.vers[8], Rotation::prev()), // LOG_LEFT_4
+            meta.query_advice(self.vers[9], Rotation::prev()), // LOG_LEFT_3
+            meta.query_advice(self.vers[10], Rotation::prev()), // LOG_LEFT_2
+            meta.query_advice(self.vers[11], Rotation::prev()), // LOG_LEFT_1
+            meta.query_advice(self.vers[12], Rotation::prev()), // LOG_LEFT_0
+        ]);
+        selector
+    }
 }
 
 /// Execution Gadget for the configure and witness generation of an execution state
@@ -986,7 +1103,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // todo
         // merge lookups from all gadgets
         // currently there is no merge
-        #[cfg(not(feature = "no_intersubcircuit_lookup"))]
         for (string, lookup, execution_state) in lookups_to_merge {
             match lookup {
                 LookupEntry::BytecodeFull { .. } | LookupEntry::State { .. } => {
@@ -1060,6 +1176,7 @@ pub enum ExecutionState {
     PUBLIC_CONTEXT,
     TX_CONTEXT,
     MEMORY,
+    MSTORE8,
     STORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
@@ -1083,6 +1200,7 @@ pub enum ExecutionState {
     EXTCODECOPY,
     SELFBALANCE,
     RETURNDATACOPY,
+    SIGNEXTEND,
 }
 
 impl ExecutionState {
@@ -1106,7 +1224,7 @@ impl ExecutionState {
                 vec![Self::EXP]
             }
             OpcodeId::SIGNEXTEND => {
-                todo!()
+                vec![Self::SIGNEXTEND]
             }
             OpcodeId::LT => vec![Self::LT],
             OpcodeId::GT => vec![Self::GT],
@@ -1270,8 +1388,31 @@ impl ExecutionState {
                 todo!()
             }
             //LOG TOPIC LOG BYTES
-            OpcodeId::LOG0 | OpcodeId::LOG1 | OpcodeId::LOG2 | OpcodeId::LOG3 | OpcodeId::LOG4 => {
+            OpcodeId::LOG0 => {
                 vec![Self::LOG_BYTES]
+            }
+            OpcodeId::LOG1 => {
+                vec![Self::LOG_BYTES, Self::LOG_TOPIC]
+            }
+            OpcodeId::LOG2 => {
+                vec![Self::LOG_BYTES, Self::LOG_TOPIC, Self::LOG_TOPIC]
+            }
+            OpcodeId::LOG3 => {
+                vec![
+                    Self::LOG_BYTES,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                ]
+            }
+            OpcodeId::LOG4 => {
+                vec![
+                    Self::LOG_BYTES,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                    Self::LOG_TOPIC,
+                ]
             }
             OpcodeId::CREATE => {
                 todo!()

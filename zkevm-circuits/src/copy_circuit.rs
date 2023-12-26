@@ -1,5 +1,5 @@
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{BytecodeTable, LookupEntry, PublicTable, StateTable};
+use crate::table::{BytecodeTable, FixedTable, LookupEntry, PublicTable, StateTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -735,14 +735,17 @@ mod test {
     };
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::copy_circuit::CopyCircuit;
+    use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
+    use eth_types::{bytecode, U256};
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::Circuit;
+    use std::str::FromStr;
 
     #[derive(Clone)]
     pub struct CopyTestCircuitConfig<F: Field> {
@@ -750,6 +753,7 @@ mod test {
         pub public_circuit: PublicCircuitConfig,
         pub copy_circuit: CopyCircuitConfig<F>,
         pub state_circuit: StateCircuitConfig<F>,
+        pub fixed_circuit: FixedCircuitConfig<F>,
     }
 
     impl<F: Field> SubCircuitConfig<F> for CopyTestCircuitConfig<F> {
@@ -762,6 +766,7 @@ mod test {
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
             let public_table = PublicTable::construct(meta);
+            let fixed_table = FixedTable::construct(meta);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
                 BytecodeCircuitConfigArgs {
@@ -776,6 +781,7 @@ mod test {
                 StateCircuitConfigArgs {
                     q_enable: q_enable_state,
                     state_table,
+                    fixed_table,
                 },
             );
             let public_circuit =
@@ -789,24 +795,28 @@ mod test {
                     public_table,
                 },
             );
+            let fixed_circuit =
+                FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
             CopyTestCircuitConfig {
                 bytecode_circuit,
                 public_circuit,
                 copy_circuit,
                 state_circuit,
+                fixed_circuit,
             }
         }
     }
 
     #[derive(Clone, Default, Debug)]
-    pub struct CopyTestCircuit<F: Field, const MAX_CODESIZE: usize> {
+    pub struct CopyTestCircuit<F: Field> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
         pub public_circuit: PublicCircuit<F>,
+        pub fixed_circuit: FixedCircuit<F>,
     }
 
-    impl<F: Field, const MAX_CODESIZE: usize> Circuit<F> for CopyTestCircuit<F, MAX_CODESIZE> {
+    impl<F: Field> Circuit<F> for CopyTestCircuit<F> {
         type Config = CopyTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
@@ -827,17 +837,23 @@ mod test {
             self.copy_circuit
                 .synthesize_sub(&config.copy_circuit, &mut layouter)?;
             self.state_circuit
-                .synthesize_sub(&config.state_circuit, &mut layouter)
+                .synthesize_sub(&config.state_circuit, &mut layouter)?;
+            // when feature `no_fixed_lookup` is on, we don't do synthesize
+            #[cfg(not(feature = "no_fixed_lookup"))]
+            self.fixed_circuit
+                .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
+            Ok(())
         }
     }
 
-    impl<F: Field, const MAX_CODESIZE: usize> CopyTestCircuit<F, MAX_CODESIZE> {
+    impl<F: Field> CopyTestCircuit<F> {
         pub fn new(witness: Witness) -> Self {
             Self {
                 bytecode_circuit: BytecodeCircuit::new_from_witness(&witness),
                 public_circuit: PublicCircuit::new_from_witness(&witness),
                 copy_circuit: CopyCircuit::new_from_witness(&witness),
                 state_circuit: StateCircuit::new_from_witness(&witness),
+                fixed_circuit: FixedCircuit::new_from_witness(&witness),
             }
         }
         pub fn instance(&self) -> Vec<Vec<F>> {
@@ -850,15 +866,37 @@ mod test {
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
-        let circuit = CopyTestCircuit::<Fp, MAX_CODESIZE>::new(witness);
+        let circuit = CopyTestCircuit::<Fp>::new(witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
     }
 
     #[test]
-    fn test_core_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+    fn test_copy_parser() {
+        let a = U256::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+        let code = bytecode! {
+            PUSH1(0x1E)
+            PUSH1(0x03)
+            PUSH1(0x00)
+            CODECOPY
+            PUSH1(0x1E)
+            PUSH1(0x03)
+            PUSH1(0x00)
+            PUSH32(a)
+            EXTCODECOPY
+            PUSH1(0x1E)
+            PUSH1(0xef)
+            PUSH1(0x1F)
+            CODECOPY
+            PUSH1(0x1E)
+            PUSH1(0xef)
+            PUSH1(0x1F)
+            PUSH32(a)
+            EXTCODECOPY
+            STOP
+        };
+        let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code);
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
@@ -867,6 +905,7 @@ mod test {
             false,
             Default::default(),
         ));
+        witness.print_csv();
         let prover = test_simple_copy_circuit(witness);
         prover.assert_satisfied_par();
     }
