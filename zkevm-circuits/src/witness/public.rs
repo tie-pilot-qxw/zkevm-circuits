@@ -406,7 +406,7 @@ impl Row {
                     value_1: Some((LogTag::DataSize as u64).into()),
                     value_2: Some(0.into()),
                     // log data's length
-                    value_1: Some(log.data.len().into()),
+                    value_3: Some(log.data.len().into()),
                     comments: [
                         (format!("tag"), format!("{:?}", Tag::TxLogSize)),
                         (
@@ -415,8 +415,8 @@ impl Row {
                         ),
                         (format!("value_0"), format!("log_index")),
                         (format!("value_1"), format!("log_tag = {}", "DataSize")),
-                        (format!("value_1"), format!("0")),
-                        (format!("value_1"), format!("data_len = {}", log.data.len())),
+                        (format!("value_2"), format!("0")),
+                        (format!("value_3"), format!("data_len = {}", log.data.len())),
                     ]
                     .into_iter()
                     .collect(),
