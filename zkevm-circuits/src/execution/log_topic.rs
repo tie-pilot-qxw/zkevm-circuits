@@ -125,18 +125,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 format!("public topic log tag is TopicX depends on LOG_LEFT_X and opcode").into(),
                 selector.select(&[
-                    0.expr(), // impossible! LOG_LEFT_4 only happens in LOG_TOPIC_NUM_ADDR
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 3.expr(), // LOG_LEFT_3
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 2.expr(), // LOG_LEFT_2
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 1.expr(), // LOG_LEFT_1
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr()), // LOG_LEFT_0
+                    0.expr(), // impossible! only happens in LOG_TOPIC_NUM_ADDR
                 ]),
             ),
             (
@@ -240,7 +240,7 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-        let topic_left = 1;
+        let topic_left = 0;
 
         let stack = Stack::from_slice(&[topic0_hash.into()]);
         let stack_pointer = stack.0.len();
@@ -291,7 +291,7 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-        let topic_left = 2;
+        let topic_left = 1;
 
         let stack = Stack::from_slice(&[topic1_hash.into(), topic0_hash.into()]);
         let stack_pointer = stack.0.len();
@@ -345,7 +345,7 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-        let topic_left = 3;
+        let topic_left = 2;
 
         let stack =
             Stack::from_slice(&[topic2_hash.into(), topic1_hash.into(), topic0_hash.into()]);
@@ -401,7 +401,7 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-        let topic_left = 4;
+        let topic_left = 3;
 
         let stack = Stack::from_slice(&[
             topic3_hash.into(),
