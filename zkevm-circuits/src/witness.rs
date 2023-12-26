@@ -1086,7 +1086,7 @@ impl WitnessExecHelper {
         topic_hash_hi: Option<U256>,
         topic_hash_lo: Option<U256>,
     ) -> public::Row {
-        let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG0).as_u8() - (self.topic_left as u8)
+        let topic_log_tag = opcode_id.as_u8() - (OpcodeId::LOG1).as_u8() - (self.topic_left as u8)
             + (LogTag::Topic0 as u8);
 
         let topic_tag = match topic_log_tag {
