@@ -1,7 +1,34 @@
-mod test;
+mod add; //01
+         // mod addmod; //08
+mod and; //16
+mod byte; //1A
+          // mod calldatacopy; //37
+          // mod calldataload; //35
+          // mod calldatasize; //36
+mod caller; //33
+mod callvalue; //34
+mod codecopy; //39
+mod div; //04
+mod eq; //14
+mod exp; //0A
+         // mod gasprice; //3A
+mod gt; //11
+mod iszero; //15
+mod lt; //10
+mod modulo; //06
+mod mul; //02
+mod mulmod; //09
+mod not; //19
+mod or; //17
+        // mod origin; //32
+mod sgt; //13
+mod sha3; //20
+          // mod shr; //1C
+mod slt; //12
+mod stop; //00
+mod sub; //03
 mod xor; //18 //3A
-              // mod extcodecopy;    //3C
-              // mod returndatacopy; //3E
+
 mod basefee; //48
 mod chainid; //46
 mod coinbase; //41
@@ -25,11 +52,11 @@ mod gaslimit; //45
 mod jump; //56
 mod jumpdest; //5B
 mod jumpi; //57
-mod log0; //A0
-mod log1; //A1
-mod log2; //A2
-mod log3; //A3
-mod log4; //A4
+           // mod log0; //A0
+           // mod log1; //A1
+           // mod log2; //A2
+           // mod log3; //A3
+           // mod log4; //A4
 mod mload; //51
 mod mstore; //52
 mod mstore8; //53
@@ -68,11 +95,10 @@ mod push7; //66
 mod push8; //67
 mod push9; //68
 mod return_; //F2
-             // mod returndatacopy;
-mod revert;
+             // mod revert; //FD
 mod selfbalance; //47
-mod sload; //54
-mod sstore; //55
+                 // mod sload; //54
+                 // mod sstore; //55
 mod swap1; //90
 mod swap10; //99
 mod swap11; //9A
@@ -89,14 +115,10 @@ mod swap6; //95
 mod swap7; //96
 mod swap8; //97
 mod swap9; //98
-mod timestamp; //42 //FD
-               // mod sdiv;           //05
-               // mod smod;           //07
-               // mod blockhash;      //40
-               // mod push;           //B0
-               // mod dup;            //B1
-               // mod swap;           //B2
-               // mod create;         //F0
+mod timestamp; //42
+
+use rand::Rng;
+use std::iter;
 
 macro_rules! test_super_circuit_short_bytecode {
     ($bytecode:expr) => {{
