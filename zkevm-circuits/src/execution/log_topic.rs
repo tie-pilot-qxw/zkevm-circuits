@@ -125,7 +125,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 format!("public topic log tag is TopicX depends on LOG_LEFT_X and opcode").into(),
                 selector.select(&[
-                    public_values[1].clone() - (LogTag::Topic0 as u8).expr(), // LOG_LEFT_4
+                    0.expr(),  // impossible! LOG_LEFT_4 only happens in LOG_TOPIC_NUM_ADDR
                     (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 3.expr(), // LOG_LEFT_3
