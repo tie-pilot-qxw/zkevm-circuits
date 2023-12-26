@@ -1524,15 +1524,7 @@ mod test {
                             config
                                 .cnt_is_zero
                                 .annotate_columns_in_region(&mut region, "CORE_cnt_is_zero");
-                            config.q_first_exec_state.enable(
-                                                                    &mut region,
-                                                                    ExecutionGadgets::<
-                                                                        F,
-                                                                        NUM_STATE_HI_COL,
-                                                                        NUM_STATE_LO_COL,
-                                                                    >::unusable_rows()
-                                                                    .0,
-                                                                )?;
+                            config.q_first_exec_state.enable(&mut region, ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)?;
                             for (offset, row) in self.witness.core.iter().enumerate() {
                                 let cnt_is_zero: IsZeroWithRotationChip<F> =
                                     IsZeroWithRotationChip::construct(config.cnt_is_zero);
