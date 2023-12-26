@@ -13,3 +13,9 @@ sstore.rs
 calldatacopy.rs
 calldataload.rs
 calldatasize.rs
+
+sdiv.rs
+smod.rs
+create.rs
+returndatacopy.rs
+blockhash.rs
