@@ -23,7 +23,7 @@ use crate::util::{
     SubCircuit,
 };
 use crate::witness::state::{CallContextTag, Tag};
-use eth_types::evm_types::OpcodeId;
+use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
 use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, Field, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
@@ -1613,6 +1613,26 @@ impl Witness {
         self.append(end_block_gadget.gen_witness(last_step, current_state));
     }
 
+    fn insert_begin_block(&mut self, current_state: &mut WitnessExecHelper) {
+        let begin_block: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> =
+            crate::execution::begin_block::new();
+        self.append(begin_block.gen_witness(
+            &GethExecStep {
+                pc: 0,
+                op: OpcodeId::default(),
+                gas: 0,
+                gas_cost: 0,
+                refund: 0,
+                depth: 0,
+                error: None,
+                stack: Stack::new(),
+                memory: Memory::new(),
+                storage: Storage::empty(),
+            },
+            current_state,
+        ));
+    }
+
     /// Generate witness of one transaction's trace
     pub fn new(geth_data: &GethData) -> Self {
         let execution_gadgets: Vec<
@@ -1629,6 +1649,7 @@ impl Witness {
         witness.insert_begin_padding();
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
+        witness.insert_begin_block(&mut current_state);
         for (i, trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);

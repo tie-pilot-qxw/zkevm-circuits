@@ -1,6 +1,7 @@
 pub mod add;
 pub mod addmod;
 pub mod and_or_xor;
+pub mod begin_block;
 pub mod begin_tx_1;
 pub mod begin_tx_2;
 pub mod byte;
@@ -119,6 +120,8 @@ pub(crate) use get_every_execution_gadgets;
 
 #[derive(Clone)]
 pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> {
+    /// only enable for BEGIN_BLOCK
+    pub(crate) q_first_exec_state: Selector,
     pub(crate) q_enable: Selector,
     // witness column of transaction index
     pub(crate) tx_idx: Column<Advice>,
@@ -1045,6 +1048,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             get_every_execution_gadgets!();
 
         let mut lookups_to_merge = vec![];
+        meta.create_gate("q_first_exec_state constrains", |meta| {
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let q_first_exec_state = meta.query_selector(config.q_first_exec_state);
+            let execution_state_selector = config.execution_state_selector.selector(
+                meta,
+                ExecutionState::BEGIN_BLOCK as usize,
+                Rotation::cur(),
+            );
+            vec![
+                (
+                    "q_first_exec_state=1 ==> cnt=0",
+                    q_first_exec_state.clone() * cnt,
+                ),
+                (
+                    "q_first_exec_state=1 => gadget=begin_block",
+                    q_first_exec_state * (1.expr() - execution_state_selector),
+                ),
+            ]
+        });
+
         for gadget in &gadgets {
             // the constraints that all execution state requires, e.g., cnt=num_row-1 at the first row
             meta.create_gate(format!("EXECUTION_STATE_{}", gadget.name()), |meta| {
@@ -1100,6 +1123,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .collect();
             lookups_to_merge.append(&mut lookups);
         }
+
         // todo
         // merge lookups from all gadgets
         // currently there is no merge
@@ -1154,6 +1178,7 @@ pub enum ExecutionState {
     END_PADDING, // it has to be the first state as it is the padding state
     BEGIN_TX_1, // start a tx, part one
     BEGIN_TX_2, // start a tx, part two
+    BEGIN_BLOCK,
     END_BLOCK,
     // opcode/operation successful states
     STOP,
@@ -1447,6 +1472,7 @@ mod test {
         () => {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
+            use crate::execution::ExecutionGadgets;
             use crate::table::{BytecodeTable, StateTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
@@ -1460,6 +1486,7 @@ mod test {
             use halo2_proofs::halo2curves::bn256::Fr;
             use halo2_proofs::plonk::{Advice, Circuit, Column, Error};
             use halo2_proofs::poly::Rotation;
+
             #[derive(Clone, Default, Debug)]
             struct TestCircuit<F> {
                 witness: Witness,
@@ -1499,7 +1526,9 @@ mod test {
                     let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
                     let q_enable_state = meta.complex_selector();
                     let state_table = StateTable::construct(meta, q_enable_state);
+                    let q_first_exec_state = meta.selector();
                     let config = ExecutionConfig {
+                        q_first_exec_state,
                         q_enable,
                         tx_idx: meta.advice_column(),
                         call_id: meta.advice_column(),
@@ -1550,6 +1579,7 @@ mod test {
                             config
                                 .cnt_is_zero
                                 .annotate_columns_in_region(&mut region, "CORE_cnt_is_zero");
+                            config.q_first_exec_state.enable(&mut region, ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)?;
                             for (offset, row) in self.witness.core.iter().enumerate() {
                                 let cnt_is_zero: IsZeroWithRotationChip<F> =
                                     IsZeroWithRotationChip::construct(config.cnt_is_zero);

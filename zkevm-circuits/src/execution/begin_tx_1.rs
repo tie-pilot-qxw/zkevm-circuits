@@ -14,7 +14,7 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_ROW: usize = 3;
+pub const NUM_ROW: usize = 3;
 
 pub struct BeginTx1Gadget<F: Field> {
     _marker: PhantomData<F>,
