@@ -124,7 +124,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let a = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
     let (c, _) = operands[0].overflowing_mul(operands[1]);
-
+    /// TODO 增加两行5个u16进行carry_lo 和 carry_hi的约束
     // Calculate the overflow of multiplication. carry_hi and carry_lo a_limb and b_limb are 64-bit.
     let a_limbs = split_u256_limb64(&operands[0]);
     let b_limbs = split_u256_limb64(&operands[1]);
@@ -215,6 +215,7 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
 mod test {
     use super::gen_witness;
     use crate::witness::Witness;
+    use eth_types::U256;
 
     #[test]
     fn test_gen_witness() {
@@ -227,5 +228,17 @@ mod test {
         };
 
         witness.print_csv();
+    }
+
+    #[test]
+    fn test_gen_witness_2() {
+        let a = U256::zero();
+        let b: U256 = u128::MAX.into();
+        let (c, _) = a.overflowing_sub(b);
+        let d = c + a;
+
+        println!("c:{}", c);
+        println!("d:{}", d);
+        println!("b:{}", b);
     }
 }
