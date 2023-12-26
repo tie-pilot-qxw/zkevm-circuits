@@ -342,7 +342,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[31], Rotation(-2)),
         );
 
-        let values = [value0, value1, value2, value3];
+        let values = [value_0, value_1, value_2, value_3];
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
@@ -372,7 +372,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         LookupEntry::Public {
             tag,
             tx_idx_or_number_diff,
-            values: [value_0, value_1, value_2, value_3],
+            values: values,
         }
     }
 

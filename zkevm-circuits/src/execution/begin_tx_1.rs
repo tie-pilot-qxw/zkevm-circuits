@@ -57,10 +57,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let copy = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, _, copy_size, _) = extract_lookup_expression!(copy, copy);
+        let (_, _, _, _, _, _, _, _, _, copy_size, _) =
+            extract_lookup_expression!(copy, copy.clone());
         let delta = AuxiliaryDelta {
             state_stamp: 4.expr() + copy_size,
             ..Default::default()
@@ -106,7 +108,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo_inv = meta.query_advice(config.vers[10], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
-        constraints.append(&mut config.get_copy_contraints(
+        constraints.append(&mut config.get_copy_constraints(
             copy::Tag::PublicCalldata,
             tx_idx,
             0.expr(),
@@ -115,9 +117,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id,
             0.expr(),
             state_stamp_prev.clone() + 4.expr(),
+            None,
             value_lo,
             is_zero_len.expr(),
-            copy_entry,
+            None,
+            copy,
         ));
         constraints.push(("calldata size value_hi=0".into(), value_hi));
 
