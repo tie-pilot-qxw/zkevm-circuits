@@ -84,9 +84,9 @@ struct EVMExecStep {
     depth: u16,
     error: Option<String>,
     stack: Vec<U256>,
-    // memory is in chunks of 32 bytes, in hex
+    // memory is in one long hex string
     #[serde(default)]
-    memory: Vec<U256>,
+    memory: String,
     // storage is hex -> hex
     #[serde(default)]
     storage: HashMap<U256, U256>,
@@ -94,6 +94,11 @@ struct EVMExecStep {
 
 impl From<EVMExecStep> for GethExecStep {
     fn from(s: EVMExecStep) -> Self {
+        let memory_vec_u8 = if let Some(memory) = s.memory.strip_prefix("0x") {
+            hex::decode(memory).unwrap()
+        } else {
+            hex::decode(s.memory).unwrap()
+        };
         Self {
             pc: s.pc,
             op: s.op_name,
@@ -103,7 +108,7 @@ impl From<EVMExecStep> for GethExecStep {
             depth: s.depth,
             error: s.error,
             stack: Stack(s.stack),
-            memory: Memory::from(s.memory),
+            memory: Memory::from(memory_vec_u8),
             storage: Storage(s.storage),
         }
     }
@@ -124,8 +129,21 @@ struct JsonResultOpString {
     stack: Vec<String>,
 }
 
-pub fn trace_program(bytecode: &[u8]) -> GethExecTrace {
-    let cmd_string = format!("./evm --code {} --json run", hex::encode(bytecode)).to_string();
+pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
+    let cmd_string = if calldata.is_empty() {
+        format!(
+            "./evm --code {} --json  --nomemory=false run",
+            hex::encode(bytecode)
+        )
+        .to_string()
+    } else {
+        format!(
+            "./evm --code {} --input {} --json  --nomemory=false run",
+            hex::encode(bytecode),
+            hex::encode(calldata)
+        )
+        .to_string()
+    };
     let res = Command::new("sh")
         .arg("-c")
         .arg(cmd_string)
@@ -180,7 +198,7 @@ mod tests {
     #[ignore]
     fn trace_and_parse() {
         let bytecode = assemble_file("debug/1.txt");
-        let trace = trace_program(&bytecode);
+        let trace = trace_program(&bytecode, &[]);
         assert_eq!(4, trace.struct_logs.len());
     }
 }

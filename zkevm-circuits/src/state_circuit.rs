@@ -614,7 +614,7 @@ mod test {
             PUSH1(0x2)
             ADD
         };
-        let trace = trace_parser::trace_program(bytecode.to_vec().as_slice());
+        let trace = trace_parser::trace_program(bytecode.to_vec().as_slice(), &[]);
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
             bytecode.to_vec().as_slice(),

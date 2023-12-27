@@ -641,7 +641,7 @@ mod test {
         let mut bytecode = Bytecode::default();
         bytecode.push(x, u128::MAX);
         let machine_code = bytecode.code();
-        let trace = trace_parser::trace_program(&machine_code);
+        let trace = trace_parser::trace_program(&machine_code, &[]);
         let witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,
@@ -660,7 +660,7 @@ mod test {
         let mut bytecode = Bytecode::default();
         bytecode.push(x, u128::MAX);
         let machine_code = bytecode.code();
-        let trace = trace_parser::trace_program(&machine_code);
+        let trace = trace_parser::trace_program(&machine_code, &[]);
         let witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,
