@@ -255,7 +255,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut bit_wise_rows = vec![];
         let mut exp_rows = vec![];
         // get a = 128 * 256^operand_0
-        let temp_a = U256::from(256).pow(operand_0);
+        let (temp_a, _) = U256::from(256).overflowing_pow(operand_0);
         exp_rows.extend(exp::Row::from_operands(
             U256::from(256),
             operand_0.clone(),
@@ -437,5 +437,8 @@ mod test {
         let stack_1 = Stack::from_slice(&[0x7F.into(), 0.into()]);
         let stack_top_1 = U256::from(0x7f);
         run(stack_1, stack_top_1);
+        let stack_2 = Stack::from_slice(&[0xFF.into(), 33.into()]);
+        let stack_top_2 = U256::from(0xff);
+        run(stack_2, stack_top_2);
     }
 }
