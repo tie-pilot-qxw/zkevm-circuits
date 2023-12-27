@@ -4,54 +4,50 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{assign_or_panic, copy, public, Witness, WitnessExecHelper};
+use crate::witness::{public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::public::LogTag;
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 // core rows
-/// LogBytes Execution State layout is as follows
-/// where COPY means copy table lookup , 9 cols
-/// PUBLIC means public table lookup 6 cols, origin from col 26
-/// STATE means state table lookup,
-/// LO_INV means length's inv , 1 col, located at col 24
+/// LogTopicNumAddr Execution State layout is as follows
+/// LOG_LEFT_X means selectors LOG_LEFT_4~LOG_LEFT_0, 5 cols, vers_8~vers_12
+/// PUBLIC means public table lookup for log, 6 cols, vers_26~vers31
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-------+---------+---------+
-/// |cnt| 8 col | 8 col |  8 col  |  8col   |
-/// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |9col(not used)| PUBLIC(6) |
-/// | 1 | STATE | STATE | notUsed | LO_INV(1 col) |
-/// | 0 | DYNA_SELECTOR | AUX               |
-/// +---+-------+-------+---------+---------+
+/// +---+-------+------------+----------+----------+
+/// |cnt| 8 col |    8 col   |  8 col  |   8 col   |
+/// +---+-------+------------+---------+-----------+
+/// | 2 | not used | not used | not used | PUBLIC(6)|
+/// | 1 | not used|LOG_LEFT_X(5)|not used| not used |
+/// | 0 | DYNA_SELECTOR           | AUX            |
+/// +---+-------+------------+--------- +---------+
 ///
 
 const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 2;
-const STACK_POINTER_DELTA: i32 = -2;
-const PC_DELTA: u64 = 0;
-
-pub struct LogBytesGadget<F: Field> {
+const STATE_STAMP_DELTA: u64 = 0;
+const STACK_POINTER_DELTA: i32 = 0;
+const PC_DELTA: u64 = 1;
+const LOG_STAMP_DELTA: u64 = 1;
+pub struct LogTopicNumAddrGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for LogBytesGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for LogTopicNumAddrGadget<F>
 {
     fn name(&self) -> &'static str {
-        "LOG_BYTES"
+        "LOG_TOPIC_NUM_ADDR"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::LOG_BYTES
+        ExecutionState::LOG_TOPIC_NUM_ADDR
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -65,79 +61,34 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
+        let selector = config.get_log_left_selector(meta);
 
         // build constraints ---
         // append auxiliary constraints
-        let copy_entry = config.get_copy_lookup(meta);
-        let (_, _, _, _, _, _, _, _, _, len, _) =
-            extract_lookup_expression!(copy, copy_entry.clone());
-
+        let log_stamp_delta = selector.select(&[
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            LOG_STAMP_DELTA.expr(),
+        ]);
         let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone(),
+            state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
+            log_stamp: log_stamp_delta,
             ..Default::default()
         };
-
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        // append stack constraints
-        let mut stack_pop_values = vec![];
-        let mut stamp_start = 0.expr();
-        for i in 0..2 {
-            let state_entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_stack_constraints(
-                meta,
-                state_entry.clone(),
-                i,
-                NUM_ROW,
-                (-1 * i as i32).expr(),
-                false,
-            ));
-            let (_, stamp, value_hi, value_lo, _, _, _, _) =
-                extract_lookup_expression!(state, state_entry);
-            stack_pop_values.push(value_hi); // 0
-            stack_pop_values.push(value_lo);
-            if i == 1 {
-                stamp_start = stamp;
-            }
-        }
+        // new selector LOG_LEFT_X and append selector constraints
+        let selector = config.get_log_left_selector(meta);
+        constraints.extend(selector.get_constraints());
 
-        // append core single purpose constraints
-        let delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-
-        // append log_bytes constraints
-        let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
-        let is_zero_len =
-            SimpleIsZero::new(&stack_pop_values[3], &len_lo_inv, String::from("length_lo"));
-
-        let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
-
-        constraints.append(&mut is_zero_len.get_constraints());
-        constraints.append(&mut config.get_copy_constraints(
-            copy::Tag::Memory,
-            call_id,
-            stack_pop_values[1].clone(),
-            stamp_start + 1.expr(),
-            copy::Tag::PublicLog,
-            tx_idx.clone(),
-            0.expr(),          // index of PublicLog
-            log_stamp.clone(), // log_stamp from Auxiliary
-            None,
-            stack_pop_values[3].clone(),
-            is_zero_len.expr(),
-            None,
-            copy_entry,
-        ));
-
-        // append addrWithXLog constraints
+        // append public log lookup (addrWithXLog) constraints
         let (
             public_tag,
             public_tx_idx,
@@ -158,28 +109,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_values[0].clone() - log_stamp,
             ),
             (
-                format!("public log tag is DataSize").into(),
-                public_values[1].clone() - (LogTag::DataSize as u8).expr(),
+                format!("public log tag is addrWithXLog").into(),
+                public_values[1].clone() - (opcode.clone() - (OpcodeId::LOG0).as_u8().expr()),
             ),
             (
-                format!("public values[2] is 0").into(),
-                public_values[2].clone(),
-            ),
-            (
-                format!("public data_len is length").into(),
-                public_values[3].clone() - len.clone(),
+                format!("public log addr hi and lo is code_addr").into(),
+                public_values[2].clone() * pow_of_two::<F>(128) + public_values[3].clone()
+                    - code_addr,
             ),
         ]);
 
-        // extend opcode and pc constraints
-        constraints.extend([(
-            format!("opcode is one of LOG0,LOG1,LOG2,LOG3,LOG4").into(),
-            (opcode.clone() - (OpcodeId::LOG0).expr())
-                * (opcode.clone() - (OpcodeId::LOG1).expr())
-                * (opcode.clone() - (OpcodeId::LOG2).expr())
-                * (opcode.clone() - (OpcodeId::LOG3).expr())
-                * (opcode - (OpcodeId::LOG4).expr()),
-        )]);
+        // extend pc constraints
+        let pc_delta = selector.select(&[0.expr(), 0.expr(), 0.expr(), 0.expr(), PC_DELTA.expr()]);
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(pc_delta.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         constraints
     }
@@ -188,76 +134,54 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
 
         vec![
-            (
-                "state lookup, stack pop lookup offset".into(),
-                stack_lookup_0,
-            ),
-            (
-                "state lookup, stack pop lookup length".into(),
-                stack_lookup_1,
-            ),
-            ("code copy lookup".into(), copy_lookup),
+            ("state lookup for topic".into(), stack_lookup),
             ("public lookup".into(), public_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        // get offset、length from stack top
-        // let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
-        let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
-        let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
+        // get topic from stack top
 
-        // generate core rows
-        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        // generate copy rows and state rows(type: memory)
-        let (copy_rows, memory_state_rows) =
-            current_state.get_log_bytes_rows::<F>(trace, offset.as_usize(), length.as_usize());
+        // core_row_1: state lookup (vers_0~vers_7) + selector LOG_LEFT_X (vers_8~vers_12) + Public Log LookUp (vers_26~vers_31)
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        // core_row_1: insert lookUp: Core ---> State
 
-        // insert lookUp: Core ---> Copy
-        if length.is_zero() {
-            core_row_2.insert_copy_lookup(&Default::default(), None);
-        } else {
-            core_row_2.insert_copy_lookup(&copy_rows[0], None);
+        // init topic_left
+        match trace.op {
+            OpcodeId::LOG4 => current_state.topic_left = 4,
+            OpcodeId::LOG3 => current_state.topic_left = 3,
+            OpcodeId::LOG2 => current_state.topic_left = 2,
+            OpcodeId::LOG1 => current_state.topic_left = 1,
+            OpcodeId::LOG0 => current_state.topic_left = 0,
+            _ => panic!(),
         }
 
-        // write addrWithXLog to core_row_2.vers_26 ~ vers_31
-        // insert lookUp: Core ----> addrWithXLog
-        let public_row = current_state.get_public_log_data_size_row(length);
+        // core_row_1: insert selector LOG_LEFT_4, LOG_LEFT_3, LOG_LEFT_2, LOG_LEFT_1, LOG_LEFT_0
+        core_row_1.insert_log_left_selector(current_state.topic_left);
+
+        // core_row_1: insert Public lookUp: Core ----> addrWithXLog  to core_row_1.vers_26 ~ vers_31
+        let public_row = current_state.get_public_log_topic_num_addr_row(trace.op);
+
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_public_lookup(&public_row);
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        // increase log_stamp when topic_left == 0
+        if current_state.topic_left == 0 {
+            current_state.log_stamp += 1;
+        }
 
-        let len_lo = F::from_u128(length.as_u128());
-        let len_lo_inv =
-            U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        // core_row_1.vers_24 = Some(len_lo_inv);
-        assign_or_panic!(core_row_1.vers_24, len_lo_inv);
-
-        // insert lookUp: Core ---> State
-        core_row_1.insert_state_lookups([
-            // &stack_pop_dst_offset,
-            &stack_pop_offset,
-            &stack_pop_length,
-        ]);
-
-        let core_row_0 = ExecutionState::LOG_BYTES.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::LOG_TOPIC_NUM_ADDR.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
 
-        let mut state_rows = vec![stack_pop_offset, stack_pop_length];
-        state_rows.extend(memory_state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: state_rows,
-            copy: copy_rows,
             ..Default::default()
         }
     }
@@ -265,7 +189,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(LogBytesGadget {
+    Box::new(LogTopicNumAddrGadget {
         _marker: PhantomData,
     })
 }
@@ -277,8 +201,9 @@ mod test {
     };
     use crate::witness::WitnessExecHelper;
     generate_execution_gadget_test_circuit!();
+
     #[test]
-    fn test_log_bytes_log0() {
+    fn test_log_topic_num_addr_log0() {
         let opcode = OpcodeId::LOG0;
         let offset: u64 = 0x1;
         let length: u64 = 0x4;
@@ -307,6 +232,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -316,7 +242,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = 0.into();
+            row.pc = 1.into();
+            row.vers_22 = Some((log_stamp + 1).into());
             row
         };
         let (witness, prover) =
@@ -326,7 +253,7 @@ mod test {
     }
 
     #[test]
-    fn test_log_bytes_log1() {
+    fn test_log_topic_num_add_log1() {
         let opcode = OpcodeId::LOG1;
         let offset: u64 = 0x1;
         let length: u64 = 0x4;
@@ -355,6 +282,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -365,6 +293,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let (witness, prover) =
@@ -374,7 +303,7 @@ mod test {
     }
 
     #[test]
-    fn test_log_bytes_log2() {
+    fn test_log_topic_num_add_log2() {
         let opcode = OpcodeId::LOG2;
         let offset: u64 = 0x1;
         let length: u64 = 0x4;
@@ -409,6 +338,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -419,6 +349,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let (witness, prover) =
@@ -428,13 +359,13 @@ mod test {
     }
 
     #[test]
-    fn test_log_bytes_log3() {
+    fn test_log_topic_num_add_log3() {
         let opcode = OpcodeId::LOG3;
         let offset: u64 = 0x1;
         let length: u64 = 0x4;
         let call_id: u64 = 0xa;
         let tx_idx = 0xb;
-        let log_stamp = 0x4;
+        let log_stamp = 0x2;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
@@ -465,6 +396,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -475,6 +407,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let (witness, prover) =
@@ -484,13 +417,13 @@ mod test {
     }
 
     #[test]
-    fn test_log_bytes_log4() {
+    fn test_log_topic_num_add_log4() {
         let opcode = OpcodeId::LOG4;
         let offset: u64 = 0x1;
         let length: u64 = 0x4;
         let call_id: u64 = 0xa;
         let tx_idx = 0xb;
-        let log_stamp = 0x4;
+        let log_stamp = 0x2;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
@@ -524,6 +457,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -534,6 +468,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
             row
         };
         let (witness, prover) =

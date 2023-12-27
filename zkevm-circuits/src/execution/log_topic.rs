@@ -69,20 +69,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
-        let s_log_left_0 = meta.query_advice(config.vers[12], Rotation::prev());
-
+        let selector = config.get_log_left_selector(meta);
         // build constraints ---
         // append auxiliary constraints
+        let log_stamp_delta = selector.select(&[
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            LOG_STAMP_DELTA.expr(),
+        ]);
         let delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
             stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: s_log_left_0 * LOG_STAMP_DELTA.expr(),
+            log_stamp: log_stamp_delta,
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // new selector LOG_LEFT_X and append selector constraints
-        let selector = config.get_log_left_selector(meta);
         constraints.extend(selector.get_constraints());
 
         let state_entry = config.get_state_lookup(meta, 0);
@@ -120,17 +125,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 format!("public topic log tag is TopicX depends on LOG_LEFT_X and opcode").into(),
                 selector.select(&[
-                    public_values[1].clone() - (LogTag::Topic0 as u8).expr(), // LOG_LEFT_4
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    0.expr(), // impossible! LOG_LEFT_4 only happens in LOG_TOPIC_NUM_ADDR
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 3.expr(), // LOG_LEFT_3
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 2.expr(), // LOG_LEFT_2
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 1.expr(), // LOG_LEFT_1
-                    (opcode.expr() - (OpcodeId::LOG0).as_u8().expr())
+                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr()), // LOG_LEFT_0
                 ]),
             ),
@@ -168,6 +173,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // decrease topic_left
+        if current_state.topic_left > 0 {
+            current_state.topic_left -= 1;
+        }
         // get topic from stack top
         let (stack_pop_topic, _) = current_state.get_pop_stack_row_value(&trace);
 
@@ -177,7 +186,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_pop_topic]);
 
         // core_row_1: insert selector LOG_LEFT_4, LOG_LEFT_3, LOG_LEFT_2, LOG_LEFT_1, LOG_LEFT_0
-        core_row_1.insert_log_left_selector(current_state.log_left);
+        core_row_1.insert_log_left_selector(current_state.topic_left);
 
         // core_row_1: insert Public lookUp: Core ----> addrWithXLog  to core_row_1.vers_26 ~ vers_31
         let public_row = current_state.get_public_log_topic_row(
@@ -188,24 +197,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_public_lookup(&public_row);
 
-        // increase log_stamp
-        if current_state.log_left == 0 {
+        // increase log_stamp when topic_left == 0
+        if current_state.topic_left == 0 {
             current_state.log_stamp += 1;
         }
-
         let core_row_0 = ExecutionState::LOG_TOPIC.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-
         let mut state_rows = vec![stack_pop_topic];
-
-        // decrease log_left
-        if current_state.log_left > 0 {
-            current_state.log_left -= 1;
-        }
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -228,18 +230,19 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     use crate::witness::WitnessExecHelper;
+    use std::hash::Hash;
     generate_execution_gadget_test_circuit!();
     #[test]
-    fn assign_and_constraint() {
+    fn test_log_topic_log1() {
         let opcode = OpcodeId::LOG1;
-        let log_left = 1;
-        let topic1 = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
+        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let call_id: u64 = 0xa;
-        let tx_idx = 0xc;
+        let tx_idx = 0xb;
+        let log_stamp = 0x1;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-        let log_stamp = 0xb;
+        let topic_left = 1;
 
-        let stack = Stack::from_slice(&[topic1.into()]);
+        let stack = Stack::from_slice(&[topic0_hash.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer,
@@ -247,8 +250,174 @@ mod test {
             call_id,
             tx_idx,
             code_addr,
-            log_left,
             log_stamp,
+            ..WitnessExecHelper::new()
+        };
+        let trace = prepare_trace_step!(0, opcode, stack);
+
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 1.into();
+            row.vers_22 = Some((log_stamp + 1).into());
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
+    #[test]
+    fn test_log_topic_log2() {
+        let opcode = OpcodeId::LOG2;
+        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
+        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
+        let call_id: u64 = 0xa;
+        let tx_idx = 0xb;
+        let log_stamp = 0x1;
+        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
+        let topic_left = 2;
+
+        let stack = Stack::from_slice(&[topic1_hash.into(), topic0_hash.into()]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer,
+            stack_top: None,
+            call_id,
+            tx_idx,
+            code_addr,
+            log_stamp,
+            topic_left,
+            ..WitnessExecHelper::new()
+        };
+
+        let trace = prepare_trace_step!(0, opcode, stack);
+
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
+    #[test]
+    fn test_log_topic_log3() {
+        let opcode = OpcodeId::LOG3;
+        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
+        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
+        let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
+        let call_id: u64 = 0xa;
+        let tx_idx = 0xb;
+        let log_stamp = 0x1;
+        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
+        let topic_left = 3;
+
+        let stack =
+            Stack::from_slice(&[topic2_hash.into(), topic1_hash.into(), topic0_hash.into()]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer,
+            stack_top: None,
+            call_id,
+            tx_idx,
+            code_addr,
+            log_stamp,
+            topic_left,
+            ..WitnessExecHelper::new()
+        };
+
+        let trace = prepare_trace_step!(0, opcode, stack);
+
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row.vers_22 = Some(log_stamp.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 0.into();
+            row.vers_22 = Some(log_stamp.into());
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
+    #[test]
+    fn test_log_topic_log4() {
+        let opcode = OpcodeId::LOG4;
+        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
+        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
+        let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
+        let topic3_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b96";
+        let call_id: u64 = 0xa;
+        let tx_idx = 0xb;
+        let log_stamp = 0x1;
+        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
+        let topic_left = 4;
+
+        let stack = Stack::from_slice(&[
+            topic3_hash.into(),
+            topic2_hash.into(),
+            topic1_hash.into(),
+            topic0_hash.into(),
+        ]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer,
+            stack_top: None,
+            call_id,
+            tx_idx,
+            code_addr,
+            log_stamp,
+            topic_left,
             ..WitnessExecHelper::new()
         };
 
