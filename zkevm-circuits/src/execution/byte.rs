@@ -25,36 +25,36 @@ const EXP_OVERFLOW_INDEX_BOUNDARY: u8 = 32;
 /// BYTE algorithm overview：
 ///    1.pop the two elements on top of the stack
 ///       stack_top0: byte_index、stack_top1: value
-///    2.get the byte_index byte of value(big-endian order)
+///    2.get the byte_index byte of value (big-endian order)
 ///    example:
 ///      PUSH5: 0x123456789a
 ///      PUSH1: 0x1d
 ///      BYTE
-///      get a result is 0x56(target_byte)
+///      get a result is 0x56 (target_byte)
 ///      because it is big endian, 0x123456789a is actually 0x000000000000000000000000000000000000000000000000000000123456789a
-///      so the 30st(0x1d) byte is 0x56
-///  note: when byte_index > 31, the result(target_byte) is 0
+///      so the 30th (0x1d) byte is 0x56
+///  note: when byte_index > 31, the result (target_byte) is 0
 ///
-/// Use bitwise's sum2 to get target_byte
+/// Use bitwise subcircuit's sum2 to get target_byte
 ///    operand1: 0x000000000000000000000000000000000000000000000000000000123456789a
 ///    operand2: 0x0000000000000000000000000000000000000000000000000000000000ff0000
 ///    value: operand1 & operand2 --> 0x0000000000000000000000000000000000000000000000000000000000560000
-///  we only need to traverse each byte of byte and add the value of each byte, the result(0x56) is the result we want(target_byte)
-///  Bitwise circuit will help us complete the operation of `operadn1&operand2`，we can get the value of sum2 from the bitwise table
+///  we only need to traverse each byte of byte and add the value of each byte, the result (0x56) is the result we want (target_byte)
+///  Bitwise circuit will help us complete the operation of `operadn1 & operand2`，we can get the value of sum2 from the bitwise table
 ///
 /// How to construct operand2?
-///    byte_index: 0x1d(29)
+///    byte_index: 0x1d (29)
 ///    value: 0x000000000000000000000000000000000000000000000000000000123456789a
 ///
-///    base_value: 100000000(256)
+///    base_value: 100000000 (256)
 ///    pow_index: 31-byte_index
 ///    power: base_value^(pow_index) ---> 256^(31-29) ---> 256^2 ---> 10000000000000000
-///    operand2: `255*power` ---> 255*10000000000000000 ---> 111111110000000000000000 ---> ff0000
-///    completing ff0000 to 32 bytes is the operanand2 we want: 0x0000000000000000000000000000000000000000000000000000000000ff0000
+///    operand2: `255*power` ---> 255*10000000000000000 ---> 111111110000000000000000 ---> 0xff0000
+///    Padding 0xff0000 to 32 bytes is the operanand2 we want: 0x0000000000000000000000000000000000000000000000000000000000ff0000
 ///
 ///
 /// Table layout:
-///     ARI_SUB: Arithmetic SUB lookup, src: Core circuit, target: Arithmetic circuit table, 9 columns
+///     ARI: Arithmetic SUB lookup, src: Core circuit, target: Arithmetic circuit table, 9 columns
 ///     UNUSED0: unused column, 1 column
 ///     BW0: Bitwise low 16 byte lookup, src: Core circuit, target: Bitwise circuit table, 5 columns
 ///     BW1: Bitwise high 16 byte lookup, src: Core circuit, target: Bitwise circuit table, 5 columns
