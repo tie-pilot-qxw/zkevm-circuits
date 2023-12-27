@@ -73,8 +73,8 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
         ///   t3 = a0 * b3 + a3 * b0 + a2 * b1 + a1 * b2, contribute to above 192 bit
         ///
         /// Finally we have:
-        ///  carry_lo = (t0 + (t1 << 64)) - c_lo
-        ///  carry_hi = (t2 + (t3 << 64) + carry_lo) - c_hi
+        ///  carry_lo = ((t0 + (t1 << 64)) - c_lo) >>128 (contribute to 65 bit)
+        ///  carry_hi = ((t2 + (t3 << 64) + carry_lo) - c_hi) >> 128 (contribute to 66 bit)
         let mut a_limbs = vec![];
         let mut b_limbs = vec![];
         a_limbs.push(a_lo_1);
@@ -112,6 +112,8 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
                 format!("c_{} = u16 sum", hi_or_lo),
                 c[i].clone() - u16_sum_for_c[i].clone(),
             ));
+            //The reason for carry lookup is that carry_lo or carry_hi needs to be shifted 128 bits to the left during calculation,
+            //because the characteristics of the finite field may have a value of carry_lo or carry_hi between 0 and 128 bits after left shift
             constraints.push((
                 format!("carry_{} = u16 sum", hi_or_lo),
                 carry[i].clone() - u16_sum_for_carry[i].clone(),
@@ -229,7 +231,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         5,
         Tag::Mul,
     );
-
+    //
     let _ = carry_hi_u16s.split_off(5);
     carry_hi_u16s.extend(vec![0; 3]);
     let row_6 = get_row(
