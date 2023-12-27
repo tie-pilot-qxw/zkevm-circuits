@@ -59,7 +59,8 @@ mod jumpi; //57
            // mod log4; //A4
 mod mload; //51
 mod mstore; //52
-mod mstore8; //53
+            // mod mstore8; //53
+            // todo: mstore8 execution gadget is not finished yet.
 mod number; //43
 mod pop; //50
 mod push1; //60

@@ -873,8 +873,30 @@ mod test {
     }
 
     #[test]
-    fn test_core_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
+    fn test_copy_parser() {
+        let a = U256::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+        let code = bytecode! {
+            PUSH1(0x1E)
+            PUSH1(0x03)
+            PUSH1(0x00)
+            CODECOPY
+            PUSH1(0x1E)
+            PUSH1(0x03)
+            PUSH1(0x00)
+            PUSH32(a)
+            EXTCODECOPY
+            PUSH1(0x1E)
+            PUSH1(0xef)
+            PUSH1(0x1F)
+            CODECOPY
+            PUSH1(0x1E)
+            PUSH1(0xef)
+            PUSH1(0x1F)
+            PUSH32(a)
+            EXTCODECOPY
+            STOP
+        };
+        let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code, &[]);
         let witness: Witness = Witness::new(&geth_data_test(
             trace,

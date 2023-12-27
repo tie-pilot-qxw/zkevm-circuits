@@ -482,9 +482,21 @@ mod test {
 
     #[test]
     fn test_core_parser() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code);
-        let witness: Witness = Witness::new(&geth_data_test(trace, &machine_code, &[], false));
+        let code = bytecode! {
+            PUSH1(1)
+            PUSH1(2)
+            ADD
+            STOP
+        };
+        let machine_code = code.to_vec();
+        let trace = trace_parser::trace_program(&machine_code, &[]);
+        let witness: Witness = Witness::new(&geth_data_test(
+            trace,
+            &machine_code,
+            &[],
+            false,
+            Default::default(),
+        ));
         let prover = test_simple_core_circuit(witness);
         prover.assert_satisfied_par();
     }

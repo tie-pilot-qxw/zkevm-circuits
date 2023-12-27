@@ -850,7 +850,7 @@ impl WitnessExecHelper {
         for i in 0..2 {
             let mut acc_pre = U256::from(0);
             for j in 0..16 {
-                let byte = value.byte(i * 16 + j);
+                let byte = value.byte(31 - (i * 16 + j));
 
                 // calc acc
                 let acc: U256 = if j == 0 {
@@ -1466,6 +1466,7 @@ impl core::Row {
         for (cell, value) in cells {
             assign_or_panic!(*cell, value);
         }
+        self.comments.extend(comments);
     }
 
     pub fn insert_log_left_selector(&mut self, log_left: usize) {

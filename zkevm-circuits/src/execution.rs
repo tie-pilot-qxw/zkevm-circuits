@@ -454,25 +454,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (format!("length of copy"), copy_lookup_length.expr() - len),
             (
-                format!("cnt of copy"),
-                len_is_zero.clone() * copy_lookup_cnt.clone()
-                    + if let Some(cnt) = cnt {
-                        (1.expr() - len_is_zero.clone()) * (copy_lookup_cnt - cnt.clone())
-                    } else {
-                        0.expr()
-                    },
+                format!("cnt of copy = 0 if len = 0"),
+                len_is_zero.clone() * copy_lookup_cnt.clone(),
             ),
             (
-                format!("acc of copy"),
-                len_is_zero.clone() * copy_lookup_acc.clone()
-                    + if let Some(acc) = acc {
-                        (1.expr() - len_is_zero.clone()) * (copy_lookup_acc - acc.clone())
-                    } else {
-                        0.expr()
-                    },
+                format!("acc of copy = 0 if len = 0"),
+                len_is_zero.clone() * copy_lookup_acc.clone(),
             ),
         ]);
-
+        if let Some(cnt) = cnt {
+            constraints.push((
+                format!("cnt of copy = some value"),
+                copy_lookup_cnt - cnt.clone(),
+            ))
+        }
+        if let Some(acc) = acc {
+            constraints.push((
+                format!("acc of copy = some value"),
+                copy_lookup_acc - acc.clone(),
+            ))
+        }
         constraints
     }
 
