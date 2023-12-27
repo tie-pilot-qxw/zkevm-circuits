@@ -18,18 +18,59 @@ const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
 const BYTE_MAX_INDEX: u8 = 31;
+const EXP_OVERFLOW_INDEX_BOUNDARY: u8 = 32;
 
-/// core rows
 ///
-/// ```
-/// +---+-------+-------+-------+---------+
-/// |cnt| 8 col | 8 col | 8 col |  8col   |
-/// +---+-------+-------+-------+---------+
-/// | 2 | ARI_SUB_LOOKUP(9)|UNUSED(1) |BITWISE_LO_LOOKUP(5) | BITWISE_HI_LOOKUP(5) | UNUSED(22) |
-/// | 1 | STATE | STATE | STATE | EXP_LOOKUP(6)  |
-/// | 0 | DYNA_SELECTOR   | AUX           |
-/// +---+-------+-------+-------+---------+
-/// ```
+/// BYTE gadget:
+/// BYTE algorithm overview：
+///    1.pop the two elements on top of the stack
+///       stack_top0: byte_index、stack_top1: value
+///    2.get the byte_index byte of value (big-endian order)
+///    example:
+///      PUSH5: 0x123456789a
+///      PUSH1: 0x1d
+///      BYTE
+///      get a result is 0x56 (target_byte)
+///      because it is big endian, 0x123456789a is actually 0x000000000000000000000000000000000000000000000000000000123456789a
+///      so the 30th (0x1d) byte is 0x56
+///  note: when byte_index > 31, the result (target_byte) is 0
+///
+/// Use bitwise subcircuit's sum2 to get target_byte
+///    operand1: 0x000000000000000000000000000000000000000000000000000000123456789a
+///    operand2: 0x0000000000000000000000000000000000000000000000000000000000ff0000
+///    value: operand1 & operand2 --> 0x0000000000000000000000000000000000000000000000000000000000560000
+///  we only need to traverse each byte of byte and add the value of each byte, the result (0x56) is the result we want (target_byte)
+///  Bitwise circuit will help us complete the operation of `operadn1 & operand2`，we can get the value of sum2 from the bitwise table
+///
+/// How to construct operand2?
+///    byte_index: 0x1d (29)
+///    value: 0x000000000000000000000000000000000000000000000000000000123456789a
+///
+///    base_value: 100000000 (256)
+///    pow_index: 31-byte_index
+///    power: base_value^(pow_index) ---> 256^(31-29) ---> 256^2 ---> 10000000000000000
+///    operand2: `255*power` ---> 255*10000000000000000 ---> 111111110000000000000000 ---> 0xff0000
+///    Padding 0xff0000 to 32 bytes is the operanand2 we want: 0x0000000000000000000000000000000000000000000000000000000000ff0000
+///
+///
+/// Table layout:
+///     ARI: Arithmetic SUB lookup, src: Core circuit, target: Arithmetic circuit table, 9 columns
+///     UNUSED0: unused column, 1 column
+///     BW0: Bitwise low 16 byte lookup, src: Core circuit, target: Bitwise circuit table, 5 columns
+///     BW1: Bitwise high 16 byte lookup, src: Core circuit, target: Bitwise circuit table, 5 columns
+///     UNUSED1: 12 columns
+///     STATE0:  State lookup(stack_top0), src: Core circuit, target: State circuit table, 8 columns
+///     STATE1:  State lookup(stack_top1), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  stack lookup(push_value), src: Core circuit, target: State circuit table, 8 columns
+///     EXP: EXP lookup, 6 columns
+/// +---+---------+----------------+--------+---------+
+/// |cnt| 8 col   |   8 col        | 8 col  |  8col   |
+/// +---+---------+----------------+--------+---------+
+/// | 2 |  ARI    | UNUSED0 | BW0  | BW1 | UNUSED1    |
+/// | 1 | STATE0  |    STATE1      | STATE2 | EXP     |
+/// | 0 |            DYNA_SELECTOR   | AUX            |
+/// +---+---------+----------------+--------+---------+
+///
 pub struct ByteGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -73,7 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // arithmetic_operands[5] is result_lo
         // arithmetic_operands[6] is carry_hi
         // arithmetic_operands[7] is carry_lo
-        // todo: when carry_hi=1, the sub result is negative (very large number in F), we need to handle it by letting push_stack value = 0
+        // when carry_hi=1, the sub result is negative (very large number in F), we need to handle it by letting push_stack value = 0
         let (arithmetic_tag, arithmetic_operands) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
 
@@ -159,15 +200,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "arithmetic_sub_operand2_lo = stack_top0_lo(byte_index_lo)".into(),
                 arithmetic_operands[3].clone() - stack_operands[0][1].clone(),
             ),
-            // arithmetic_sub_result_hi is exp_index_hi
-            (
-                "arithmetic_sub_result_hi = exp_index_hi".into(),
-                arithmetic_operands[4].clone() - exp_lookup_index[0].clone(),
-            ),
-            (
-                "arithmetic_sub_result_low = exp_index_low".into(),
-                arithmetic_operands[5].clone() - exp_lookup_index[1].clone(),
-            ),
             // exp_base is 256, so exp_base_hi is 0, exp_base_lo is 256
             ("exp_lookup_base_hi == 0".into(), exp_lookup_base[0].clone()),
             (
@@ -182,6 +214,45 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "exp_lookup_pow[1] * 255 = bitwise_lookup_acc1_lo".into(),
                 exp_lookup_pow[1].clone() * 255.expr() - bitwise_lookup_lo_acc_vers[1].clone(),
+            ),
+            // if carry_hi=0 it means stack_top0(byte_index) <= 31
+            // so 31-byte_index result is normal and arithmetic_sub_result is exp_index
+            (
+                "arithmetic_sub_carry_hi=0 ==> arithmetic_sub_result_hi = exp_index_hi".into(),
+                (1.expr() - arithmetic_operands[6].clone())
+                    * (arithmetic_operands[4].clone() - exp_lookup_index[0].clone()),
+            ),
+            (
+                "arithmetic_sub_carry_hi=0 ==> arithmetic_sub_result_low = exp_index_low".into(),
+                (1.expr() - arithmetic_operands[6].clone())
+                    * (arithmetic_operands[5].clone() - exp_lookup_index[1].clone()),
+            ),
+            // If carry_hi=1, it means stack_top0(byte_index) > 31, so 31-byte_index must overflow，
+            // use 32 to calculate the overflow value of base.pow()，and the result is 0
+            (
+                "arithmetic_sub_carry_hi=1 ==> push_stack_value_hi=0".into(),
+                arithmetic_operands[6].clone() * stack_operands[2][0].clone(),
+            ),
+            (
+                "arithmetic_sub_carry_hi=1 ==> push_stack_value_low=0".into(),
+                arithmetic_operands[6].clone() * stack_operands[2][1].clone(),
+            ),
+            (
+                "arithmetic_sub_carry_hi=1 ==> exp_lookup_pow[0]=0".into(),
+                arithmetic_operands[6].clone() * exp_lookup_pow[0].clone(),
+            ),
+            (
+                "arithmetic_sub_carry_hi=1 ==> exp_lookup_pow[1]=0".into(),
+                arithmetic_operands[6].clone() * exp_lookup_pow[1].clone(),
+            ),
+            (
+                "arithmetic_sub_carry_hi=1 ==>  exp_index_hi=0".into(),
+                arithmetic_operands[6].clone() * exp_lookup_index[0].clone(),
+            ),
+            (
+                "arithmetic_sub_carry_hi=1 ==>  exp_index_low=32".into(),
+                arithmetic_operands[6].clone()
+                    * (exp_lookup_index[1].clone() - EXP_OVERFLOW_INDEX_BOUNDARY.expr()),
             ),
         ]);
         constraints
@@ -221,17 +292,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let value_lo = value.low_u128();
 
         // get arithmetic_sub rows
-        // operand1 is 31
-        // operand2 is byte_index(stack_top0)
-        // result is exp_index
+        // operand1: 31
+        // operand2: byte_index(stack_top0)
+        // result[0]:  value
+        // result[1]: carry value
+        // note: if byte_index > 31, then 31-byte_index will definitely overflow, and result[0] will be a very large value
         let byte_index_max = U256::from(BYTE_MAX_INDEX);
         let (arithmetic_sub_rows, result) =
             operation::sub::gen_witness(vec![byte_index_max, byte_index]);
 
-        // todo: calc use exp circuit
-        // 256 ^ index
-        // if index >= 32, the result is 0
-        let index: U256 = result[0];
+        // todo: calc base^index by exp circuit
+        // exp circuit: base.pow(index) (base^index, if an overflow occurs in the exp circuit, the result is 0)
+        // if byte_index > 31, result[0] will be a very large value, 256.pow(result[0]) will definitely overflow, and The result is 0,
+        // so when result[0] is a large value, 32 is forced to be used for overflow operation
+        let index = if byte_index > byte_index_max {
+            U256::from(EXP_OVERFLOW_INDEX_BOUNDARY)
+        } else {
+            result[0]
+        };
         let base: U256 = U256::from(256);
         let (power, _) = base.overflowing_pow(index);
 
