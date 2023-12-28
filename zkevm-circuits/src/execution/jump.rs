@@ -12,12 +12,18 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-/// +---+-------+-------+-------+--------------------------+
-/// |cnt| 8 col | 8 col | 8 col |             8col         |
-/// +---+-------+-------+-------+--------------------------+
-/// | 1 | STATE |       |       |  Bytecode LookUp         |
-/// | 0 | DYNA_SELECTOR   | AUX                            |
-/// +---+-------+-------+-------+--------------------------+
+/// Overview
+///   pop an element from the top of the stack as the target PC value to jump to，and the target PC must be JUMPDEST.
+///   
+/// Table Layout:
+///    STATE: State lookup(stack_top0), src: Core circuit, target: State circuit table, 8 columns
+///    BYTECODE: Bytecode lookup, make sure the target PC exists in Bytecode, src: Core circuit, target: Bytecode circuit table, 8 columns
+/// +---+-------+-------+-------+------------+
+/// |cnt| 8 col | 8 col | 8 col |   8col     |
+/// +---+-------+-------+-------+------------+
+/// | 1 | STATE |       |       |  BYTECODE |
+/// | 0 | DYNA_SELECTOR   | AUX             |
+/// +---+-------+-------+-------+-----------+
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
@@ -48,7 +54,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
 
         let auxiliary_delta = AuxiliaryDelta {
@@ -70,6 +75,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
+        // use CoreSinglePurposeOutcome gadget to constrain PC, Callid,tx_idx,code_addr
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::To(value_lo.clone()),
             ..Default::default()
@@ -85,6 +91,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "opcode is JUMP".into(),
                 opcode - OpcodeId::JUMP.as_u8().expr(),
             ),
+            // because the target PC is a value in the u64 range, value_hi is 0
             ("stack top value_hi = 0".into(), value_hi - 0.expr()),
             (
                 "bytecode lookup pc = stack top value_lo".into(),
@@ -94,6 +101,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "bytecode lookup addr = code addr".into(),
                 code_addr - lookup_addr,
             ),
+            // target PC must be JUMPDEST, which is the opcode, not the byte of the push.
             ("bytecode lookup not_code = 0".into(), not_code),
         ]);
         constraints

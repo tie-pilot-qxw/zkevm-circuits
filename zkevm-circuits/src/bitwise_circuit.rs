@@ -20,6 +20,34 @@ use std::marker::PhantomData;
 /// Number of operands in one row
 pub(crate) const NUM_OPERAND: usize = 3;
 
+/// Overview:
+///  a circuit that specifically handles bitwise operations such as AND OR XOR BYTE。
+///  in this circuit, integers are broken into bytes and logical operations are performed on bytes.
+///
+/// Table layout
+/// +---+--------+--------+--------+---------+------+-------+-------+-------+
+/// |tag| byte_0 | byte_1 | byte_2 |  acc_0 | acc_1 | acc_2 | sum_2 |  cnt  |
+/// +---+--------+--------+--------+-------+--------+-------+-------+-------+
+/// tag: Nil、And、Or、Xor (Nil is the default value)
+/// byte_0: operand1
+/// byte_1: operand2
+/// byte_2: calc result(And: operand1 & operand2、Or: operand1 | operand2, Xor: operand1 ^ operand2)
+/// acc_0: accumulated value of byte_0, `acc_0=byte_0+acc_0_pre*256`
+/// acc_1: accumulated value of byte_1, `acc_1=byte_1+acc_1_pre*256`
+/// acc_2: accumulated value of byte_2, `acc_2=acc_2_pre*256`
+/// sum_2: cumulative sum of byte_2, `sum_2=byte_2+sum2_pre`
+/// cnt: counter, ranging from 0 to 15
+///
+/// Example:
+///  0xabcdef AND 0xaabbcc
+///  | tag  | byte_0 | byte_1 | byte_2 | acc_0    | acc_1    | acc_2    | sum_2 | cnt  |
+///  | ---- | ------ | ------ | ------ | -------- | -------- | -------- | ----- | ---- |
+///  | And  | 0xab   | 0xaa   | 0xaa   | 0xab     | 0xaa     | 0xaa     | 0xaa  | 0    |
+///  | And  | 0xcd   | 0xbb   | 0x89   | 0xabcd   | 0xaabb   | 0xaa89   | 0x133 | 1    |
+///  | And  | 0xef   | 0xcc   | 0xcc   | 0xabcdef | 0xaabbcc | 0xaa89cc | 0x1ff | 2    |
+///
+/// note: in actual operation, the integer participating in the operation will be divided into 16 bytes, if the length
+///       after division is not 16 bytes, 0 will be added.
 #[derive(Clone)]
 pub struct BitwiseCircuitConfig<F: Field> {
     q_enable: Selector,
@@ -45,10 +73,13 @@ pub struct BitwiseCircuitConfigArgs {
 
 impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
     type ConfigArgs = BitwiseCircuitConfigArgs;
+
+    /// Constructor， used to construct config object
     fn new(
         meta: &mut ConstraintSystem<F>,
         Self::ConfigArgs { fixed_table }: Self::ConfigArgs,
     ) -> Self {
+        // initialize columns
         let q_enable = meta.complex_selector();
         let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let bytes: [Column<Advice>; NUM_OPERAND] = std::array::from_fn(|_| meta.advice_column());
@@ -58,6 +89,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
         let cnt_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
 
+        // construct config object
         let config = Self {
             q_enable,
             tag,
@@ -69,6 +101,19 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             fixed_table,
         };
 
+        // Bitwise gate constraints
+        //  the default tag of Nil. Currently, the rows with Nil tag are rows without actual data, they exist to make up the number of table rows, that is, padding rows.
+        //  all values in rows with tag Nil should be default values, that is, byte_0, byte_1, byte_2, acc_0, acc_1,acc_2, sum_2=0, cnt are all 0.
+        // if the tage of the current row is not Nil, there are the following constraints:
+        // 1) each operation is based on a group of 16 bytes, that is, the range of cnt value is 0~15，if cnt_next=0, then cnt_cur must be 15
+        // 2）the row with cnt 0 is the first row of an operation, acc_0=byte_0、acc_1=byte_1、acc_2=byte_2、sum_2=byte_2
+        // 3) if cnt is not equal to 0, the values of acc_0, acc_1, acc_2, and sum2 need to be calculated:
+        //    acc_0=byte_0+acc_0_pre*256
+        //    acc_1=byte_1+acc_1_pre*25
+        //    acc_2=acc_2_pre*256
+        //    sum_2=byte_2+sum2_pre
+        // 4) if cnt is not equal to 0, the tag of the current row should be equal to the tag of the previous row,
+        //    because it is in the same calculation.
         meta.create_gate("BITWISE", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let tag = config.tag.value(Rotation::cur())(meta);
@@ -112,7 +157,12 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
                 ),
             ];
 
-            // tag_is_not_nil, cnt != 0 ---> acc_0=byte_0+acc_0_pre*256，acc_1=byte_1+acc_1_pre*256，acc_2=acc_2_pre*256, sum_2=byte_2+sum2_pre，tag=tag_pre
+            // tag_is_not_nil, cnt != 0 --->
+            //    tag=tag_pre
+            //    acc_0=byte_0+acc_0_pre*256
+            //    acc_1=byte_1+acc_1_pre*256
+            //    acc_2=acc_2_pre*256
+            //    sum_2=byte_2+sum2_pre
             let cnt_is_not_zero = 1.expr() - cnt_is_zero.clone();
             constraints.extend(vec![
                 (
@@ -180,6 +230,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
 }
 
 impl<F: Field> BitwiseCircuitConfig<F> {
+    /// assign data to circuit table cell
     fn assign_row(
         &self,
         region: &mut Region<'_, F>,
@@ -229,6 +280,7 @@ impl<F: Field> BitwiseCircuitConfig<F> {
         Ok(())
     }
 
+    /// set the annotation information of the circuit column
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
         self.tag.annotate_columns_in_region(region, "BITWISE_tag");
         region.name_column(|| "BITWISE_byte0", self.bytes[0]);
@@ -241,7 +293,8 @@ impl<F: Field> BitwiseCircuitConfig<F> {
         region.name_column(|| "BITWISE_cnt", self.cnt);
     }
 
-    /// lookup target: fixed table
+    /// fixed lookup, src: Bitwise circuit, target: Fixed circuit table
+    /// use lookup table operations to ensure that the operations of And, Or, and Xor are correct.
     pub fn fixed_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
@@ -297,8 +350,12 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
         layouter.assign_region(
             || "bitwise circuit",
             |mut region| {
+                // set column information
                 config.annotate_circuit_in_region(&mut region);
+
+                // assgin circuit table value
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
@@ -317,6 +374,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
     }
 }
 
+/// test code
 #[cfg(test)]
 mod test {
     use super::*;
@@ -328,10 +386,11 @@ mod test {
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::plonk::Circuit;
     use serde::Serialize;
-    use std::fs::File;
 
     const TEST_SIZE: usize = 50;
 
+    // used to test whether the function of Bitwise circuit Lookup is correct
+    // Bitwise lookup, src: BitwiseTestCircuit  target: Bitwise circuit
     #[derive(Clone, Debug, Default, Serialize)]
     pub struct BitwiseTestRow {
         pub tag: Tag,
@@ -354,6 +413,8 @@ mod test {
 
     impl<F: Field> SubCircuitConfig<F> for BitwiseTestCircuitConfig<F> {
         type ConfigArgs = ();
+
+        /// Constructor， used to construct config object
         fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
             let q_enable = meta.complex_selector();
             let fixed_table = FixedTable::construct(meta);
@@ -371,6 +432,7 @@ mod test {
         }
     }
     impl<F: Field> BitwiseTestCircuitConfig<F> {
+        /// assign BitwiseTestCircuit rows
         pub fn assign_with_region(
             &self,
             region: &mut Region<'_, F>,
@@ -385,6 +447,8 @@ mod test {
             Ok(())
         }
     }
+
+    /// BitwiseTestCircuitConfig is a Circuit used for testing
     #[derive(Clone, Default, Debug)]
     pub struct BitwiseTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
@@ -398,15 +462,20 @@ mod test {
             Self::default()
         }
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            // construct config object
             let config = Self::Config::new(meta, ());
 
+            // Lookup logic code
+            // used to verify whether acc_0, acc_1, accc_2, sum2 can be correctly looked up
             meta.lookup_any("bitwise test lookup", |meta| {
+                // get the value of the specified Column in BitwiseTestCircuit
                 let bitwise_entry_tag = meta.query_advice(config.tag, Rotation::cur());
                 let bitwise_entry_acc_0 = meta.query_advice(config.acc_0, Rotation::cur());
                 let bitwise_entry_acc_1 = meta.query_advice(config.acc_1, Rotation::cur());
                 let bitwise_entry_acc_2 = meta.query_advice(config.acc_2, Rotation::cur());
                 let bitwise_entry_sum_2 = meta.query_advice(config.sum_2, Rotation::cur());
 
+                // get the value of the specified Column in BitwiseCircuit
                 let bitwise_circuit_tag = config.bitwise_circuit.tag.value(Rotation::cur())(meta);
                 let bitwise_circuit_acc_0 =
                     meta.query_advice(config.bitwise_circuit.acc_vec[0], Rotation::cur());
@@ -418,7 +487,6 @@ mod test {
                     meta.query_advice(config.bitwise_circuit.sum_2, Rotation::cur());
 
                 let q_enable = meta.query_selector(config.q_enable);
-
                 vec![
                     (bitwise_entry_tag, bitwise_circuit_tag),
                     (
@@ -496,6 +564,8 @@ mod test {
         (0..BitwiseCircuit::<Fr, TEST_SIZE>::unusable_rows().0)
             .for_each(|_| witness.bitwise.insert(0, Default::default()));
 
+        // because operator1 and operand2 are both u256 values, and each Bitwise operation is 16 bytes that is, 128bit,
+        // so operator1 and operand2 need to be split into low 128 bits and high 128 bits.
         let operand1 = U256::from(op1);
         let operand2 = U256::from(op2);
 
@@ -509,6 +579,7 @@ mod test {
         let bitwise_lo_rows = bitwise::Row::from_operation::<Fr>(tag, operand1_lo, operand2_lo);
         let bitwise_hi_rows = bitwise::Row::from_operation::<Fr>(tag, operand1_hi, operand2_hi);
 
+        // add bitwise rows to witness
         witness.bitwise.extend(bitwise_lo_rows);
         witness.bitwise.extend(bitwise_hi_rows);
 
@@ -516,10 +587,13 @@ mod test {
         let bitwise_test_rows = vec![lookup_expect_acc_row];
 
         witness.print_csv();
+
+        // execution circuit
         let prover = test_simple_bitwise_circuit::<Fr>(witness, bitwise_test_rows);
         prover.assert_satisfied_par();
     }
 
+    /// Test And operation
     #[test]
     fn test_bitwise_acc_lookup1() {
         let tag = Tag::And;
@@ -537,6 +611,7 @@ mod test {
         test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
     }
 
+    /// Test And operation
     #[test]
     fn test_bitwise_acc_lookup2() {
         let tag = Tag::And;
@@ -554,6 +629,7 @@ mod test {
         test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
     }
 
+    /// Test Or operation
     #[test]
     fn test_bitwise_acc_lookup3() {
         let tag = Tag::Or;
@@ -571,6 +647,7 @@ mod test {
         test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
     }
 
+    /// Test Xor operation
     #[test]
     fn test_bitwise_acc_lookup4() {
         let tag = Tag::Xor;

@@ -17,6 +17,81 @@ use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, S
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+/// Overview:
+///    Copy operation in the EVM is usually a data copy of an uncertain length, copying the data from Src to Dst
+///    The following operations require the use of Copy operations：
+///        CODECOPY： copy data from Bytecode to Memory
+///        EXTCODECOPY：copy data from Bytecode to Memory
+///        CALLDATACOPY：copy data from Calldata(stored in the State table) to Memory
+///        RETURN：copy data from Memory to Returndata
+///        RETURNDATACOPY：copy data from Returndata to Memory
+///        LOG：copy data from Memory to Log
+///        CALLDATA_FROMPUBLIC：copy data from Public Calldata to State Calldata
+///        CALLDATA_FROMCALL：copy data from Memory to State Calldata
+///    
+/// Table layout
+/// +----+----------+-------+-------------+------------+----------+---------+------------+-------------+-------+-------+-------+
+/// |byte| src_type | sr_id | src_pointer |  src_stamp | dst_type | dst_id | dst_pointer |  dst_stamp  |  cnt  |  len  |  acc  |
+/// +---+----------+--------+-------------+------------+----------+--------+-------------+-------------+-------+-------+-------+
+///     A row can be divided into two parts, data Src and data Dst，because the length of the copied data is not fixed, the
+///   column `len` is defined. In a copy operation, one Byte will generate a row. Len is fixed (the length of this copy),
+///   and cnt is increased row by row of.
+///     For the meaning of the columns, please refer to the comments of the CopyCircuitConfig structure code below.
+///     The values of src_type and dst_type are as follows:
+///        Zero, Memory, Calldata, Returndata, PublicLog, PublicCalldata, Bytecode, Null
+/// note:
+///   acc is the accumulated value of bytes,the value in the acc column is currently only used in two operations: MLOAD and MSTORE.
+///   Zero is the default type. If the row is of type Zero, the values are all 0（if Copy needs to be padded with 0s, you can use the Zero type）.
+///   if src_type is Null, the sr_id, src_pointer, src_stamp are all 0.
+///   if dst_type is Null, the dst_id, dst_pointer, dst_stamp are all 0.
+///   
+/// How to ensure the correctness of Copy data？
+///  Use `Lookup` operation, Lookup data src table, Lookup data target table.
+///  rules for Lookup data source:
+///     1. src_type is Zero/Null: no Lookup is performed.
+///     2. src_type is Memory/Calldata/Runterdata:  
+///          Lookup src(Copy Circuit table): <tag=Memory/Calldata/Returndata, src_id, src_pointer+cnt, src_stamp+cnt, byte, `is_write=0`>
+///          Lookup target(State Circuit table): <tag, call_id, pointer_lo, stamp, value_lo, is_write>
+///         That is `LookupEntry::State`
+///     3. src_type is Bytecode:
+///          Lookup src(Copy Circuit table): <src_pointer+cnt, src_id, byte>
+///          Lookup target(Bytecode Circuit table): <pc, addr, bytecode>
+///          That is `LookupEntry::State`
+///     4. src_type is PublicCalldata:
+///         Lookup src(Copy Circuit table): <tag=Calldata, src_id, src_pointer+cnt, byte>
+///         Look target(Public Circuit table): <tag, tx_idx, idx, value>
+///
+///   rules for Lookup data target:
+///     1. dst_type is Zero/Null: no Lookup is performed.
+///     2. dst_type is Memory/Calldata/Runterdata：
+///          Lookup src(Copy Circuit table): <tag=Memory/Calldata/Returndata, src_id, src_pointer+cnt, src_stamp+cnt, byte, `is_write=1`>
+///          Lookup target(State Circuit table): <tag, call_id, pointer_lo, stamp, value_lo, is_write>
+///         That is `LookupEntry::State`
+///     3. dst_type is PublicLog:
+///          Lookup src(Copy Circuit table): <tag=tx_log, log_tag=bytes, dst id, src_pointer + cnt, dst_stamp, byte, len>
+///          Lookup target(Public Circuit table): <tag, tx_idx, idx, value>
+///          That is `LookupEntry::Public`
+///          note: the tag mentioned here is the Tag of Public
+///
+///  For example：
+///    Execution CODECOPY instruction, src_type: Bytecode, dst_type: Memory
+///     Lookup data source(Bytecode table):
+///         Lookup src(Copy Circuit table): <src_pointer+cnt, src_id, byte>
+///         Lookup target(Bytecode Circuit table): <pc, addr, bytecode>
+///     Lookup data target(State table):
+///         Lookup src(Copy Circuit table): <tag=Memory, src_id, src_pointer+cnt, src_stamp+cnt, byte, is_write=1>
+///         Lookup target(State Circuit): <tag, call_id, pointer_lo, stamp, value_lo, is_write>
+///
+/// Table example:
+///    CODECOPY operation, src_type is Bytecode, dst_type is Memory(stored in the State table)
+///     | byte | src_type   | src_id | src_pointer | src_stamp | dst_type | dst_id | dst_pointer | dst_stamp  | cnt | len |     acc      |
+///     |------|------------|-------|--------------|-----------|----------|--------|------------|-------------|-----|-----|--------------|
+///     | 0x12 | `Bytecode` | 0xaa  |     0x00    |    nil     | `Memory` | callid |   0x00    |    stamp     | 0   | 5   | 0x12         |
+///     | 0x34 | `Bytecode` | 0xaa  |     0x00    |    nil    | `Memory` | callid |    0x00    |    stamp     | 1   | 5   | 0x1234       |
+///     | 0x56 | `Bytecode` | 0xaa  |     0x00    |    nil    | `Memory` | callid |    0x00    |    stamp     | 2   | 5   | 0x123456     |
+///     | 0x78 | `Bytecode` | 0xaa  |     0x00    |    nil    | `Memory` | callid |    0x00    |    stamp     | 3   | 5   | 0x12345678   |
+///     | 0x9a | `Bytecode` | 0xaa  |     0x00    |    nil    | `Memory` | callid |    0x00    |    stamp     | 4   | 5   | 0x123456789a |
+
 #[derive(Clone)]
 pub struct CopyCircuitConfig<F: Field> {
     pub q_enable: Selector,
@@ -75,6 +150,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             public_table,
         }: Self::ConfigArgs,
     ) -> Self {
+        // initialize columns
         let q_enable = meta.complex_selector();
         let byte = meta.advice_column();
         let src_id = meta.advice_column();
@@ -106,6 +182,8 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
 
         let src_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let dst_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+
+        // construct config object
         let config = Self {
             q_enable,
             byte,
@@ -128,6 +206,21 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             acc,
         };
 
+        // Copy gate constraints
+        // 1) if len=0, it means that the current row should be a pad row, that is, the current row is not the actual
+        // data and is specially used to make up the number of table rows, that is, all value are 0.
+        // 2) if src_type=Zero, byte, src_id, src_pointer, src_stamp are all 0.
+        //    if dst_type=Zero, byte, dst_id, dst_pointer, dst_stamp are all 0.
+        // 3) if src_type=Null,src_id, src_pointer, src_stamp are all 0.
+        //    if dst_type=Null, dst_id, dst_pointer, dst_stamp are all 0.
+        // 4) if len-cnt-1=0, that is, the current row is the last byte copied by this copy operation, then the next row
+        // should be the first row of another copy operation or the padding row, so cnt_next should be 0.
+        //    if len=0, the same as len-cnt-1=0, that is, the current line is a padding line, then cnt_next should be 0
+        // 5) if len-cnt-1 != 0 && cnt!=0, it means that the current row is the actual data of Copy, and cnt is increasing,
+        // so cnt_next-cnt_cur-1=0，and src_type_next=src_type_cur, src_id_next=src_id_cur, src_pointer_next=src_pointer_cur,
+        // dst_type_next=dst_type_cur,dst_id_next=dst_id_cur, dst_pointer_next=dst_pointer_cur,dst_stamp_next=dst_stamp_cur, len_next=len_cur
+        // 6) if cnt=0, acc=byte
+        // 7) if cnt!=0, it means that the current data is actually copied data, and the value of acc should satisfy the operation `acc=byte+acc_prev*256`
         meta.create_gate("COPY", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let src_tag = config.src_tag.value(Rotation::cur())(meta);
@@ -363,9 +456,10 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             constraints
         });
 
-        // lookups
+        // use Lookup operation to ensure the correctness of Copy data
         // src bytecode lookup
         config.src_bytecode_lookup(meta, "COPY_src_bytecode_lookup");
+
         // src memory lookup
         config.src_state_lookup(
             meta,
@@ -373,6 +467,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             Tag::Memory,
             state::Tag::Memory,
         );
+
         // src call-data lookup
         config.src_state_lookup(
             meta,
@@ -427,6 +522,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
 }
 
 impl<F: Field> CopyCircuitConfig<F> {
+    /// assign data to circuit table cell
     fn assign_row(
         &self,
         region: &mut Region<'_, F>,
@@ -495,6 +591,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         Ok(())
     }
 
+    /// set the annotation information of the circuit column
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
         region.name_column(|| "COPY_byte", self.byte);
         region.name_column(|| "COPY_src_id", self.src_id);
@@ -518,7 +615,9 @@ impl<F: Field> CopyCircuitConfig<F> {
             .annotate_columns_in_region(region, "COPY_len_sub_cnt_one_is_zero");
     }
 
-    /// bytecode src lookup
+    /// Lookup data source:
+    ///     lookup src: Copy circuit
+    ///     lookup target: Bytecode circut table
     pub fn src_bytecode_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         meta.lookup_any(name, |meta| {
             let byte_code_entry = LookupEntry::Bytecode {
@@ -542,7 +641,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         });
     }
 
-    /// state src lookup
+    /// Lookup data source:
+    ///     lookup src: Copy circuit
+    ///     lookup target: State circut table
     pub fn src_state_lookup(
         &self,
         meta: &mut ConstraintSystem<F>,
@@ -577,7 +678,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         });
     }
 
-    /// publicCallData src lookup
+    /// Lookup data source:
+    ///     lookup src: Copy circuit
+    ///     lookup target: Public circut table
     pub fn src_public_calldata_lookup(
         &self,
         meta: &mut ConstraintSystem<F>,
@@ -611,7 +714,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         });
     }
 
-    /// publicLog dst lookup
+    /// Lookup data target:
+    ///     lookup src: Copy circuit
+    ///     lookup target: Public circut table
     pub fn dst_public_log_lookup(
         &self,
         meta: &mut ConstraintSystem<F>,
@@ -645,7 +750,9 @@ impl<F: Field> CopyCircuitConfig<F> {
         });
     }
 
-    /// state dst lookup
+    /// Lookup data target:
+    ///     lookup src: Copy circuit
+    ///     lookup target: State circut table
     pub fn dst_state_lookup(
         &self,
         meta: &mut ConstraintSystem<F>,
@@ -705,8 +812,12 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
         layouter.assign_region(
             || "copy circuit",
             |mut region| {
+                // set column information
                 config.annotate_circuit_in_region(&mut region);
+
+                // assgin circuit table value
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+
                 // sub circuit need to enable selector
 
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
@@ -759,6 +870,7 @@ mod test {
     impl<F: Field> SubCircuitConfig<F> for CopyTestCircuitConfig<F> {
         type ConfigArgs = ();
         fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+            // initialize columns
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let (instance_addr, instance_bytecode) =
@@ -787,6 +899,7 @@ mod test {
             let public_circuit =
                 PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
+            // construct config object
             let copy_circuit = CopyCircuitConfig::new(
                 meta,
                 CopyCircuitConfigArgs {
@@ -807,6 +920,7 @@ mod test {
         }
     }
 
+    /// CopyTestCircuit is a Circuit used for testing
     #[derive(Clone, Default, Debug)]
     pub struct CopyTestCircuit<F: Field> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
@@ -872,6 +986,7 @@ mod test {
         prover
     }
 
+    /// test the functionality of CopyCircuit using CODECOPY and EXTCODECOPY
     #[test]
     fn test_copy_parser() {
         let a = U256::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
@@ -898,6 +1013,7 @@ mod test {
         };
         let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code, &[]);
+        // create witness object
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,
@@ -906,6 +1022,8 @@ mod test {
             Default::default(),
         ));
         witness.print_csv();
+
+        // execution circuit
         let prover = test_simple_copy_circuit(witness);
         prover.assert_satisfied_par();
     }
