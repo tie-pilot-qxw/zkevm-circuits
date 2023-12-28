@@ -240,7 +240,7 @@ mod test {
         }
     }
     fn test_fixed_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(FixedCircuit::<Fp>::num_rows(&witness));
         let circuit = FixedTestCircuit::<Fp>::new(witness);
         let instance: Vec<Vec<Fp>> = circuit.0.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
