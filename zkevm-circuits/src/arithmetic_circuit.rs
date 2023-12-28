@@ -118,7 +118,7 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         index: usize,
     ) -> impl FnOnce(&mut VirtualCells<'_, F>) -> [Expression<F>; 2] {
         assert!(index < 6);
-        let (rotation) = if index < 2 {
+        let rotation = if index < 2 {
             Rotation::cur()
         } else if index < 4 {
             Rotation::prev()
@@ -380,6 +380,22 @@ mod test {
             arithmetic,
             ..Default::default()
         };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_mul_witness() {
+        let (arithmetic, result) =
+            self::operation::mul::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();

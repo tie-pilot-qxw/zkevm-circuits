@@ -122,10 +122,9 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         u16_6: c_u16s[6].into(),
         u16_7: c_u16s[7].into(),
     };
-    (
-        vec![row_1, row_0],
-        vec![c, U256::from(carry_hi as u8) << 128],
-    )
+
+    let carry = (U256::from(carry_hi as u8) << 128) + U256::from(carry_lo as u8);
+    (vec![row_1, row_0], vec![c, carry])
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
@@ -190,7 +189,7 @@ mod test {
             arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo,
             arith[1].operand_1_hi + arith[0].operand_0_hi
         );
-        assert_eq!(U256::from(1), result[1]);
+        assert_eq!(U256::from(1), result[1] >> 128);
     }
     #[test]
     fn test_gen_witness_gt() {
@@ -213,7 +212,7 @@ mod test {
             arith[1].operand_0_hi + (arith[0].operand_1_hi << 128) - arith[0].operand_1_lo,
             arith[1].operand_1_hi + arith[0].operand_0_hi
         );
-        assert_eq!(U256::from(1), result[1]);
+        assert_eq!(U256::from(1), result[1] >> 128);
         // test a == b
         let (arithmetic, result) = gen_witness(vec![b, b]);
         assert_eq!(
