@@ -13,6 +13,8 @@ use halo2_proofs::poly::Rotation;
 
 pub const U10_TAG: usize = 256;
 const PUBLIC_NUM_VALUES: usize = 4;
+pub const SEPARATOR: &str = "-";
+pub const ANNOTATE_SEPARATOR: &str = ",";
 
 macro_rules! extract_lookup_expression {
     (state, $value:expr) => {
@@ -552,6 +554,138 @@ pub enum LookupEntry<F> {
 impl<F: Field> LookupEntry<F> {
     pub(crate) fn conditional(self, condition: Expression<F>) -> Self {
         Self::Conditional(condition, self.into())
+    }
+}
+
+impl<F: Field> LookupEntry<F> {
+    pub fn identifier(&self) -> String {
+        let strings = match self {
+            LookupEntry::Bytecode { addr, pc, opcode } => {
+                vec![addr.identifier(), pc.identifier(), opcode.identifier()]
+            }
+            LookupEntry::BytecodeFull {
+                addr,
+                pc,
+                opcode,
+                not_code,
+                value_hi,
+                value_lo,
+                cnt,
+                is_push,
+            } => {
+                vec![
+                    addr.identifier(),
+                    pc.identifier(),
+                    opcode.identifier(),
+                    not_code.identifier(),
+                    value_hi.identifier(),
+                    value_lo.identifier(),
+                    cnt.identifier(),
+                    is_push.identifier(),
+                ]
+            }
+            LookupEntry::Fixed { tag, values } => {
+                vec![
+                    tag.identifier(),
+                    values[0].identifier(),
+                    values[1].identifier(),
+                    values[2].identifier(),
+                ]
+            }
+            LookupEntry::State {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                pointer_hi,
+                pointer_lo,
+                is_write,
+            } => {
+                vec![
+                    tag.identifier(),
+                    stamp.identifier(),
+                    value_hi.identifier(),
+                    value_lo.identifier(),
+                    call_id_contract_addr.identifier(),
+                    pointer_hi.identifier(),
+                    pointer_lo.identifier(),
+                    is_write.identifier(),
+                ]
+            }
+            LookupEntry::Public {
+                tag,
+                tx_idx_or_number_diff,
+                values,
+            } => {
+                let mut contents = vec![tag.identifier(), tx_idx_or_number_diff.identifier()];
+                contents.extend(values.iter().map(|v| v.identifier()));
+                contents
+            }
+            LookupEntry::Copy {
+                src_type,
+                src_id,
+                src_pointer,
+                src_stamp,
+                dst_type,
+                dst_id,
+                dst_pointer,
+                dst_stamp,
+                cnt,
+                len,
+                acc,
+            } => {
+                vec![
+                    src_type.identifier(),
+                    src_id.identifier(),
+                    src_pointer.identifier(),
+                    src_stamp.identifier(),
+                    dst_type.identifier(),
+                    dst_id.identifier(),
+                    dst_pointer.identifier(),
+                    dst_stamp.identifier(),
+                    cnt.identifier(),
+                    len.identifier(),
+                    acc.identifier(),
+                ]
+            }
+            LookupEntry::Arithmetic { tag, values } => {
+                let mut contents = vec![tag.identifier()];
+                contents.extend(values.iter().map(|v| v.identifier()));
+                contents
+            }
+            LookupEntry::BitOp {
+                value_1,
+                value_2,
+                result,
+                tag,
+            } => {
+                vec![
+                    value_1.identifier(),
+                    value_2.identifier(),
+                    result.identifier(),
+                    tag.identifier(),
+                ]
+            }
+            LookupEntry::Bitwise { tag, acc, sum_2 } => {
+                let mut contents = vec![tag.identifier()];
+                contents.extend(acc.iter().map(|v| v.identifier()));
+                contents.push(sum_2.identifier());
+                contents
+            }
+            LookupEntry::Exp { base, index, power } => {
+                let mut contents = vec![];
+                for v in [base, index, power] {
+                    contents.extend(v.iter().map(|v| v.identifier()))
+                }
+                contents
+            }
+            LookupEntry::U10(value) | LookupEntry::U16(value) | LookupEntry::U8(value) => {
+                vec![value.identifier()]
+            }
+            _ => panic!("Not lookupentry!"),
+        };
+        strings.join(SEPARATOR)
     }
 }
 

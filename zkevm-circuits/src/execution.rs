@@ -47,7 +47,11 @@ pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
-use crate::table::{extract_lookup_expression, BytecodeTable, LookupEntry, StateTable};
+use std::collections::HashMap;
+
+use crate::table::{
+    extract_lookup_expression, BytecodeTable, LookupEntry, StateTable, ANNOTATE_SEPARATOR,
+};
 use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
@@ -1125,38 +1129,66 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             lookups_to_merge.append(&mut lookups);
         }
 
-        // todo
-        // merge lookups from all gadgets
-        // currently there is no merge
+        // 对lookup依据identifier进行归类
+        let mut lookup_category: HashMap<String, Vec<(String, LookupEntry<F>, ExecutionState)>> =
+            HashMap::new();
         for (string, lookup, execution_state) in lookups_to_merge {
-            match lookup {
-                LookupEntry::BytecodeFull { .. } | LookupEntry::State { .. } => {
-                    meta.lookup_any(string, |meta| {
-                        let q_enable = meta.query_selector(config.q_enable);
-                        let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
-                        let execution_state_selector = config.execution_state_selector.selector(
-                            meta,
-                            execution_state as usize,
-                            Rotation::cur(),
-                        );
-                        let condition = q_enable.clone() * cnt_is_zero * execution_state_selector;
-                        let v = match lookup {
-                            LookupEntry::BytecodeFull { .. } => {
-                                config.bytecode_table.get_lookup_vector(meta, lookup)
-                            }
-                            LookupEntry::State { .. } => {
-                                config.state_table.get_lookup_vector(meta, lookup)
-                            }
-                            _ => unreachable!(),
-                        };
-                        v.into_iter()
-                            .map(|(left, right)| (condition.clone() * left, right))
-                            .collect()
-                    });
+            let identifier = lookup.identifier();
+            match lookup_category.get_mut(&identifier) {
+                Some(v) => v.push((string, lookup, execution_state)),
+                None => {
+                    lookup_category.insert(identifier, vec![(string, lookup, execution_state)]);
                 }
-                _ => (),
             };
         }
+        println!("lookup_category: {:?}", lookup_category);
+
+        // 对不同类别的内容进行lookup
+        for (key, lookup_vec) in lookup_category {
+            let annotates: Vec<&str> = lookup_vec
+                .iter()
+                .map(|(annote, _, _)| annote.as_str())
+                .collect();
+            let annotates = annotates.join(ANNOTATE_SEPARATOR);
+
+            meta.lookup_any(key + ANNOTATE_SEPARATOR + &annotates, |meta| {
+                // 计算不同lookup的condition总和
+                let mut condition: Expression<F> = 0.expr();
+                for (_, _, execution_state) in lookup_vec.iter() {
+                    let q_enable = meta.query_selector(config.q_enable);
+                    let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+                    let execution_state_selector = config.execution_state_selector.selector(
+                        meta,
+                        *execution_state as usize,
+                        Rotation::cur(),
+                    );
+                    condition = condition
+                        + q_enable.clone() * cnt_is_zero.clone() * execution_state_selector;
+                }
+
+                // 获取lookup表达式集合
+                let mut expressions = vec![];
+                for (_, lookup, _) in lookup_vec {
+                    let v: Vec<(Expression<F>, Expression<F>)> = match lookup {
+                        LookupEntry::BytecodeFull { .. } => {
+                            config.bytecode_table.get_lookup_vector(meta, lookup)
+                        }
+                        LookupEntry::State { .. } => {
+                            config.state_table.get_lookup_vector(meta, lookup)
+                        }
+                        // todo. config还未添加其它table (public, fixed..)
+                        // 等待后续添加后再进行编写
+                        _ => vec![(0.expr(), 0.expr())],
+                    };
+                    expressions.extend(
+                        v.into_iter()
+                            .map(|(left, right)| (condition.clone() * left, right)),
+                    );
+                }
+                expressions
+            });
+        }
+
         ExecutionGadgets { config }
     }
 
