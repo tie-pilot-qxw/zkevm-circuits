@@ -8,6 +8,7 @@ pub mod fixed;
 pub mod public;
 pub mod state;
 
+use crate::arithmetic_circuit::ArithmeticCircuit;
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
@@ -1862,6 +1863,8 @@ impl Witness {
             .for_each(|_| self.copy.insert(0, Default::default()));
         (0..BitwiseCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| self.bitwise.insert(0, Default::default()));
+        (0..ArithmeticCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| self.arithmetic.insert(0, Default::default()));
     }
 
     /// Generate end padding of a witness of one block

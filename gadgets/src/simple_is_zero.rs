@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use crate::util::Expr;
 
 /// SimpleIsZero helps to generate the expression 1-value*value_inv and the corresponding constraint.
+#[derive(Clone, Debug)]
 pub struct SimpleIsZero<F> {
     value: Expression<F>,
     value_inv: Expression<F>,
