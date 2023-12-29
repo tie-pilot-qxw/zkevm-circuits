@@ -20,20 +20,26 @@ const STACK_POINTER_DELTA: i32 = 1;
 
 /// PublicContextGadget deal OpCodeId:{TIMESTAMP,NUMBER,COINBASE,GASLIMIT,CHAINID,BASEFEE}
 /// STATE0 record value
-/// TAGSELECTOR 6 columns
+/// TAGSEL 6 columns
 /// TAG 1 column, means public tag (column 26)
+/// if opcode is OpCodeId::TIMESTAMP ,tag is public::Tag::BlockTimestamp
+/// if opcode is OpCodeId::NUMBER , tag is public::Tag::BlockNumber
+/// if opcode is OpCodeId::COINBASE , tag is public::Tag::BlockCoinbase
+/// if opcode is OpCodeId::GASLIMIT , tag is public::Tag::BlockGasLimit
+/// if opcode is OpCodeId::CHAINID , tag is public::Tag::ChainId
+/// if opcode is OpCodeId::BASEFEE , tag is public::Tag::BlockBaseFee
 /// TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
 /// VALUE_HI 1 column , means public table value0 (column 28)
 /// VALUE_LOW 1 column, means public table value1 (column 29)
 /// VALUE_2 1 column , means public table value2 , here default 0 (column 30)
 /// VALUE_3 1 column ,means public table value3 , here default 0 (column 31)
-/// +---+-------+-------+-------+-------+---+
-/// |cnt| 8 col | 8 col | 8 col | 2 col |  public lookup (6 col) |
-/// +---+-------+-------+-------+----------+
-/// | 2 | |  |  | |  |  |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
-/// | 1 | STATE0| TAGSELECTOR |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// +---+-------+-------+-------+-------+----------------------------------------------------------+
+/// |cnt| 8 col | 8 col | 8 col | 2 col |              public lookup (6 col)                       |
+/// +---+-------+-------+-------+------------------------------------------------------------------+
+/// | 2 |       |       |       |       |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
+/// | 1 | STATE0|TAGSEL|        |                                                                  |
+/// | 0 | DYNA_SELECTOR   |                                 AUX                                    |
+/// +---+-------+-------+-------+------------------------------------------------------------------+
 pub struct PublicContextGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -85,6 +91,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // value_hi,value_lo constraints
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
+        // public lookup
         let public_entry = config.get_public_lookup(meta);
         let (public_tag, _, values) = extract_lookup_expression!(public, public_entry);
         // value[2] =0 values[3] = 0
@@ -92,12 +99,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("values[2] = 0".into(), values[2].clone()),
             ("values[3] = 0".into(), values[3].clone()),
         ]);
+        // query public_tag , only one tag is 1,other tag is 0;
         let timestamp_tag = meta.query_advice(config.vers[8], Rotation::prev());
         let number_tag = meta.query_advice(config.vers[9], Rotation::prev());
         let coinbase_tag = meta.query_advice(config.vers[10], Rotation::prev());
         let gaslimit_tag = meta.query_advice(config.vers[11], Rotation::prev());
         let chainid_tag = meta.query_advice(config.vers[12], Rotation::prev());
         let basefee_tag = meta.query_advice(config.vers[13], Rotation::prev());
+        // Create a simple selector with input of array of expressions,which is 0.expr() or 1.expr();
         let selector = SimpleSelector::new(&[
             timestamp_tag.clone(),
             number_tag.clone(),
@@ -119,6 +128,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     (Tag::BlockBaseFee as u64).expr(),
                 ]),
         )]);
+        // stack value constraints
         let value_hi = values[0].clone();
         let value_lo = values[1].clone();
         constraints.extend([
@@ -134,7 +144,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             opcode.clone() - (OpcodeId::CHAINID.as_u64()).expr(),
             opcode.clone() - (OpcodeId::BASEFEE.as_u64()).expr(),
         ]);
-        // tag constraints
+        // opCode constraints
         constraints.extend([("opCode constraints".into(), public_context_tag)]);
         constraints
     }
@@ -143,8 +153,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // state lookup
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-
+        // public lookup
         let public_context_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
@@ -157,6 +168,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         let value_hi = (next_stack_top_value >> 128).as_u128();
         let value_lo = next_stack_top_value.low_u128();
+        // get public_tag by trace.op
         let (public_tag, tag) = match trace.op {
             OpcodeId::TIMESTAMP => (public::Tag::BlockTimestamp, 0usize),
             OpcodeId::NUMBER => (public::Tag::BlockNumber, 1),
@@ -182,8 +194,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_push_0]);
 
         let mut v = [U256::from(0); 6];
+        // default v[i] = 0; except v[tag] = 1
         v[tag] = 1.into();
         // tag selector
+        // assign tag selector value, 8-13 columns ,only one column is 1 ,others are 0;
         assign_or_panic!(core_row_1.vers_8, v[0]);
         assign_or_panic!(core_row_1.vers_9, v[1]);
         assign_or_panic!(core_row_1.vers_10, v[2]);

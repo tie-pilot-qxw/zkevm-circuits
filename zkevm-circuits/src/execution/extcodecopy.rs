@@ -25,7 +25,10 @@ const PC_DELTA: u64 = 1;
 /// Extcodecopy Execution State layout is as follows
 /// where COPY means copy table lookup , 9 cols
 /// ZEROCOPY means padding copy table lookup 9,cols
-/// COPY_LEN_LO_INV ,ZERO_LEN_LO_INV means copy,zero length's multiplicative inverse;  
+/// CLL means copy length ,one column
+/// ZLL means zero copy length, one column,
+/// CLLIN  means copy length's multiplicative inverse;
+/// ZLLIN means zero length's multiplicative inverse  
 /// STATE means state table lookup,
 /// STATE0 means account address,
 /// STATE1 means memOffset
@@ -34,13 +37,13 @@ const PC_DELTA: u64 = 1;
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | not used |
-/// +---+-------+-------+-------+----------+
-/// | 2 | COPY   | ZEROCOPY | COPY_LEN_LO | COPY_LEN_LO_INV | ZERO_LEN_LO | ZERO_LEN_LO_INV |  
-/// | 1 | STATE0| STATE1| STATE2| STATE3   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// +---+-------+-------+------------------------+----------+
+/// |cnt| 8 col | 8 col |              8 col     | not used |
+/// +---+-------+-------+------------------------+----------+
+/// | 2 | COPY   | ZEROCOPY|CLL|CLLIN|ZLL|ZLLIN|            |
+/// | 1 | STATE0| STATE1|        STATE2          | STATE3   |
+/// | 0 | DYNA_SELECTOR   |                  AUX            |
+/// +---+-------+-------+------------------------+----------+
 
 pub struct ExtcodecopyGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -118,7 +121,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             String::from("copy_length_lo"),
         );
         constraints.extend(is_copy_zero_len.get_constraints());
-
+        // code copy constraints
         constraints.extend(config.get_copy_constraints(
             copy::Tag::Bytecode,
             copy_operands[0][0].clone() * pow_of_two::<F>(128) + copy_operands[0][1].clone(),
@@ -144,7 +147,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             String::from("padding_length_lo"),
         );
         constraints.extend(is_padding_zero_len.get_constraints());
-
+        // padding copy constraints
         constraints.extend(config.get_copy_constraints(
             copy::Tag::Zero,
             0.expr(),
@@ -191,10 +194,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // stack lookups
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let stack_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
+        // copy lookups
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         let padding_copy_lookup =
             query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
@@ -209,17 +214,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // pop address
         let (stack_pop_0, address) = current_state.get_pop_stack_row_value(&trace);
         assert!(address.leading_zeros() >= ADDRESS_ZERO_COUNT);
-        //let address_code = current_state.bytecode.get(&address).unwrap();
+        // pop mem_offset
         let (stack_pop_1, mem_offset) = current_state.get_pop_stack_row_value(&trace);
-
+        // pop code_offset
         let (stack_pop_2, code_offset) = current_state.get_pop_stack_row_value(&trace);
-
+        // pop size
         let (stack_pop_3, size) = current_state.get_pop_stack_row_value(&trace);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-
+        // get copy length, zero length,and copy_rows,mem_rows
         let (copy_rows, mem_rows, input_length, padding_length, code_copy_length) =
             current_state.get_code_copy_rows::<F>(address, mem_offset, code_offset, size);
 
@@ -235,6 +241,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // code copy len
         assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);
+        // get copy_len_lo_inv
         let code_copy_lenlo_inv = U256::from_little_endian(
             code_copy_len_lo
                 .invert()
@@ -246,6 +253,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // padding copy len
         assign_or_panic!(core_row_2.vers_24, U256::from(padding_length));
         let padding_copy_len_lo = F::from(padding_length);
+        // get padding_copy_len_lo_inv
         let padding_copy_lenlo_inv = U256::from_little_endian(
             padding_copy_len_lo
                 .invert()
@@ -290,21 +298,25 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint_copy_no_padding() {
+        // code size is 3 , mock copy ,no padding
         run_prover(&[2.into(), 0.into(), 0.into(), 0xaa.into()]);
     }
 
     #[test]
     fn assign_and_constraint_copy_padding() {
+        // code size is 3 ,mock copy and padding
         run_prover(&[5.into(), 0.into(), 0.into(), 0xaa.into()]);
     }
 
     #[test]
     fn assign_and_constraint_no_copy_no_padding() {
+        // code size is 3 ,mock do nothing
         run_prover(&[0.into(), 0.into(), 0.into(), 0xaa.into()]);
     }
 
     #[test]
     fn assign_and_constraint_no_copy_only_padding() {
+        // code size is 3 , mock no copy ,only padding
         run_prover(&[5.into(), 4.into(), 0.into(), 0xaa.into()]);
     }
 

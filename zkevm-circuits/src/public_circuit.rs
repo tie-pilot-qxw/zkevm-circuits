@@ -33,8 +33,11 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
     ) -> Self {
         // unwrap public_table
         let PublicTable {
+            // tag can be ChainId,BlockCoinbase....; refer witness/public.rs
             tag,
+            // tx_idx_or_number_diff (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
             tx_idx_or_number_diff,
+            // values , 4 columns
             values,
         } = public_table;
         Self {
@@ -71,11 +74,13 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
         // assign values from witness of public
         for row in &self.witness.public {
             tag.push(F::from_u128(row.tag as u128));
+            // tx_idx_or_number_diff to little endian,u64
             tx_idx_or_number_diff.push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
                 &row.tx_idx_or_number_diff.unwrap_or_default(),
             )));
             let array: [_; NUM_VALUES] = [row.value_0, row.value_1, row.value_2, row.value_3];
             for i in 0..NUM_VALUES {
+                // value[i] to little endian,u64
                 values[i].push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
                     &array[i].unwrap_or_default(),
                 )));
@@ -144,25 +149,35 @@ mod test {
                 tx_idx_or_number_diff: meta.advice_column(),
                 values: std::array::from_fn(|_| meta.advice_column()),
             };
+            // lookup constraints
             meta.lookup_any("test lookup", |meta| {
                 let mut v = vec![
+                    // tag lookup constraints
                     (
+                        // query tag advice
                         meta.query_advice(config.tag, Rotation::cur()),
+                        // query tag instance
                         meta.query_instance(config.public_circuit_config.tag, Rotation::cur()),
                     ),
+                    // tx_idx_or_number_diff lookup constraints
                     (
+                        // query tx_idx_or_number_diff advice
                         meta.query_advice(config.tx_idx_or_number_diff, Rotation::cur()),
+                        // query tx_idx_or_number_diff instance
                         meta.query_instance(
                             config.public_circuit_config.tx_idx_or_number_diff,
                             Rotation::cur(),
                         ),
                     ),
                 ];
+                // values lookup constraints
                 v.append(
                     &mut (0..NUM_VALUES)
                         .map(|i| {
                             (
+                                // query value advice
                                 meta.query_advice(config.values[i], Rotation::cur()),
+                                // query value instance
                                 meta.query_instance(
                                     config.public_circuit_config.values[i],
                                     Rotation::cur(),
@@ -182,6 +197,7 @@ mod test {
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             self.0.synthesize_sub(&config.public_circuit_config, &mut layouter)?;
+            // assign values 
             layouter.assign_region(
                 || "TEST",
                 |mut region| {
@@ -205,17 +221,23 @@ mod test {
     }
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
+        // ceiling of log2(MAX_NUM_ROW)
         let k = log2_ceil(MAX_NUM_ROW);
         let circuit = PublicTestCircuit::<Fp>::new(witness);
+        // get circuit instances , vec<vec<Fr>>
         let instance = circuit.0.instance();
+        // mock run circuit
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
     }
 
     #[test]
     fn test_state_parser() {
+        // load instructions
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
+        // parse trace
         let trace = trace_parser::trace_program(&machine_code, &[]);
+        // construct witness using trace
         let witness: Witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,
@@ -223,8 +245,11 @@ mod test {
             false,
             Default::default(),
         ));
+        // output witness as csv
         witness.print_csv();
+        // witness prove
         let prover = test_state_circuit(witness);
+        // any circuit fail will panic
         prover.assert_satisfied_par();
     }
 }
