@@ -36,6 +36,7 @@ pub enum Tag {
     TxFromValue,
     // combine To and CallDataLength together to reduce number of lookups
     TxToCallDataSize,
+    // TxIsCreate :  contract creation transaction
     TxIsCreate,
     TxGasLimit,
     TxGasPrice, // tx gas price
@@ -60,7 +61,9 @@ pub enum LogTag {
     Topic1,
     Topic2,
     Topic3,
+    // Data log data
     Data,
+    // DataSize log data size
     DataSize,
 }
 
@@ -69,6 +72,7 @@ impl Row {
     pub fn from_geth_data(geth_data: &GethData) -> Result<Vec<Row>, anyhow::Error> {
         let mut result = vec![];
         let block_constant: BlockConstants = (&geth_data.eth_block).try_into()?;
+        // | ChainId | 0 | chain_id[..16] | chain_id[16..] | 0 | 0 |
         result.push(Row {
             tag: Tag::ChainId,
             // chain_id high 16 byte
@@ -84,6 +88,7 @@ impl Row {
             .collect(),
             ..Default::default()
         });
+        // | BlockCoinbase | 0 | coinbase[..4] | coinbase[4..] | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockCoinbase,
             // coinbase high 4 byte
@@ -99,6 +104,7 @@ impl Row {
             .collect(),
             ..Default::default()
         });
+        // | BlockTimestamp | 0 | BlockTimestamp[..16] | BlockTimestamp[16..] | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockTimestamp,
             // timestamp high 16 byte
@@ -114,6 +120,7 @@ impl Row {
             .collect(),
             ..Default::default()
         });
+        // | BlockNumber | 0 | 0 | BlockNumber | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockNumber,
             // block number as u64
@@ -126,6 +133,7 @@ impl Row {
             .collect(),
             ..Default::default()
         });
+        // | BlockDifficulty | 0 | BlockDifficulty[..16] | BlockDifficulty[16..] | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockDifficulty,
             // difficulty high 16 byte
@@ -141,6 +149,7 @@ impl Row {
             .collect(),
             ..Default::default()
         });
+        // | BlockGasLimit | 0 | BlockGasLimit[..16] | BlockGasLimit[16..] | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockGasLimit,
             // gaslimit high 16 byte
@@ -156,6 +165,7 @@ impl Row {
             .collect(),
             ..Default::default()
         });
+        // | BlockBaseFee | 0 | BlockBaseFee[..16] | BlockBaseFee[16..] | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockBaseFee,
             // basefee hight 16 byte
@@ -175,6 +185,7 @@ impl Row {
             // due to we decide to start idx at 1 in witness
             let tx_idx = tx_idx + 1;
             let gas_price = tx.gas_price.unwrap_or(0.into());
+            // | TxFromValue | tx_idx  | from[..4] | from[4..] | value[..16] | value[16..] |
             result.push(Row {
                 tag: Tag::TxFromValue,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
@@ -214,6 +225,7 @@ impl Row {
                     )
                 },
             );
+            // | TxToCallDataSize | tx_idx  | to_hi | to_lo | 0 | tx.input.len |
             result.push(Row {
                 tag: Tag::TxToCallDataSize,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
@@ -238,6 +250,7 @@ impl Row {
                 .collect(),
                 ..Default::default()
             });
+            // | TxIsCreate | tx_idx  | 0 | 1/0(if create contract is 1,else 0) | 0 | 0 |
             result.push(Row {
                 tag: Tag::TxIsCreate,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
@@ -257,6 +270,7 @@ impl Row {
                 .collect(),
                 ..Default::default()
             });
+            // | TxGasLimit | tx_idx  | gas[..16] | gas[16..] | 0 | 0 |
             result.push(Row {
                 tag: Tag::TxGasLimit,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
@@ -277,7 +291,7 @@ impl Row {
                 .collect(),
                 ..Default::default()
             });
-
+            // | TxGasPrice | tx_idx  | gas_price[..16] | gas_price[16..] | 0 | 0 |
             result.push(Row {
                 tag: Tag::TxGasPrice,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
@@ -299,8 +313,10 @@ impl Row {
                 ..Default::default()
             });
             for (idx, byte) in tx.input.iter().enumerate() {
+                // | TxCalldata | tx_idx  | idx | byte | 0 | 0 |
                 result.push(Row {
                     tag: Tag::TxCalldata,
+                    // tx index
                     tx_idx_or_number_diff: Some(tx_idx.into()),
                     // input index
                     value_0: Some(idx.into()),
@@ -322,6 +338,7 @@ impl Row {
             }
         }
         for (diff, hash) in geth_data.history_hashes.iter().rev().enumerate() {
+            // | BlockHash | index  | hash[..16] | hash[16..] | 0 | 0 |
             result.push(Row {
                 tag: Tag::BlockHash,
                 // block number diff
@@ -361,12 +378,16 @@ impl Row {
                 } else {
                     LogTag::AddrWith4Topic
                 };
+                // log.address is H160, 20 bytes
                 let address = log.address.as_bytes();
                 // row0
+                // | TxLog | tx_idx  | log_index | log_tag | address[..4] | address[4..] |
                 result.push(Row {
                     tag: Tag::TxLog,
                     tx_idx_or_number_diff: Some(tx_idx),
+                    // log_index = log.index
                     value_0: Some(log_index),
+                    // log_tag should be LogTag::AddrWith[0/1/2/3/4]Topic
                     value_1: Some(U256::from(log_tag as u64)),
                     // address high 4 byte
                     value_2: Some(address[..4].into()),
@@ -390,6 +411,7 @@ impl Row {
                 for i in 0..topic_num {
                     // insert topic
                     let topic_hash = log.topics[i].as_bytes();
+                    // | TxLog | tx_idx  | log_index | topic_log_tag | topic_hash[..16] | topic_hash[16..] |
                     result.push(Self::get_log_topic_row(
                         i as u8,
                         topic_hash,
@@ -399,6 +421,7 @@ impl Row {
                     ))
                 }
                 // insert log data size
+                // | TxLog | tx_idx  | log_index | log_tag=DataSize | 0 | data_len |
                 result.push(Row {
                     tag: Tag::TxLog,
                     tx_idx_or_number_diff: Some(tx_idx),
@@ -423,6 +446,7 @@ impl Row {
                     ..Default::default()
                 });
                 // insert log bytes
+                // | TxLog | tx_idx  | log_index | LogTag::Data | byte | data_idx |
                 for (data_idx, data) in log.data.iter().enumerate() {
                     result.push(Row {
                         tag: Tag::TxLog,
@@ -476,6 +500,7 @@ impl Row {
             tag: Tag::TxLog,
             tx_idx_or_number_diff: Some(tx_idx),
             value_0: Some(log_index),
+            // log_tag should be LogTag::Topic0/Topic1/Topic2/Topic3
             value_1: Some(U256::from(log_tag as u64)),
             value_2: Some(topic_hash[..16].into()),
             value_3: Some(topic_hash[16..].into()),
@@ -504,15 +529,15 @@ impl Row {
 }
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
     use crate::util::geth_data_test;
     use crate::witness::public::Row;
     use eth_types::{Bytes, GethExecTrace, ReceiptLog, H160, H256, U256, U64};
     use ethers_core::types::Log;
+    use std::str::FromStr;
 
     #[test]
     fn from_geth_data() {
+        // mock receiptLog
         let log = ReceiptLog{
             logs:             vec![Log {
                 address: H160::from_str("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512").unwrap(),
@@ -531,6 +556,7 @@ mod test {
                 removed: Some(false)
             }]
         };
+        // mock GethData
         let geth_data = geth_data_test(
             GethExecTrace {
                 gas: 26809,
@@ -543,12 +569,15 @@ mod test {
             false,
             log,
         );
-
+        // get all public rows using GethData
         let rows = Row::from_geth_data(&geth_data);
+        // new csv writer
         let mut wtr = csv::Writer::from_writer(vec![]);
+        // serialize row
         for row in &rows {
             wtr.serialize(row).unwrap();
         }
+        // output in console
         let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
         println!("{}", data);
     }
