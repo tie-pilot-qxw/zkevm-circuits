@@ -1129,63 +1129,95 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             lookups_to_merge.append(&mut lookups);
         }
 
-        // 对lookup依据identifier进行归类
+        // 对lookup entry依据identifier进行归类. 相同类别的look entry 组成一个vec![]
+        // lookup_category, key 为每类lookup entry的标识，每个lookup entry由不同数量
+        // 的表达式组成，每个表达式有唯一的标识，key是一系列表达式的集合。
+        // value为同类的lookup entry.
+        // examples：
+        // key = advice[32][-1]-advice[33][-1]-advice[34][-1]-advice[35][-1]
+        //       -advice[36][-1]-advice[37][-1]-advice[38][-1]-advice[39][-1]
+        // advice[32][-1]: 表示组成lookup entry的第一个表达式处于advice [第几列][第几行]，
+        // “-”：组成lookup entry的不同表达式间的分隔符。
+        // values = [("stack pop b", State { tag: Advice { query_index: 55, column_index: 32, rotation: Rotation(-1)
+        //     }, stamp: Advice { query_index: 56, column_index: 33, rotation: Rotation(-1)
+        //     }, value_hi: Advice { query_index: 57, column_index: 34, rotation: Rotation(-1)
+        //     ....
+        //     }, is_write: Advice { query_index: 62, column_index: 39, rotation: Rotation(-1)
+        //     }
+        // }, ADD), ("stack push b", State { tag: Advice { query_index: 55, column_index: 32, rotation: Rotation(-1)
+        //     }, stamp: Advice { query_index: 56, column_index: 33, rotation: Rotation(-1)
+        //     }, value_hi: Advice { query_index: 57, column_index: 34, rotation: Rotation(-1)
+        //     ...
+        //     }, is_write: Advice { query_index: 62, column_index: 39, rotation: Rotation(-1)
+        //     }
+        // }, ISZERO), ...]
+        // 如上，不同gadget(ADD, ISZERO) 使用相同变量的列/行，可以将它们归为一类，lookup 时只需要进行一次即可。
+        // tag表达式，不同gadget使用的是Advice第32列（column_index）上一行数据（rotation 相对当前位置），
+        // query_index 标识符在证明和验证过程中的查询顺序，确保标识符在评估和验证约束时按正确的顺序进行计算。
         let mut lookup_category: HashMap<String, Vec<(String, LookupEntry<F>, ExecutionState)>> =
             HashMap::new();
         for (string, lookup, execution_state) in lookups_to_merge {
-            let identifier = lookup.identifier();
-            match lookup_category.get_mut(&identifier) {
-                Some(v) => v.push((string, lookup, execution_state)),
-                None => {
-                    lookup_category.insert(identifier, vec![(string, lookup, execution_state)]);
+            match lookup {
+                LookupEntry::BytecodeFull { .. } | LookupEntry::State { .. } => {
+                    let identifier = lookup.identifier();
+                    match lookup_category.get_mut(&identifier) {
+                        Some(v) => v.push((string, lookup, execution_state)),
+                        None => {
+                            lookup_category
+                                .insert(identifier, vec![(string, lookup, execution_state)]);
+                        }
+                    };
                 }
-            };
+                // config还未添加其它table (public, fixed..)
+                // 等待后续添加后再进行编写
+                _ => (),
+            }
         }
-        println!("lookup_category: {:?}", lookup_category);
 
-        // 对不同类别的内容进行lookup
-        for (key, lookup_vec) in lookup_category {
+        // 对不同归类的内容进行lookup
+        for (_, lookup_vec) in lookup_category {
+            // 将同一类中所有lookup entry的annotate合并作为meta.lookup_any的name标识
             let annotates: Vec<&str> = lookup_vec
                 .iter()
                 .map(|(annote, _, _)| annote.as_str())
                 .collect();
             let annotates = annotates.join(ANNOTATE_SEPARATOR);
 
-            meta.lookup_any(key + ANNOTATE_SEPARATOR + &annotates, |meta| {
-                // 计算不同lookup的condition总和
+            meta.lookup_any(annotates, |meta| {
+                // 计算同一类中不同lookup entry的condition总和。
                 let mut condition: Expression<F> = 0.expr();
+                let q_enable = meta.query_selector(config.q_enable);
+                let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
                 for (_, _, execution_state) in lookup_vec.iter() {
-                    let q_enable = meta.query_selector(config.q_enable);
-                    let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
                     let execution_state_selector = config.execution_state_selector.selector(
                         meta,
                         *execution_state as usize,
                         Rotation::cur(),
                     );
-                    condition = condition
-                        + q_enable.clone() * cnt_is_zero.clone() * execution_state_selector;
+                    condition = condition + execution_state_selector;
                 }
 
-                // 获取lookup表达式集合
-                let mut expressions = vec![];
-                for (_, lookup, _) in lookup_vec {
-                    let v: Vec<(Expression<F>, Expression<F>)> = match lookup {
-                        LookupEntry::BytecodeFull { .. } => {
-                            config.bytecode_table.get_lookup_vector(meta, lookup)
-                        }
-                        LookupEntry::State { .. } => {
-                            config.state_table.get_lookup_vector(meta, lookup)
-                        }
-                        // todo. config还未添加其它table (public, fixed..)
-                        // 等待后续添加后再进行编写
-                        _ => vec![(0.expr(), 0.expr())],
-                    };
-                    expressions.extend(
-                        v.into_iter()
-                            .map(|(left, right)| (condition.clone() * left, right)),
-                    );
-                }
-                expressions
+                // 因为一类lookup entry集合中的所有元素使用的是相同类型列、相同列数的相同行，
+                // 所以只需要lookup 归类集合中的第一个entry即可。
+                let (_, lookup, _) = lookup_vec.into_iter().next().unwrap();
+                let v: Vec<(Expression<F>, Expression<F>)> = match lookup {
+                    LookupEntry::BytecodeFull { .. } => {
+                        config.bytecode_table.get_lookup_vector(meta, lookup)
+                    }
+                    LookupEntry::State { .. } => config.state_table.get_lookup_vector(meta, lookup),
+                    // 因为归类时已进行过滤，仅包含BytecodeFull和State，
+                    // 所以此处如果有其它类型的entry应该panic。
+                    _ => unreachable!(),
+                };
+
+                v.into_iter()
+                    .map(|(left, right)| {
+                        (
+                            q_enable.clone() * cnt_is_zero.clone() * condition.clone() * left,
+                            right,
+                        )
+                    })
+                    .collect()
             });
         }
 

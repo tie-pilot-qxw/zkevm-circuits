@@ -10,6 +10,7 @@ use halo2_proofs::plonk::{
     Advice, Column, ConstraintSystem, Expression, Fixed, Instance, Selector, VirtualCells,
 };
 use halo2_proofs::poly::Rotation;
+use strum_macros::{AsRefStr, EnumVariantNames};
 
 pub const U10_TAG: usize = 256;
 const PUBLIC_NUM_VALUES: usize = 4;
@@ -418,7 +419,7 @@ impl PublicTable {
 }
 
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, EnumVariantNames, AsRefStr)]
 pub enum LookupEntry<F> {
     // 0-255
     U8(Expression<F>),
@@ -558,8 +559,35 @@ impl<F: Field> LookupEntry<F> {
 }
 
 impl<F: Field> LookupEntry<F> {
+    /// 获取lookup entry的标识符，用于将不同的lookup归类。
+    /// 标识符由两部分组成：来源+去向==》LookupEntry中所有表达式字段的标识符
+    /// 和枚举元素的名称；LookupEntry中所有表达式的字段lookup的来源，枚举元
+    /// 素的名称为去向（即去哪个table中进行查询，如State Entry则去StateTable
+    /// 中查询，BytecodeFull则去BytecodeTable中去查询）
+    /// Note：一定要加上去向，因为会存在不同类型Entry具有相同来源，如下
+    /// ("lookup_bytecode_full", BytecodeFull { addr: Advice { query_index: 85, column_index: 48, rotation: Rotation(-1)
+    // }, pc: Advice { query_index: 86, column_index: 49, rotation: Rotation(-1)
+    // }, opcode: Advice { query_index: 87, column_index: 50, rotation: Rotation(-1)
+    // }, not_code: Advice { query_index: 88, column_index: 51, rotation: Rotation(-1)
+    // }, value_hi: Advice { query_index: 89, column_index: 52, rotation: Rotation(-1)
+    // }, value_lo: Advice { query_index: 90, column_index: 53, rotation: Rotation(-1)
+    // }, cnt: Advice { query_index: 91, column_index: 54, rotation: Rotation(-1)
+    // }, is_push: Advice { query_index: 92, column_index: 55, rotation: Rotation(-1)
+    // }
+    // }, JUMPI), ("stack push or storage write", State { tag: Advice { query_index: 85, column_index: 48, rotation: Rotation(-1)
+    // }, stamp: Advice { query_index: 86, column_index: 49, rotation: Rotation(-1)
+    // }, value_hi: Advice { query_index: 87, column_index: 50, rotation: Rotation(-1)
+    // }, value_lo: Advice { query_index: 88, column_index: 51, rotation: Rotation(-1)
+    // }, call_id_contract_addr: Advice { query_index: 89, column_index: 52, rotation: Rotation(-1)
+    // }, pointer_hi: Advice { query_index: 90, column_index: 53, rotation: Rotation(-1)
+    // }, pointer_lo: Advice { query_index: 91, column_index: 54, rotation: Rotation(-1)
+    // }, is_write: Advice { query_index: 92, column_index: 55, rotation: Rotation(-1)
+    // }
+    // }, STORAGE),
+    /// JUMPI和STORAGE来源的元素完全相同，但需要使用不同的table进行lookup。
     pub fn identifier(&self) -> String {
-        let strings = match self {
+        // 获取Entry所有表达式字段的标识符作为lookup的来源
+        let mut strings = match self {
             LookupEntry::Bytecode { addr, pc, opcode } => {
                 vec![addr.identifier(), pc.identifier(), opcode.identifier()]
             }
@@ -685,6 +713,9 @@ impl<F: Field> LookupEntry<F> {
             }
             _ => panic!("Not lookupentry!"),
         };
+        // 添加Entry枚举自身名称作为去向
+        strings.extend(vec![self.as_ref().to_string()]);
+        // 使用分隔符将一系列内容合并为一个标识符
         strings.join(SEPARATOR)
     }
 }

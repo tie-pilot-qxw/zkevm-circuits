@@ -167,9 +167,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
-
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
-
         let public_lookup = query_expression(meta, |meta| {
             config.get_public_lookup_double(meta, 0, (public::Tag::TxToCallDataSize as u8).expr())
         });
