@@ -16,7 +16,34 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-// core rows
+/// Overview:
+///   CODECOPY is mainly used to copy bytecode of a specified length to Memory.
+///   1. pop three elements from the top of the stack
+///      stack_pop0: destOffset(for Memory, the starting copy length)
+///      stack_pop1: offset(for Stack, the starting copy length)
+///      stack_pop2: length(the length of the bytecode to be copied)
+///   2. `memory[destOffset:destOffset+length] = address(this).code[offset:offset+length]`
+///
+/// There is a problem：
+///    offset > len(Bytecode)
+///    offset < len(Bytecode) && offset + length > len(Bytecode)
+///   that is, the byte index to be copied exceeds the length of Bytecode，the byte of the specified index to be copied
+/// does not exist
+///
+/// How to solve it?
+///   divide copy into two parts, normal copy and zero copy:
+///   normal copy: offset <= len(Bytecode) && offset+length <= len(Bytecode)
+///   zero copy: mark copies that exceed the Bytecode length as invalid copies, using zero padding
+///
+/// todo: will use the Length operation method of the arithmetic circuit to calculate normal_length, zero_length based on length, offset, len(Bytecode)
+///
+/// Table layout:
+///     COPY: normal length Copy Lookup, src:Core circuit, target:Copy circuit table, 9 columns
+///     ZEROCOPY: zero length Copy Lookup, src:Core circuit, target:Copy circuit table, 9 columns
+///     COPY_LEN_LO: normal length
+///     COPY_LEN_INV: the multiplicative inverse of normal_length, used to determine whether normal_length is 0,please refer to the usage of SimpleIsZero
+///     ZERO_LEN_LO: zero padding length,
+///     ZERO_LEN_INV: the multiplicative inverse of zero_length, used to determine whether zero_length is 0
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
@@ -104,7 +131,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             }
         }
 
-        // code copy constraints
+        //  add normal_length copy constraints
         let copy_len_lo = meta.query_advice(config.vers[22], Rotation(-2));
         let copy_len_lo_inv = meta.query_advice(config.vers[23], Rotation(-2));
         let copy_len_is_zero =
@@ -127,7 +154,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_lookup_entry.clone(),
         ));
 
-        // code padding copy constraints
+        // add zero_padding length copy constraints
         let copy_padding_len_lo = meta.query_advice(config.vers[24], Rotation(-2));
         let copy_padding_len_lo_inv = meta.query_advice(config.vers[25], Rotation(-2));
         let copy_padding_len_is_zero = SimpleIsZero::new(
@@ -153,18 +180,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_padding_lookup_entry.clone(),
         ));
 
+        // because the values of destOffset, offset, and length are all in the u64 range, all value_hi is 0
         constraints.extend([
             (
                 "stack top0 value_hi = 0".into(),
-                stack_pop_values[0][0].clone() - 0.expr(),
+                stack_pop_values[0][0].clone(),
             ),
             (
                 "stack top1 value_hi = 0".into(),
-                stack_pop_values[1][0].clone() - 0.expr(),
+                stack_pop_values[1][0].clone(),
             ),
             (
                 "stack top2 value_hi = 0".into(),
-                stack_pop_values[2][0].clone() - 0.expr(),
+                stack_pop_values[2][0].clone(),
             ),
             // todo: use arithmetic, when generating witness, stack top2 value_lo will be truncated to u64(input_copy_len)
             // (
@@ -215,7 +243,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // generate copy rows and state rows(type: memory)
-        let (copy_rows, memory_state_rows, input_len, padding_len, code_copy_len) = current_state
+        let (copy_rows, memory_state_rows, _, padding_len, code_copy_len) = current_state
             .get_code_copy_rows::<F>(current_state.code_addr, mem_offset, code_offset, length);
 
         let mut copy_row = &Default::default();
@@ -228,11 +256,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             padding_row = &copy_rows[code_copy_len as usize];
         }
 
-        // insert lookUp: Core ---> Copy
+        // insert lookUp, src: Core circuit, target: Copy circuit table
         core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
 
-        // code copy len
-        assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_len));
+        // calculate the multiplicative inverse of normal_length, used to determine whether normal_length is 0
         let code_copy_len_lo = F::from(code_copy_len);
         let code_copy_len_lo_inv = U256::from_little_endian(
             code_copy_len_lo
@@ -241,10 +268,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
+        assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_len));
         assign_or_panic!(core_row_2.vers_23, code_copy_len_lo_inv);
 
-        // padding copy len
-        assign_or_panic!(core_row_2.vers_24, U256::from(padding_len));
+        // calculate the multiplicative inverse of zero_length, used to determine whether zero_length is 0
         let padding_copy_len_lo = F::from(padding_len);
         let padding_copy_len_lo_inv = U256::from_little_endian(
             padding_copy_len_lo
@@ -253,6 +280,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
+        assign_or_panic!(core_row_2.vers_24, U256::from(padding_len));
         assign_or_panic!(core_row_2.vers_25, padding_copy_len_lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
@@ -276,6 +304,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pop_length,
         ];
         state_rows.extend(memory_state_rows);
+
+        // put rows into the Witness object
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
