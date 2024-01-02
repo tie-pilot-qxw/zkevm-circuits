@@ -509,9 +509,20 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
         (1, 0)
     }
 
-    fn num_rows(witness: &Witness) -> usize {
-        // bytecode witness length plus must-have padding in the end
-        Self::unusable_rows().1 + witness.bytecode.len()
+    fn num_rows(_witness: &Witness) -> usize {
+        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
+        // Check that total number of rows in this subcircuit does not exceed max number of row (a super circuit level parameter)
+        assert!(
+            num_padding_begin + MAX_CODESIZE + num_padding_end <= MAX_NUM_ROW,
+            "begin padding {} + MAX_CODESIZE {} + end padding {} > MAX_NUM_ROW {} (consider increase parameter MAX_NUM_ROW)",
+            num_padding_begin,
+            MAX_CODESIZE,
+            num_padding_end,
+            MAX_NUM_ROW
+        );
+        // Max bytecode witness length (a fixed parameter) plus must-have padding in the beginning and end
+        // Not using the real bytecode witness length since the real bytecode witness will be padded to max length
+        num_padding_begin + MAX_CODESIZE + num_padding_end
     }
 }
 

@@ -123,12 +123,6 @@ impl<
     type Cells = ();
 
     fn new_from_witness(witness: &Witness) -> Self {
-        assert!(
-            Self::num_rows(witness) <= MAX_NUM_ROW,
-            "Witness rows {} > Circuit max rows {}",
-            Self::num_rows(witness),
-            MAX_NUM_ROW
-        );
         let core_circuit = CoreCircuit::new_from_witness(witness);
         let bytecode_circuit = BytecodeCircuit::new_from_witness(witness);
         let state_circuit = StateCircuit::new_from_witness(witness);
@@ -211,7 +205,17 @@ impl<
         // when feature `no_fixed_lookup` is on, we don't count the rows in fixed circuit
         #[cfg(not(feature = "no_fixed_lookup"))]
         num_rows.push(FixedCircuit::<F>::num_rows(witness));
-        itertools::max(num_rows).unwrap()
+        let num_rows_max = itertools::max(num_rows).unwrap();
+        assert!(
+            num_rows_max <= MAX_NUM_ROW,
+            "Witness rows {} > Circuit max rows {}",
+            num_rows_max,
+            MAX_NUM_ROW
+        );
+        let mut cs = ConstraintSystem::<F>::default();
+        Self::configure(&mut cs);
+        let minimum_rows = cs.minimum_rows();
+        MAX_NUM_ROW + minimum_rows
     }
 }
 
