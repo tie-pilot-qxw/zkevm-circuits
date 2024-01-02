@@ -143,11 +143,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some(value.low_u128().into()),
             CallContextTag::Value,
         );
+        current_state.parent_pc.insert(current_state.call_id, 0); // update current_state's parent_pc
         let write_parent_pc_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
             CallContextTag::ParentProgramCounter,
         );
+        current_state
+            .parent_stack_pointer
+            .insert(current_state.call_id, 0); // update current_state's parent_stack_pointer
         let write_parent_stack_pointer_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),

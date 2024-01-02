@@ -94,9 +94,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
 
+        let returndata_call_id = operands[0].clone();
         let size_read = operands[1].clone();
         let size_write = operands[2].clone();
         constraints.extend([
+            (
+                format!("returndata_call_id hi == 0"),
+                returndata_call_id[0].clone(),
+            ),
             (
                 format!("size equal hi"),
                 size_read[0].clone() - size_write[0].clone(),

@@ -3,7 +3,7 @@ pub const NUM_STATE_LO_COL: usize = 10;
 #[cfg(not(feature = "k_9"))]
 pub const MAX_NUM_ROW: usize = 280000;
 #[cfg(feature = "k_9")]
-pub const MAX_NUM_ROW: usize = 500;
+pub const MAX_NUM_ROW: usize = 1000;
 pub const MAX_CODESIZE: usize = 500;
 
 /// Index of vers[] column in core circuit for state stamp in execution gadgets

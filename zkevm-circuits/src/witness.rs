@@ -50,15 +50,21 @@ pub struct Witness {
 
 pub struct WitnessExecHelper {
     pub stack_pointer: usize,
+    pub parent_stack_pointer: HashMap<u64, usize>,
     pub call_data: HashMap<u64, Vec<u8>>,
+    pub call_data_size: HashMap<u64, U256>,
     pub return_data: HashMap<u64, Vec<u8>>,
     pub value: HashMap<u64, U256>,
     pub sender: HashMap<u64, U256>,
     pub tx_idx: usize,
     pub call_id: u64,
+    pub call_id_new: u64,
+    pub parent_call_id: HashMap<u64, u64>,
     pub returndata_call_id: u64,
     pub returndata_size: U256,
+    pub return_success: bool,
     pub code_addr: U256,
+    pub parent_code_addr: HashMap<u64, U256>,
     pub storage_contract_addr: HashMap<u64, U256>,
     pub state_stamp: u64,
     pub log_stamp: u64,
@@ -71,21 +77,28 @@ pub struct WitnessExecHelper {
     pub stack_top: Option<U256>,
     pub topic_left: usize,
     pub tx_value: U256,
+    pub parent_pc: HashMap<u64, u64>,
 }
 
 impl WitnessExecHelper {
     pub fn new() -> Self {
         Self {
             stack_pointer: 0,
+            parent_stack_pointer: HashMap::new(),
             call_data: HashMap::new(),
+            call_data_size: HashMap::new(),
             return_data: HashMap::new(),
             value: HashMap::new(),
             sender: HashMap::new(),
             tx_idx: 0,
             call_id: 0,
+            call_id_new: 0,
+            parent_call_id: HashMap::new(),
             returndata_call_id: 0,
             returndata_size: 0.into(),
+            return_success: false,
             code_addr: 0.into(),
+            parent_code_addr: HashMap::new(),
             storage_contract_addr: HashMap::new(),
             state_stamp: 0,
             log_stamp: 0,
@@ -97,6 +110,7 @@ impl WitnessExecHelper {
             stack_top: None,
             topic_left: 0,
             tx_value: 0.into(),
+            parent_pc: HashMap::new(),
         }
     }
 
@@ -141,6 +155,9 @@ impl WitnessExecHelper {
         if tx.to.is_some() {
             self.call_data.insert(call_id, tx.input.to_vec());
         }
+        self.call_data_size
+            .insert(call_id, self.call_data[&call_id].len().into());
+
         self.value.insert(call_id, tx.value);
         self.tx_value = tx.value;
         self.sender.insert(call_id, tx.from.as_bytes().into());
@@ -149,6 +166,7 @@ impl WitnessExecHelper {
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
+        let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -169,6 +187,18 @@ impl WitnessExecHelper {
             }
             res.append(self.generate_execution_witness(step, &execution_gadgets_map))
         }
+        res.append(
+            execution_gadgets_map
+                .get(&ExecutionState::END_CALL)
+                .unwrap()
+                .gen_witness(last_step, self),
+        );
+        res.append(
+            execution_gadgets_map
+                .get(&ExecutionState::END_TX)
+                .unwrap()
+                .gen_witness(last_step, self),
+        );
         res
     }
 
@@ -380,6 +410,46 @@ impl WitnessExecHelper {
         (res, value)
     }
 
+    pub fn get_call_context_read_row_with_arbitrary_tag(
+        &mut self,
+        tag: state::CallContextTag,
+        value: U256,
+        call_id: u64,
+    ) -> state::Row {
+        let res = state::Row {
+            tag: Some(Tag::CallContext),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some((value >> 128).as_u128().into()),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((tag as usize).into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_call_context_write_row(
+        &mut self,
+        tag: state::CallContextTag,
+        value: U256,
+        call_id: u64,
+    ) -> (state::Row) {
+        let res = state::Row {
+            tag: Some(Tag::CallContext),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some((value >> 128).as_u128().into()),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((tag as usize).into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        res
+    }
+
     pub fn get_storage_write_row(
         &mut self,
         key: U256,
@@ -548,6 +618,80 @@ impl WitnessExecHelper {
         )
     }
 
+    pub fn get_call_return_data_copy_rows<F: Field>(
+        &mut self,
+        dst: U256,
+        len: U256,
+    ) -> (Vec<copy::Row>, Vec<state::Row>, u64) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        // way of processing len, reference go-ethereum's method
+        // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L664
+
+        let dst_offset = dst.low_u64();
+        let length = len.low_u64();
+        let copy_stamp = self.state_stamp;
+        let return_data_length = self
+            .return_data
+            .get(&self.returndata_call_id)
+            .unwrap()
+            .len() as u64;
+        let mut copy_length: u64 = 0;
+
+        if length > return_data_length {
+            copy_length = return_data_length;
+        } else {
+            copy_length = length;
+        }
+
+        if copy_length > 0 {
+            let mut acc_pre = U256::from(0);
+            let temp_256_f = F::from(256);
+            for i in 0..copy_length {
+                let return_data = self.return_data.get(&self.returndata_call_id).unwrap();
+                let byte = return_data.get(i as usize).cloned().unwrap_or_default();
+
+                // calc acc
+                let acc: U256 = if i == 0 {
+                    byte.into()
+                } else {
+                    let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                    let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                    acc_f = byte_f + acc_f * temp_256_f;
+                    convert_f_to_u256(&acc_f)
+                };
+                acc_pre = acc;
+
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Tag::Returndata,
+                    src_id: self.returndata_call_id.into(),
+                    src_pointer: 0.into(),
+                    src_stamp: copy_stamp.into(),
+                    dst_type: copy::Tag::Memory,
+                    dst_id: self.call_id.into(),
+                    dst_pointer: dst_offset.into(),
+                    dst_stamp: (copy_stamp + copy_length).into(),
+                    cnt: i.into(),
+                    len: copy_length.into(),
+                    acc: acc,
+                });
+                state_rows.push(
+                    self.get_return_data_read_row(i as usize, self.returndata_call_id)
+                        .0,
+                );
+            }
+
+            for i in 0..copy_length {
+                let return_data = self.return_data.get(&self.returndata_call_id).unwrap();
+                let byte = return_data.get(i as usize).cloned().unwrap_or_default();
+                state_rows.push(self.get_memory_write_row((dst_offset + i) as usize, byte));
+            }
+        }
+
+        (copy_rows, state_rows, copy_length)
+    }
+
     pub fn get_return_data_copy_rows<F: Field>(
         &mut self,
         dst: usize,
@@ -625,6 +769,26 @@ impl WitnessExecHelper {
         (state_row, val)
     }
 
+    pub fn get_calldata_write_row(
+        &mut self,
+        dst: usize,
+        val: u8,
+        dst_call_id: u64,
+    ) -> (state::Row) {
+        let state_row = state::Row {
+            tag: Some(state::Tag::CallData),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some(val.into()),
+            call_id_contract_addr: Some(dst_call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some(dst.into()),
+            is_write: Some(1.into()),
+        };
+        self.state_stamp += 1;
+        state_row
+    }
+
     pub fn get_calldata_copy_rows<F: Field>(
         &mut self,
         dst: usize,
@@ -674,6 +838,66 @@ impl WitnessExecHelper {
             let byte = call_data.get(src + i).cloned().unwrap_or_default();
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
+
+        (copy_rows, state_rows)
+    }
+
+    pub fn get_calldata_write_rows<F: Field>(
+        &mut self,
+        trace: &GethExecStep,
+        args_offset: usize,
+        args_len: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let copy_stamp = self.state_stamp;
+
+        let mut acc_pre = U256::from(0);
+        let temp_256_f = F::from(256);
+
+        let mut calldata_new = vec![];
+
+        for i in 0..args_len {
+            let byte = trace
+                .memory
+                .0
+                .get(args_offset + i)
+                .cloned()
+                .unwrap_or_default();
+            calldata_new.push(byte);
+            // calc acc
+            let acc: U256 = if i == 0 {
+                byte.into()
+            } else {
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                acc_f = byte_f + acc_f * temp_256_f;
+                convert_f_to_u256(&acc_f)
+            };
+            acc_pre = acc;
+
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Tag::Memory,
+                src_id: self.call_id.into(),
+                src_pointer: args_offset.into(),
+                src_stamp: copy_stamp.into(),
+                dst_type: copy::Tag::Calldata,
+                dst_id: self.call_id_new.into(),
+                dst_pointer: 0.into(),
+                dst_stamp: (copy_stamp + args_len as u64).into(),
+                cnt: i.into(),
+                len: args_len.into(),
+                acc: acc,
+            });
+            state_rows.push(self.get_memory_read_row(trace, args_offset + i));
+        }
+
+        for i in 0..args_len {
+            state_rows.push(self.get_calldata_write_row(i, calldata_new[i], self.call_id_new));
+        }
+
+        self.call_data.insert(self.call_id_new, calldata_new);
 
         (copy_rows, state_rows)
     }
