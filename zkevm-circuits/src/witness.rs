@@ -1437,20 +1437,18 @@ impl core::Row {
         assign_or_panic!(self.vers_25, tag.into());
     }
     /// insert_bitwise_lookup insert bitwise lookup ,5 columns in row prev(-2)
-    ///
-    /// cnt = 2 can hold at most 6 bitwise operations
-    /// +---+-------+-------+-------+------+-----------+
-    /// |cnt| 8 col | 8 col | 8 col | 8 col |
-    /// +---+-------+-------+-------+----------+
-    /// | 2 | 5*num | TAG | ACC_0 | ACC_1 | ACC_2 | SUM_2 |
+    /// originated from 10 col
+    /// cnt = 2 can hold at most 4 bitwise operations (10 + 5*4)
+    /// +---+-------+-------+-------+---------------------------------------------+
+    /// |cnt| 8 col | 8 col | 8 col |              8 col                          |
+    /// +---+-------+-------+-------+---------------------------------------------+
+    /// | 2 | 10 col |      5*index    | TAG | ACC_0 | ACC_1 | ACC_2 | SUM_2 |2col|
     /// +---+-------+-------+-------+----------+
     pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_row: &bitwise::Row) {
-        assert!(index <= 5);
+        assert!(index <= 3);
         assert_eq!(self.cnt, 2.into());
         #[rustfmt::skip]
             let  vec = [
-            [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4,],
-            [&mut self.vers_5, &mut self.vers_6, &mut self.vers_7, &mut self.vers_8, &mut self.vers_9,],
             [&mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14,],
             [&mut self.vers_15, &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19,],
             [&mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23, &mut self.vers_24,],

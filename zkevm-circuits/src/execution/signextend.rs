@@ -1,10 +1,12 @@
+use crate::arithmetic_circuit::operation;
+use crate::constant::{self};
 use crate::execution::{
     AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::bitwise::Tag;
-use crate::witness::{assign_or_panic, bitwise, exp, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, assign_or_panic, bitwise, exp, Witness, WitnessExecHelper};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
@@ -14,6 +16,7 @@ use std::ops::Div;
 const NUM_ROW: usize = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const STATE_STAMP_DELTA: u64 = 3;
+const BYTE_MAX_INDEX: u8 = 31;
 /// Signextend gadget
 /// algorithm:
 /// let operand_0 , operand_1 on stack top,top-1;
@@ -43,10 +46,11 @@ const STATE_STAMP_DELTA: u64 = 3;
 ///             if not_is_zero = 0, then operator = &
 ///     9.2 get final_result :
 ///             final_result = operand_1 operator d
-///     
+///
+/// ARITH 9 columns ,    
 /// BITWISE lookup 4 * 5 columns,every lookup takes 5 columns;
 /// four lookups:
-///     BW0: operand_1 hi & a hi; 5 columns
+///     BW0: originated at column 10, operand_1 hi & a hi; 5 columns
 ///     BW1: operand_1 lo & a lo; 5 columns
 ///     BW2: operand_1 hi operator d hi; 5 columns
 ///     BW3: operand_1 lo operator d lo; 5 columns
@@ -60,11 +64,11 @@ const STATE_STAMP_DELTA: u64 = 3;
 /// STATE2: final_result lookup, 8 columns
 /// EXP: exp lookup , 6 columns
 /// +---+---------+---------+-------------------------------+---------+
-/// |cnt| 8 col   | 8 col   | 8 col                         | 8 col   |
+/// |cnt| 8 col   | 8 col   | 8 col  |               8 col            |
 /// +---+---------+---------+-------------------------------+---------+
-/// | 2 | BW0 | BW1 | BW2 | BW3 | A_HI | A_LO | D_HI | D_LO |NZ       |  
-/// | 1 | STATE0  | STATE1  | STATE2                        | EXP |   |
-/// | 0 |       DYNA_SELECTOR   | AUX                                 |
+/// | 2 | ARITH     |  BW0 |  BW1  |  BW2  |   BW3          |         |
+/// | 1 | STATE0  | STATE1  | STATE2 |                         EXP    |
+/// | 0 |       DYNA_SELECTOR   | AUX   | A_HI | A_LO |D_HI |D_LO |NZ |                         |
 /// +---+---------+---------+-------------------------------+---------+
 pub struct SignextendGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -89,18 +93,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let (arithmetic_tag, arithmetic_operands) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+        // compute skip width in core row 0
+        const SKIP_WIDTH: usize =
+            constant::NUM_STATE_HI_COL + constant::NUM_STATE_LO_COL + constant::NUM_AUXILIARY;
         // [a_hi,a_lo]
         let query_a = vec![
-            meta.query_advice(config.vers[20], Rotation(-2)),
-            meta.query_advice(config.vers[21], Rotation(-2)),
+            meta.query_advice(config.vers[SKIP_WIDTH], Rotation::cur()),
+            meta.query_advice(config.vers[SKIP_WIDTH + 1], Rotation::cur()),
         ];
         // [d_hi,d_lo]
         let query_d = vec![
-            meta.query_advice(config.vers[22], Rotation(-2)),
-            meta.query_advice(config.vers[23], Rotation(-2)),
+            meta.query_advice(config.vers[SKIP_WIDTH + 2], Rotation::cur()),
+            meta.query_advice(config.vers[SKIP_WIDTH + 3], Rotation::cur()),
         ];
         // not_is_zero
-        let query_not_is_zero = meta.query_advice(config.vers[24], Rotation(-2));
+        let query_not_is_zero = meta.query_advice(config.vers[SKIP_WIDTH + 4], Rotation::cur());
 
         let auxiliary_delta = AuxiliaryDelta {
             state_stamp: STATE_STAMP_DELTA.expr(),
@@ -116,6 +125,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+        // arithmetic tag constraints
+        constraints.push((
+            "arithmetic tag is sub".into(),
+            arithmetic_tag.clone() - (arithmetic::Tag::Sub as u8).expr(),
+        ));
         // [operand_0_hi,operand_0_lo,operand_1_hi,operand_1_lo,result_hi,result_lo]
         let mut operands = vec![];
         let stack_pointer_delta = vec![0, -1, -1];
@@ -133,6 +147,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
+        // arithmetic_operands[0] is 0
+        // arithmetic_operands[1] is 31
+        // arithmetic_operands[2] is operand0_hi
+        // arithmetic_operands[3] is operand0_lo
+        constraints.extend([
+            (
+                "arithmetic_operands[0] = 0".into(),
+                arithmetic_operands[0].clone(),
+            ),
+            (
+                "arithmetic_operands[1] = 31".into(),
+                arithmetic_operands[1].clone() - BYTE_MAX_INDEX.expr(),
+            ),
+            (
+                "arithmetic_operands[2] = operands_0_hi".into(),
+                arithmetic_operands[2].clone() - operands[0][0].clone(),
+            ),
+            (
+                "arithmetic_operands[3] = operands_0_lo".into(),
+                arithmetic_operands[3].clone() - operands[0][1].clone(),
+            ),
+        ]);
         // exp constraints
         let exp_entry = config.get_exp_lookup(meta);
         let (base, index, pow) = extract_lookup_expression!(exp, exp_entry);
@@ -209,6 +245,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     format!("stack push[2][{}] = acc[2]", i),
                     acc[2].clone() - operands[2][i % 2].clone(),
                 )]);
+                // if carry_hi =1 , final_result = operands[1]
+                constraints.extend([(
+                    format!(
+                        "arithmetic_sub_carry_hi= 1 =>  operands[2][{}] = operands[1][{}]",
+                        i % 2,
+                        i % 2
+                    ),
+                    arithmetic_operands[6].clone()
+                        * (operands[2][i % 2].clone() - operands[1][i % 2].clone()),
+                )])
             }
         }
         // query_not_zero constraints
@@ -232,7 +278,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let bitwise_lookup_1 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 1));
         let bitwise_lookup_2 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 2));
         let bitwise_lookup_3 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 3));
-
+        // arithmetic lookup
+        let arithmetic_lookup = query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
         vec![
             ("stack pop operand_0".into(), stack_lookup_0),
             ("stack pop operand_1".into(), stack_lookup_1),
@@ -242,6 +289,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("bitwise lookup 1".into(), bitwise_lookup_1),
             ("bitwise lookup 2".into(), bitwise_lookup_2),
             ("bitwise lookup 3".into(), bitwise_lookup_3),
+            ("arithmetic lookup 0".into(), arithmetic_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -250,7 +298,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_1, operand_1) = current_state.get_pop_stack_row_value(trace);
 
         let result = current_state.stack_top.unwrap_or_default();
-
+        let byte_index_max = U256::from(BYTE_MAX_INDEX);
+        let (arithmetic_sub_rows, _) = operation::sub::gen_witness(vec![byte_index_max, operand_0]);
         let stack_push_0 = current_state.get_push_stack_row(trace, result);
         let mut bit_wise_rows = vec![];
         let mut exp_rows = vec![];
@@ -342,32 +391,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             bitwise::Row::from_operation::<F>(op_tag, operand_1_lo_128.as_u128(), d_lo.low_u128());
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
+        core_row_2.insert_arithmetic_lookup(&arithmetic_sub_rows);
         core_row_2.insert_bitwise_lookups(0, &bitwise_lookup1.last().unwrap());
         core_row_2.insert_bitwise_lookups(1, &bitwise_lookup2.last().unwrap());
         core_row_2.insert_bitwise_lookups(2, &bitwise_lookup3.last().unwrap());
         core_row_2.insert_bitwise_lookups(3, &bitwise_lookup4.last().unwrap());
-        // a_hi set core_row_2.vers_20;
-        assign_or_panic!(core_row_2.vers_20, a_hi);
-        // a_lo set core_row_2.vers_21;
-        assign_or_panic!(core_row_2.vers_21, a_lo);
-        // d_hi set core_row_2.vers_22
-        assign_or_panic!(core_row_2.vers_22, d_hi);
-        // d_lo set core_row_2.vers_23
-        assign_or_panic!(core_row_2.vers_23, d_lo);
-        // not_is_zero set core_row_2.vers_24;
-        assign_or_panic!(core_row_2.vers_24, not_is_zero);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
         // insert exp lookup
         core_row_1.insert_exp_lookup(U256::from(256), operand_0, temp_a);
-        let core_row_0 = ExecutionState::SIGNEXTEND.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::SIGNEXTEND.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+        // a_hi set core_row_0.vers_27;
+        assign_or_panic!(core_row_0.vers_27, a_hi);
+        // a_lo set core_row_0.vers_28;
+        assign_or_panic!(core_row_0.vers_28, a_lo);
+        // d_hi set core_row_0.vers_29
+        assign_or_panic!(core_row_0.vers_29, d_hi);
+        // d_lo set core_row_0.vers_30
+        assign_or_panic!(core_row_0.vers_30, d_lo);
+        // not_is_zero set core_row_0.vers_31;
+        assign_or_panic!(core_row_0.vers_31, not_is_zero);
         // fill bit_wise_rows
         bit_wise_rows.extend(bitwise_lookup1);
         bit_wise_rows.extend(bitwise_lookup2);
@@ -378,6 +428,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
             exp: exp_rows,
             bitwise: bit_wise_rows,
+            arithmetic: arithmetic_sub_rows,
             ..Default::default()
         }
     }

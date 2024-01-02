@@ -276,16 +276,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
         meta: &mut VirtualCells<F>,
     ) -> LookupEntry<F> {
-        assert!(index <= 5);
+        assert!(index <= 3);
         const WIDTH: usize = 5;
+        const SKIP_WIDTH: usize = 10;
         LookupEntry::Bitwise {
-            tag: meta.query_advice(self.vers[index * WIDTH], Rotation(-2)),
+            tag: meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH], Rotation(-2)),
             acc: [
-                meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-2)),
-                meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-2)),
-                meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-2)),
+                meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 1], Rotation(-2)),
+                meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 2], Rotation(-2)),
+                meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 3], Rotation(-2)),
             ],
-            sum_2: meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-2)),
+            sum_2: meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 4], Rotation(-2)),
         }
     }
 

@@ -96,9 +96,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         // get lookup value
         let (bitwise_lookup_lo_tag, bitwise_lookup_lo_acc_vers, bitwise_lookup_lo_sum_2) =
-            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(2, meta));
+            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(0, meta));
         let (bitwise_lookup_hi_tag, bitwise_lookup_hi_acc_vers, bitwise_lookup_hi_sum_2) =
-            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(3, meta));
+            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(1, meta));
         let (exp_lookup_base, exp_lookup_index, exp_lookup_pow) =
             extract_lookup_expression!(exp, config.get_exp_lookup(meta));
 
@@ -268,8 +268,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let arithmetic_sub_lookup =
             query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
-        let bitwise_lo_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(2, meta));
-        let bitwise_hi_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(3, meta));
+        let bitwise_lo_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(0, meta));
+        let bitwise_hi_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(1, meta));
         let exp_lookup = query_expression(meta, |meta| config.get_exp_lookup(meta));
         vec![
             ("stack lookup pop 0".into(), stack_lookup_0),
@@ -347,9 +347,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // columns: vers0 ~ vers8
         core_row_2.insert_arithmetic_lookup(&arithmetic_sub_rows);
         // columns: vers_10 ~ vers14
-        core_row_2.insert_bitwise_lookups(2, &bitwise_lo_rows.last().unwrap());
+        core_row_2.insert_bitwise_lookups(0, &bitwise_lo_rows.last().unwrap());
         // columns: vers_15 ~ vers_19
-        core_row_2.insert_bitwise_lookups(3, &bitwise_hi_rows.last().unwrap());
+        core_row_2.insert_bitwise_lookups(1, &bitwise_hi_rows.last().unwrap());
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push]);
