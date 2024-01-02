@@ -435,7 +435,7 @@ impl WitnessExecHelper {
         tag: state::CallContextTag,
         value: U256,
         call_id: u64,
-    ) -> (state::Row) {
+    ) -> state::Row {
         let res = state::Row {
             tag: Some(Tag::CallContext),
             stamp: Some(self.state_stamp.into()),
@@ -769,12 +769,7 @@ impl WitnessExecHelper {
         (state_row, val)
     }
 
-    pub fn get_calldata_write_row(
-        &mut self,
-        dst: usize,
-        val: u8,
-        dst_call_id: u64,
-    ) -> (state::Row) {
+    pub fn get_calldata_write_row(&mut self, dst: usize, val: u8, dst_call_id: u64) -> state::Row {
         let state_row = state::Row {
             tag: Some(state::Tag::CallData),
             stamp: Some(self.state_stamp.into()),

@@ -18,7 +18,7 @@ impl<F: Field> OperationGadget<F> for LengthGadget<F> {
     }
 
     fn num_row(&self) -> usize {
-        0 // TODO: change it
+        2 // TODO: change it
     }
 
     fn unusable_rows(&self) -> (usize, usize) {

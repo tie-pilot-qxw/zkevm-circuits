@@ -138,8 +138,8 @@ macro_rules! test_super_circuit_short_bytecode {
             Default::default(),
         ));
 
-        let k = log2_ceil(501);
-        let circuit = SuperCircuit::<Fr, 501, 500, 10, 10>::new_from_witness(&witness);
+        let k = 9;
+        let circuit = SuperCircuit::<Fr, 490, 480, 10, 10>::new_from_witness(&witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         let file_name = std::path::Path::new(file!()).file_stem().unwrap();
