@@ -994,6 +994,68 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
         selector
     }
+    pub(crate) fn get_exec_state_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        state_transition: ExecStateTransition,
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        // prev constraints
+        let mut prev_cond_expr = 0.expr();
+        let mut prev_state_len = 0;
+        for prev_state in state_transition.prev_states {
+            prev_cond_expr = prev_cond_expr
+                + self.execution_state_selector.selector(
+                    meta,
+                    prev_state as usize,
+                    Rotation(-1 * state_transition.current_gadget_num_rows as i32),
+                );
+            prev_state_len = prev_state_len + 1;
+        }
+        if prev_state_len > 0 {
+            constraints.push(("prev state constraints".into(), prev_cond_expr - 1.expr()));
+        }
+        // next constraints
+        let mut next_cond_expr = 0.expr();
+        let mut next_state_len = 0;
+        for (next_state, num_row) in state_transition.next_states {
+            let next_cnt_is_zero = self.cnt_is_zero.expr_at(meta, Rotation(num_row as i32));
+            next_cond_expr = next_cond_expr
+                + next_cnt_is_zero
+                    * self.execution_state_selector.selector(
+                        meta,
+                        next_state as usize,
+                        Rotation(num_row as i32),
+                    );
+            next_state_len = next_state_len + 1;
+        }
+        if next_state_len > 0 {
+            constraints.push(("next state constraints".into(), next_cond_expr - 1.expr()));
+        }
+        constraints
+    }
+}
+
+// ExecStateTransition record state transition
+pub(crate) struct ExecStateTransition {
+    pub(crate) prev_states: Vec<ExecutionState>,
+    // current_gadget_num_rows current gadget num row in core
+    pub(crate) current_gadget_num_rows: usize,
+    // next_states ,vector of (next gadget state ,next gadget num row in core)
+    pub(crate) next_states: Vec<(ExecutionState, usize)>,
+}
+impl ExecStateTransition {
+    pub fn new(
+        prev_states: Vec<ExecutionState>,
+        current_gadget_num_rows: usize,
+        next_states: Vec<(ExecutionState, usize)>,
+    ) -> Self {
+        Self {
+            prev_states,
+            current_gadget_num_rows,
+            next_states,
+        }
+    }
 }
 
 /// Execution Gadget for the configure and witness generation of an execution state
