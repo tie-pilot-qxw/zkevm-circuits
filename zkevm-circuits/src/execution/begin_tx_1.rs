@@ -206,11 +206,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some(calldata_size.into()),
             CallContextTag::CallDataSize,
         );
+        current_state
+            .parent_call_id
+            .insert(current_state.call_id, 0); // update current_state's parent_call_id
         let write_parent_call_id_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
             CallContextTag::ParentCallId,
         );
+        current_state
+            .parent_code_addr
+            .insert(current_state.call_id, 0.into()); // updage current_state's parent_code_addr
         let write_parent_code_addr_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),

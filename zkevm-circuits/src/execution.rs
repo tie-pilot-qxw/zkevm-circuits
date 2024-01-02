@@ -5,6 +5,11 @@ pub mod begin_block;
 pub mod begin_tx_1;
 pub mod begin_tx_2;
 pub mod byte;
+pub mod call_1;
+pub mod call_2;
+pub mod call_3;
+pub mod call_4;
+pub mod call_5;
 pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
@@ -12,7 +17,9 @@ pub mod codecopy;
 pub mod div_mod;
 pub mod dup;
 pub mod end_block;
+pub mod end_call;
 pub mod end_padding;
+pub mod end_tx;
 pub mod eq;
 pub mod exp;
 pub mod extcodecopy;
@@ -112,6 +119,13 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::returndatasize::new(),
             crate::execution::log_bytes::new(),
             crate::execution::signextend::new(),
+            crate::execution::call_1::new(),
+            crate::execution::call_2::new(),
+            crate::execution::call_3::new(),
+            crate::execution::call_4::new(),
+            crate::execution::call_5::new(),
+            crate::execution::end_call::new(),
+            crate::execution::end_tx::new(),
         ]
     }};
 }
@@ -1291,6 +1305,13 @@ pub enum ExecutionState {
     SELFBALANCE,
     RETURNDATACOPY,
     SIGNEXTEND,
+    CALL_1,
+    CALL_2,
+    CALL_3,
+    CALL_4,
+    CALL_5,
+    END_CALL,
+    END_TX,
 }
 
 impl ExecutionState {

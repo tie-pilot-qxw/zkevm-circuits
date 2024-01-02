@@ -35,6 +35,7 @@ pub enum Tag {
     SdivSmod,
     Addmod,
     Mulmod,
+    Length,
 }
 
 impl From<Tag> for usize {

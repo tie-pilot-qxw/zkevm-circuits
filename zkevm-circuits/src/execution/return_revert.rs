@@ -1,12 +1,13 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
+use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, copy, state, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use eth_types::evm_types::OpcodeId;
@@ -20,7 +21,7 @@ use std::marker::PhantomData;
 
 // core rows
 /// ReturnRevert Execution State layout is as follows
-/// where COPY means copy table lookup , 9 cols
+/// where COPY means copy table lookup , 11 cols
 /// STATE means state table lookup,
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -28,16 +29,15 @@ use std::marker::PhantomData;
 /// +---+-------+-------+---------+---------+
 /// |cnt| 8 col | 8 col |  8 col  |  8col   |
 /// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |                   |
-/// | 1 | STATE | STATE | notUsed | notUsed |
-/// | 0 | DYNA_SELECTOR | AUX               |
+/// | 2 | Copy(11) |                        |
+/// | 1 | STATE | STATE | STATE   | STATE   |
+/// | 0 | DYNA_SELECTOR      | AUX  | ReturnDataSize(1)|
 /// +---+-------+-------+---------+---------+
 ///
 
 const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 2;
+const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -2;
-const PC_DELTA: u64 = 1;
 
 pub struct ReturnRevertGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -56,7 +56,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, 1)
+        (NUM_ROW, super::end_call::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -64,8 +64,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
         // build constraints ---
@@ -81,65 +79,116 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // append stack constraints
-        let mut stack_pop_values = vec![];
-        for i in 0..2 {
+        let mut operands = vec![];
+        for i in 0..4 {
             let state_entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_stack_constraints(
-                meta,
-                state_entry.clone(),
-                i,
-                NUM_ROW,
-                (-1 * i as i32).expr(),
-                false,
-            ));
-            let (_, stamp, value_hi, value_lo, _, _, _, _) =
+            if i < 2 {
+                constraints.append(&mut config.get_stack_constraints(
+                    meta,
+                    state_entry.clone(),
+                    i,
+                    NUM_ROW,
+                    (-1 * i as i32).expr(),
+                    false,
+                ));
+            } else {
+                constraints.append(
+                    &mut config.get_call_context_constraints(
+                        meta,
+                        state_entry.clone(),
+                        i,
+                        NUM_ROW,
+                        true,
+                        if i == 2 {
+                            state::CallContextTag::ReturnDataCallId as u8
+                        } else {
+                            state::CallContextTag::ReturnDataSize as u8
+                        }
+                        .expr(),
+                        if i == 2 { 0.expr() } else { call_id.clone() }, // when CallContextTag is ReturnDataCallId, the call_id is 0.
+                    ),
+                );
+            }
+            let (_, _, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, state_entry);
-            stack_pop_values.push(value_hi); // 0
-            stack_pop_values.push(value_lo);
+            operands.push([value_hi, value_lo]);
         }
+
+        constraints.extend([
+            ("offset hi == 0".into(), operands[0][0].clone()),
+            ("len hi == 0".into(), operands[1][0].clone()),
+            ("returndata_call_id hi == 0".into(), operands[2][0].clone()),
+            (
+                "returndata_call_id lo == call_id".into(),
+                operands[2][1].clone() - call_id.clone(),
+            ),
+            (
+                "returndata_size hi == len hi".into(),
+                operands[3][0].clone() - operands[1][0].clone(),
+            ),
+            (
+                "returndata_size lo == len lo".into(),
+                operands[3][1].clone() - operands[1][1].clone(),
+            ),
+        ]);
+
+        let returndata_size_record = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            Rotation::cur(),
+        );
+        constraints.extend([(
+            "returndata_size_record correct".into(),
+            returndata_size_record - operands[3][1].clone(),
+        )]);
 
         // append core single purpose constraints
         let delta = CoreSinglePurposeOutcome {
-            // pc: ExpressionOutcome::Delta(1.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         // append return&revert constraints
-        let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[11], Rotation(-2));
         let is_zero_len =
-            SimpleIsZero::new(&stack_pop_values[3], &len_lo_inv, String::from("length_lo"));
+            SimpleIsZero::new(&operands[1][1], &len_lo_inv, String::from("length_lo"));
 
-        let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
+        let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 3));
 
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Memory,
             call_id.clone(),
-            stack_pop_values[1].clone(),
+            operands[0][1].clone(),
             stamp.clone() + 1.expr(),
             copy::Tag::Returndata,
             call_id,
             0.expr(),
-            stamp.clone() + stack_pop_values[3].clone() + 1.expr(),
+            stamp.clone() + operands[1][1].clone() + 1.expr(),
             None,
-            stack_pop_values[3].clone(),
+            operands[1][1].clone(),
             is_zero_len.expr(),
             None,
             copy_entry,
         ));
 
         // extend opcode and pc constraints
-        constraints.extend([
-            (
-                format!("opcode is RETURN or REVERT").into(),
-                (opcode.clone() - (OpcodeId::RETURN).expr()) * (opcode - (OpcodeId::REVERT).expr()),
-            ),
-            // (
-            //     format!("next pc").into(),
-            //     pc_next - pc_cur - PC_DELTA.expr(),
-            // ),
-        ]);
+        constraints.extend([(
+            format!("opcode is RETURN or REVERT").into(),
+            (opcode.clone() - (OpcodeId::RETURN).expr()) * (opcode - (OpcodeId::REVERT).expr()),
+        )]);
+
+        let next_is_end_call = config.execution_state_selector.selector(
+            meta,
+            ExecutionState::END_CALL as usize,
+            Rotation(super::end_call::NUM_ROW as i32),
+        );
+        let next_end_call_cnt_is_zero = config
+            .cnt_is_zero
+            .expr_at(meta, Rotation(super::end_call::NUM_ROW as i32));
+        constraints.extend([(
+            "next state is END_CALL".into(),
+            next_end_call_cnt_is_zero * next_is_end_call - 1.expr(),
+        )]);
 
         constraints
     }
@@ -173,6 +222,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         current_state.returndata_call_id = current_state.call_id.clone();
         current_state.returndata_size = length;
 
+        //get call_context write rows.
+        let call_context_write_row_0 = current_state.get_call_context_write_row(
+            state::CallContextTag::ReturnDataCallId,
+            current_state.returndata_call_id.into(),
+            0,
+        );
+        let call_context_write_row_1 = current_state.get_call_context_write_row(
+            state::CallContextTag::ReturnDataSize,
+            current_state.returndata_size,
+            current_state.returndata_call_id,
+        );
+
         // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // generate copy rows and state rows(type: memory)
@@ -185,29 +246,35 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(&copy_rows[0], None);
         }
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        // let len_lo = F::from_u128(length.low_u128());
         let len_lo = F::from_u128(length.as_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        // core_row_1.vers_24 = Some(lenlo_inv);
-        assign_or_panic!(core_row_1.vers_24, len_lo_inv);
+        assign_or_panic!(core_row_2.vers_11, len_lo_inv);
+
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([
-            // &stack_pop_dst_offset,
             &stack_pop_offset,
             &stack_pop_length,
+            &call_context_write_row_0,
+            &call_context_write_row_1,
         ]);
 
-        let core_row_0 = ExecutionState::RETURN_REVERT.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::RETURN_REVERT.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+        assign_or_panic!(core_row_0.vers_27, current_state.returndata_size);
 
-        let mut state_rows = vec![stack_pop_offset, stack_pop_length];
+        let mut state_rows = vec![
+            stack_pop_offset,
+            stack_pop_length,
+            call_context_write_row_0,
+            call_context_write_row_1,
+        ];
         state_rows.extend(memory_state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -255,7 +322,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let mut row = ExecutionState::END_CALL.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

@@ -1,4 +1,5 @@
 pub(crate) mod add;
+pub(crate) mod length;
 pub(crate) mod mul;
 pub(crate) mod sub;
 
@@ -16,6 +17,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::add::new(),
             crate::arithmetic_circuit::operation::sub::new(),
             crate::arithmetic_circuit::operation::mul::new(),
+            crate::arithmetic_circuit::operation::length::new(),
         ]
     }};
 }

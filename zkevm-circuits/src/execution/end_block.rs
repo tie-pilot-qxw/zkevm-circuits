@@ -43,17 +43,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        // prev state should be stop, or return_revert. temporarily todo
-        let prev_is_stop = config.execution_state_selector.selector(
+        // prev state should be end_tx.
+        let prev_is_end_tx = config.execution_state_selector.selector(
             meta,
-            ExecutionState::STOP as usize,
+            ExecutionState::END_TX as usize,
             Rotation(-1 * NUM_ROW as i32),
         );
-        let prev_is_return_revert = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::RETURN_REVERT as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
+
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let delta = AuxiliaryDelta::default();
@@ -62,10 +58,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0)); // after state circuit has sorting, this may change todo
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
-            (
-                "prev is stop or return_revert".into(),
-                prev_is_stop + prev_is_return_revert - 1.expr(),
-            ),
+            ("prev is end_tx".into(), prev_is_end_tx - 1.expr()),
             (
                 "last stamp in state circuit = current stamp - 1".into(),
                 state_stamp - state_circuit_stamp - 1.expr(),
@@ -145,7 +138,7 @@ mod test {
         // prepare a trace
         let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
-            ExecutionState::STOP.into_exec_state_core_row(
+            ExecutionState::END_TX.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
