@@ -1,5 +1,8 @@
 use crate::constant::NUM_AUXILIARY;
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
+    ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
@@ -9,8 +12,6 @@ use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
-use super::{Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome};
 
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
