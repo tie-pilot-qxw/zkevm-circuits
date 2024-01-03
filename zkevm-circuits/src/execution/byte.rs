@@ -312,7 +312,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let base: U256 = U256::from(256);
         let (power, _) = base.overflowing_pow(index);
-
         let value_index_byte_ff_lo = 255 * power.low_u128();
         let value_index_byte_ff_hi = 255 * (power >> 128).as_u128();
 
