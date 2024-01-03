@@ -1012,10 +1012,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
         selector
     }
+    // get_exec_state_constraints usage:
+    // if state_transition.prev_states.len() > 0,
+    //    prev_constraints: sum(prev_cond_expr) -1.expr()
+    // if state_transition.next_stats.len() > 0 , next_constraints:
+    //    sum(cond*next_cnt_is_zero*next_selector) - 1.expr(),if has cond;
+    //    else is : sum(next_cnt_is_zero*next_selector) - 1.expr
     pub(crate) fn get_exec_state_constraints(
         &self,
         meta: &mut VirtualCells<F>,
-        state_transition: ExecStateTransition,
+        state_transition: ExecStateTransition<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
         // prev constraints
@@ -1036,37 +1042,43 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // next constraints
         let mut next_cond_expr = 0.expr();
         let mut next_state_len = 0;
-        for (next_state, num_row) in state_transition.next_states {
+        for (next_state, num_row, cond) in state_transition.next_states {
             let next_cnt_is_zero = self.cnt_is_zero.expr_at(meta, Rotation(num_row as i32));
-            next_cond_expr = next_cond_expr
-                + next_cnt_is_zero
-                    * self.execution_state_selector.selector(
-                        meta,
-                        next_state as usize,
-                        Rotation(num_row as i32),
-                    );
+            let mut temp_expr = next_cnt_is_zero
+                * self.execution_state_selector.selector(
+                    meta,
+                    next_state as usize,
+                    Rotation(num_row as i32),
+                );
+            temp_expr = match cond {
+                Some(cond_expr) => cond_expr * temp_expr,
+                None => temp_expr,
+            };
+
+            next_cond_expr = next_cond_expr + temp_expr;
             next_state_len = next_state_len + 1;
         }
+        let next_constraints = next_cond_expr.clone() - 1.expr();
         if next_state_len > 0 {
-            constraints.push(("next state constraints".into(), next_cond_expr - 1.expr()));
+            constraints.push(("next state constraints".into(), next_constraints));
         }
         constraints
     }
 }
 
 // ExecStateTransition record state transition
-pub(crate) struct ExecStateTransition {
+pub(crate) struct ExecStateTransition<F> {
     pub(crate) prev_states: Vec<ExecutionState>,
     // current_gadget_num_rows current gadget num row in core
     pub(crate) current_gadget_num_rows: usize,
     // next_states ,vector of (next gadget state ,next gadget num row in core)
-    pub(crate) next_states: Vec<(ExecutionState, usize)>,
+    pub(crate) next_states: Vec<(ExecutionState, usize, Option<Expression<F>>)>,
 }
-impl ExecStateTransition {
+impl<F: Field> ExecStateTransition<F> {
     pub fn new(
         prev_states: Vec<ExecutionState>,
         current_gadget_num_rows: usize,
-        next_states: Vec<(ExecutionState, usize)>,
+        next_states: Vec<(ExecutionState, usize, Option<Expression<F>>)>,
     ) -> Self {
         Self {
             prev_states,
