@@ -163,6 +163,7 @@ impl WitnessExecHelper {
         self.tx_value = tx.value;
         self.sender.insert(call_id, tx.from.as_bytes().into());
         self.code_addr = to;
+        self.storage_contract_addr.insert(call_id, to);
         self.bytecode = bytecode;
 
         let mut res: Witness = Default::default();
