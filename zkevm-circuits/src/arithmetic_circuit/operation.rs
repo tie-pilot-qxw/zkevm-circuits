@@ -2,6 +2,7 @@ pub(crate) mod add;
 pub(crate) mod div_mod;
 pub(crate) mod length;
 pub(crate) mod mul;
+pub(crate) mod slt_sgt;
 pub(crate) mod sub;
 
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
@@ -18,6 +19,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::add::new(),
             crate::arithmetic_circuit::operation::sub::new(),
             crate::arithmetic_circuit::operation::mul::new(),
+            crate::arithmetic_circuit::operation::slt_sgt::new(),
             crate::arithmetic_circuit::operation::div_mod::new(),
             crate::arithmetic_circuit::operation::length::new(),
         ]
@@ -79,7 +81,10 @@ pub(crate) fn get_u16s<F: Field>(
 }
 
 /// Get the lt_operations between two U256 numbers
-fn get_lt_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u16>; 2]) {
+/// Supports the following constraint calculations:
+/// 1.`c_lo - b_lo = diff_lo - carry_lo << N_BYTES`
+/// 2.`c_hi - b_hi - carry_lo = diff_hi - carry_hi << N_BYTES`
+fn get_lt_word_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u16>; 2]) {
     assert_eq!(2, operands.len());
     let c = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
@@ -98,4 +103,24 @@ fn get_lt_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u16>; 2
         diff_split,
         [diff_u16s_hi, diff_u16s],
     )
+}
+
+/// Get the lt_operations between two U128 numbers
+/// Supports the following constraint calculations:
+/// `lhs - rhs = diff - lt * range`
+/// Determine whether the operand is positive or negative
+fn get_lt_operations(lhs: &U256, rhs: &U256, range: &U256) -> (bool, U256, Vec<u16>) {
+    let lt = lhs < rhs;
+
+    let diff = if lt { range - rhs + lhs } else { lhs - rhs };
+
+    let mut diff_u16s: Vec<u16> = diff
+        .to_le_bytes()
+        .chunks(2)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .collect();
+    assert_eq!(16, diff_u16s.len());
+    let _ = diff_u16s.split_off(8);
+
+    (lt, diff, diff_u16s)
 }
