@@ -819,7 +819,6 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
 
                 // sub circuit need to enable selector
-
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
                 }
@@ -884,6 +883,7 @@ mod test {
                 BytecodeCircuitConfigArgs {
                     q_enable: q_enable_bytecode,
                     bytecode_table,
+                    fixed_table,
                     instance_addr,
                     instance_bytecode,
                 },

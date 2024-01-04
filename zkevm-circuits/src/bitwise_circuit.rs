@@ -223,7 +223,8 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
         });
 
         // lookup constraint
-        //config.fixed_lookup(meta, "BITWISE_LOOKUP");
+        // constrain the operation results of And, Or, Xor
+        config.fixed_lookup(meta, "BITWISE_LOOKUP");
 
         config
     }
