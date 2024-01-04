@@ -86,7 +86,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let c_u16s: Vec<u16> = c
         .to_le_bytes()
         .chunks(2)
-        .map(|x| x[0] as u16 * 256 + x[1] as u16)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
     assert_eq!(16, c_u16s.len());
     let c_split = split_u256_hi_lo(&c);

@@ -87,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "operand[6] carry_hi in arithemetic = result in state push lo".into(),
                 stack_operands[5].clone() - arithmetic_operands_full[6].clone(),
             ),
-            // we don't need any constaint for operand[4,5,7] in arithemetic
+            // we don't need any constraint for operand[4,5,7] in arithmetic
             ("opcode".into(), opcode - OpcodeId::LT.as_u8().expr()),
             (
                 "arithmetic tag".into(),

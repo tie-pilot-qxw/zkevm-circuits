@@ -1,12 +1,13 @@
 pub(crate) mod add;
+pub(crate) mod div_mod;
 pub(crate) mod length;
 pub(crate) mod mul;
 pub(crate) mod sub;
 
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, U256};
-use gadgets::util::expr_from_u16s;
+use eth_types::{Field, ToLittleEndian, U256};
+use gadgets::util::{expr_from_u16s, split_u256_hi_lo};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 
@@ -17,6 +18,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::add::new(),
             crate::arithmetic_circuit::operation::sub::new(),
             crate::arithmetic_circuit::operation::mul::new(),
+            crate::arithmetic_circuit::operation::div_mod::new(),
             crate::arithmetic_circuit::operation::length::new(),
         ]
     }};
@@ -74,4 +76,26 @@ pub(crate) fn get_u16s<F: Field>(
     let u16_lo_sum = expr_from_u16s(&u16s);
     let u16_hi_sum = expr_from_u16s(&u16_hi);
     (u16_sum, u16_lo_sum, u16_hi_sum)
+}
+
+/// Get the lt_operations between two U256 numbers
+fn get_lt_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u16>; 2]) {
+    assert_eq!(2, operands.len());
+    let c = split_u256_hi_lo(&operands[0]);
+    let b = split_u256_hi_lo(&operands[1]);
+    let (diff, carry_hi) = operands[0].overflowing_sub(operands[1]);
+    let (_, carry_lo) = c[1].overflowing_sub(b[1]);
+    let mut diff_u16s: Vec<u16> = diff
+        .to_le_bytes()
+        .chunks(2)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .collect();
+    assert_eq!(16, diff_u16s.len());
+    let diff_split = split_u256_hi_lo(&diff);
+    let diff_u16s_hi = diff_u16s.split_off(8);
+    (
+        vec![carry_hi, carry_lo],
+        diff_split,
+        [diff_u16s_hi, diff_u16s],
+    )
 }

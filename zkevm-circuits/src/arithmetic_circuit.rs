@@ -117,14 +117,9 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         &self,
         index: usize,
     ) -> impl FnOnce(&mut VirtualCells<'_, F>) -> [Expression<F>; 2] {
-        assert!(index < 6);
-        let rotation = if index < 2 {
-            Rotation::cur()
-        } else if index < 4 {
-            Rotation::prev()
-        } else {
-            Rotation(-2)
-        };
+        let rotation_index = -(index as isize / 2);
+        let rotation = Rotation(rotation_index as i32);
+
         let index = index % NUM_OPERAND;
         let operands = self.operands[index];
         move |meta: &mut VirtualCells<'_, F>| {
@@ -293,11 +288,12 @@ mod test {
     use super::*;
     use crate::util::log2_ceil;
     use eth_types::U256;
+    use gadgets::util::pow_of_two;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
 
-    const TEST_SIZE: usize = 50;
+    const TEST_SIZE: usize = 70;
 
     #[derive(Clone, Default, Debug)]
     pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
@@ -332,8 +328,27 @@ mod test {
 
     impl<F: Field> ArithmeticTestCircuit<F> {
         pub fn new(witness: Witness) -> Self {
+            let mut arithmetic = Vec::new();
+            let num_padding_begin = unusable_rows::<F>().0;
+            for _ in 0..num_padding_begin {
+                arithmetic.push(Default::default());
+            }
+            arithmetic.extend(witness.arithmetic.clone());
+            let witness = Witness {
+                arithmetic,
+                ..Default::default()
+            };
             Self(ArithmeticCircuit::new_from_witness(&witness))
         }
+    }
+
+    fn unusable_rows<F: Field>() -> (usize, usize) {
+        let gadgets: Vec<Box<dyn OperationGadget<F>>> = get_every_operation_gadgets!();
+        let usable_max =
+            itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().0)).unwrap();
+        let unusable_end =
+            itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().1)).unwrap();
+        (usable_max, unusable_end)
     }
     #[test]
     fn test_add_witness() {
@@ -355,10 +370,10 @@ mod test {
     #[test]
     fn test_sub_gt_witness() {
         let (arithmetic, result) =
-            self::operation::sub::gen_witness(vec![U256::MAX, u128::MAX.into()]);
+            self::operation::sub::gen_witness(vec![128.into(), u128::MAX.into()]);
 
         // there is no carry, so it is 0
-        assert_eq!(result[1], 0.into());
+        assert_eq!(result[1], (U256::from(1) << 128) + 1);
         let witness = Witness {
             arithmetic,
             ..Default::default()
@@ -396,6 +411,45 @@ mod test {
             ..Default::default()
         };
 
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_div_mod_witness() {
+        let (arithmetic1, result) =
+            self::operation::div_mod::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+        let (arithmetic2, result2) =
+            self::operation::div_mod::gen_witness(vec![U256::MAX, u128::MAX.into()]);
+        let (arithmetic3, result3) =
+            self::operation::div_mod::gen_witness(vec![0.into(), u128::MAX.into()]);
+        let (arithmetic4, result4) =
+            self::operation::div_mod::gen_witness(vec![U256::MAX, 0.into()]);
+        let (arithmetic5, result5) =
+            self::operation::div_mod::gen_witness(vec![0.into(), 0.into()]);
+        // there is a < b, so result[1] == 0,result[0] == a
+        assert_eq!(result[1], 0.into());
+        assert_eq!(result[0], u128::MAX.into());
+
+        // there is a = U256::MAX b = u128::MAX, so result[0] == 0,result[1]_hi == 1 result[1]_lo = 1
+        assert_eq!(result2[1] >> 128, 1.into());
+        assert_eq!(result2[1].low_u128(), 1 as u128);
+        assert_eq!(result2[0], 0.into());
+
+        // there is a = 0
+        let mut arithmetic = Vec::new();
+        arithmetic.extend(arithmetic1);
+        arithmetic.extend(arithmetic2);
+        arithmetic.extend(arithmetic3);
+        arithmetic.extend(arithmetic4);
+        arithmetic.extend(arithmetic5);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();

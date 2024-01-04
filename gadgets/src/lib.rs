@@ -20,6 +20,8 @@ pub mod is_zero_with_rotation;
 pub mod less_than;
 pub mod mul_add;
 pub mod simple_is_zero;
+pub mod simple_lt;
+pub mod simple_lt_word;
 pub mod simple_seletor;
 pub mod util;
 
