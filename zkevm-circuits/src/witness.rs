@@ -1563,52 +1563,107 @@ impl core::Row {
         ]);
     }
 
-    pub fn insert_arithmetic_lookup(&mut self, arithmetic: &[arithmetic::Row]) {
+    /// insert arithmetic_lookup insert arithmetic lookup, 9 columns in row prev(-2)
+    /// row cnt = 2 can hold at most 3 arithmetic operations, 3 * 9 = 27
+    /// +---+-------+-------+-------+-----+
+    /// |cnt| 9 col | 9 col | 9 col |5 col|
+    /// +---+-------+-------+-------+-----+
+    /// | 2 | arith0|arith1 | arith2|     |
+    /// +---+-------+-------+-------+-----+
+    pub fn insert_arithmetic_lookup(&mut self, index: usize, arithmetic: &[arithmetic::Row]) {
         // this lookup must be in the row with this cnt
+        const WIDTH: usize = 9;
         assert_eq!(self.cnt, 2.into());
+        assert!(index < 3);
         let len = arithmetic.len();
         assert!(len >= 2);
         let row_0 = &arithmetic[len - 1];
         let row_1 = &arithmetic[len - 2];
-
-        for (cell, value) in [
-            (&mut self.vers_0, row_0.operand_0_hi),
-            (&mut self.vers_1, row_0.operand_0_lo),
-            (&mut self.vers_2, row_0.operand_1_hi),
-            (&mut self.vers_3, row_0.operand_1_lo),
-            (&mut self.vers_4, row_1.operand_0_hi),
-            (&mut self.vers_5, row_1.operand_0_lo),
-            (&mut self.vers_6, row_1.operand_1_hi),
-            (&mut self.vers_7, row_1.operand_1_lo),
-            (&mut self.vers_8, (row_0.tag as u8).into()),
-        ] {
-            assign_or_panic!(*cell, value);
-        }
+        #[rustfmt::skip]
+            let vec = [
+                [&mut self.vers_0,&mut self.vers_1,&mut self.vers_2,&mut self.vers_3,&mut self.vers_4,
+                    &mut self.vers_5,&mut self.vers_6,&mut self.vers_7,&mut self.vers_8],
+                [&mut self.vers_9,&mut self.vers_10,&mut self.vers_11,&mut self.vers_12,&mut self.vers_13,
+                    &mut self.vers_14,&mut self.vers_15,&mut self.vers_16,&mut self.vers_17],
+                [&mut self.vers_18,&mut self.vers_19,&mut self.vers_20,&mut self.vers_21,&mut self.vers_22,
+                    &mut self.vers_23,&mut self.vers_24,&mut self.vers_25,&mut self.vers_26],
+            ];
+        assign_or_panic!(*vec[index][0], row_0.operand_0_hi);
+        assign_or_panic!(*vec[index][1], row_0.operand_0_lo);
+        assign_or_panic!(*vec[index][2], row_0.operand_1_hi);
+        assign_or_panic!(*vec[index][3], row_0.operand_1_lo);
+        assign_or_panic!(*vec[index][4], row_1.operand_0_hi);
+        assign_or_panic!(*vec[index][5], row_1.operand_0_lo);
+        assign_or_panic!(*vec[index][6], row_1.operand_1_hi);
+        assign_or_panic!(*vec[index][7], row_1.operand_1_lo);
+        assign_or_panic!(*vec[index][8], (row_0.tag as u8).into());
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", 0), format!("arithmetic operand 0 hi")),
-            (format!("vers_{}", 1), format!("arithmetic operand 0 lo")),
-            (format!("vers_{}", 2), format!("arithmetic operand 1 hi")),
-            (format!("vers_{}", 3), format!("arithmetic operand 1 lo")),
-            (format!("vers_{}", 8), format!("arithmetic tag={:?}", row_0.tag)),
+            (format!("vers_{}", index * WIDTH), format!("arithmetic operand 0 hi")),
+            (format!("vers_{}", index * WIDTH + 1), format!("arithmetic operand 0 lo")),
+            (format!("vers_{}", index * WIDTH + 2), format!("arithmetic operand 1 hi")),
+            (format!("vers_{}", index * WIDTH + 3), format!("arithmetic operand 1 lo")),
+            (format!("vers_{}", index * WIDTH + 8), format!("arithmetic tag={:?}", row_0.tag)),
         ]);
         match row_0.tag {
             arithmetic::Tag::Add => {
                 self.comments.extend([
-                    (format!("vers_{}", 4), format!("arithmetic sum hi")),
-                    (format!("vers_{}", 5), format!("arithmetic sum lo")),
-                    (format!("vers_{}", 6), format!("arithmetic carry hi")),
-                    (format!("vers_{}", 7), format!("arithmetic carry lo")),
+                    (
+                        format!("vers_{}", index * WIDTH + 4),
+                        format!("arithmetic sum hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 5),
+                        format!("arithmetic sum lo"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 6),
+                        format!("arithmetic carry hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 7),
+                        format!("arithmetic carry lo"),
+                    ),
                 ]);
             }
             arithmetic::Tag::Sub => {
                 self.comments.extend([
-                    (format!("vers_{}", 4), format!("arithmetic difference hi")),
-                    (format!("vers_{}", 5), format!("arithmetic difference lo")),
-                    (format!("vers_{}", 6), format!("arithmetic carry hi")),
-                    (format!("vers_{}", 7), format!("arithmetic carry lo")),
+                    (
+                        format!("vers_{}", index * WIDTH + 4),
+                        format!("arithmetic difference hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 5),
+                        format!("arithmetic difference lo"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 6),
+                        format!("arithmetic carry hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 7),
+                        format!("arithmetic carry lo"),
+                    ),
                 ]);
             }
+            arithmetic::Tag::DivMod => self.comments.extend([
+                (
+                    format!("vers_{}", index * WIDTH + 4),
+                    format!("arithmetic remainder hi"),
+                ),
+                (
+                    format!("vers_{}", index * WIDTH + 5),
+                    format!("arithmetic remainder lo"),
+                ),
+                (
+                    format!("vers_{}", index * WIDTH + 6),
+                    format!("arithmetic quotient hi"),
+                ),
+                (
+                    format!("vers_{}", index * WIDTH + 7),
+                    format!("arithmetic quotient lo"),
+                ),
+            ]),
             _ => (),
         };
     }

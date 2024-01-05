@@ -63,7 +63,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             arithmetic_operands.extend([value_hi, value_lo]);
         }
         let (tag, arithmetic_operands_full) =
-            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
         constraints.extend((0..8).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),
@@ -89,7 +89,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let stack_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
-        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
+        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
         vec![
             ("stack pop a".into(), stack_lookup_0),
             ("stack pop b".into(), stack_lookup_1),

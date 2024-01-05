@@ -103,7 +103,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("memory write value hi ==0".into(), operands[2][0].clone()),
         ]);
 
-        let bitwise_entry = config.get_bitwise_lookup(0, meta);
+        let bitwise_entry = config.get_bitwise_lookup(meta, 0);
         constraints.append(&mut config.get_bitwise_constraints(
             meta,
             bitwise_entry,
@@ -137,7 +137,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let memory_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
-        let bitwise_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(0, meta));
+        let bitwise_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 0));
 
         vec![
             ("stack lookup 0".into(), stack_lookup_0),

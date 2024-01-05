@@ -69,7 +69,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             arithmetic_operands.extend([value_hi, value_lo]);
         }
         let (tag, arithmetic_operands_full) =
-            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
         // iterate over three operands (0..6), since we don't need constraint on the fourth
         constraints.extend((0..6).map(|i| {
             (
@@ -94,7 +94,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
-        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
+        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
         vec![
             ("stack pop a".into(), stack_lookup_0),
             ("stack pop b".into(), stack_lookup_1),
@@ -113,7 +113,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push = current_state.get_push_stack_row(trace, result[0]);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_arithmetic_lookup(&arithmetic);
+        core_row_2.insert_arithmetic_lookup(0, &arithmetic);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push]);
