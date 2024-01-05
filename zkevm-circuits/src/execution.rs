@@ -130,6 +130,8 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::call_5::new(),
             crate::execution::end_call::new(),
             crate::execution::end_tx::new(),
+            crate::execution::log_topic_num_addr::new(),
+            crate::execution::log_topic::new(),
         ]
     }};
 }
