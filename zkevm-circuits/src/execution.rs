@@ -34,6 +34,7 @@ pub mod log_topic;
 pub mod log_topic_num_addr;
 pub mod lt;
 pub mod memory;
+pub mod mstore8;
 pub mod mul;
 pub mod mulmod;
 pub mod not;
@@ -92,6 +93,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::public_context::new(),
             crate::execution::tx_context::new(),
             crate::execution::memory::new(),
+            crate::execution::mstore8::new(),
             crate::execution::storage::new(),
             crate::execution::call_context::new(),
             crate::execution::calldataload::new(),
@@ -589,6 +591,48 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
 
+    pub(crate) fn get_memory_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        memory_pointer_lo: Expression<F>,
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+            extract_lookup_expression!(state, entry);
+        let Auxiliary { state_stamp, .. } = self.get_auxiliary();
+        vec![
+            (
+                format!("state lookup tag[{}] = memory", index),
+                tag - (state::Tag::Memory as u8).expr(),
+            ),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                stamp
+                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - index.expr(),
+            ),
+            (
+                format!("state lookup call id[{}]", index),
+                call_id_contract_addr - meta.query_advice(self.call_id, Rotation::cur()),
+            ),
+            (
+                format!("pointer_hi (memory pointer)[{}]", index),
+                pointer_hi,
+            ),
+            (
+                format!("pointer_lo (memory pointer)[{}]", index),
+                pointer_lo - memory_pointer_lo,
+            ),
+            (
+                format!("is_write[{}]", index),
+                is_write - (write as u8).expr(),
+            ),
+        ]
+    }
+
     pub(crate) fn get_storage_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -763,6 +807,43 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 is_write - (write as u8).expr(),
             ),
         ]
+    }
+
+    pub(crate) fn get_bitwise_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        tag: Expression<F>,
+        acc_0: Expression<F>,
+        acc_1: Expression<F>,
+        acc_2: Option<Expression<F>>,
+        sum_2: Option<Expression<F>>,
+    ) -> Vec<(String, Expression<F>)> {
+        let (bitwise_tag, bitwise_acc, bitwise_sum_2) = extract_lookup_expression!(bitwise, entry);
+        let mut constraints: Vec<(String, Expression<F>)> = vec![];
+        constraints.extend([
+            ("tag of bitwise lookup".into(), bitwise_tag - tag),
+            (
+                "acc_0 of bitwise lookup".into(),
+                bitwise_acc[0].clone() - acc_0,
+            ),
+            (
+                "acc_1 of bitwise lookup".into(),
+                bitwise_acc[1].clone() - acc_1,
+            ),
+        ]);
+
+        if let Some(acc_2) = acc_2 {
+            constraints.push((
+                "acc_2 of bitwise lookup".into(),
+                bitwise_acc[2].clone() - acc_2,
+            ))
+        }
+        if let Some(sum_2) = sum_2 {
+            constraints.push(("sum_2 of bitwise lookup".into(), bitwise_sum_2 - sum_2))
+        }
+
+        constraints
     }
 
     pub(crate) fn get_bytecode_full_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
