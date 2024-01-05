@@ -122,6 +122,8 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::returndatacopy::new(),
             crate::execution::returndatasize::new(),
             crate::execution::log_bytes::new(),
+            crate::execution::log_topic_num_addr::new(),
+            crate::execution::log_topic::new(),
             crate::execution::signextend::new(),
             crate::execution::call_1::new(),
             crate::execution::call_2::new(),
