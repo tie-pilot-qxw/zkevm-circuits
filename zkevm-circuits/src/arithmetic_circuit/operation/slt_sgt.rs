@@ -17,7 +17,7 @@ pub(crate) struct SltSgtGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
     fn name(&self) -> &'static str {
-        "SLTSGT"
+        "SLT_SGT"
     }
 
     fn tag(&self) -> Tag {
@@ -143,17 +143,10 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         };
         (c, carry << 128)
     } else {
-        if a_lt == 1.into() {
-            let (c, carry_hi) = operands[0].overflowing_sub(operands[1]);
-            let (_, carry_lo) = a[1].overflowing_sub(b[1]);
-            let carry = (U256::from(carry_hi as u8) << 128) + U256::from(carry_lo as u8);
-            (c, carry)
-        } else {
-            let (c, carry_hi) = operands[1].overflowing_sub(operands[0]);
-            let (_, carry_lo) = b[1].overflowing_sub(a[1]);
-            let carry = (U256::from(carry_hi as u8) << 128) + U256::from(carry_lo as u8);
-            (c, carry)
-        }
+        let (c, carry_hi) = operands[0].overflowing_sub(operands[1]);
+        let (_, carry_lo) = a[1].overflowing_sub(b[1]);
+        let carry = (U256::from(carry_hi as u8) << 128) + U256::from(carry_lo as u8);
+        (c, carry)
     };
 
     let carrys = split_u256_hi_lo(&carry);
@@ -294,25 +287,17 @@ mod test {
         };
 
         witness.print_csv();
-        // b_lo + carry_lo = a_lo + c_lo
-
-        println!(
-            "b_lo is {:#x}, carry_lo is {:#x}, a_lo is {:#x}, c_lo is {:#x}",
-            arith[4].operand_1_lo,
-            arith[3].operand_1_lo,
-            arith[4].operand_0_lo,
-            arith[3].operand_0_lo
-        );
+        // a_lo + carry_lo << 128 = b_lo + c_lo
         assert_eq!(
-            arith[4].operand_1_lo + (arith[3].operand_1_lo << 128),
-            arith[4].operand_0_lo + arith[3].operand_0_lo
+            arith[4].operand_0_lo + (arith[3].operand_1_lo << 128),
+            arith[4].operand_1_lo + arith[3].operand_0_lo
         );
-        // b_hi + carry_hi << 128 - carry_lo= a_hi + c_hi
+        // a_hi + carry_hi << 128 - carry_lo = b_hi + c_hi
         assert_eq!(
-            arith[4].operand_1_hi + (arith[3].operand_1_hi << 128) - arith[3].operand_1_lo,
-            arith[4].operand_0_hi + arith[3].operand_0_hi
+            arith[4].operand_0_hi + (arith[3].operand_1_hi << 128) - arith[3].operand_1_lo,
+            arith[4].operand_1_hi + arith[3].operand_0_hi
         );
-        assert_eq!(U256::from(0), result[1] >> 128);
+        assert_eq!(U256::from(1), result[1] >> 128);
     }
 
     #[test]

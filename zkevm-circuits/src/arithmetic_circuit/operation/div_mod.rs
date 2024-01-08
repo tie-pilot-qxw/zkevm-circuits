@@ -29,7 +29,7 @@ pub(crate) struct DivModGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for DivModGadget<F> {
     fn name(&self) -> &'static str {
-        "DivMod"
+        "DIV_MOD"
     }
 
     fn tag(&self) -> Tag {

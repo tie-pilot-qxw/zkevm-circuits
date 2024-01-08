@@ -389,9 +389,8 @@ mod test {
         let (arithmetic, result) =
             self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
 
-        let result = result[1] >> 128;
         // there is carry for high 128-bit, so it is 1<<128
-        assert_eq!(result, U256::from(1));
+        assert_eq!(result[1], U256::from(1) << 128);
         let witness = Witness {
             arithmetic,
             ..Default::default()
@@ -462,11 +461,11 @@ mod test {
             U256::from(u128::MAX) + U256::from(59509090),
             U256::from(u128::MAX) + U256::from(56789),
         ]);
-        let (arithmetic2, result2) = self::operation::div_mod::gen_witness(vec![
+        let (arithmetic2, result2) = operation::slt_sgt::gen_witness(vec![
             U256::MAX - U256::from(59509090),
             U256::MAX - U256::from(590),
         ]);
-        let (arithmetic3, result3) = self::operation::div_mod::gen_witness(vec![
+        let (arithmetic3, result3) = self::operation::slt_sgt::gen_witness(vec![
             u128::MAX.into(),
             U256::MAX - U256::from(3434),
         ]);
