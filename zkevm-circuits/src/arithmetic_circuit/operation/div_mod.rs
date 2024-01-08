@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::operation::{
-    get_lt_operations, get_row, get_u16s, OperationConfig, OperationGadget,
+    get_lt_word_operations, get_row, get_u16s, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
@@ -29,7 +29,7 @@ pub(crate) struct DivModGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for DivModGadget<F> {
     fn name(&self) -> &'static str {
-        "DivMod"
+        "DIV_MOD"
     }
 
     fn tag(&self) -> Tag {
@@ -285,7 +285,7 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
 
 ///get c < b rows
 fn get_lt_word_rows<F: Field>(operands: Vec<U256>) -> (Vec<Row>) {
-    let (carry, diff_split, diff_u16s) = get_lt_operations(operands);
+    let (carry, diff_split, diff_u16s) = get_lt_word_operations(operands);
     let row_7 = get_row(
         [U256::zero(), U256::zero()],
         [U256::zero(), U256::zero()],

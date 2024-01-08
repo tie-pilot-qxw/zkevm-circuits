@@ -1,17 +1,30 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::util::query_expression;
+use crate::arithmetic_circuit::operation;
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
 
+const STATE_STAMP_DELTA: u64 = 3;
+
+const STACK_POINTER_DELTA: i32 = -1;
+
+const PC_DELTA: u64 = 1;
+
 pub struct SltGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for SltGadget<F>
 {
@@ -32,7 +45,61 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        let mut stack_operands = vec![];
+        for i in 0..3 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                if i == 0 { 0 } else { -1 }.expr(),
+                i == 2,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            stack_operands.extend([value_hi, value_lo]);
+        }
+
+        let (tag, arithmetic_operands_full) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+        constraints.extend((0..4).map(|i| {
+            (
+                format!("operand[{}] in state lookup = in arithmetic ", i),
+                stack_operands[i].clone() - arithmetic_operands_full[i].clone(),
+            )
+        }));
+
+        constraints.extend([
+            (
+                "result hi in state push = 0".into(),
+                stack_operands[4].clone(),
+            ),
+            (
+                "operand[6] carry_hi in arithmetic = result in state push lo".into(),
+                arithmetic_operands_full[6].clone() - stack_operands[5].clone(),
+            ),
+            ("opcode".into(), opcode - OpcodeId::SLT.as_u8().expr()),
+            (
+                "arithmetic tag".into(),
+                tag - (arithmetic::Tag::SltSgt as u8).expr(),
+            ),
+        ]);
+        constraints
     }
     fn get_lookups(
         &self,
@@ -51,31 +118,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
-        let a_is_pos = (a >> 255).as_u32() == 0;
-        let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
-        let b_is_pos = (b >> 255).as_u32() == 0;
-        let c = current_state.stack_top.unwrap_or_default();
-        let stack_push_0 = current_state.get_push_stack_row(trace, c);
-        let exp_c: U256 = if a_is_pos && !b_is_pos {
-            0
-        } else if !a_is_pos && b_is_pos {
-            1
-        } else {
-            if a < b {
-                1
-            } else {
-                0
-            }
-        }
-        .into();
-        assert_eq!(exp_c, c);
-        // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Slt, [a, b, c, d]);
-        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        assert_eq!(trace.op, OpcodeId::SLT);
 
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+        let (stack_pop_a, a) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_b, b) = current_state.get_pop_stack_row_value(&trace);
+
+        let (arithmetic, result) = operation::slt_sgt::gen_witness(vec![a, b]);
+        let stack_result = result[1] >> 128;
+        assert_eq!(stack_result, current_state.stack_top.unwrap());
+        let stack_push = current_state.get_push_stack_row(trace, stack_result);
+
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        core_row_2.insert_arithmetic_lookup(&arithmetic);
+
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push]);
         let core_row_0 = ExecutionState::SLT.into_exec_state_core_row(
             trace,
             current_state,
@@ -84,17 +141,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_pop_0, stack_pop_1, stack_push_0],
+            state: vec![stack_pop_b, stack_pop_a, stack_push],
+            arithmetic,
             ..Default::default()
         }
     }
 }
+
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
     Box::new(SltGadget {
         _marker: PhantomData,
     })
 }
+
 #[cfg(test)]
 mod test {
     use crate::execution::test::{

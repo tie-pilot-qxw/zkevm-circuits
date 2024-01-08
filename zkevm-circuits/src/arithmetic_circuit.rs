@@ -410,7 +410,6 @@ mod test {
             arithmetic,
             ..Default::default()
         };
-
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
@@ -445,6 +444,37 @@ mod test {
         arithmetic.extend(arithmetic3);
         arithmetic.extend(arithmetic4);
         arithmetic.extend(arithmetic5);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness);
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_slt_sgt_witness() {
+        let (arithmetic1, result) = self::operation::slt_sgt::gen_witness(vec![
+            U256::from(u128::MAX) + U256::from(59509090),
+            U256::from(u128::MAX) + U256::from(56789),
+        ]);
+        let (arithmetic2, result2) = operation::slt_sgt::gen_witness(vec![
+            U256::MAX - U256::from(59509090),
+            U256::MAX - U256::from(590),
+        ]);
+        let (arithmetic3, result3) = self::operation::slt_sgt::gen_witness(vec![
+            u128::MAX.into(),
+            U256::MAX - U256::from(3434),
+        ]);
+
+        // there is a = 0
+        let mut arithmetic = Vec::new();
+        arithmetic.extend(arithmetic1);
+        arithmetic.extend(arithmetic2);
+        arithmetic.extend(arithmetic3);
 
         let witness = Witness {
             arithmetic,
