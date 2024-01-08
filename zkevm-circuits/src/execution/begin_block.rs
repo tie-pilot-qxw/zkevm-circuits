@@ -3,7 +3,9 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 
-use crate::execution::{begin_tx_1, Auxiliary, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    begin_tx_1, Auxiliary, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
 
@@ -64,19 +66,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         // 下一条执行指令应该为begin_tx
-        let next_is_begin_tx_1 = config.execution_state_selector.selector(
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::BEGIN_TX_1 as usize,
-            Rotation(begin_tx_1::NUM_ROW as i32),
-        );
-        let next_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(begin_tx_1::NUM_ROW as i32));
-        constraints.extend([(
-            "next state is BEGIN_TX_1".into(),
-            next_is_begin_tx_1 * next_cnt_is_zero - 1.expr(),
-        )]);
-
+            ExecStateTransition::new(
+                vec![],
+                NUM_ROW,
+                vec![(ExecutionState::BEGIN_TX_1, begin_tx_1::NUM_ROW, None)],
+            ),
+        ));
         constraints
     }
 

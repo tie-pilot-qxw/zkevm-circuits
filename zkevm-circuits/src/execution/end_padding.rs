@@ -1,12 +1,10 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryDelta, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
-use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -42,26 +40,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        // prev state should be end_block or self
-        let prev_is_end_block = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::END_BLOCK as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        let prev_is_end_padding = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::END_PADDING as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
         let delta = AuxiliaryDelta::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        constraints.extend([
-            ("special next pc = 0".into(), pc_next),
-            (
-                "prev is end_block or self".into(),
-                prev_is_end_block + prev_is_end_padding - 1.expr(),
+        // prev state should be end_block or self
+        constraints.extend(config.get_exec_state_constraints(
+            meta,
+            ExecStateTransition::new(
+                vec![ExecutionState::END_BLOCK, ExecutionState::END_PADDING],
+                NUM_ROW,
+                vec![],
             ),
-        ]);
+        ));
+        constraints.extend([("special next pc = 0".into(), pc_next)]);
         constraints
     }
 
