@@ -70,8 +70,9 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
         let b_is_lt: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&b_hi_u16, &rhs, &lt[1], &diff[1]);
 
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
-        // a and b are signed equal.
-        let signed_eq = 1.expr() - (lt[0].clone() - lt[1].clone());
+        // `a` sign != `b` sign if signed_eq = 0,
+        // `a` sign == `b` sign if signed_eq != 0. (maybe -1)
+        let signed_eq = 1.expr() - lt[0].clone() - lt[1].clone();
 
         for i in 0..2 {
             let hi_or_lo = if i == 0 { "hi" } else { "lo" };
@@ -84,7 +85,8 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
                 format!("carry_{} is bool", hi_or_lo),
                 carry[i].clone() * (1.expr() - carry[i].clone()),
             ));
-            // constraint in the case of all positive numbers
+            // when signed_eq != 0,  we have `a` sign == `b` sign.
+            // satisfies the equation `a - b = c - carry`.
             constraints.push((
                 format!(
                     "sub a_{0} + carry_{0} * 2^128 - last_overflow = b_{0} + c_{0} ",
@@ -111,7 +113,9 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
         constraints.extend(a_is_lt.get_constraints());
         constraints.extend(b_is_lt.get_constraints());
 
-        //constrain if a_lt = 1, then carry_hi = 0 or a_lt = 0.then carry_hi = 1
+        // when signed_eq == 0, `a` sign != `b` sign, therefore there is:
+        //  - if a_lt == 1, then a > b, carry_hi = 0; otherwise a_lt == 0, carry_hi = 1.
+        //  - `lt[0].clone() != lt[1].clone()`.
         constraints.push((
             format!("if a_lt = 1, then carry_hi = 0 or a_lt = 0.then carry_hi = 1"),
             (1.expr() - (lt[0].clone() + carry[0].clone())) * (lt[0].clone() - lt[1].clone()),
