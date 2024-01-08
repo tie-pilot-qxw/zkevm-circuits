@@ -15,4 +15,5 @@ pub enum Tag {
     Or,
     Xor,
     U16,
+    Bytecode,
 }

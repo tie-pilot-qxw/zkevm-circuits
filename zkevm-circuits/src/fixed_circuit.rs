@@ -1,10 +1,14 @@
 use crate::table::{FixedTable, U10_TAG};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::{fixed, Witness};
+use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, U256};
 use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Fixed};
 use std::marker::PhantomData;
+
+///  Used to determine whether cnt is greater than 15
+const OPCODE_CNT_15: usize = 15;
 
 #[derive(Clone, Debug)]
 pub struct FixedCircuitConfig<F> {
@@ -52,9 +56,22 @@ impl<F: Field> FixedCircuitConfig<F> {
     ) -> Result<usize, Error> {
         // Create rows with different states required by fixed_table
 
+        // assign opcode
+        let mut vec = vec![];
+        for opcode in OpcodeId::valid_opcodes() {
+            vec.push(fixed::Row {
+                tag: fixed::Tag::Bytecode,
+                // bytecode
+                value_0: Some(U256::from(opcode.as_u8())),
+                // cnt
+                value_1: Some(U256::from(opcode.data_len())),
+                // is_high(cnt > 15), true:1, false:0
+                value_2: Some(U256::from((opcode.data_len() > OPCODE_CNT_15) as u8)),
+            });
+        }
+
         // And/Or/Xor ==>  0-256行
         let operand_num = 1 << 8;
-        let mut vec = vec![];
         for tag in [fixed::Tag::And, fixed::Tag::Or, fixed::Tag::Xor].iter() {
             vec.append(&mut Self::assign_with_tag_value(*tag, operand_num));
         }

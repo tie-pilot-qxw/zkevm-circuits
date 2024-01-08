@@ -54,6 +54,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             BytecodeCircuitConfigArgs {
                 q_enable: q_enable_bytecode,
                 bytecode_table,
+                fixed_table,
                 instance_addr,
                 instance_bytecode,
             },
@@ -256,6 +257,7 @@ mod tests {
     use crate::util::{geth_data_test, log2_ceil};
     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::{Fr, G1};
+    use std::fs::File;
 
     #[cfg(feature = "plot")]
     use plotters::prelude::*;
@@ -291,6 +293,8 @@ mod tests {
             false,
             Default::default(),
         ));
+        let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
+        witness.write_html(&mut buf);
         let (k, circuit, prover) = test_super_circuit(witness);
         prover.assert_satisfied_par();
     }
