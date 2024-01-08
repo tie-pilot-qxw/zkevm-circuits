@@ -277,8 +277,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_bitwise_lookup(
         &self,
-        index: usize,
+
         meta: &mut VirtualCells<F>,
+        index: usize,
     ) -> LookupEntry<F> {
         assert!(index <= 3);
         const WIDTH: usize = 5;
@@ -869,17 +870,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_arithmetic_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+    pub(crate) fn get_arithmetic_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+    ) -> LookupEntry<F> {
+        assert!(index < 3);
+        const WIDTH: usize = 9;
         let (hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3, tag) = (
-            meta.query_advice(self.vers[0], Rotation(-2)),
-            meta.query_advice(self.vers[1], Rotation(-2)),
-            meta.query_advice(self.vers[2], Rotation(-2)),
-            meta.query_advice(self.vers[3], Rotation(-2)),
-            meta.query_advice(self.vers[4], Rotation(-2)),
-            meta.query_advice(self.vers[5], Rotation(-2)),
-            meta.query_advice(self.vers[6], Rotation(-2)),
-            meta.query_advice(self.vers[7], Rotation(-2)),
-            meta.query_advice(self.vers[8], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 0], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 5], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 6], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 7], Rotation(-2)),
+            meta.query_advice(self.vers[index * WIDTH + 8], Rotation(-2)),
         );
         LookupEntry::Arithmetic {
             tag,

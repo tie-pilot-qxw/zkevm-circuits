@@ -94,7 +94,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let (arithmetic_tag, arithmetic_operands) =
-            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
         // compute skip width in core row 0
         const SKIP_WIDTH: usize =
             constant::NUM_STATE_HI_COL + constant::NUM_STATE_LO_COL + constant::NUM_AUXILIARY;
@@ -196,7 +196,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // operand_1 operator d  constraints
         let mut query_not_zero_sum = 0.expr();
         for i in 0..4 {
-            let entry = config.get_bitwise_lookup(i, meta);
+            let entry = config.get_bitwise_lookup(meta, i);
             let (tag, acc, sum) = extract_lookup_expression!(bitwise, entry);
             if i < 2 {
                 query_not_zero_sum = query_not_zero_sum + sum;
@@ -279,7 +279,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let bitwise_lookup_2 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 2));
         let bitwise_lookup_3 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 3));
         // arithmetic lookup
-        let arithmetic_lookup = query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
+        let arithmetic_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
         vec![
             ("stack pop operand_0".into(), stack_lookup_0),
             ("stack pop operand_1".into(), stack_lookup_1),
@@ -391,7 +392,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             bitwise::Row::from_operation::<F>(op_tag, operand_1_lo_128.as_u128(), d_lo.low_u128());
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
-        core_row_2.insert_arithmetic_lookup(&arithmetic_sub_rows);
+        core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
         core_row_2.insert_bitwise_lookups(0, &bitwise_lookup1.last().unwrap());
         core_row_2.insert_bitwise_lookups(1, &bitwise_lookup2.last().unwrap());
         core_row_2.insert_bitwise_lookups(2, &bitwise_lookup3.last().unwrap());

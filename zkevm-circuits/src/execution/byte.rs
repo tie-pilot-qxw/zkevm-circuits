@@ -96,9 +96,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         // get lookup value
         let (bitwise_lookup_lo_tag, bitwise_lookup_lo_acc_vers, bitwise_lookup_lo_sum_2) =
-            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(0, meta));
+            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(meta, 0));
         let (bitwise_lookup_hi_tag, bitwise_lookup_hi_acc_vers, bitwise_lookup_hi_sum_2) =
-            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(1, meta));
+            extract_lookup_expression!(bitwise, config.get_bitwise_lookup(meta, 1));
         let (exp_lookup_base, exp_lookup_index, exp_lookup_pow) =
             extract_lookup_expression!(exp, config.get_exp_lookup(meta));
 
@@ -116,7 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // arithmetic_operands[7] is carry_lo
         // when carry_hi=1, the sub result is negative (very large number in F), we need to handle it by letting push_stack value = 0
         let (arithmetic_tag, arithmetic_operands) =
-            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta));
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
 
         // auxiliary constraints
         let auxiliary_delta = AuxiliaryDelta {
@@ -267,9 +267,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let arithmetic_sub_lookup =
-            query_expression(meta, |meta| config.get_arithmetic_lookup(meta));
-        let bitwise_lo_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(0, meta));
-        let bitwise_hi_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(1, meta));
+            query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
+        let bitwise_lo_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 0));
+        let bitwise_hi_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 1));
         let exp_lookup = query_expression(meta, |meta| config.get_exp_lookup(meta));
         vec![
             ("stack lookup pop 0".into(), stack_lookup_0),
@@ -345,7 +345,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // generate core row
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // columns: vers0 ~ vers8
-        core_row_2.insert_arithmetic_lookup(&arithmetic_sub_rows);
+        core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
         // columns: vers_10 ~ vers14
         core_row_2.insert_bitwise_lookups(0, &bitwise_lo_rows.last().unwrap());
         // columns: vers_15 ~ vers_19
