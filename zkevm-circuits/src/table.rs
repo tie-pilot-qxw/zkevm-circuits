@@ -13,7 +13,7 @@ use halo2_proofs::poly::Rotation;
 use strum_macros::{AsRefStr, EnumVariantNames};
 
 pub const U10_TAG: usize = 256;
-const PUBLIC_NUM_VALUES: usize = 4;
+pub const PUBLIC_NUM_VALUES: usize = 4;
 pub const SEPARATOR: &str = "-";
 pub const ANNOTATE_SEPARATOR: &str = ",";
 

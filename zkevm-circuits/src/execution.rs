@@ -59,6 +59,7 @@ use std::collections::HashMap;
 
 use crate::table::{
     extract_lookup_expression, BytecodeTable, LookupEntry, StateTable, ANNOTATE_SEPARATOR,
+    PUBLIC_NUM_VALUES,
 };
 use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
@@ -375,32 +376,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             tag,
             tx_idx_or_number_diff,
             values,
-        }
-    }
-
-    ///note: each public lookup uses two state lookups
-    pub(crate) fn get_public_lookup_double(
-        &self,
-        meta: &mut VirtualCells<F>,
-        num: usize,
-        tag: Expression<F>,
-    ) -> LookupEntry<F> {
-        assert!(num < 4);
-        const WIDTH: usize = 16;
-        let (tx_idx_or_number_diff, values) = (
-            meta.query_advice(self.tx_idx, Rotation::cur()),
-            [
-                meta.query_advice(self.vers[num * WIDTH + 2], Rotation::prev()),
-                meta.query_advice(self.vers[num * WIDTH + 3], Rotation::prev()),
-                meta.query_advice(self.vers[num * WIDTH + 10], Rotation::prev()),
-                meta.query_advice(self.vers[num * WIDTH + 11], Rotation::prev()),
-            ],
-        );
-
-        LookupEntry::Public {
-            tag,
-            tx_idx_or_number_diff,
-            values: values,
         }
     }
 
@@ -841,9 +816,38 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ))
         }
         if let Some(sum_2) = sum_2 {
-            constraints.push(("sum_2 of bitwise lookup".into(), bitwise_sum_2 - sum_2))
+            constraints.push(("sum_2 of bitwise lookup".into(), bitwise_sum_2 - sum_2));
         }
+        constraints
+    }
 
+    pub(crate) fn get_public_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        tag: Expression<F>,
+        tx_id_or_number_diff: Option<Expression<F>>,
+        values: [Option<Expression<F>>; PUBLIC_NUM_VALUES],
+    ) -> Vec<(String, Expression<F>)> {
+        let (public_lookup_tag, public_lookup_tx_idx_or_number_diff, public_lookup_values) =
+            extract_lookup_expression!(public, entry);
+
+        let mut constraints = vec![];
+        constraints.push(("public lookup tag".into(), public_lookup_tag - tag));
+        if let Some(tx_id_or_number_diff) = tx_id_or_number_diff {
+            constraints.push((
+                "public lookup tx_id_or_number_diff".into(),
+                public_lookup_tx_idx_or_number_diff - tx_id_or_number_diff,
+            ));
+        }
+        for i in 0..PUBLIC_NUM_VALUES {
+            if let Some(value) = values[i].clone() {
+                constraints.push((
+                    format!("public lookup value[{}]", i),
+                    public_lookup_values[i].clone() - value,
+                ));
+            }
+        }
         constraints
     }
 
