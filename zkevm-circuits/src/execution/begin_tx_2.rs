@@ -10,7 +10,7 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(super) const NUM_ROW: usize = 2;
+pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 
 pub struct BeginTx2Gadget<F: Field> {
@@ -19,12 +19,14 @@ pub struct BeginTx2Gadget<F: Field> {
 
 /// BeginTx2 Execution State layout is as follows
 /// where STATE means state table lookup for writing call context,
+/// PUBLIC means public table lookup (origin from col 26),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
+/// | 2 |                         | PUBLIC |
 /// | 1 | STATE | STATE | STATE | STATE    |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -76,21 +78,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ],
         ));
 
+        let mut operands = vec![];
+        for i in 0..4 {
+            let (_, _, value_hi, value_lo, _, _, _, _) =
+                extract_lookup_expression!(state, config.get_state_lookup(meta, i));
+            operands.push([value_hi, value_lo]);
+        }
+
         // constraint parent pc = 0
-        let (_, _, value_hi, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         constraints.extend([
-            ("parent pc hi=0".into(), value_hi),
-            ("parent pc lo=0".into(), value_lo),
+            ("parent pc hi=0".into(), operands[2][0].clone()),
+            ("parent pc lo=0".into(), operands[2][1].clone()),
         ]);
 
         // constraint stack pointer = 0
-        let (_, _, value_hi, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, config.get_state_lookup(meta, 3));
         constraints.extend([
-            ("parent stack pointer hi=0".into(), value_hi),
-            ("parent stack pointer lo=0".into(), value_lo),
+            ("parent stack pointer hi=0".into(), operands[3][0].clone()),
+            ("parent stack pointer lo=0".into(), operands[3][1].clone()),
         ]);
+
+        //constraint public lookup
+        let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
+        let public_entry = config.get_public_lookup(meta);
+        config.get_public_constraints(
+            meta,
+            public_entry,
+            (public::Tag::TxFromValue as u8).expr(),
+            Some(tx_id),
+            [
+                Some(operands[0][0].clone()), // constraint sender_addr hi == tx.from hi
+                Some(operands[0][1].clone()), // constraint sender_addr lo == tx.from lo
+                Some(operands[1][0].clone()), // constraint value hi == tx.value hi
+                Some(operands[1][1].clone()), // constraint value lo == tx.value lo
+            ],
+        );
 
         // prev state constraint
         let prev_is_begin_tx_1 = config.execution_state_selector.selector(
@@ -115,9 +136,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
 
-        let public_lookup = query_expression(meta, |meta| {
-            config.get_public_lookup_double(meta, 0, (public::Tag::TxFromValue as u8).expr())
-        });
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
 
         vec![
             ("value write".into(), state_lookup_0),
@@ -158,6 +177,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             CallContextTag::ParentStackPointer,
         );
 
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+
+        let public_row = current_state.get_public_tx_row(public::Tag::TxFromValue);
+        core_row_2.insert_public_lookup(&public_row);
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &write_sender_row,
@@ -172,7 +196,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         Witness {
-            core: vec![core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![
                 write_sender_row,
                 write_value_row,

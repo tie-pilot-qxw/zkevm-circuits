@@ -3,13 +3,13 @@ use crate::execution::{
     ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, public, WitnessExecHelper};
+use crate::util::query_expression;
+use crate::witness::{assign_or_panic, copy, public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::util::Expr;
+use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -23,13 +23,14 @@ pub struct BeginTx1Gadget<F: Field> {
 /// BeginTx1 Execution State layout is as follows
 /// where STATE means state table lookup for writing call context,
 /// COPY means copy table lookup,
+/// PUBLIC means public table lookup (origin from col 26),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
-/// | 2 | COPY   |      |       |          |
+/// | 2 | COPY   |               | PUBLIC  |
 /// | 1 | STATE | STATE | STATE | STATE    |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -58,8 +59,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
-        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let copy = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
@@ -69,10 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
-        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let delta = CoreSinglePurposeOutcome {
-            call_id: ExpressionOutcome::To(state_stamp_prev.clone() + 1.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
@@ -80,12 +76,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // pc constraint
         let pc = meta.query_advice(config.pc, Rotation::cur());
         constraints.extend([("pc == 0".into(), pc)]);
-
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         // call_id constraint for current
+        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.push((
             "call_id in curr=prev_stamp+1".into(),
             state_stamp_prev.clone() + 1.expr() - call_id.clone(),
+        ));
+        // code_addr constraint for current
+        let (_, _, storage_contract_addr_hi, storage_contract_addr_lo, _, _, _, _) =
+            extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
+        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
+        constraints.push((
+            "code_addr = storage_contract_addr ".into(),
+            code_addr
+                - (storage_contract_addr_hi * pow_of_two::<F>(128) + storage_contract_addr_lo),
+        ));
+
+        // tx_id constraint for current
+        let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
+        let tx_id_prev = meta.query_advice(config.tx_idx, Rotation(-1 * NUM_ROW as i32));
+        constraints.push((
+            "tx_id = tx_id_prev + 1".into(),
+            tx_id.clone() - tx_id_prev - 1.expr(),
         ));
 
         // begin_tx constraint
@@ -105,7 +119,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let len_lo_inv = meta.query_advice(config.vers[10], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[11], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
@@ -125,21 +139,38 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
         constraints.push(("calldata size value_hi=0".into(), value_hi));
 
+        let mut operands = vec![];
+        for i in 0..4 {
+            let (_, _, value_hi, value_lo, _, _, _, _) =
+                extract_lookup_expression!(state, config.get_state_lookup(meta, i));
+            operands.push([value_hi, value_lo]);
+        }
         // constraint parent call_id = 0
-        let (_, _, value_hi, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         constraints.extend([
-            ("parent call_id hi=0".into(), value_hi),
-            ("parent call_id lo=0".into(), value_lo),
+            ("parent call_id hi=0".into(), operands[2][0].clone()),
+            ("parent call_id lo=0".into(), operands[2][1].clone()),
         ]);
 
         // constraint parent code_addr = 0
-        let (_, _, value_hi, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, config.get_state_lookup(meta, 3));
         constraints.extend([
-            ("parent code_addr hi=0".into(), value_hi),
-            ("parent code_addr lo=0".into(), value_lo),
+            ("parent code_addr hi=0".into(), operands[3][0].clone()),
+            ("parent code_addr lo=0".into(), operands[3][1].clone()),
         ]);
+
+        //constraint public lookup
+        let public_entry = config.get_public_lookup(meta);
+        config.get_public_constraints(
+            meta,
+            public_entry,
+            (public::Tag::TxToCallDataSize as u8).expr(),
+            Some(tx_id),
+            [
+                Some(operands[0][0].clone()), // constraint storage_contract_addr hi == tx.to hi
+                Some(operands[0][1].clone()), // constraint storage_contract_addr lo == tx.to lo
+                Some(operands[1][0].clone()), // constraint calldata_size hi == 0
+                Some(operands[1][1].clone()), // constraint calldata_size lo == tx.input.len
+            ],
+        );
 
         // next state constraints
         let next_is_begin_tx_2 = config.execution_state_selector.selector(
@@ -168,9 +199,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
-        let public_lookup = query_expression(meta, |meta| {
-            config.get_public_lookup_double(meta, 0, (public::Tag::TxToCallDataSize as u8).expr())
-        });
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
 
         vec![
             ("contract addr write".into(), state_lookup_0),
@@ -252,7 +281,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(calldata_size as u128);
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_2.vers_10 = Some(len_lo_inv);
+        assign_or_panic!(core_row_2.vers_11, len_lo_inv);
+
+        let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize);
+        core_row_2.insert_public_lookup(&public_row);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
@@ -308,13 +340,19 @@ mod test {
         let stack_pointer = stack.0.len();
         let call_id = 1;
         let call_data = HashMap::from([(call_id, vec![0xa, 0xb])]);
+        let mut call_data_size = HashMap::new();
+        call_data_size.insert(call_id, call_data[&call_id].len().into());
         let code_addr = U256::from(0x1234);
+        let mut storage_contract_addr = HashMap::new();
+        storage_contract_addr.insert(call_id, code_addr);
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
             call_id,
             call_data,
+            call_data_size,
             code_addr,
+            storage_contract_addr,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack);

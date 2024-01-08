@@ -19,6 +19,7 @@ use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
+use crate::table::PUBLIC_NUM_VALUES;
 use crate::util::{
     convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
     SubCircuit,
@@ -1394,6 +1395,63 @@ impl WitnessExecHelper {
             value_3: Some(U256::from(value_lo)),
             comments,
         };
+        public_row
+    }
+
+    pub fn get_public_tx_row(&self, tag: public::Tag) -> public::Row {
+        let values: [Option<U256>; PUBLIC_NUM_VALUES];
+        let value_comments: [String; PUBLIC_NUM_VALUES];
+
+        match tag {
+            public::Tag::TxToCallDataSize => {
+                values = [
+                    Some(self.code_addr >> 128),
+                    Some(self.code_addr.low_u128().into()),
+                    None,
+                    Some(self.call_data_size[&self.call_id].into()),
+                ];
+                value_comments = [
+                    "to_hi".into(),
+                    "to_lo".into(),
+                    "0".into(),
+                    "tx.input.len".into(),
+                ];
+            }
+            public::Tag::TxFromValue => {
+                values = [
+                    Some(self.sender[&self.call_id] >> 128),
+                    Some(self.sender[&self.call_id].low_u128().into()),
+                    Some(self.value[&self.call_id] >> 128),
+                    Some(self.value[&self.call_id].low_u128().into()),
+                ];
+                value_comments = [
+                    "from[..4]".into(),
+                    "from[4..]".into(),
+                    "value[..16]".into(),
+                    "value[16..]".into(),
+                ]
+            }
+            _ => panic!(),
+        };
+
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), format!("tag"));
+        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
+        comments.insert(format!("vers_{}", 28), value_comments[0].clone());
+        comments.insert(format!("vers_{}", 29), value_comments[1].clone());
+        comments.insert(format!("vers_{}", 30), value_comments[2].clone());
+        comments.insert(format!("vers_{}", 31), value_comments[3].clone());
+
+        let public_row = public::Row {
+            tag: tag,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: values[0],
+            value_1: values[1],
+            value_2: values[2],
+            value_3: values[3],
+            comments,
+        };
+
         public_row
     }
 }
