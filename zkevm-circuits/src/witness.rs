@@ -900,45 +900,66 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
-    pub fn get_calldata_load_rows(&mut self, idx: usize, length: usize) -> Vec<state::Row> {
-        let mut state_rows = vec![];
+    pub fn get_calldata_load_rows<F: Field>(
+        &mut self,
+        idx: usize,
+        length: usize,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let call_data = &self.call_data[&self.call_id];
         let len = if idx + length <= call_data.len() {
             idx + length
         } else {
             call_data.len()
         };
-        // data
-        for (i, &byte) in call_data[idx..len].iter().enumerate() {
-            state_rows.push(state::Row {
-                tag: Some(state::Tag::CallData),
-                stamp: Some(self.state_stamp.into()),
-                value_hi: None,
-                value_lo: Some(byte.into()),
-                call_id_contract_addr: Some(self.call_id.into()),
-                pointer_hi: None,
-                pointer_lo: Some(i.into()),
-                is_write: Some(0.into()),
-            });
-            self.state_stamp += 1;
-        }
-        // padding
-        if call_data.len() < length {
-            for i in call_data.len()..length {
+
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
+        let mut offset_start = idx;
+
+        let temp_256_f = F::from(256);
+        for i in 0..2 {
+            let mut acc_pre = U256::from(0);
+            let stamp_start = self.state_stamp;
+            for j in 0..16 {
+                let byte = call_data.get(i * 16 + j).cloned().unwrap_or_default();
+                let acc: U256 = if j == 0 {
+                    byte.into()
+                } else {
+                    let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                    let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                    acc_f = byte_f + acc_f * temp_256_f;
+                    convert_f_to_u256(&acc_f)
+                };
+                acc_pre = acc;
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Tag::Calldata,
+                    src_id: self.call_id.into(),
+                    src_pointer: offset_start.into(),
+                    src_stamp: stamp_start.into(),
+                    dst_type: copy::Tag::Null,
+                    dst_id: 0.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: 0.into(),
+                    cnt: j.into(),
+                    len: 16.into(),
+                    acc,
+                });
                 state_rows.push(state::Row {
                     tag: Some(state::Tag::CallData),
-                    stamp: Some(self.state_stamp.into()),
+                    stamp: Some((stamp_start + j as u64).into()),
                     value_hi: None,
-                    value_lo: None,
+                    value_lo: Some(byte.into()),
                     call_id_contract_addr: Some(self.call_id.into()),
                     pointer_hi: None,
-                    pointer_lo: None,
+                    pointer_lo: Some((offset_start + j).into()),
                     is_write: Some(0.into()),
                 });
                 self.state_stamp += 1;
             }
+            offset_start += 16;
         }
-        state_rows
+        (copy_rows, state_rows)
     }
 
     /// Load calldata from public table to state table
