@@ -2,9 +2,9 @@ use crate::test_super_circuit_short_bytecode;
 use eth_types::bytecode;
 
 #[test]
-fn address_bytecode() {
+fn gasprice_bytecode() {
     let bytecode = bytecode! {
-        ADDRESS
+        GASPRICE
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
