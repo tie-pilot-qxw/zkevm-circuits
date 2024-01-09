@@ -84,34 +84,34 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 format!(
                     "operand[{}] d_hi in state lookup = operand[{}] d_hi in arithmetic",
-                    4, 6
-                ),
-                (opcode.clone() - OpcodeId::MOD.as_u8().expr())
-                    * (arithmetic_operands[4].clone() - arithmetic_operands_full[6].clone()),
-            ),
-            (
-                format!(
-                    "operand[{}] d_lo in state lookup = operand[{}] d_lo in arithmetic",
-                    5, 7
-                ),
-                (opcode.clone() - OpcodeId::MOD.as_u8().expr())
-                    * (arithmetic_operands[5].clone() - arithmetic_operands_full[7].clone()),
-            ),
-            (
-                format!(
-                    "operand[{}] c_hi in arithmetic = operand[{}] c_hi in state lookup ",
                     4, 4
                 ),
-                (opcode.clone() - OpcodeId::DIV.as_u8().expr())
+                (opcode.clone() - OpcodeId::MOD.as_u8().expr())
                     * (arithmetic_operands[4].clone() - arithmetic_operands_full[4].clone()),
             ),
             (
                 format!(
-                    "operand[{}] c_lo in arithmetic = operand[{}] c_lo in state lookup ",
+                    "operand[{}] d_lo in state lookup = operand[{}] d_lo in arithmetic",
                     5, 5
                 ),
-                (opcode.clone() - OpcodeId::DIV.as_u8().expr())
+                (opcode.clone() - OpcodeId::MOD.as_u8().expr())
                     * (arithmetic_operands[5].clone() - arithmetic_operands_full[5].clone()),
+            ),
+            (
+                format!(
+                    "operand[{}] c_hi in arithmetic = operand[{}] c_hi in state lookup ",
+                    4, 6
+                ),
+                (opcode.clone() - OpcodeId::DIV.as_u8().expr())
+                    * (arithmetic_operands[4].clone() - arithmetic_operands_full[6].clone()),
+            ),
+            (
+                format!(
+                    "operand[{}] c_lo in arithmetic = operand[{}] c_lo in state lookup ",
+                    5, 7
+                ),
+                (opcode.clone() - OpcodeId::DIV.as_u8().expr())
+                    * (arithmetic_operands[5].clone() - arithmetic_operands_full[7].clone()),
             ),
         ]);
         constraints.extend([

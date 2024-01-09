@@ -103,8 +103,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // sub_arithmetic_operands_full[2] is stack_operands[0](stack top 1 hi)
         // sub_arithmetic_operands_full[3] is stack_operands[1](stack top 1 lo)
         // if carry = 1 , div_num = 0;
-        // if carry = 1 , div_arithmetic_operands_full[6] = 0; (quotient hi = 0)
-        //      div_arithmetic_operands_full[7] = 0;(quotient lo = 0)
+        // if carry = 1 , div_arithmetic_operands_full[4] = 0; (quotient hi = 0)
+        //      div_arithmetic_operands_full[5] = 0;(quotient lo = 0)
         constraints.extend([
             (
                 "sub_arithmetic operand 0 hi = 0".into(),
@@ -132,19 +132,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "sub_arithmetic carry=1 => quotient_hi = 0".into(),
-                sub_arithmetic_operands_full[6].clone() * div_arithmetic_operands_full[6].clone(),
+                sub_arithmetic_operands_full[6].clone() * div_arithmetic_operands_full[4].clone(),
             ),
             (
                 "sub_arithmetic carry=1 => quotient_lo = 0".into(),
-                sub_arithmetic_operands_full[6].clone() * div_arithmetic_operands_full[7].clone(),
+                sub_arithmetic_operands_full[6].clone() * div_arithmetic_operands_full[5].clone(),
             ),
         ]);
         // div arithmetic constraints
         // stack_operands[2] (stack top 2 hi)=  div_arithmetic_operands_full[0]
         // stack_operands[3] (stack top 2 lo)=  div_arithmetic_operands_full[1]
         // quotient , final result:
-        //      stack_operands[4] (stack top 3 hi) = div_arithmetic_operands_full[6]
-        //      stack_operands[5] (stack top 3 lo) = div_arithmetic_operands_full[7]
+        //      stack_operands[4] (stack top 3 hi) = div_arithmetic_operands_full[4]
+        //      stack_operands[5] (stack top 3 lo) = div_arithmetic_operands_full[5]
         constraints.extend([
             (
                 "div_arithmetic operand 0 hi = stack operands[2]".into(),
@@ -156,11 +156,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "div_arithmetic operand 2 hi = stack operands[4]".into(),
-                stack_operands[4].clone() - div_arithmetic_operands_full[6].clone(),
+                stack_operands[4].clone() - div_arithmetic_operands_full[4].clone(),
             ),
             (
                 "div_arithmetic operand 2 lo = stack operands[5]".into(),
-                stack_operands[5].clone() - div_arithmetic_operands_full[7].clone(),
+                stack_operands[5].clone() - div_arithmetic_operands_full[5].clone(),
             ),
         ]);
         // exp constraints

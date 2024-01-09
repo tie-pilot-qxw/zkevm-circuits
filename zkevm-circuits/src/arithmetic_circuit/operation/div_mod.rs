@@ -12,19 +12,19 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use std::ops::Mul;
 
-/// Construct the DivModGadget that checks d * b + c == a (modulo 2**256)(we have a/b = d + c ==> d * b + c = a),
+/// Construct the DivModGadget that checks b * c + d == a (modulo 2**256)(we have a/b = c reminder d,  ==> a = b * c + d),
 /// where a, b, c, d,carry are 256-bit words.
 /// We execute a multi-limb multiplication as follows:
-/// d and b is divided into 4 64-bit limbs, denoted as d0~d3 and b0~b3
+/// b and c is divided into 4 64-bit limbs, denoted as b0~b3 and c0~c3
 /// defined t0, t1, t2, t3
-///   t0 = d0 * b0, contribute to 0 ~ 128 bit
-///   t1 = d0 * b1 + d1 * b0, contribute to 64 ~ 193 bit (include the carry)
-///   t2 = d0 * b2 + d2 * b0 + d1 * b1, contribute to above 128 bit
-///   t3 = d0 * b3 + d3 * b0 + d2 * b1 + d1 * b2, contribute to above 192 bit
+///   t0 = c0 * b0, contribute to 0 ~ 128 bit
+///   t1 = c0 * b1 + c1 * b0, contribute to 64 ~ 193 bit (include the carry)
+///   t2 = c0 * b2 + c2 * b0 + c1 * b1, contribute to above 128 bit
+///   t3 = c0 * b3 + c3 * b0 + c2 * b1 + c1 * b2, contribute to above 192 bit
 ///
 /// Finally we have:
-///  carry_lo = (t0 + (t1 << 64)) + c_lo - a_lo
-///  carry_hi = (t2 + (t3 << 64) + carry_lo) + c_hi -a_hi
+///  carry_lo = (t0 + (t1 << 64)) + d_lo - a_lo
+///  carry_hi = (t2 + (t3 << 64) + carry_lo) + d_hi - a_hi
 pub(crate) struct DivModGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for DivModGadget<F> {
@@ -53,8 +53,8 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         let mut constraints = vec![];
         let a = config.get_operand(0)(meta);
         let b = config.get_operand(1)(meta);
-        let c = config.get_operand(2)(meta);
-        let d = config.get_operand(3)(meta); //push value
+        let c = config.get_operand(2)(meta); //push value
+        let d = config.get_operand(3)(meta);
         let carry = config.get_operand(4)(meta);
         let diff = config.get_operand(12)(meta);
         let lt = config.get_operand(13)(meta);
@@ -62,10 +62,10 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         // 1. get the u16s sum for a,b,c,d and diff,carry_lo
         let (u16_sum_for_diff_hi, _, _) = get_u16s(config, meta, Rotation(-6));
         let (u16_sum_for_diff_lo, _, _) = get_u16s(config, meta, Rotation(-7));
-        let (u16_sum_for_d_hi, d_hi_1, d_hi_2) = get_u16s(config, meta, Rotation(-4));
-        let (u16_sum_for_d_lo, d_lo_1, d_lo_2) = get_u16s(config, meta, Rotation(-5));
-        let (u16_sum_for_c_hi, _, _) = get_u16s(config, meta, Rotation(-2));
-        let (u16_sum_for_c_lo, _, _) = get_u16s(config, meta, Rotation(-3));
+        let (u16_sum_for_d_hi, _, _) = get_u16s(config, meta, Rotation(-4));
+        let (u16_sum_for_d_lo, _, _) = get_u16s(config, meta, Rotation(-5));
+        let (u16_sum_for_c_hi, c_hi_1, c_hi_2) = get_u16s(config, meta, Rotation(-2));
+        let (u16_sum_for_c_lo, c_lo_1, c_lo_2) = get_u16s(config, meta, Rotation(-3));
         let (u16_sum_for_b_hi, b_hi_1, b_hi_2) = get_u16s(config, meta, Rotation::cur());
         let (u16_sum_for_b_lo, b_lo_1, b_lo_2) = get_u16s(config, meta, Rotation::prev());
 
@@ -75,20 +75,20 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         let u16_sum_for_diff = [u16_sum_for_diff_hi, u16_sum_for_diff_lo];
 
         // 2. calculate the t0,t1,t2,t3 for carry_lo and carry_hi
-        let mut d_limbs = vec![];
+        let mut c_limbs = vec![];
         let mut b_limbs = vec![];
-        d_limbs.extend([d_lo_1, d_lo_2, d_hi_1, d_hi_2]);
+        c_limbs.extend([c_lo_1, c_lo_2, c_hi_1, c_hi_2]);
         b_limbs.extend([b_lo_1, b_lo_2, b_hi_1, b_hi_2]);
 
-        let t0 = d_limbs[0].clone() * b_limbs[0].clone();
-        let t1 = d_limbs[0].clone() * b_limbs[1].clone() + d_limbs[1].clone() * b_limbs[0].clone();
-        let t2 = d_limbs[0].clone() * b_limbs[2].clone()
-            + d_limbs[1].clone() * b_limbs[1].clone()
-            + d_limbs[2].clone() * b_limbs[0].clone();
-        let t3 = d_limbs[0].clone() * b_limbs[3].clone()
-            + d_limbs[1].clone() * b_limbs[2].clone()
-            + d_limbs[2].clone() * b_limbs[1].clone()
-            + d_limbs[3].clone() * b_limbs[0].clone();
+        let t0 = c_limbs[0].clone() * b_limbs[0].clone();
+        let t1 = c_limbs[0].clone() * b_limbs[1].clone() + c_limbs[1].clone() * b_limbs[0].clone();
+        let t2 = c_limbs[0].clone() * b_limbs[2].clone()
+            + c_limbs[1].clone() * b_limbs[1].clone()
+            + c_limbs[2].clone() * b_limbs[0].clone();
+        let t3 = c_limbs[0].clone() * b_limbs[3].clone()
+            + c_limbs[1].clone() * b_limbs[2].clone()
+            + c_limbs[2].clone() * b_limbs[1].clone()
+            + c_limbs[3].clone() * b_limbs[0].clone();
 
         //get the u16s sum for carry_lo
         let mut carry_lo_u16s: Vec<_> = (0..5)
@@ -127,24 +127,24 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         constraints.push((format!("carry_hi == 0 "), carry[0].clone()));
 
         constraints.push((
-            format!("(d * b)_lo + c_lo == a_lo + carry_lo * 128"),
-            (t0.expr() + (t1.expr() * pow_of_two::<F>(64))) + c[1].clone()
+            format!("(c * b)_lo + d_lo == a_lo + carry_lo * 128"),
+            (t0.expr() + (t1.expr() * pow_of_two::<F>(64))) + d[1].clone()
                 - a[1].clone()
                 - carry[1].clone() * pow_of_two::<F>(128),
         ));
         constraints.push((
-            format!("(d * b)_hi + c_hi + carry_lo == a_hi "),
-            (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + c[0].clone() + carry[1].clone()
+            format!("(c * b)_hi + d_hi + carry_lo == a_hi "),
+            (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + d[0].clone() + carry[1].clone()
                 - a[0].clone(),
         ));
 
-        let is_lt_lo = SimpleLtGadget::new(&c[1], &b[1], &lt[1], &diff[1]);
-        let is_lt = SimpleLtWordGadget::new(&c[0], &b[0], &lt[0], &diff[0], is_lt_lo);
+        let is_lt_lo = SimpleLtGadget::new(&d[1], &b[1], &lt[1], &diff[1]);
+        let is_lt = SimpleLtWordGadget::new(&d[0], &b[0], &lt[0], &diff[0], is_lt_lo);
 
-        // constraint c < b if b!=0
+        // constraint d < b if b!=0
         constraints.extend(is_lt.get_constraints());
         constraints.push((
-            format!("c < b if b!=0 "),
+            format!("d < b if b!=0 "),
             (1.expr() - is_lt.expr()) * (b[0].clone() + b[1].clone()),
         ));
 
@@ -159,7 +159,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let a = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
 
-    let (d, c) = if operands[1] == U256::zero() {
+    let (c, d) = if operands[1] == U256::zero() {
         (U256::zero(), operands[0].clone())
     } else {
         operands[0].div_mod(operands[1])
@@ -194,19 +194,19 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let row_1 = get_row(c_split, d_split, b_u16s, 1, Tag::DivMod);
 
     // Calculate the overflow of multiplication. carry_hi and carry_lo
-    let d_limbs = split_u256_limb64(&d);
+    let c_limbs = split_u256_limb64(&c);
     let b_limbs = split_u256_limb64(&operands[1]);
 
-    let t0 = d_limbs[0] * b_limbs[0];
-    let t1 = d_limbs[0] * b_limbs[1] + d_limbs[1] * b_limbs[0];
-    let t2 = d_limbs[0] * b_limbs[2] + d_limbs[1] * b_limbs[1] + d_limbs[2] * b_limbs[0];
-    let t3 = d_limbs[0] * b_limbs[3]
-        + d_limbs[1] * b_limbs[2]
-        + d_limbs[2] * b_limbs[1]
-        + d_limbs[3] * b_limbs[0];
+    let t0 = c_limbs[0] * b_limbs[0];
+    let t1 = c_limbs[0] * b_limbs[1] + c_limbs[1] * b_limbs[0];
+    let t2 = c_limbs[0] * b_limbs[2] + c_limbs[1] * b_limbs[1] + c_limbs[2] * b_limbs[0];
+    let t3 = c_limbs[0] * b_limbs[3]
+        + c_limbs[1] * b_limbs[2]
+        + c_limbs[2] * b_limbs[1]
+        + c_limbs[3] * b_limbs[0];
 
-    let carry_lo = (t0 + (t1 << 64) + c_split[1]).saturating_sub(a[1]) >> 128;
-    let carry_hi = (t2 + (t3 << 64) + c_split[0] + carry_lo).saturating_sub(a[0]) >> 128;
+    let carry_lo = (t0 + (t1 << 64) + d_split[1]).saturating_sub(a[1]) >> 128;
+    let carry_hi = (t2 + (t3 << 64) + d_split[0] + carry_lo).saturating_sub(a[0]) >> 128;
 
     let c_hi_u16s = c_u16s.split_off(8);
     let row_2 = get_row(
@@ -240,7 +240,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         Tag::DivMod,
     );
 
-    let lt_rows = get_lt_word_rows::<Fr>(vec![c, operands[1]]);
+    let lt_rows = get_lt_word_rows::<Fr>(vec![d, operands[1]]);
 
     let mut carry_lo_u16s: Vec<u16> = carry_lo
         .to_le_bytes()
@@ -260,7 +260,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let mod_push = if operands[1] == U256::zero() {
         U256::zero()
     } else {
-        c
+        d
     }; //set mod_push value
 
     (
@@ -275,7 +275,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
             row_1,
             row_0,
         ],
-        vec![mod_push, d],
+        vec![mod_push, c],
     )
 }
 
@@ -283,7 +283,7 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
     Box::new(DivModGadget(PhantomData))
 }
 
-///get c < b rows
+///get d < b rows
 fn get_lt_word_rows<F: Field>(operands: Vec<U256>) -> (Vec<Row>) {
     let (carry, diff_split, diff_u16s) = get_lt_word_operations(operands);
     let row_7 = get_row(

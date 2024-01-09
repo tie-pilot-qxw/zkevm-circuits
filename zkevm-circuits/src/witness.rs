@@ -1707,19 +1707,19 @@ impl core::Row {
             arithmetic::Tag::DivMod => self.comments.extend([
                 (
                     format!("vers_{}", index * WIDTH + 4),
-                    format!("arithmetic remainder hi"),
-                ),
-                (
-                    format!("vers_{}", index * WIDTH + 5),
-                    format!("arithmetic remainder lo"),
-                ),
-                (
-                    format!("vers_{}", index * WIDTH + 6),
                     format!("arithmetic quotient hi"),
                 ),
                 (
-                    format!("vers_{}", index * WIDTH + 7),
+                    format!("vers_{}", index * WIDTH + 5),
                     format!("arithmetic quotient lo"),
+                ),
+                (
+                    format!("vers_{}", index * WIDTH + 6),
+                    format!("arithmetic remainder hi"),
+                ),
+                (
+                    format!("vers_{}", index * WIDTH + 7),
+                    format!("arithmetic remainder lo"),
                 ),
             ]),
             _ => (),
