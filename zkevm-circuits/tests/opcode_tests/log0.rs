@@ -4,9 +4,12 @@ use eth_types::bytecode;
 #[ignore = "remove ignore after XXX is finished"]
 #[test]
 fn log0_bytecode() {
+    let size = 32;
+    let offset = 0;
+
     let bytecode = bytecode! {
-        PUSH1(0)
-        PUSH1(0)
+        PUSH32(size)
+        PUSH32(offset)
         LOG0
         STOP
     };
