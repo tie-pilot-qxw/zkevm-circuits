@@ -1,14 +1,13 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    call_3, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, copy, state, Witness, WitnessExecHelper};
+use crate::util::query_expression;
+use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
-use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -118,27 +117,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
-
-        let prev_is_call_1 = config.execution_state_selector.selector(
+        // prev call is CALL_1
+        // next call is CALL_3
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::CALL_1 as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        constraints.extend([("prev state is CALL_1".into(), prev_is_call_1 - 1.expr())]);
-
-        let next_is_call_3 = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::CALL_3 as usize,
-            Rotation(super::call_3::NUM_ROW as i32),
-        );
-        let next_call_3_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(super::call_3::NUM_ROW as i32));
-        constraints.extend([(
-            "next state is CALL_3".into(),
-            next_call_3_cnt_is_zero * next_is_call_3 - 1.expr(),
-        )]);
-
+            ExecStateTransition::new(
+                vec![ExecutionState::CALL_1],
+                NUM_ROW,
+                vec![(ExecutionState::CALL_3, call_3::NUM_ROW, None)],
+            ),
+        ));
         constraints
     }
     fn get_lookups(

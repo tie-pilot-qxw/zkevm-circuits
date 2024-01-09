@@ -1,10 +1,10 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState,
+    Auxiliary, AuxiliaryDelta, ExecStateTransition, ExecutionConfig, ExecutionGadget,
+    ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{state, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::util::Expr;
@@ -43,13 +43,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        // prev state should be end_tx.
-        let prev_is_end_tx = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::END_TX as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let delta = AuxiliaryDelta::default();
@@ -58,7 +51,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0)); // after state circuit has sorting, this may change todo
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
-            ("prev is end_tx".into(), prev_is_end_tx - 1.expr()),
             (
                 "last stamp in state circuit = current stamp - 1".into(),
                 state_stamp - state_circuit_stamp - 1.expr(),
@@ -68,6 +60,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 state_circuit_tag - (state::Tag::EndPadding as u8).expr(),
             ),
         ]);
+        // prev state should be end_tx.
+        constraints.extend(config.get_exec_state_constraints(
+            meta,
+            ExecStateTransition::new(vec![ExecutionState::END_TX], NUM_ROW, vec![]),
+        ));
         // todo log stamp constraints
         constraints
     }

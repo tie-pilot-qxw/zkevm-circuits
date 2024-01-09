@@ -1,7 +1,7 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    end_call, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
@@ -74,20 +74,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //constraint for opcode
         constraints.extend([("opcode is STOP".into(), opcode - OpcodeId::STOP.expr())]);
         // next execution state should be END_CALL
-        let next_is_end_call = config.execution_state_selector.selector(
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::END_CALL as usize,
-            Rotation(super::end_call::NUM_ROW as i32),
-        );
-        let next_end_call_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(super::end_call::NUM_ROW as i32));
-
-        constraints.extend([(
-            "next is END_CALL".into(),
-            next_end_call_cnt_is_zero * next_is_end_call - 1.expr(),
-        )]);
-
+            ExecStateTransition::new(
+                vec![],
+                NUM_ROW,
+                vec![(ExecutionState::END_CALL, end_call::NUM_ROW, None)],
+            ),
+        ));
         constraints
     }
 

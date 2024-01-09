@@ -3,7 +3,8 @@
 
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    end_call, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
@@ -176,20 +177,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             format!("opcode is RETURN or REVERT").into(),
             (opcode.clone() - (OpcodeId::RETURN).expr()) * (opcode - (OpcodeId::REVERT).expr()),
         )]);
-
-        let next_is_end_call = config.execution_state_selector.selector(
+        // next state is END_CALL
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::END_CALL as usize,
-            Rotation(super::end_call::NUM_ROW as i32),
-        );
-        let next_end_call_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(super::end_call::NUM_ROW as i32));
-        constraints.extend([(
-            "next state is END_CALL".into(),
-            next_end_call_cnt_is_zero * next_is_end_call - 1.expr(),
-        )]);
-
+            ExecStateTransition::new(
+                vec![],
+                NUM_ROW,
+                vec![(ExecutionState::END_CALL, end_call::NUM_ROW, None)],
+            ),
+        ));
         constraints
     }
     fn get_lookups(

@@ -1,7 +1,7 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    call_5, end_tx, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -134,23 +134,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .into_iter()
                 .map(|constraint| (constraint.0, parent_call_id.clone() * constraint.1))
                 .collect(),
-        ); // enable the single purpose constraints when parent_call_id != 0
-
-        let prev_is_return_revert = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::RETURN_REVERT as usize,
-            Rotation(-1 * NUM_ROW as i32),
         );
-        let prev_is_stop = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::STOP as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        constraints.extend([(
-            "prev state is RETURN_REVERT or STOP".into(),
-            (prev_is_return_revert - 1.expr()) * (prev_is_stop - 1.expr()),
-        )]);
-
+        // enable the single purpose constraints when parent_call_id != 0
         let parent_call_id_inv = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
             Rotation::cur(),
@@ -161,30 +146,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             String::from("parent_call_id"),
         );
         constraints.extend(parent_call_id_is_zero.get_constraints());
-
-        let next_is_end_tx = config.execution_state_selector.selector(
+        // prev state is RETURN_REVERT or STOP
+        // next state is END_TX or CALL_5
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::END_TX as usize,
-            Rotation(super::end_tx::NUM_ROW as i32),
-        );
-        let next_end_tx_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(super::end_tx::NUM_ROW as i32));
-        let next_is_call_5 = config.execution_state_selector.selector(
-            meta,
-            ExecutionState::CALL_5 as usize,
-            Rotation(super::end_tx::NUM_ROW as i32),
-        );
-        let next_call_5_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(super::call_5::NUM_ROW as i32));
-        constraints.extend([(
-            "next state is CALL_5 (when parent_call_id != 0) or END_TX (when parent_call_id == 0)"
-                .into(),
-            parent_call_id_is_zero.expr() * (next_end_tx_cnt_is_zero * next_is_end_tx - 1.expr())
-                + (1.expr() - parent_call_id_is_zero.expr())
-                    * (next_call_5_cnt_is_zero * next_is_call_5 - 1.expr()),
-        )]);
+            ExecStateTransition::new(
+                vec![ExecutionState::RETURN_REVERT, ExecutionState::STOP],
+                NUM_ROW,
+                vec![
+                    (
+                        ExecutionState::END_TX,
+                        end_tx::NUM_ROW,
+                        Some(parent_call_id_is_zero.expr()),
+                    ),
+                    (
+                        ExecutionState::CALL_5,
+                        call_5::NUM_ROW,
+                        Some(1.expr() - parent_call_id_is_zero.expr()),
+                    ),
+                ],
+            ),
+        ));
 
         constraints
     }

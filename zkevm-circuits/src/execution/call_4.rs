@@ -1,11 +1,11 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, state, Witness, WitnessExecHelper};
+use crate::witness::{state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
 use gadgets::util::{pow_of_two, Expr};
@@ -133,14 +133,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
-
-        let prev_is_call_3 = config.execution_state_selector.selector(
+        // prev state is CALL_3
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::CALL_3 as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        constraints.extend([("prev state is CALL_3".into(), prev_is_call_3 - 1.expr())]);
-
+            ExecStateTransition::new(vec![ExecutionState::CALL_3], NUM_ROW, vec![]),
+        ));
         constraints
     }
     fn get_lookups(

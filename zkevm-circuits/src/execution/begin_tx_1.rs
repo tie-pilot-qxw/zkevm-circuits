@@ -1,6 +1,6 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    begin_tx_2, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
@@ -173,19 +173,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // next state constraints
-        let next_is_begin_tx_2 = config.execution_state_selector.selector(
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::BEGIN_TX_2 as usize,
-            Rotation(super::begin_tx_2::NUM_ROW as i32),
-        );
-        let next_begin_tx_2_cnt_is_zero = config
-            .cnt_is_zero
-            .expr_at(meta, Rotation(super::begin_tx_2::NUM_ROW as i32));
-        constraints.extend([(
-            "next state is BEGIN_TX_2".into(),
-            next_begin_tx_2_cnt_is_zero * next_is_begin_tx_2 - 1.expr(),
-        )]);
-
+            ExecStateTransition::new(
+                vec![],
+                NUM_ROW,
+                vec![(ExecutionState::BEGIN_TX_2, begin_tx_2::NUM_ROW, None)],
+            ),
+        ));
         constraints
     }
 

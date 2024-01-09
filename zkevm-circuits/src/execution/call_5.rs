@@ -1,8 +1,8 @@
 use crate::arithmetic_circuit::operation;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -10,7 +10,7 @@ use crate::witness::{arithmetic, assign_or_panic, copy, state, Witness, WitnessE
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::util::{pow_of_two, Expr};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -133,16 +133,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             copy_entry,
         ));
-
-        let prev_is_end_call = config.execution_state_selector.selector(
+        // prev state is END_CALL
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::END_CALL as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        constraints.extend([("prev state is END_CALL".into(), prev_is_end_call - 1.expr())]);
-
+            ExecStateTransition::new(vec![ExecutionState::END_CALL], NUM_ROW, vec![]),
+        ));
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
-
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()

@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryDelta, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{public, WitnessExecHelper};
@@ -114,15 +116,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // prev state constraint
-        let prev_is_begin_tx_1 = config.execution_state_selector.selector(
+        constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecutionState::BEGIN_TX_1 as usize,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        constraints.extend([(
-            "prev state is BEGIN_TX_1".into(),
-            prev_is_begin_tx_1 - 1.expr(),
-        )]);
+            ExecStateTransition::new(vec![ExecutionState::BEGIN_TX_1], NUM_ROW, vec![]),
+        ));
         constraints
     }
 
