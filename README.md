@@ -15,6 +15,10 @@ or run all tests
 cargo test -p zkevm-circuits
 ```
 
+Benchmark
+```shell
+cargo bench super_circuit --bench
+```
 
 # How to run gen_code
 ```shell
