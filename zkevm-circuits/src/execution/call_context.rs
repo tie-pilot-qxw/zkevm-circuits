@@ -6,7 +6,7 @@ use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::simple_seletor::SimpleSelector;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -17,19 +17,16 @@ const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 1;
 const PC_DELTA: u64 = 1;
 
-#[derive(Debug, Clone, Copy)]
-enum BitOp {
-    CALLDATASIZE,
-    CALLER,
-    CALLVALUE,
-}
-
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
-/// +---+-------+-------+-------+----------+
-/// | 1 | STATE1| STATE2|       |     bitop|
+/// CallContextGadget deal OpCodeId:{CALLDATASIZE, CALLER, CALLVALUE}
+/// STATE0 read value from call_context
+/// STATE1 write value to stack
+/// TAGSELECTOR 3 columns
+/// +---+-------+-------+------------------+
+/// |cnt| 8 col | 8 col |     16 col       |
+/// +---+-------+-------+------------------+
+/// | 1 | STATE1| STATE2|       TAGSELECTOR|
 /// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// +---+-------+-------+------------------+
 pub struct CallContextGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -64,11 +61,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[29], Rotation::prev()),
-            meta.query_advice(config.vers[30], Rotation::prev()),
-            meta.query_advice(config.vers[31], Rotation::prev()),
-        ]);
+        let calldatasize_tag = meta.query_advice(config.vers[29], Rotation::prev());
+        let caller_tag = meta.query_advice(config.vers[30], Rotation::prev());
+        let callvalue_tag = meta.query_advice(config.vers[31], Rotation::prev());
+        // create a simple selector representing:
+        // - CALLDATASIZE,
+        // - CALLER,
+        // - CALLVALUE,
+        let selector = SimpleSelector::new(&[calldatasize_tag, caller_tag, callvalue_tag]);
 
         let mut operands = vec![];
 
@@ -111,13 +111,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend(selector.get_constraints());
 
+        // opcode constraints
         constraints.extend([(
             "opcode is correct".into(),
-            selector.select(&[
-                opcode.clone() - OpcodeId::CALLDATASIZE.as_u8().expr(),
-                opcode.clone() - OpcodeId::CALLER.as_u8().expr(),
-                opcode.clone() - OpcodeId::CALLVALUE.as_u8().expr(),
-            ]),
+            opcode
+                - selector.select(&[
+                    OpcodeId::CALLDATASIZE.as_u8().expr(),
+                    OpcodeId::CALLER.as_u8().expr(),
+                    OpcodeId::CALLVALUE.as_u8().expr(),
+                ]),
         )]);
 
         constraints.extend([
@@ -153,25 +155,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         let tag = match trace.op {
-            OpcodeId::CALLDATASIZE => BitOp::CALLDATASIZE,
-            OpcodeId::CALLER => BitOp::CALLER,
-            OpcodeId::CALLVALUE => BitOp::CALLVALUE,
-            _ => panic!("not CALLDATASIZE,CALLER or CALLVALUE"),
+            OpcodeId::CALLDATASIZE => 0,
+            OpcodeId::CALLER => 1,
+            OpcodeId::CALLVALUE => 2,
+            _ => panic!("not CALLDATASIZE, CALLER or CALLVALUE"),
         };
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
+        // tag selector
+        simple_selector_assign(
+            [
+                &mut core_row_1.vers_29,
+                &mut core_row_1.vers_30,
+                &mut core_row_1.vers_31,
+            ],
+            tag,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+
         let core_row_0 = ExecutionState::CALL_CONTEXT.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-
-        let mut v = [U256::from(0); 3];
-        v[tag as usize] = 1.into();
-        assign_or_panic!(core_row_1.vers_29, v[0]);
-        assign_or_panic!(core_row_1.vers_30, v[1]);
-        assign_or_panic!(core_row_1.vers_31, v[2]);
 
         Witness {
             core: vec![core_row_1, core_row_0],
@@ -202,7 +209,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
-            call_data: call_data,
+            call_data,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATASIZE, stack);
@@ -241,7 +248,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
-            sender: sender,
+            sender,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::CALLER, stack);
@@ -280,7 +287,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
-            value: value,
+            value,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::CALLVALUE, stack);
