@@ -34,7 +34,7 @@ def find_src_directory(data):
             find_src_directory(item)
 
 # 读取JSON文件
-json_file_path = "target/debug/coverage/covdir.json" 
+json_file_path = "../target/debug/covdir" 
 with open(json_file_path, 'r') as file:
     try:
         json_data = json.load(file)

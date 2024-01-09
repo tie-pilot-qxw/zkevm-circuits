@@ -1,6 +1,6 @@
 #!/bin/bash
 
-dir="zkevm-circuits/src" # 将此替换为您要搜索的目录
+dir="../zkevm-circuits/src" # 将此替换为您要搜索的目录
 
 echo "Comment Coverage"
 echo
@@ -14,6 +14,7 @@ find "$dir" -type d | while read -r subdir; do
 
   subdir_comment=$(echo "$subdir_cloc_output" | awk '/^SUM:/ {print $4}')
   subdir_code=$(echo "$subdir_cloc_output" | awk '/^SUM:/ {print $5}')
+
 
   # 检查是否存在与子目录同名的文件
   same_name_file="$dir/$subdir_name.rs"
