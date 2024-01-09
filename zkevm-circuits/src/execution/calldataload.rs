@@ -29,14 +29,14 @@ pub struct CalldataloadGadget<F: Field> {
 ///
 /// Calldataload Execution State layout is as follows
 /// where STATE means state table lookup,
-/// CONTENT means the bytes retrived from msg.data (calldata),
+/// copy0/1 means the bytes retrived from msg.data (calldata),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+----------+
-/// | 2 | CONTENT                          |
+/// | 2 | copy0  | copy1  |                |
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -108,7 +108,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 copy::Tag::Calldata,
                 call_id.clone(),
                 operands[0][1].clone() + 16.expr() * i.expr(), // index of calldata = value_lo + 16*i
-                stamp.clone() + 1.expr() + 16.expr() * i.expr(), // (x2 + 0x2 + 0x10 * 0)
+                stamp.clone() + 1.expr() + 16.expr() * i.expr(), // +1 ==> because pop index; copy的32byte数据分为2部分，所以16*i;
                 copy::Tag::Null,
                 0.expr(),
                 0.expr(),
@@ -116,7 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 Some(15.expr()),
                 16.expr(),
                 0.expr(),
-                Some(operands[1][i].clone()), //
+                Some(operands[1][i].clone()), // data of copy from calldata
                 copy_entry.clone(),
             ));
         }
