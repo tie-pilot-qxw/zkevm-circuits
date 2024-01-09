@@ -2,7 +2,6 @@ use crate::gen_random_hex_str;
 use crate::test_super_circuit_short_bytecode;
 use eth_types::{bytecode, U256};
 
-#[ignore = "remove ignore after XXX is finished"]
 #[test]
 fn log4_bytecode() {
     let size = 32;
