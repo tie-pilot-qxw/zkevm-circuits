@@ -5,7 +5,7 @@ use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::simple_seletor::SimpleSelector;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -17,22 +17,23 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
 
-/// TxContextGadget deal OpCodeId:{TxFromValue,TxGasPrice}
+/// TxContextGadget deal OpCodeId:{ORIGIN,GASPRICE}
 /// STATE0 record value
 /// TAGSELECTOR 2 columns
-/// TAG 1 column, means public tag (column 26)
-/// TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
-/// VALUE_HI 1 column , means public table value0 (column 28)
-/// VALUE_LOW 1 column, means public table value1 (column 29)
-/// VALUE_2 1 column , means public table value2 , here from_high (column 30)
-/// VALUE_3 1 column ,means public table value3 , here from_low (column 31)
-/// +---+-------+-------+-------+-------+---+
-/// |cnt| 8 col | 8 col | 8 col | 2 col |  public lookup (6 col) |
-/// +---+-------+-------+-------+----------+
-/// | 2 | |  |  | |  |  |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
-/// | 1 | STATE0| TAGSELECTOR |   
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// PUBLIC 6 columns, including:
+/// - TAG 1 column, means public tag (column 26)
+/// - TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
+/// - VALUE_HI 1 column , means public table value0 (column 28)
+/// - VALUE_LOW 1 column, means public table value1 (column 29)
+/// - VALUE_2 1 column , means public table value2 , here from_high (column 30)
+/// - VALUE_3 1 column ,means public table value3 , here from_low (column 31)
+/// +---+-------+-------+-------+-------+-------+
+/// |cnt| 8 col | 8 col | 8 col | 2 col | 6 col |
+/// +---+-------+-------+-------+---------------+
+/// | 2 |                               |PUBLIC |
+/// | 1 | STATE0| TAGSELECTOR |                 |
+/// | 0 | DYNA_SELECTOR        | AUX            |
+/// +---+-------+-------+-------+-------+-------+
 pub struct TxContextGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -112,12 +113,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             tx_idx.clone() - tx_idx_or_number_diff,
         )]);
 
-        let tx_context_tag = selector.select(&[
-            opcode.clone() - (OpcodeId::ORIGIN.as_u64()).expr(),
-            opcode.clone() - (OpcodeId::GASPRICE.as_u64()).expr(),
-        ]);
-        // tag constraints
-        constraints.extend([("opCode constraints".into(), tx_context_tag)]);
+        // opcode constraints
+        constraints.extend([(
+            "opcode constraints".into(),
+            opcode
+                - selector.select(&[
+                    (OpcodeId::ORIGIN.as_u8()).expr(),
+                    (OpcodeId::GASPRICE.as_u8()).expr(),
+                ]),
+        )]);
         constraints
     }
     fn get_lookups(
@@ -147,7 +151,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 current_state.tx_value.low_u128().into(),
             ),
             OpcodeId::GASPRICE => (public::Tag::TxGasPrice, 1, U256::from(0), U256::from(0)),
-            _ => panic!("not TX_CONTEXT op"),
+            _ => panic!("not ORIGIN or GASPRICE"),
         };
         // core_row_2
         core_row_2.insert_public_lookup(&public::Row {
@@ -162,11 +166,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push_0]);
 
-        let mut v = [U256::from(0); 2];
-        v[tag] = 1.into();
         // tag selector
-        assign_or_panic!(core_row_1.vers_8, v[0]);
-        assign_or_panic!(core_row_1.vers_9, v[1]);
+        simple_selector_assign(
+            [&mut core_row_1.vers_8, &mut core_row_1.vers_9],
+            tag,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
         // core row 0
         let core_row_0 = ExecutionState::TX_CONTEXT.into_exec_state_core_row(
             trace,

@@ -145,7 +145,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        // todo: lookup from public table
         let call_id = current_state.call_id;
         let value = *current_state.value.get(&call_id).unwrap();
         let sender = *current_state.sender.get(&call_id).unwrap();
