@@ -1,6 +1,7 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::public::Tag;
 use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
@@ -95,8 +96,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             public_entry,
             selector.select(&[
-                (public::Tag::TxFromValue as u64).expr(),
-                (public::Tag::TxGasPrice as u64).expr(),
+                (Tag::TxFromValue as u64).expr(),
+                (Tag::TxGasPrice as u64).expr(),
             ]),
             Some(tx_idx.clone()),
             [Some(state_value_hi), Some(state_value_lo), None, None],
@@ -133,12 +134,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let value_lo = next_stack_top_value.low_u128();
         let (public_tag, tag, value_public_2, value_public_3) = match trace.op {
             OpcodeId::ORIGIN => (
-                public::Tag::TxFromValue,
+                Tag::TxFromValue,
                 0usize,
                 current_state.tx_value >> 128,
                 current_state.tx_value.low_u128().into(),
             ),
-            OpcodeId::GASPRICE => (public::Tag::TxGasPrice, 1, U256::from(0), U256::from(0)),
+            OpcodeId::GASPRICE => (Tag::TxGasPrice, 1, U256::from(0), U256::from(0)),
             _ => panic!("not ORIGIN or GASPRICE"),
         };
         // core_row_2

@@ -114,7 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             public_entry,
             selector.select(&[
-                (public::Tag::BlockTimestamp as u64).expr(),
+                (Tag::BlockTimestamp as u64).expr(),
                 (Tag::BlockNumber as u64).expr(),
                 (Tag::BlockCoinbase as u64).expr(),
                 (Tag::BlockGasLimit as u64).expr(),
@@ -164,12 +164,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let value_lo = next_stack_top_value.low_u128();
         // get public_tag by trace.op
         let (public_tag, tag) = match trace.op {
-            OpcodeId::TIMESTAMP => (public::Tag::BlockTimestamp, 0usize),
-            OpcodeId::NUMBER => (public::Tag::BlockNumber, 1),
-            OpcodeId::COINBASE => (public::Tag::BlockCoinbase, 2),
-            OpcodeId::GASLIMIT => (public::Tag::BlockGasLimit, 3),
-            OpcodeId::CHAINID => (public::Tag::ChainId, 4),
-            OpcodeId::BASEFEE => (public::Tag::BlockBaseFee, 5),
+            OpcodeId::TIMESTAMP => (Tag::BlockTimestamp, 0usize),
+            OpcodeId::NUMBER => (Tag::BlockNumber, 1),
+            OpcodeId::COINBASE => (Tag::BlockCoinbase, 2),
+            OpcodeId::GASLIMIT => (Tag::BlockGasLimit, 3),
+            OpcodeId::CHAINID => (Tag::ChainId, 4),
+            OpcodeId::BASEFEE => (Tag::BlockBaseFee, 5),
             _ => panic!("not PUBLIC_CONTEXT op"),
         };
         // core_row_2
