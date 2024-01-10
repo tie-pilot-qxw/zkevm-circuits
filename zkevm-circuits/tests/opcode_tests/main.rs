@@ -1,17 +1,18 @@
 mod add; //01
          // mod addmod; //08
+         // mod address; //30
 mod and; //16
 mod byte; //1A
-          // mod calldatacopy; //37
-          // mod calldataload; //35
-          // mod calldatasize; //36
+mod calldatacopy; //37
+mod calldataload; //35
+mod calldatasize; //36
 mod caller; //33
 mod callvalue; //34
 mod codecopy; //39
 mod div; //04
 mod eq; //14
 mod exp; //0A
-         // mod gasprice; //3A
+mod gasprice; //3A
 mod gt; //11
 mod iszero; //15
 mod lt; //10
@@ -20,10 +21,10 @@ mod mul; //02
 mod mulmod; //09
 mod not; //19
 mod or; //17
-        // mod origin; //32
+mod origin; //32
 mod sgt; //13
 mod sha3; //20
-          // mod shr; //1C
+mod shr; //1C
 mod slt; //12
 mod stop; //00
 mod sub; //03
@@ -52,11 +53,11 @@ mod gaslimit; //45
 mod jump; //56
 mod jumpdest; //5B
 mod jumpi; //57
-           // mod log0; //A0
-           // mod log1; //A1
-           // mod log2; //A2
-           // mod log3; //A3
-           // mod log4; //A4
+mod log0; //A0
+mod log1; //A1
+mod log2; //A2
+mod log3; //A3
+mod log4; //A4
 mod mload; //51
 mod mstore; //52
             // mod mstore8; //53
@@ -98,8 +99,8 @@ mod push9; //68
 mod return_; //F2
              // mod revert; //FD
 mod selfbalance; //47
-                 // mod sload; //54
-                 // mod sstore; //55
+mod sload; //54
+mod sstore; //55
 mod swap1; //90
 mod swap10; //99
 mod swap11; //9A
@@ -171,7 +172,7 @@ macro_rules! test_super_circuit_short_bytecode {
         ));
 
         let k = log2_ceil(501);
-        let circuit = SuperCircuit::<Fr, 501, 500, 10, 10>::new_from_witness(&witness);
+        let circuit = SuperCircuit::<Fr, 490, 480, 10, 10>::new_from_witness(&witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         if prover.verify_par().is_err() {
