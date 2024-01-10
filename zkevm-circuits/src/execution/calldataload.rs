@@ -172,6 +172,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
 
         // 计算push到栈上的数据 value, 并生成state row写入core_row_1
+        // copy_row_0为前16byte，copy_row_1为后16byte，将copy_row_0
+        // 左移128bit即16字节加上copy_row_1用来组成完整的copy数据
         let value = (copy_row_0.acc << 128) + copy_row_1.acc;
         let stack_push_0 = current_state.get_push_stack_row(trace, value);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
