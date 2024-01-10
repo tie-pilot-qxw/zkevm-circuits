@@ -93,12 +93,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(state, entry);
         // public lookup
         let public_entry = config.get_public_lookup(meta);
-        let (public_tag, _, values) = extract_lookup_expression!(public, public_entry);
-        // value[2] =0 values[3] = 0
-        constraints.extend([
-            ("values[2] = 0".into(), values[2].clone()),
-            ("values[3] = 0".into(), values[3].clone()),
-        ]);
         // query public_tag , only one tag is 1,other tag is 0;
         let timestamp_tag = meta.query_advice(config.vers[8], Rotation::prev());
         let number_tag = meta.query_advice(config.vers[9], Rotation::prev());
@@ -115,27 +109,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             chainid_tag.clone(),
             basefee_tag.clone(),
         ]);
-        // public tag constraints
-        constraints.extend([(
-            "tag constraints".into(),
-            public_tag
-                - selector.select(&[
-                    (public::Tag::BlockTimestamp as u64).expr(),
-                    (Tag::BlockNumber as u64).expr(),
-                    (Tag::BlockCoinbase as u64).expr(),
-                    (Tag::BlockGasLimit as u64).expr(),
-                    (Tag::ChainId as u64).expr(),
-                    (Tag::BlockBaseFee as u64).expr(),
-                ]),
-        )]);
-        // stack value constraints
-        let value_hi = values[0].clone();
-        let value_lo = values[1].clone();
-        constraints.extend([
-            ("state_value_hi ".into(), state_value_hi - value_hi),
-            ("state_value_lo".into(), state_value_lo - value_lo),
-        ]);
-
+        // public constraints
+        constraints.extend(config.get_public_constraints(
+            meta,
+            public_entry,
+            selector.select(&[
+                (public::Tag::BlockTimestamp as u64).expr(),
+                (Tag::BlockNumber as u64).expr(),
+                (Tag::BlockCoinbase as u64).expr(),
+                (Tag::BlockGasLimit as u64).expr(),
+                (Tag::ChainId as u64).expr(),
+                (Tag::BlockBaseFee as u64).expr(),
+            ]),
+            Some(0.expr()),
+            [
+                Some(state_value_hi.clone()),
+                Some(state_value_lo.clone()),
+                Some(0.expr()),
+                Some(0.expr()),
+            ],
+        ));
+        // select opcode
         let public_context_tag = selector.select(&[
             opcode.clone() - (OpcodeId::TIMESTAMP.as_u64()).expr(),
             opcode.clone() - (OpcodeId::NUMBER.as_u64()).expr(),
