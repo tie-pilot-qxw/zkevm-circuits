@@ -1,0 +1,469 @@
+use crate::arithmetic_circuit::operation;
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::{arithmetic, exp, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
+use eth_types::GethExecStep;
+use eth_types::{Field, U256};
+use gadgets::util::Expr;
+use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
+use std::marker::PhantomData;
+use std::ops::Shl;
+
+const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: u64 = 3;
+const STACK_POINTER_DELTA: i32 = -1;
+const PC_DELTA: u64 = 1;
+const SHIFT_MAX: u8 = 255;
+
+/// Algorithm overview:
+///     1.pop two elements from the top of the stack
+///        stack top0 is shift
+///        stack top1 is value
+///     2. if opcode is SHL, then calc value << shift
+///        if opcode is SHR, then calc value >> shift
+/// note: the calculation here is not a direct displacement operation, but a multiplication or division operation, the steps are as follows:
+/// SHL:
+///     1. get shift、value from stack
+///     2. 255-shift
+///     3. calc mul_num: 2 << shift
+///     3. value * mul_num --> value * (2 << shift)
+/// SHR:
+///     1. get shift、value from stack
+///     2. 255-shift
+///     3. calc div_num: 2 << shift
+///     3. value / div_num --> value / (2 << shift)
+///  255-shift operation Arithmetic(Sub) subcircuit for constraints, the main purpose is to determine whether shift is greater than or equal to 256, that is, whether 2<<shift will overflow.
+///  2 << shift operation uses Exp subcircuit for constraints
+///  value * mul_num(or value / div_num) uses Algorithm(Mul Or Div) subcircuit for constraints
+///
+/// Table layout:
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | not used |
+/// +---+-------+-------+-------+----------+
+/// | 2 | ARITH0 | ARITH1|                 |
+/// | 1 | STATE0| STATE1| STATE2|     EXP  |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
+/// ARITH0 Arithmetic(Sub) lookup, 9 columns
+/// ARITH1 Arithmetic-Mul(SHL) or Arithmetic-Div(SHR) lookup, 9 columns
+/// STATE0: operand_0 lookup, 8 columns
+/// STATE1: operand_1 lookup, 8 columns
+/// STATE2: final_result lookup, 8 columns
+/// EXP: exp lookup, 6 columns
+pub struct ShlShrGadget<F: Field> {
+    _marker: PhantomData<F>,
+}
+impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for ShlShrGadget<F>
+{
+    fn name(&self) -> &'static str {
+        "SHL_SHR"
+    }
+    fn execution_state(&self) -> ExecutionState {
+        ExecutionState::SHL_SHR
+    }
+    fn num_row(&self) -> usize {
+        NUM_ROW
+    }
+    fn unusable_rows(&self) -> (usize, usize) {
+        (NUM_ROW, 1)
+    }
+    fn get_constraints(
+        &self,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        meta: &mut VirtualCells<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        // auxiliary constraints
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // core single constraints
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+
+        // stack constraints
+        let mut stack_operands = vec![];
+        let stack_pointer_delta = vec![0, -1, -1];
+        for i in 0..3 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                stack_pointer_delta[i].expr(),
+                i == 2,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            stack_operands.push([value_hi, value_lo]);
+        }
+
+        let (sub_tag, sub_arithmetic_operands) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
+        let (mul_div_tag, mul_div_arithmetic_operands) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 1));
+        let entry = config.get_exp_lookup(meta);
+        let (exp_base, exp_index, exp_power) = extract_lookup_expression!(exp, entry);
+
+        // sub arithmetic constraints
+        // sub_arithmetic_operands[0](sub_arithmetic operand_0 hi) is 0
+        // sub_arithmetic_operands[1](sub_arithmetic operand_0 lo) is 255
+        // sub_arithmetic_operands[2](sub_arithmetic operand_1 hi) is stack top 0 hi
+        // sub_arithmetic_operands[3](sub_arithmetic operand_1 lo) is stack top 0 lo
+        // sub_arithmetic_operands[6] is carry hi
+        // sub_arithmetic_operands[7] is carry lo
+        // if carry = 1 , mul_div_num = 0;
+        // if carry = 1 , mul_div_arithmetic_operands[5] = 0 (product_or_quotient hi = 0)
+        //                mul_div_arithmetic_operands[6] = 0 (product_or_quotient lo = 0)
+        constraints.extend([
+            (
+                "sub_arithmetic operand_0 hi = 0".into(),
+                sub_arithmetic_operands[0].clone(),
+            ),
+            (
+                "sub_arithmetic operand_0 lo = 255".into(),
+                sub_arithmetic_operands[1].clone() - 255.expr(),
+            ),
+            (
+                "sub_arithmetic operand_1 hi = stack top_0 hi".into(),
+                sub_arithmetic_operands[2].clone() - stack_operands[0][0].clone(),
+            ),
+            (
+                "sub_arithmetic operand_1 lo= stack top_0 lo".into(),
+                sub_arithmetic_operands[3].clone() - stack_operands[0][1].clone(),
+            ),
+            (
+                "sub_arithmetic carry=1 => mul_div_num hi = 0".into(),
+                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[2].clone(),
+            ),
+            (
+                "sub_arithmetic carry=1 => mul_div_num lo = 0".into(),
+                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[3].clone(),
+            ),
+            (
+                "sub_arithmetic carry=1 => product_or_quotient hi = 0".into(),
+                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[4].clone(),
+            ),
+            (
+                "sub_arithmetic carry=1 => product_or_quotient lo = 0".into(),
+                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[5].clone(),
+            ),
+        ]);
+        // mul_div_arithmetic constraints
+        // mul_div_arithmetic_operands[0] = tack top 1 hi
+        // mul_div_arithmetic_operands[1] = tack top 1 lo
+        // mul_div_arithmetic_operands[2] = exp_power
+        // mul_div_arithmetic_operands[3] = exp_power
+        // mul_div_arithmetic_operands[4](product_hi) = tack push hi
+        // mul_div_arithmetic_operands[5](product_lo) = tack push lo
+        // mul_div_arithmetic_operands[6] is carry
+        // mul_div_arithmetic_operands[7] is carry
+        // product_or_quotient:
+        //       mul_div_arithmetic_operands[5] = stack push hi
+        //       mul_div_arithmetic_operands[6] = stack push lo
+        constraints.extend([
+            (
+                "mul_div_arithmetic operand_0 hi = stack top_1 hi".into(),
+                mul_div_arithmetic_operands[0].clone() - stack_operands[1][0].clone(),
+            ),
+            (
+                "mul_div_arithmetic operand_0 lo= stack top_1 lo".into(),
+                mul_div_arithmetic_operands[1].clone() - stack_operands[1][1].clone(),
+            ),
+            (
+                "mul_div_arithmetic product_or_quotient hi = stack push hi".into(),
+                mul_div_arithmetic_operands[4].clone() - stack_operands[2][0].clone(),
+            ),
+            (
+                "mul_div_arithmetic product_or_quotient lo = stack push lo".into(),
+                mul_div_arithmetic_operands[5].clone() - stack_operands[2][1].clone(),
+            ),
+        ]);
+        // exp constraints
+        // exp_base = 2
+        // exp_index_hi = stack top 0 hi
+        // exp_index_lo = stack top 0 lo
+        // exp_power_hi = mul_num hi
+        // exp_power_lo = mul_num lo
+        constraints.extend([
+            ("exp_base hi".into(), exp_base[0].clone()),
+            ("exp_base lo".into(), exp_base[1].clone() - 2.expr()),
+            (
+                "exp_index hi = stack top_0 hi".into(),
+                exp_index[0].clone() - stack_operands[0][0].clone(),
+            ),
+            (
+                "exp_index lo = stack top_0 lo".into(),
+                exp_index[1].clone() - stack_operands[0][1].clone(),
+            ),
+            (
+                "exp_power = mul_div_num hi".into(),
+                exp_power[0].clone() - mul_div_arithmetic_operands[2].clone(),
+            ),
+            (
+                "exp_power = mul_div_num lo".into(),
+                exp_power[1].clone() - mul_div_arithmetic_operands[3].clone(),
+            ),
+        ]);
+
+        // constrain Opcode
+        // OpcodeId::Shr - OpcodeId::Shl = 1
+        // arithmetic::Tag::DivMod - arithmetic::Tag::Mul = 1
+        // if opcode is SHL, then opcode_is_shl is 1 and opcode_is_shr is 0
+        // if opcode is SHR, then opcode_is_shl is 0 and opcode_is_shr is 1
+        // if arithmetic tag is Mul, then arithmetic_tag_is_mul is 1 and arithmetic_tag_is_div is 0
+        // if arithmetic tag is DivMod, then arithmetic_tag_is_mul is 0 and arithmetic_tag_is_div is 1
+        // note: if opcode is SHL, then arithmetic_tag must be Mul
+        //       if opcode is SHR, then arithmetic_tag must be DivMod
+        let opcode_is_shl = OpcodeId::SHR.as_u8().expr() - opcode.clone();
+        let opcode_is_shr = opcode.clone() - OpcodeId::SHL.as_u8().expr();
+        let arithmetic_tag_is_mul = (arithmetic::Tag::DivMod as u8).expr() - mul_div_tag.clone();
+        let arithmetic_tag_is_div = mul_div_tag - (arithmetic::Tag::Mul as u8).expr();
+        constraints.extend([
+            (
+                "opcode must be shl or shr".into(),
+                opcode_is_shl.clone() * opcode_is_shr.clone(),
+            ),
+            (
+                "opcode is shl ==> mul_div_arithmetic tag is mul".into(),
+                opcode_is_shl * (1.expr() - arithmetic_tag_is_mul),
+            ),
+            (
+                "opcode is shr ==> mul_div_arithmetic tag is div".into(),
+                opcode_is_shr * (1.expr() - arithmetic_tag_is_div),
+            ),
+            (
+                "sub arithmetic tag".into(),
+                sub_tag - (arithmetic::Tag::Sub as u8).expr(),
+            ),
+        ]);
+        constraints
+    }
+    fn get_lookups(
+        &self,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        meta: &mut ConstraintSystem<F>,
+    ) -> Vec<(String, LookupEntry<F>)> {
+        // exp lookup
+        let exp_lookup = query_expression(meta, |meta| config.get_exp_lookup(meta));
+        // stack lookup
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        // sub arithmetic lookup
+        let sub_arithmetic = query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
+        // mul_div arithmetic lookup
+        let mul_div_arithmetic =
+            query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 1));
+        vec![
+            ("stack pop a".into(), stack_lookup_0),
+            ("stack pop b".into(), stack_lookup_1),
+            ("stack push".into(), stack_lookup_2),
+            ("exp lookup".into(), exp_lookup),
+            ("arithmetic sub lookup".into(), sub_arithmetic),
+            ("arithmetic mul_div lookup".into(), mul_div_arithmetic),
+        ]
+    }
+    fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // pop two elements from the top of the stack: shift, value
+        let (stack_pop_0, stack_shift) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_1, stack_value) = current_state.get_pop_stack_row_value(&trace);
+
+        // get stack push value (shl calc result)
+        let stack_value_shift_result = current_state.stack_top.unwrap_or_default();
+
+        assert_eq!(
+            if stack_shift > SHIFT_MAX.into() {
+                0.into()
+            } else {
+                match trace.op {
+                    OpcodeId::SHL => stack_value << stack_shift,
+                    OpcodeId::SHR => stack_value >> stack_shift,
+                    _ => panic!("not shl or shr"),
+                }
+            },
+            stack_value_shift_result
+        );
+
+        // get stack push row
+        let stack_push_0 = current_state.get_push_stack_row(trace, stack_value_shift_result);
+
+        // 255 - a
+        // the main purpose is to determine whether shift is greater than or equal to 256
+        // that is, whether 2<<shift will overflow
+        let (arithmetic_sub_rows, _) =
+            operation::sub::gen_witness(vec![U256::from(SHIFT_MAX), stack_shift]);
+
+        // mul_div_num = 2<<stack_shift
+        let mul_div_num = if stack_shift > SHIFT_MAX.into() {
+            0.into()
+        } else {
+            U256::from(1) << stack_shift
+        };
+
+        // if Opcode is SHL, then result is stack_value * mul_div_num
+        // if Opcode is SHR, then result is stack_value / mul_div_num
+        let (arithmetic_mul_div_rows, _) = match trace.op {
+            OpcodeId::SHL => operation::mul::gen_witness(vec![stack_value, mul_div_num]),
+            OpcodeId::SHR => operation::div_mod::gen_witness(vec![stack_value, mul_div_num]),
+            _ => panic!("not shl or shr"),
+        };
+
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        // insert mul in lookup
+        core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
+        // insert mul in lookup
+        core_row_2.insert_arithmetic_lookup(1, &arithmetic_mul_div_rows);
+        let mut arithmetic_rows = vec![];
+        arithmetic_rows.extend(arithmetic_sub_rows);
+        arithmetic_rows.extend(arithmetic_mul_div_rows);
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        // insert state lookup, operand_0,operand_1,final_result
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+        // insert exp lookup
+        core_row_1.insert_exp_lookup(U256::from(2), stack_shift, mul_div_num);
+        let core_row_0 = ExecutionState::SHL_SHR.into_exec_state_core_row(
+            trace,
+            current_state,
+            NUM_STATE_HI_COL,
+            NUM_STATE_LO_COL,
+        );
+        let exp_rows = exp::Row::from_operands(U256::from(2), stack_shift, mul_div_num);
+        Witness {
+            core: vec![core_row_2, core_row_1, core_row_0],
+            state: vec![stack_pop_0, stack_pop_1, stack_push_0],
+            exp: exp_rows,
+            arithmetic: arithmetic_rows,
+            ..Default::default()
+        }
+    }
+}
+pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
+) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
+    Box::new(ShlShrGadget {
+        _marker: PhantomData,
+    })
+}
+#[cfg(test)]
+mod test {
+    use crate::execution::test::{
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
+    };
+    generate_execution_gadget_test_circuit!();
+    #[ignore = "remove ignore after arithmetic is finished"]
+
+    fn run(opcode: OpcodeId, stack: Stack, stack_top: U256) {
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(stack_top),
+            ..WitnessExecHelper::new()
+        };
+        let trace = prepare_trace_step!(0, opcode, stack);
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.vers_21 = Some(stack_pointer.into());
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 1.into();
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
+    #[test]
+    fn test_shl_normal() {
+        // shl num normal, index normal
+        let stack = Stack::from_slice(&[2.into(), 1.into()]);
+        run(OpcodeId::SHL, stack, U256::from(4))
+    }
+
+    #[test]
+    fn test_shl_shift_max() {
+        // shl  num max , index max
+        let stack = Stack::from_slice(&[2.into(), 256.into()]);
+        run(OpcodeId::SHL, stack, U256::zero())
+    }
+
+    #[test]
+    fn test_shl_value_max() {
+        // shl  num max , index max
+        // one bit is reduced, and the last bit is filled with 0，which is equivalent to the last bit changing from
+        // 1 to 0, which is equivalent to subtracting 1
+        let stack = Stack::from_slice(&[U256::MAX, 1.into()]);
+        run(OpcodeId::SHL, stack, U256::MAX - 1)
+    }
+
+    #[test]
+    fn test_shl_mul_overflow() {
+        // shl num normal, index max
+        // shift: 255
+        // value: 2
+        // mul_num: 2 << shift ---> 2 << 255
+        // shl result: value * mul_num ---> 2 * (2<<255)
+        let stack = Stack::from_slice(&[2.into(), 255.into()]);
+        run(OpcodeId::SHL, stack, U256::zero())
+    }
+
+    #[test]
+    fn test_shl_max_overflow() {
+        // shl index overflow
+        let stack = Stack::from_slice(&[U256::MAX, 256.into()]);
+        run(OpcodeId::SHL, stack, U256::zero())
+    }
+
+    #[test]
+    fn test_shr_normal() {
+        // shr num normal,index normal
+        let stack = Stack::from_slice(&[2.into(), 1.into()]);
+        run(OpcodeId::SHR, stack, U256::from(1))
+    }
+
+    #[test]
+    fn test_shr_normal_max() {
+        // shr num normal, index max
+        let stack = Stack::from_slice(&[0xFF.into(), 255.into()]);
+        run(OpcodeId::SHR, stack, U256::from(0))
+    }
+
+    #[test]
+    fn test_shr_max() {
+        // shr  num max , index max
+        let stack = Stack::from_slice(&[U256::MAX, 255.into()]);
+        run(OpcodeId::SHR, stack, U256::from(1))
+    }
+
+    #[test]
+    fn test_shr_max_overflow() {
+        // shr index overflow
+        let stack = Stack::from_slice(&[U256::MAX, 256.into()]);
+        run(OpcodeId::SHR, stack, U256::from(0))
+    }
+}

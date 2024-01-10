@@ -46,7 +46,7 @@ pub mod returndatacopy;
 pub mod returndatasize;
 pub mod selfbalance;
 pub mod sgt;
-pub mod shr;
+pub mod shl_shr;
 pub mod signextend;
 pub mod slt;
 pub mod stop;
@@ -113,7 +113,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::mulmod::new(),
             crate::execution::keccak::new(),
             crate::execution::pop::new(),
-            crate::execution::shr::new(),
+            crate::execution::shl_shr::new(),
             crate::execution::codecopy::new(),
             crate::execution::extcodecopy::new(),
             crate::execution::swap::new(),
@@ -138,7 +138,7 @@ macro_rules! get_every_execution_gadgets {
         ]
     }};
 }
-use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
+use crate::constant::NUM_VERS;
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
@@ -1469,7 +1469,7 @@ pub enum ExecutionState {
     BYTE,
     RETURNDATASIZE,
     RETURN_REVERT,
-    SHR,
+    SHL_SHR,
     KECCAK,
     CODECOPY,
     EXTCODECOPY,
@@ -1525,12 +1525,7 @@ impl ExecutionState {
             OpcodeId::CODECOPY => {
                 vec![Self::CODECOPY]
             }
-            OpcodeId::SHL => {
-                todo!()
-            }
-            OpcodeId::SHR => {
-                vec![Self::SHR]
-            }
+            OpcodeId::SHL | OpcodeId::SHR => vec![Self::SHL_SHR],
             OpcodeId::SAR => {
                 todo!()
             }
