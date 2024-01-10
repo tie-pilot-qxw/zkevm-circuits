@@ -468,6 +468,27 @@ pub struct WrapReceiptLog {
     pub result: ReceiptLog,
 }
 
+/// Transaction Wrapper in api result
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct WrapTransaction {
+    /// result in api result json
+    pub result: Transaction,
+}
+
+/// Block Wrapper in api result
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct WrapBlock {
+    /// result in api result json
+    pub result: Block<Transaction>,
+}
+
+/// ByteCode Wrapper in api result
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct WrapByteCode {
+    /// result in api result json
+    pub result: String,
+}
+
 #[macro_export]
 /// Create an [`Address`] from a hex string.  Panics on invalid input.
 macro_rules! address {

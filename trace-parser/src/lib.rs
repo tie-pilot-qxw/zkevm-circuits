@@ -1,6 +1,7 @@
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
 use eth_types::{
-    Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace, WrapReceiptLog, U256,
+    Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace, Transaction,
+    WrapBlock, WrapByteCode, WrapReceiptLog, WrapTransaction, U256,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -188,6 +189,31 @@ pub fn read_log_from_api_result_file<P: AsRef<Path>>(path: P) -> ReceiptLog {
     let reader = BufReader::new(file);
     let x: WrapReceiptLog = serde_json::from_reader(reader).unwrap();
     x.result
+}
+
+pub fn read_tx_from_api_result_file<P: AsRef<Path>>(path: P) -> Transaction {
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let x: WrapTransaction = serde_json::from_reader(reader).unwrap();
+    x.result
+}
+
+pub fn read_block_from_api_result_file<P: AsRef<Path>>(path: P) -> Block<Transaction> {
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let x: WrapBlock = serde_json::from_reader(reader).unwrap();
+    x.result
+}
+
+pub fn read_bytecode_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<u8> {
+    let file = File::open(path).unwrap();
+    let reader = BufReader::new(file);
+    let x: WrapByteCode = serde_json::from_reader(reader).unwrap();
+    let mut bytecode = x.result;
+    if bytecode.starts_with("0x") {
+        bytecode = bytecode.split_off(2);
+    }
+    hex::decode(bytecode).unwrap()
 }
 
 #[cfg(test)]

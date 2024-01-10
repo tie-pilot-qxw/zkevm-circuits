@@ -7,6 +7,12 @@ use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
     Advice, Any, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells,
 };
+use std::io::Read;
+use std::path::Path;
+use trace_parser::{
+    read_block_from_api_result_file, read_bytecode_from_api_result_file,
+    read_log_from_api_result_file, read_trace_from_api_result_file, read_tx_from_api_result_file,
+};
 
 pub(crate) fn query_expression<F: Field, T>(
     meta: &mut ConstraintSystem<F>,
@@ -187,6 +193,54 @@ pub fn geth_data_test(
     };
     GethData {
         chain_id: 42.into(),
+        history_hashes,
+        eth_block,
+        geth_traces: vec![trace],
+        accounts: vec![account],
+        logs: vec![receipt_log],
+    }
+}
+
+pub fn get_geth_data<P: AsRef<Path>>(
+    block_info_file: P,
+    tx_info_file: P,
+    trace_file: P,
+    receipt_file: P,
+    bytecode_file: P,
+) -> GethData {
+    let eth_block = read_block_from_api_result_file(block_info_file);
+    let tx = read_tx_from_api_result_file(tx_info_file);
+    // debug transaction trace
+    let trace = read_trace_from_api_result_file(trace_file);
+    // transaction receipt for public log
+    let receipt_log = read_log_from_api_result_file(receipt_file);
+    let bytecode = read_bytecode_from_api_result_file(bytecode_file);
+
+    let chain_id = tx.chain_id.unwrap();
+
+    // make fake history hashes
+    // TODO read hashes from file
+    let mut history_hashes = vec![];
+    for i in 0..256 {
+        history_hashes.push(i.into())
+    }
+
+    // make account
+    let account_addr = match tx.to {
+        None => create_contract_addr_with_prefix(&tx),
+        Some(addr) => addr.as_bytes().into(),
+    };
+
+    // TODO read nonce, balance, storage from file
+    let account = Account {
+        address: account_addr,
+        code: bytecode.to_vec().into(),
+        ..Default::default()
+    };
+
+    // build and return geth_data
+    GethData {
+        chain_id: chain_id.into(),
         history_hashes,
         eth_block,
         geth_traces: vec![trace],
