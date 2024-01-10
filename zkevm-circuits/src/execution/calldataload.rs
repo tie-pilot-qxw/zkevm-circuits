@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
@@ -10,10 +12,9 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::CoreSinglePurposeOutcome;
-
 const NUM_ROW: usize = 3;
-pub const LOAD_SIZE: usize = 32;
+/// The number of bytes in one calldataload operation
+const LOAD_SIZE: usize = 32;
 const STATE_STAMP_DELTA: usize = 34;
 const PC_DELTA: usize = 1;
 const STACK_POINTER_DELTA: usize = 0;
@@ -165,7 +166,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // calldataload 读取的32字节数据分为两步进行，每次读取16byte由
         // core::Row的acc标识，所以将索引为15、31的copy row写入core_row_2
         let (copy_rows, mut state_rows) =
-            current_state.get_calldata_load_rows::<F>(index.as_usize(), LOAD_SIZE);
+            current_state.get_calldata_load_rows::<F>(index.as_usize());
         let copy_row_0 = copy_rows.get(15).unwrap();
         let copy_row_1 = copy_rows.get(31).unwrap();
         core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
@@ -215,7 +216,7 @@ mod test {
             call_data: HashMap::new(),
             ..WitnessExecHelper::new()
         };
-        current_state.call_data.insert(0, vec![0; 32]);
+        current_state.call_data.insert(0, vec![0xab; 32]);
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATALOAD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(

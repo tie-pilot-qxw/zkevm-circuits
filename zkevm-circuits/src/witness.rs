@@ -902,19 +902,13 @@ impl WitnessExecHelper {
 
     pub fn get_calldata_load_rows<F: Field>(
         &mut self,
-        idx: usize,
-        length: usize,
+        offset: usize,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let call_data = &self.call_data[&self.call_id];
-        let len = if idx + length <= call_data.len() {
-            idx + length
-        } else {
-            call_data.len()
-        };
 
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        let mut offset_start = idx;
+        let mut offset_start = offset;
 
         let temp_256_f = F::from(256);
         for i in 0..2 {
