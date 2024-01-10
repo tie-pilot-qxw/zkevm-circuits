@@ -922,7 +922,10 @@ impl WitnessExecHelper {
             let mut acc_pre = U256::from(0);
             let stamp_start = self.state_stamp;
             for j in 0..16 {
-                let byte = call_data.get(i * 16 + j).cloned().unwrap_or_default();
+                let byte = call_data
+                    .get(i * 16 + j + offset)
+                    .cloned()
+                    .unwrap_or_default();
                 let acc: U256 = if j == 0 {
                     byte.into()
                 } else {
