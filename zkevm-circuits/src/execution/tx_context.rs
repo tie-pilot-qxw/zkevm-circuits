@@ -1,6 +1,7 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::public::Tag;
 use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
@@ -87,32 +88,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
         let public_entry = config.get_public_lookup(meta);
-        let (public_tag, tx_idx_or_number_diff, values) =
-            extract_lookup_expression!(public, public_entry);
-        let value_hi = values[0].clone();
-        let value_lo = values[1].clone();
         let origin_tag = meta.query_advice(config.vers[8], Rotation::prev());
         let gasprice_tag = meta.query_advice(config.vers[9], Rotation::prev());
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
-        // public tag constraints
-        constraints.extend([(
-            "tag constraints".into(),
-            public_tag
-                - selector.select(&[
-                    (public::Tag::TxFromValue as u64).expr(),
-                    (public::Tag::TxGasPrice as u64).expr(),
-                ]),
-        )]);
-        constraints.extend([
-            ("state_value_hi ".into(), state_value_hi - value_hi),
-            ("state_value_lo".into(), state_value_lo - value_lo),
-        ]);
-        // tx_id = tx_idx_or_number_diff
-        constraints.extend([(
-            "tx_id = tx_idx_or_number_diff".into(),
-            tx_idx.clone() - tx_idx_or_number_diff,
-        )]);
-
+        // pubic lookup constraints
+        constraints.extend(config.get_public_constraints(
+            meta,
+            public_entry,
+            selector.select(&[
+                (Tag::TxFromValue as u64).expr(),
+                (Tag::TxGasPrice as u64).expr(),
+            ]),
+            Some(tx_idx.clone()),
+            [Some(state_value_hi), Some(state_value_lo), None, None],
+        ));
         // opcode constraints
         constraints.extend([(
             "opcode constraints".into(),
@@ -145,12 +134,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let value_lo = next_stack_top_value.low_u128();
         let (public_tag, tag, value_public_2, value_public_3) = match trace.op {
             OpcodeId::ORIGIN => (
-                public::Tag::TxFromValue,
+                Tag::TxFromValue,
                 0usize,
                 current_state.tx_value >> 128,
                 current_state.tx_value.low_u128().into(),
             ),
-            OpcodeId::GASPRICE => (public::Tag::TxGasPrice, 1, U256::from(0), U256::from(0)),
+            OpcodeId::GASPRICE => (Tag::TxGasPrice, 1, U256::from(0), U256::from(0)),
             _ => panic!("not ORIGIN or GASPRICE"),
         };
         // core_row_2
