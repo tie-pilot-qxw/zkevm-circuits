@@ -24,6 +24,7 @@ mod or; //17
 mod origin; //32
 mod sgt; //13
 mod sha3; //20
+mod shl;
 mod shr; //1C
 mod slt; //12
 mod stop; //00
