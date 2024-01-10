@@ -108,7 +108,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.append(&mut config.get_copy_constraints(
                 copy::Tag::Calldata,
                 call_id.clone(),
-                operands[0][1].clone() + 16.expr() * i.expr(), // index of calldata = value_lo + 16*i
+                operands[0][1].clone() + 16.expr() * i.expr(), // index of calldata = value_lo + 16*i;
                 stamp.clone() + 1.expr() + 16.expr() * i.expr(), // +1 ==> because pop index; copy的32byte数据分为2部分，所以16*i;
                 copy::Tag::Null,
                 0.expr(),
@@ -130,6 +130,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "CALLDATALOAD next pc".into(),
                 pc_next - pc_cur - PC_DELTA.expr(),
+            ),
+            (
+                "value_hi=0 in first state entry".into(),
+                operands[0][0].clone(),
             ),
         ]);
         constraints
@@ -161,6 +165,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 从栈上弹出一个元素标识从calldata读取数据的索引
         let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
+        assert!(
+            index.leading_zeros() >= 128,
+            "not support offset >= 2^128 for CALLDATALOAD"
+        );
+
+        // 因此当index>usize::max-32时，而calldataload指令需读取32字节数据，
+        // get_calldata_load_rows函数内部使用usize类型计算实际获取数据的索引: index+i[0..32),
+        // 如果index>usize::Max-32会导致索引计算溢出，读取到不应获取的数据.
+        assert!(
+            index.as_u128() <= ((usize::MAX - LOAD_SIZE) as u128),
+            "not support offset > usize::MAX-32 for CALLDATALOAD"
+        );
 
         // 生成copy_rows和state_rows，将copy_rows数据写入core_row_2
         // calldataload 读取的32字节数据分为两步进行，每次读取16byte由
@@ -172,6 +188,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
 
         // 计算push到栈上的数据 value, 并生成state row写入core_row_1
+        // copy_row_0为前16byte，copy_row_1为后16byte，将copy_row_0
+        // 左移128bit即16字节加上copy_row_1用来组成完整的copy数据
         let value = (copy_row_0.acc << 128) + copy_row_1.acc;
         let stack_push_0 = current_state.get_push_stack_row(trace, value);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
@@ -200,15 +218,14 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use eth_types::U256;
+    use std::{collections::HashMap, panic};
 
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    #[test]
-    fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0.into()]);
+    fn assign_and_constraint(stack: Stack) {
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
@@ -216,7 +233,9 @@ mod test {
             call_data: HashMap::new(),
             ..WitnessExecHelper::new()
         };
-        current_state.call_data.insert(0, vec![0xab; 32]);
+        // 初始化calldata的数据
+        current_state.call_data.insert(0, vec![0xab; 0x12]);
+
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATALOAD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -242,5 +261,47 @@ mod test {
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
         prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_index_overflow_u64() {
+        // 设置calldataload的索引位置大于usize::max-32
+        let mut index: U256 = usize::MAX.into();
+        index = index - 30;
+        let stack = Stack::from_slice(&[index]);
+        let result = panic::catch_unwind(|| assign_and_constraint(stack));
+        match result {
+            Ok(_) => panic!("shoule be panic, due to index > usize::max-32"),
+            Err(err) => {
+                if let Some(msg) = err.downcast_ref::<&str>() {
+                    assert!(*msg == "not support offset > usize::MAX-32 for CALLDATALOAD");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_index_overflow_u128() {
+        // 设置calldataload的索引位置大于u128
+        let index: U256 = U256::MAX - 10;
+        let stack = Stack::from_slice(&[index]);
+        let result = panic::catch_unwind(|| assign_and_constraint(stack));
+        match result {
+            Ok(_) => panic!("shoule be panic, due to index > u128"),
+            Err(err) => {
+                if let Some(msg) = err.downcast_ref::<&str>() {
+                    assert!(*msg == "not support offset >= 2^128 for CALLDATALOAD");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_in_range_and_padding() {
+        // 设置calldataload的索引位置为1
+        // assign_and_constraint 内部设置的calldata包含2个byte，
+        // 因此会读取一个字节同时padding31个byte
+        let stack = Stack::from_slice(&[1.into()]);
+        assign_and_constraint(stack);
     }
 }

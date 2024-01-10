@@ -910,12 +910,22 @@ impl WitnessExecHelper {
         let mut state_rows = vec![];
         let mut offset_start = offset;
 
+        // 系数，乘以256标识将一个值左移8bit，
+        // 由于数据是一个个字节读取，acc标识累计读取的数据，所以acc_f*temp_256_f+byte
+        // 标识最新读取的完整字符串内容：即将前面累计读取的内容左移8bit(1个字节)再加上新读取的字节
+        // 示例：完整字符串 0x123456
+        // 读取0x12 --> acc_pre=0x12 --> acc=0x12
+        // 读取0x34 --> acc_f=0x1234 --> acc=0x1234
+        // 读取0x56 --> acc_f=0x123456 --> acc=0x123456
         let temp_256_f = F::from(256);
         for i in 0..2 {
             let mut acc_pre = U256::from(0);
             let stamp_start = self.state_stamp;
             for j in 0..16 {
-                let byte = call_data.get(i * 16 + j).cloned().unwrap_or_default();
+                let byte = call_data
+                    .get(i * 16 + j + offset)
+                    .cloned()
+                    .unwrap_or_default();
                 let acc: U256 = if j == 0 {
                     byte.into()
                 } else {
