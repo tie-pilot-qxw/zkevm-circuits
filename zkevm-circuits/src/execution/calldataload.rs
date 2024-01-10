@@ -1,24 +1,23 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{state, Witness, WitnessExecHelper};
+use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
+use eth_types::Field;
 use eth_types::GethExecStep;
-use eth_types::{Field, U256};
-use gadgets::util::expr_from_bytes;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::CoreSinglePurposeOutcome;
-
 const NUM_ROW: usize = 3;
-pub const LOAD_SIZE: usize = 32;
+/// The number of bytes in one calldataload operation
+const LOAD_SIZE: usize = 32;
 const STATE_STAMP_DELTA: usize = 34;
 const PC_DELTA: usize = 1;
 const STACK_POINTER_DELTA: usize = 0;
-const HIGH_END_INDEX: usize = 16;
 
 pub struct CalldataloadGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -31,14 +30,14 @@ pub struct CalldataloadGadget<F: Field> {
 ///
 /// Calldataload Execution State layout is as follows
 /// where STATE means state table lookup,
-/// CONTENT means the bytes retrived from msg.data (calldata),
+/// copy0/1 means the bytes retrived from msg.data (calldata),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+----------+
-/// | 2 | CONTENT                          |
+/// | 2 | copy0  | copy1  |                |
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -64,6 +63,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let delta = AuxiliaryDelta {
@@ -78,31 +78,50 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
+        let mut operands = vec![];
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
                 meta,
                 entry.clone(),
-                i,
+                i * (LOAD_SIZE + 1), // pop index and load 32 byte from calldata; so index = 1+load_size
                 NUM_ROW,
                 STACK_POINTER_DELTA.expr(),
                 i == 1,
             ));
+            // 1 state entry: pop index of calldata from stack;
+            // value_hi=index[..16]; value_lo=index[16..]
+            // 2 state entry: push value which is retrived from calldata
+            // value_hi=data[..16] value_lo=data[16..]
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            operands.push([value_hi, value_lo]);
         }
 
-        let push_entry = config.get_state_lookup(meta, 1);
-        let (_, stamp, value_hi, value_lo, _, _, _, _) =
-            extract_lookup_expression!(state, push_entry.clone());
-        let mut calldata_high_value: Vec<Expression<F>> = config.vers[..HIGH_END_INDEX]
-            .iter()
-            .map(|s| meta.query_advice(*s, Rotation(-2)))
-            .collect();
-        let mut calldata_low_value: Vec<Expression<F>> = config.vers[HIGH_END_INDEX..]
-            .iter()
-            .map(|s| meta.query_advice(*s, Rotation(-2)))
-            .collect();
-        calldata_low_value.reverse();
-        calldata_high_value.reverse();
+        for i in 0..2 {
+            let copy_entry = if i == 0 {
+                config.get_copy_lookup(meta)
+            } else {
+                config.get_copy_padding_lookup(meta)
+            };
+            let (_, stamp, ..) =
+                extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
+            constraints.append(&mut config.get_copy_constraints(
+                copy::Tag::Calldata,
+                call_id.clone(),
+                operands[0][1].clone() + 16.expr() * i.expr(), // index of calldata = value_lo + 16*i
+                stamp.clone() + 1.expr() + 16.expr() * i.expr(), // +1 ==> because pop index; copy的32byte数据分为2部分，所以16*i;
+                copy::Tag::Null,
+                0.expr(),
+                0.expr(),
+                0.expr(),
+                Some(15.expr()),
+                16.expr(),
+                0.expr(),
+                Some(operands[1][i].clone()), // data of copy from calldata
+                copy_entry.clone(),
+            ));
+        }
+
         constraints.extend([
             (
                 "CALLDATALOAD opcode".into(),
@@ -111,14 +130,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "CALLDATALOAD next pc".into(),
                 pc_next - pc_cur - PC_DELTA.expr(),
-            ),
-            (
-                "CALLDATALOAD call data high value".into(),
-                value_hi - expr_from_bytes(calldata_high_value.as_slice()),
-            ),
-            (
-                "CALLDATALOAD call data low value".into(),
-                value_lo - expr_from_bytes(calldata_low_value.as_slice()),
             ),
         ]);
         constraints
@@ -131,56 +142,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_pop = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        let (_, stamp, _, _, _, _, pointer, _) =
-            extract_lookup_expression!(state, stack_push.clone());
-        let mut calldata_load: Vec<(String, LookupEntry<F>)> = vec![];
-        for i in 0..LOAD_SIZE {
-            calldata_load.push((
-                format!("content with index{} in calldata", i),
-                query_expression(meta, |meta| {
-                    config.get_calldata_load_lookup(
-                        meta,
-                        i,
-                        pointer.clone(),
-                        stamp.clone(),
-                        &config.vers[i],
-                    )
-                }),
-            ))
-        }
-        calldata_load.extend([
-            ("stack pop index".into(), stack_pop),
-            ("stack push call_data".into(), stack_push),
-        ]);
-        calldata_load
+        let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
+
+        vec![
+            ("stack pop index of call_data ".into(), stack_pop),
+            ("stack push value of call_data".into(), stack_push),
+            ("copy lookup 0".into(), copy_lookup_0),
+            ("copy lookup 1".into(), copy_lookup_1),
+        ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::CALLDATALOAD);
 
-        // pop index from stack to point msg.call_data
-        let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
-        // load value from msg.call_data with index
-        let call_data = &current_state.call_data[&current_state.call_id];
-        let len = if index.as_usize() + LOAD_SIZE <= call_data.len() {
-            index.as_usize() + LOAD_SIZE
-        } else {
-            call_data.len()
-        };
-        let mut data: Vec<u8> = vec![];
-        data.extend(&call_data[index.as_usize()..len]);
-        data.resize(LOAD_SIZE, 0);
-
-        // then push the retrived value to stack
-        let stack_push_0 = current_state.get_push_stack_row(trace, U256::from(&data[0..]));
-        let mut state_rows: Vec<state::Row> =
-            current_state.get_calldata_load_rows(index.as_usize(), LOAD_SIZE);
-        // generate Witness with call_data
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
-        let values = data.into_iter().map(|x| x.into()).collect::<Vec<U256>>();
-        core_row_2.fill_versatile_with_values(&values);
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
+
+        // 从栈上弹出一个元素标识从calldata读取数据的索引
+        let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
+
+        // 生成copy_rows和state_rows，将copy_rows数据写入core_row_2
+        // calldataload 读取的32字节数据分为两步进行，每次读取16byte由
+        // core::Row的acc标识，所以将索引为15、31的copy row写入core_row_2
+        let (copy_rows, mut state_rows) =
+            current_state.get_calldata_load_rows::<F>(index.as_usize());
+        let copy_row_0 = copy_rows.get(15).unwrap();
+        let copy_row_1 = copy_rows.get(31).unwrap();
+        core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
+
+        // 计算push到栈上的数据 value, 并生成state row写入core_row_1
+        let value = (copy_row_0.acc << 128) + copy_row_1.acc;
+        let stack_push_0 = current_state.get_push_stack_row(trace, value);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
+
         let core_row_0 = ExecutionState::CALLDATALOAD.into_exec_state_core_row(
             trace,
             current_state,
@@ -188,11 +183,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
-        let mut v: Vec<state::Row> = vec![stack_pop_0, stack_push_0];
-        v.append(&mut state_rows);
+        state_rows.extend([stack_pop_0, stack_push_0]);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: v,
+            state: state_rows,
+            copy: copy_rows,
             ..Default::default()
         }
     }
@@ -221,7 +216,7 @@ mod test {
             call_data: HashMap::new(),
             ..WitnessExecHelper::new()
         };
-        current_state.call_data.insert(0, vec![0; 32]);
+        current_state.call_data.insert(0, vec![0xab; 32]);
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATALOAD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
