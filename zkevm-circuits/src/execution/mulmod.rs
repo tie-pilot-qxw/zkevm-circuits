@@ -1,17 +1,40 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
-use crate::table::LookupEntry;
-use crate::util::query_expression;
+use crate::arithmetic_circuit::operation;
+use crate::execution::{
+    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
+use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256, U512};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_ROW: usize = 5;
+const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: u64 = 4;
+const STACK_POINTER_DELTA: i32 = -2;
+const PC_DELTA: u64 = 1;
 
 pub struct MulmodGadget<F: Field> {
     _marker: PhantomData<F>,
 }
+
+/// MulMod Execution State layout is as follows
+/// where STATE means state table lookup,
+/// ARITH means arithmetic table lookup,
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col |  8 col   |
+/// +---+-------+-------+-------+----------+
+/// | 2 | ARITH  |      |       |          |
+/// | 1 | STATE | STATE | STATE |  STATE   |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for MulmodGadget<F>
 {
@@ -32,7 +55,66 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![]
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+
+        let delta = AuxiliaryDelta {
+            state_stamp: STATE_STAMP_DELTA.expr(),
+            stack_pointer: STACK_POINTER_DELTA.expr(),
+            ..Default::default()
+        };
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // core single constraints
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        let mut arithmetic_operands = vec![];
+        for i in 0..4 {
+            let entry = config.get_state_lookup(meta, i);
+            // i = 0, stack_pointer pop
+            // i = 1, -1 pop
+            // i = 2, -2 pop -1 - (i - 1)
+            // i = 3, -2 push
+            let stack_pointer_delta = if i == 0 {
+                0
+            } else if i == 1 {
+                -1
+            } else {
+                -2
+            };
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                stack_pointer_delta.expr(),
+                i == 3,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            arithmetic_operands.extend([value_hi, value_lo]);
+        }
+
+        let (tag, arithmetic_operands_full) =
+            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
+        constraints.extend((0..8).map(|i| {
+            (
+                format!("operand[{}] in arithmetic = in state lookup", i),
+                arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
+            )
+        }));
+
+        constraints.extend([
+            (
+                "opcode".into(),
+                opcode.clone() - OpcodeId::MULMOD.as_u8().expr(),
+            ),
+            (
+                "arithmetic tag".into(),
+                tag - (arithmetic::Tag::Mulmod as u8).expr(),
+            ),
+        ]);
+        constraints
     }
     fn get_lookups(
         &self,
@@ -53,26 +135,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        assert_eq!(trace.op, OpcodeId::MULMOD);
+
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
-
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
+        let (stack_pop_2, n) = current_state.get_pop_stack_row_value(&trace);
 
-        let (stack_pop_2, c) = current_state.get_pop_stack_row_value(&trace);
-        let d = current_state.stack_top.unwrap_or_default();
-        let stack_push_0 = current_state.get_push_stack_row(trace, d);
-        let exp_d: U256 = if c.is_zero() {
-            0.into()
-        } else {
-            (U512::from(a) * U512::from(b)) % U512::from(c)
-        }
-        .try_into()
-        .unwrap();
-        assert_eq!(exp_d, d);
-        // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Mulmod, [a, b, c, d]);
-        let mut core_row_4 = current_state.get_core_row_without_versatile(&trace, 4);
-        let mut core_row_3 = current_state.get_core_row_without_versatile(&trace, 3);
+        let (arithmetic, result) = operation::mulmod::gen_witness(vec![a, b, n]);
+        assert_eq!(result[0], current_state.stack_top.unwrap());
+
+        let r = current_state.stack_top.unwrap_or_default();
+        let stack_push_0 = current_state.get_push_stack_row(trace, r);
+
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
+        core_row_2.insert_arithmetic_lookup(0, &arithmetic);
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_push_0]);
         let core_row_0 = ExecutionState::MULMOD.into_exec_state_core_row(
@@ -82,18 +159,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         Witness {
-            core: vec![core_row_4, core_row_3, core_row_2, core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_pop_2, stack_push_0],
+            arithmetic,
             ..Default::default()
         }
     }
 }
+
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
     Box::new(MulmodGadget {
         _marker: PhantomData,
     })
 }
+
 #[cfg(test)]
 mod test {
     use crate::execution::test::{

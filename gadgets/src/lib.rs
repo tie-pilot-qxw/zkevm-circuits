@@ -22,6 +22,8 @@ pub mod mul_add;
 pub mod simple_is_zero;
 pub mod simple_lt;
 pub mod simple_lt_word;
+pub mod simple_mul;
+pub mod simple_mul_512;
 pub mod simple_seletor;
 pub mod util;
 
