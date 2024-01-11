@@ -159,7 +159,7 @@ mod test {
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0.into()]);
         let stack_pointer = stack.0.len();
-        let result = U256::from_big_endian([255; 32].as_ref());
+        let result = U256::MAX;
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(result),

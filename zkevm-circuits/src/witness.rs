@@ -2109,7 +2109,7 @@ impl core::Row {
                     ),
                 ]);
             }
-            arithmetic::Tag::DivMod => self.comments.extend([
+            arithmetic::Tag::DivMod | arithmetic::Tag::SdivSmod => self.comments.extend([
                 (
                     format!("vers_{}", index * WIDTH + 4),
                     "arithmetic quotient hi".into(),

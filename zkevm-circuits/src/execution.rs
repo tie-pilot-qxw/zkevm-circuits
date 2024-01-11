@@ -44,6 +44,7 @@ pub mod returndatacopy;
 pub mod returndatasize;
 pub mod sar_1;
 pub mod sar_2;
+pub mod sdiv_smod;
 pub mod selfbalance;
 pub mod shl_shr;
 pub mod signextend;
@@ -79,6 +80,7 @@ macro_rules! get_every_execution_gadgets {
     () => {{
         vec![
             crate::execution::add_sub_mul_div_mod::new(),
+            crate::execution::sdiv_smod::new(),
             crate::execution::push::new(),
             crate::execution::stop::new(),
             crate::execution::begin_block::new(),
@@ -1836,6 +1838,7 @@ pub enum ExecutionState {
     CALL_5,
     END_CALL,
     END_TX,
+    SDIV_SMOD,
     GAS,
 }
 
@@ -1844,16 +1847,10 @@ impl ExecutionState {
     pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
         match opcode {
             OpcodeId::STOP => vec![Self::STOP, Self::END_CALL],
-            OpcodeId::ADD => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::MUL => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::SUB => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::DIV | OpcodeId::MOD => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::SDIV => {
-                todo!()
+            OpcodeId::ADD | OpcodeId::MUL | OpcodeId::SUB | OpcodeId::DIV | OpcodeId::MOD => {
+                vec![Self::ADD_SUB_MUL_DIV_MOD]
             }
-            OpcodeId::SMOD => {
-                todo!()
-            }
+            OpcodeId::SDIV | OpcodeId::SMOD => vec![Self::SDIV_SMOD],
             OpcodeId::ADDMOD => vec![Self::ADDMOD],
             OpcodeId::MULMOD => vec![Self::MULMOD],
             OpcodeId::EXP => {
