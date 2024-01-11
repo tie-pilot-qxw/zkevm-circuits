@@ -50,7 +50,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::begin_tx_2::NUM_ROW)
+        (NUM_ROW, begin_tx_2::NUM_ROW)
     }
 
     fn get_constraints(
@@ -238,7 +238,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         current_state
             .parent_code_addr
-            .insert(current_state.call_id, 0.into()); // updage current_state's parent_code_addr
+            .insert(current_state.call_id, 0.into()); // update current_state's parent_code_addr
         let write_parent_code_addr_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
@@ -320,8 +320,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use eth_types::U256;
-
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

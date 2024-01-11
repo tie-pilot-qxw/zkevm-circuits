@@ -14,10 +14,10 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
+/// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 
 pub(super) const NUM_ROW: usize = 2;
@@ -164,7 +164,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_read_0, gas) = current_state.get_peek_stack_row_value(trace, 1);
+        let (stack_read_0, _gas) = current_state.get_peek_stack_row_value(trace, 1);
         let (stack_read_1, addr) = current_state.get_peek_stack_row_value(trace, 2);
 
         let call_context_write_row_0 = current_state.get_call_context_write_row(
@@ -253,7 +253,7 @@ mod test {
         current_state.state_stamp = state_stamp_init + 3 + 2 * 0x04 + 2 + 4;
         current_state.call_id_new = state_stamp_init + 1;
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::CALL_3.into_exec_state_core_row(
@@ -267,7 +267,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

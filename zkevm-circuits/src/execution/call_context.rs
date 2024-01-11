@@ -4,8 +4,7 @@ use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::state::CallContextTag;
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::GethExecStep;
-use eth_types::{Field, U256};
+use eth_types::{Field, GethExecStep};
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
@@ -15,7 +14,6 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 1;
-const PC_DELTA: u64 = 1;
 
 /// CallContextGadget deal OpCodeId:{CALLDATASIZE, CALLER, CALLVALUE}
 /// STATE0 read value from call_context

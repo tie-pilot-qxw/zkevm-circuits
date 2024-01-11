@@ -1,8 +1,8 @@
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, WitnessExecHelper};
-use crate::witness::{core, state, Witness};
+use crate::witness::Witness;
+use crate::witness::WitnessExecHelper;
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -11,7 +11,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::thread::current;
 
 const NUM_ROW: usize = 2;
 

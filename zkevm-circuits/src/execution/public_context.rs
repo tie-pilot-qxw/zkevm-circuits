@@ -85,7 +85,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             entry.clone(),
             0,
             NUM_ROW,
-            (1i32).expr(),
+            1i32.expr(),
             true,
         ));
         // value_hi,value_lo constraints
@@ -131,12 +131,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
         // select opcode
         let public_context_tag = selector.select(&[
-            opcode.clone() - (OpcodeId::TIMESTAMP.as_u64()).expr(),
-            opcode.clone() - (OpcodeId::NUMBER.as_u64()).expr(),
-            opcode.clone() - (OpcodeId::COINBASE.as_u64()).expr(),
-            opcode.clone() - (OpcodeId::GASLIMIT.as_u64()).expr(),
-            opcode.clone() - (OpcodeId::CHAINID.as_u64()).expr(),
-            opcode.clone() - (OpcodeId::BASEFEE.as_u64()).expr(),
+            opcode.clone() - OpcodeId::TIMESTAMP.as_u64().expr(),
+            opcode.clone() - OpcodeId::NUMBER.as_u64().expr(),
+            opcode.clone() - OpcodeId::COINBASE.as_u64().expr(),
+            opcode.clone() - OpcodeId::GASLIMIT.as_u64().expr(),
+            opcode.clone() - OpcodeId::CHAINID.as_u64().expr(),
+            opcode.clone() - OpcodeId::BASEFEE.as_u64().expr(),
         ]);
         // opCode constraints
         constraints.extend([("opCode constraints".into(), public_context_tag)]);

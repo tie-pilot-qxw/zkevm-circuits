@@ -1,6 +1,6 @@
 use crate::arithmetic_circuit::operation::{get_row, get_u16s, OperationConfig, OperationGadget};
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::util::{
     expr_from_u16s, pow_of_two, split_u256, split_u256_hi_lo, split_u256_limb64, Expr,
 };
@@ -49,12 +49,12 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
         let (u16_sum_for_c_lo, _, _) = get_u16s(config, meta, Rotation(-5));
 
         //get the u16s sum for carry_hi and carry_lo
-        let mut carry_hi_u16s: Vec<_> = (0..5)
+        let carry_hi_u16s: Vec<_> = (0..5)
             .map(|i| config.get_u16(i, Rotation(-6))(meta))
             .collect();
         let u16_sum_for_carry_hi = expr_from_u16s(&carry_hi_u16s);
 
-        let mut carry_lo_u16s: Vec<_> = (0..5)
+        let carry_lo_u16s: Vec<_> = (0..5)
             .map(|i| config.get_u16(i, Rotation(-7))(meta))
             .collect();
         let u16_sum_for_carry_lo = expr_from_u16s(&carry_lo_u16s);
@@ -64,17 +64,17 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
         let u16_sum_for_carry = [u16_sum_for_carry_hi, u16_sum_for_carry_lo];
         // 2. calculate the t0,t1,t2,t3 for carry_lo and carry_hi.
-        /// We execute a multi-limb multiplication as follows:
-        /// a and b is divided into 4 64-bit limbs, denoted as a0~a3 and b0~b3
-        /// defined t0, t1, t2, t3
-        ///   t0 = a0 * b0, contribute to 0 ~ 128 bit
-        ///   t1 = a0 * b1 + a1 * b0, contribute to 64 ~ 193 bit (include the carry)
-        ///   t2 = a0 * b2 + a2 * b0 + a1 * b1, contribute to above 128 bit
-        ///   t3 = a0 * b3 + a3 * b0 + a2 * b1 + a1 * b2, contribute to above 192 bit
-        ///
-        /// Finally we have:
-        ///  carry_lo = ((t0 + (t1 << 64)) - c_lo) >>128 (contribute to 65 bit)
-        ///  carry_hi = ((t2 + (t3 << 64) + carry_lo) - c_hi) >> 128 (contribute to 66 bit)
+        //  We execute a multi-limb multiplication as follows:
+        //  a and b is divided into 4 64-bit limbs, denoted as a0~a3 and b0~b3
+        //  defined t0, t1, t2, t3
+        //    t0 = a0 * b0, contribute to 0 ~ 128 bit
+        //    t1 = a0 * b1 + a1 * b0, contribute to 64 ~ 193 bit (include the carry)
+        //    t2 = a0 * b2 + a2 * b0 + a1 * b1, contribute to above 128 bit
+        //    t3 = a0 * b3 + a3 * b0 + a2 * b1 + a1 * b2, contribute to above 192 bit
+        //
+        //  Finally we have:
+        //   carry_lo = ((t0 + (t1 << 64)) - c_lo) >>128 (contribute to 65 bit)
+        //   carry_hi = ((t2 + (t3 << 64) + carry_lo) - c_hi) >> 128 (contribute to 66 bit)
         let mut a_limbs = vec![];
         let mut b_limbs = vec![];
         a_limbs.push(a_lo_1);
@@ -121,12 +121,12 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
         }
 
         constraints.push((
-            format!("(a * b)_lo == c_lo + carry_lo ⋅ 2^128"),
+            "(a * b)_lo == c_lo + carry_lo ⋅ 2^128".into(),
             t0.expr() + (t1.expr() * pow_of_two::<F>(64))
                 - (c[1].clone() + carry[1].clone() * pow_of_two::<F>(128)),
         ));
         constraints.push((
-            format!("(a * b)_hi + carry_lo == c_hi + carry_hi ⋅ 2^128"),
+            "(a * b)_hi + carry_lo == c_hi + carry_hi ⋅ 2^128".into(),
             (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + carry[1].clone()
                 - (c[0].clone() + carry[0].clone() * pow_of_two::<F>(128)),
         ));
@@ -267,13 +267,12 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
 mod test {
     use super::gen_witness;
     use crate::witness::Witness;
-    use eth_types::U256;
 
     #[test]
     fn test_gen_witness() {
         let a = 3.into();
         let b = u128::MAX.into();
-        let (arithmetic, result) = gen_witness(vec![a, b]);
+        let (arithmetic, _result) = gen_witness(vec![a, b]);
         let witness = Witness {
             arithmetic,
             ..Default::default()

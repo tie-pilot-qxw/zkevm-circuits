@@ -1,18 +1,12 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
-use crate::util::query_expression;
+use crate::witness::Witness;
 use crate::witness::WitnessExecHelper;
-use crate::witness::{core, state, Witness};
-use eth_types::Field;
-use eth_types::GethExecStep;
-use gadgets::util::Expr;
+use eth_types::{Field, GethExecStep};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: u64 = 1;
-const STACK_POINTER_DELTA: i64 = 1;
 
 pub struct DupGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -50,16 +44,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn get_constraints(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut VirtualCells<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         vec![]
     }
 
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut ConstraintSystem<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
@@ -137,7 +131,7 @@ mod test {
             row.pc = 2.into();
             row
         };
-        let (witness, prover) =
+        let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
     }

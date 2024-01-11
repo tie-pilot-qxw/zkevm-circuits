@@ -16,11 +16,11 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 2 | COPY(11) | COPY_LEN(1)| LEN_INV(1)| COPY_PADDING_LEN(1)  |
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
+/// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 ///
 /// COPY_PADDING_LEN is only used to construct a lookup entry to arithmetic circuit.
@@ -333,7 +333,7 @@ mod test {
         let value_vec = [0x12; 10];
         current_state.return_data.insert(0x50, value_vec.to_vec());
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_CALL.into_exec_state_core_row(

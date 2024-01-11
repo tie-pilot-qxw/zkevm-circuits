@@ -1,6 +1,6 @@
 use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, Expr};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -134,7 +134,7 @@ mod test {
     use super::gen_witness;
     use crate::witness::Witness;
     use eth_types::U256;
-    use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, Expr};
+
     #[test]
     fn test_gen_witness() {
         let a = 3.into();

@@ -55,7 +55,6 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -3;
-const PC_DELTA: u64 = 1;
 pub struct CodecopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }

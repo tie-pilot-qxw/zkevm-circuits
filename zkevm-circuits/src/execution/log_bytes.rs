@@ -12,7 +12,7 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::util::{pow_of_two, Expr};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -118,8 +118,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[3], &len_lo_inv, String::from("length_lo"));
 
-        let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
-
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Memory,
@@ -146,39 +144,36 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                format!("public tag is tx_log").into(),
+                "public tag is tx_log".into(),
                 public_tag - (public::Tag::TxLog as u8).expr(),
             ),
             (
-                format!("public tx_idx is config.tx_idx").into(),
+                "public tx_idx is config.tx_idx".into(),
                 public_tx_idx - tx_idx.clone(),
             ),
             (
-                format!("public log_stamp is correct").into(),
+                "public log_stamp is correct".into(),
                 public_values[0].clone() - log_stamp,
             ),
             (
-                format!("public log tag is DataSize").into(),
+                "public log tag is DataSize".into(),
                 public_values[1].clone() - (LogTag::DataSize as u8).expr(),
             ),
+            ("public values[2] is 0".into(), public_values[2].clone()),
             (
-                format!("public values[2] is 0").into(),
-                public_values[2].clone(),
-            ),
-            (
-                format!("public data_len is length").into(),
+                "public data_len is length".into(),
                 public_values[3].clone() - len.clone(),
             ),
         ]);
 
         // extend opcode and pc constraints
         constraints.extend([(
-            format!("opcode is one of LOG0,LOG1,LOG2,LOG3,LOG4").into(),
-            (opcode.clone() - (OpcodeId::LOG0).expr())
-                * (opcode.clone() - (OpcodeId::LOG1).expr())
-                * (opcode.clone() - (OpcodeId::LOG2).expr())
-                * (opcode.clone() - (OpcodeId::LOG3).expr())
-                * (opcode - (OpcodeId::LOG4).expr()),
+            "opcode is one of LOG0,LOG1,LOG2,LOG3,LOG4".into(),
+            (opcode.clone() - OpcodeId::LOG0.expr())
+                * (opcode.clone() - OpcodeId::LOG1.expr())
+                * (opcode.clone() - OpcodeId::LOG2.expr())
+                * (opcode.clone() - OpcodeId::LOG3.expr())
+                * (opcode - OpcodeId::LOG4.expr()),
         )]);
 
         constraints
@@ -285,7 +280,6 @@ mod test {
         let call_id: u64 = 0xa;
         let tx_idx = 0xb;
         let log_stamp = 0x0;
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[length.into(), offset.into()]);
         let stack_pointer = stack.0.len();
@@ -334,7 +328,6 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[topic0_hash.into(), length.into(), offset.into()]);
         let stack_pointer = stack.0.len();
@@ -383,7 +376,6 @@ mod test {
         let log_stamp = 0x2;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[
             topic1_hash.into(),
@@ -438,7 +430,6 @@ mod test {
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[
             topic2_hash.into(),

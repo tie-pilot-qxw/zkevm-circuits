@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::usize;
 
 use crate::state_circuit::ordering::{CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
-use crate::table::{FixedTable, LookupEntry};
+use crate::table::FixedTable;
 use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
@@ -74,7 +74,7 @@ fn assign_for_config<T: Tolimbs<N>, F: Field, const N: usize>(
     Ok(())
 }
 
-fn annotate_colums_in_region<T: Tolimbs<N>, F: Field, const N: usize>(
+fn annotate_columns_in_region<T: Tolimbs<N>, F: Field, const N: usize>(
     region: &mut Region<'_, F>,
     config: &Config<T, N>,
     prefix: &str,
@@ -100,8 +100,8 @@ impl Config<U256, POINTER_LIMBS> {
         assign_for_config(region, self, value, offset)
     }
 
-    pub fn annotate_colums_in_region<F: Field>(&self, region: &mut Region<F>, prefix: &str) {
-        annotate_colums_in_region(region, self, prefix)
+    pub fn annotate_columns_in_region<F: Field>(&self, region: &mut Region<F>, prefix: &str) {
+        annotate_columns_in_region(region, self, prefix)
     }
 }
 
@@ -116,7 +116,7 @@ impl Config<u32, STAMP_LIMBS> {
     }
 
     pub fn annotate_colums_in_region<F: Field>(&self, region: &mut Region<F>, prefix: &str) {
-        annotate_colums_in_region(region, self, prefix)
+        annotate_columns_in_region(region, self, prefix)
     }
 }
 
@@ -130,8 +130,8 @@ impl Config<U256, CALLID_OR_ADDRESS_LIMBS> {
         assign_for_config(region, self, value, offset)
     }
 
-    pub fn annotate_colums_in_region<F: Field>(&self, region: &mut Region<F>, prefix: &str) {
-        annotate_colums_in_region(region, self, prefix)
+    pub fn annotate_columns_in_region<F: Field>(&self, region: &mut Region<F>, prefix: &str) {
+        annotate_columns_in_region(region, self, prefix)
     }
 }
 
@@ -216,10 +216,9 @@ fn value_from_limbs<F: Field>(limbs: &[Expression<F>]) -> Expression<F> {
 
 #[cfg(test)]
 mod test {
-    use eth_types::U256;
-
     use super::Tolimbs;
     use super::{CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS};
+    use eth_types::U256;
 
     #[test]
     pub fn test_to_limbs_u32() {

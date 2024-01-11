@@ -8,7 +8,6 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::GethExecStep;
-use eth_types::Word;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::{pow_of_two, Expr};
@@ -228,7 +227,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // get copy length, zero length,and copy_rows,mem_rows
-        let (copy_rows, mem_rows, input_length, padding_length, code_copy_length) =
+        let (copy_rows, mem_rows, _input_length, padding_length, code_copy_length) =
             current_state.get_code_copy_rows::<F>(address, mem_offset, code_offset, size);
 
         let mut copy_row = &Default::default();
@@ -244,26 +243,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);
         // get copy_len_lo_inv
-        let code_copy_lenlo_inv = U256::from_little_endian(
+        let code_copy_len_lo_inv = U256::from_little_endian(
             code_copy_len_lo
                 .invert()
                 .unwrap_or(F::ZERO)
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_23, code_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_23, code_copy_len_lo_inv);
         // padding copy len
         assign_or_panic!(core_row_2.vers_24, U256::from(padding_length));
         let padding_copy_len_lo = F::from(padding_length);
         // get padding_copy_len_lo_inv
-        let padding_copy_lenlo_inv = U256::from_little_endian(
+        let padding_copy_len_lo_inv = U256::from_little_endian(
             padding_copy_len_lo
                 .invert()
                 .unwrap_or(F::ZERO)
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_25, padding_copy_lenlo_inv);
+        assign_or_panic!(core_row_2.vers_25, padding_copy_len_lo_inv);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);
@@ -297,6 +296,7 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
+    use eth_types::Word;
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint_copy_no_padding() {

@@ -81,7 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             entry.clone(),
             0,
             NUM_ROW,
-            (1i32).expr(),
+            1i32.expr(),
             true,
         ));
         // value_hi,value_lo constraints
@@ -107,8 +107,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "opcode constraints".into(),
             opcode
                 - selector.select(&[
-                    (OpcodeId::ORIGIN.as_u8()).expr(),
-                    (OpcodeId::GASPRICE.as_u8()).expr(),
+                    OpcodeId::ORIGIN.as_u8().expr(),
+                    OpcodeId::GASPRICE.as_u8().expr(),
                 ]),
         )]);
         constraints

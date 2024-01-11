@@ -12,7 +12,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::ops::Shl;
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;

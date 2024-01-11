@@ -222,15 +222,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let operator_constraints = if i < 2 {
                 (
                     format!("bitwise[{}] operator = opAnd ", i),
-                    tag.clone() - (bitwise::Tag::And as u8).expr(),
+                    tag.clone() - (Tag::And as u8).expr(),
                 )
             } else {
                 (
                     format!("bitwise[{}] operator", i),
-                    (1.expr() - query_not_is_zero.expr())
-                        * (tag.clone() - (bitwise::Tag::And as u8).expr())
-                        + query_not_is_zero.expr()
-                            * (tag.clone() - (bitwise::Tag::Or as u8).expr()),
+                    (1.expr() - query_not_is_zero.expr()) * (tag.clone() - (Tag::And as u8).expr())
+                        + query_not_is_zero.expr() * (tag.clone() - (Tag::Or as u8).expr()),
                 )
             };
             // constraints
@@ -316,17 +314,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let a_hi = a >> 128;
         let operand_1_hi_128 = operand_1 >> 128;
         let operand_1_lo_128: U256 = operand_1.low_u128().into();
-        let bitwise_lookup1 = bitwise::Row::from_operation::<F>(
-            bitwise::Tag::And,
-            operand_1_hi_128.as_u128(),
-            a_hi.as_u128(),
-        );
+        let bitwise_lookup1 =
+            bitwise::Row::from_operation::<F>(Tag::And, operand_1_hi_128.as_u128(), a_hi.as_u128());
 
-        let bitwise_lookup2 = bitwise::Row::from_operation::<F>(
-            bitwise::Tag::And,
-            operand_1_lo_128.as_u128(),
-            a_lo.as_u128(),
-        );
+        let bitwise_lookup2 =
+            bitwise::Row::from_operation::<F>(Tag::And, operand_1_lo_128.as_u128(), a_lo.as_u128());
 
         // get not_is_zero = (sum((operand_1 & a).as_bytes))/128
         let not_is_zero = (bitwise_lookup1.last().unwrap().sum_2

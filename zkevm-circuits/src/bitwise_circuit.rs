@@ -1,5 +1,5 @@
 use crate::constant::LOG_NUM_BITWISE_TAG;
-use crate::table::{BitwiseTable, FixedTable, LookupEntry};
+use crate::table::{BitwiseTable, FixedTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::bitwise::Row;
@@ -13,7 +13,7 @@ use crate::witness::bitwise::Tag;
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
@@ -48,6 +48,7 @@ pub(crate) const NUM_OPERAND: usize = 3;
 ///
 /// note: in actual operation, the integer participating in the operation will be divided into 16 bytes, if the length
 ///       after division is not 16 bytes, 0 will be added.
+#[allow(unused)]
 #[derive(Clone)]
 pub struct BitwiseCircuitConfig<F: Field> {
     q_enable: Selector,
@@ -304,6 +305,7 @@ impl<F: Field> BitwiseCircuitConfig<F> {
 
     /// fixed lookup, src: Bitwise circuit, target: Fixed circuit table
     /// use lookup table operations to ensure that the operations of And, Or, and Xor are correct.
+    #[allow(unused_variables)]
     pub fn fixed_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
@@ -362,7 +364,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
                 // set column information
                 config.annotate_circuit_in_region(&mut region);
 
-                // assgin circuit table value
+                // assign circuit table value
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
 
                 // sub circuit need to enable selector
@@ -388,7 +390,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
 mod test {
     use super::*;
     use crate::util::log2_ceil;
-    use crate::witness::{bitwise, Witness};
+    use crate::witness::Witness;
     use eth_types::U256;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -424,7 +426,7 @@ mod test {
         type ConfigArgs = ();
 
         /// Constructor， used to construct config object
-        fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+        fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
             let q_enable = meta.complex_selector();
             let fixed_table = FixedTable::construct(meta);
             let q_enable_bitwise = meta.complex_selector();
@@ -483,7 +485,7 @@ mod test {
             let config = Self::Config::new(meta, ());
 
             // Lookup logic code
-            // used to verify whether acc_0, acc_1, accc_2, sum2 can be correctly looked up
+            // used to verify whether acc_0, acc_1, acc_2, sum2 can be correctly looked up
             meta.lookup_any("bitwise test lookup", |meta| {
                 // get the value of the specified Column in BitwiseTestCircuit
 
@@ -594,8 +596,8 @@ mod test {
         let operand2_lo = operand2.low_u128();
 
         // get bitwise rows
-        let bitwise_lo_rows = bitwise::Row::from_operation::<Fr>(tag, operand1_lo, operand2_lo);
-        let bitwise_hi_rows = bitwise::Row::from_operation::<Fr>(tag, operand1_hi, operand2_hi);
+        let bitwise_lo_rows = Row::from_operation::<Fr>(tag, operand1_lo, operand2_lo);
+        let bitwise_hi_rows = Row::from_operation::<Fr>(tag, operand1_hi, operand2_hi);
 
         // add bitwise rows to witness
         witness.bitwise.extend(bitwise_lo_rows);
