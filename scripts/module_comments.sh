@@ -1,7 +1,6 @@
 #!/bin/bash
 
 dir="../zkevm-circuits/src" # 将此替换为您要搜索的目录
-
 echo "Comment Coverage"
 echo
 
