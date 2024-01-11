@@ -11,6 +11,8 @@ use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, split_u256_lim
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use itertools::Itertools;
+use sha3::digest::consts::U2;
+use sha3::digest::typenum::op;
 use std::marker::PhantomData;
 use std::ops::{Add, Mul};
 use std::os::unix::fs::FileExt;
@@ -131,10 +133,11 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
             ],
         );
 
-        constraints.extend(
-            a_rem_mul_512
-                .get_constraints([d[1].clone(), d[0].clone()], [e[1].clone(), e[0].clone()]),
-        );
+        constraints.extend(a_rem_mul_512.get_constraints(
+            [d[1].clone(), d[0].clone()],
+            [e[1].clone(), e[0].clone()],
+            "a_remainder * b + 0 = e + d * 2^256".to_string(),
+        ));
 
         // 2.1 a_rem_mul_b_carry[0..3] is 65 ~ 68bit, use 5 u16s to constrain
         let a_rem_mul_b_carry_u16s = [
@@ -184,9 +187,11 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
             ],
         );
 
-        constraints.extend(
-            k2_mul_512.get_constraints([d[1].clone(), d[0].clone()], [e[1].clone(), e[0].clone()]),
-        );
+        constraints.extend(k2_mul_512.get_constraints(
+            [d[1].clone(), d[0].clone()],
+            [e[1].clone(), e[0].clone()],
+            "k2 * n + r = e + d * 2^256".to_string(),
+        ));
 
         // 3.1 k2n_plus_r_carry[0..3] is 65 ~ 68bit, use 5 u16s to constrain
         let k2n_plus_r_carry_u16s = [
@@ -306,181 +311,229 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
 /// It is called during core circuit's gen_witness
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(3, operands.len());
-    //set mod_push value
-    let a = split_u256_hi_lo(&operands[0]);
-    let b = split_u256_hi_lo(&operands[1]);
-    let n = split_u256_hi_lo(&operands[2]);
-    // 1. a/n = k1 (r) a_remainder
-    let (k1, a_remainder) = if operands[2] == U256::zero() {
-        (U256::zero(), U256::zero())
-    } else {
-        operands[0].div_mod(operands[2])
-    };
-    let mut k1_u16s = k1
-        .to_le_bytes()
-        .chunks(2)
-        .map(|x| x[0] as u16 + x[1] as u16 * 256)
-        .collect::<Vec<u16>>();
-    assert_eq!(16, k1_u16s.len());
 
-    let k1_u16s_hi = k1_u16s.split_off(8);
+    let mut mul_mod_cal = MulModCalculator::new(operands[0], operands[1], operands[2]);
+    let mul_add_rows = mul_mod_cal.get_mul_add_rows();
+    let mul512_first_rows = mul_mod_cal.get_first_mul512_rows();
+    let mul512_second_rows = mul_mod_cal.get_second_mul512_rows();
 
-    // 1.1 `k1 * n + a_remainder = a`
-    let k1_carry_hi_lo = get_mul_add(vec![k1, operands[2], a_remainder, operands[0]]);
+    let mut rows: Vec<Row> = vec![];
+    rows.extend(mul512_second_rows);
+    rows.extend(mul512_first_rows);
+    rows.extend(mul_add_rows);
 
-    // 1.2 `a_remainder - n = a_remainder_diff - a_remainder_carry << 256`
-    let (a_rem_lt, ard_split, ard_u16s) = get_lt_word_operations(vec![a_remainder, operands[2]]);
-
-    // 2.`a_remainder * b + 0 = e + d * 2^256`
-    // 3.`(a_remainder * b) / n = k2 (r) e`
-    let a_rem_mul_res = get_mul_add_word(vec![a_remainder, operands[1], U256::zero(), operands[2]]);
-    let (e, d, a_rem_mul_b_carry_0, a_rem_mul_b_carry_1, a_rem_mul_b_carry_2, k2, r) = (
-        a_rem_mul_res[0], // e
-        a_rem_mul_res[1], // d
-        a_rem_mul_res[2], // a_rem_mul_b_carry_0
-        a_rem_mul_res[3], // a_rem_mul_b_carry_1
-        a_rem_mul_res[4], // a_rem_mul_b_carry_2
-        a_rem_mul_res[5], // k2
-        a_rem_mul_res[6], // r
-    );
-
-    // 3.1 `k2 * n + r = e + d * 2^256`
-    let k2n_plus_r_res = get_mul_add_word(vec![k2, operands[2], r, U256::zero()]);
-    let (k2n_plus_r_carry_0, k2n_plus_r_carry_1, k2n_plus_r_carry_2) = (
-        k2n_plus_r_res[2], // k2n_plus_r_carry_0
-        k2n_plus_r_res[3], // k2n_plus_r_carry_1
-        k2n_plus_r_res[4], // k2n_plus_r_carry_2
-    );
-
-    // 3.2 `r - n = r_diff - r_carry << 256`
-    let (r_lt, r_diff_split, r_diff_u16s) = get_lt_word_operations(vec![r, operands[2]]);
-
-    // 4. get_rows
-    let r_split = split_u256_hi_lo(&r);
-    let e_split = split_u256_hi_lo(&e);
-    let d_split = split_u256_hi_lo(&d);
-    let k1_split = split_u256_hi_lo(&k1);
-    let k2_split = split_u256_hi_lo(&k2);
-    let a_reminder_split = split_u256_hi_lo(&a_remainder);
-
-    let n_u16s = get_u16s_hi_lo(operands[2]);
-    let a_rem_u16s = get_u16s_hi_lo(a_remainder);
-    let k1_carry_lo_u16s = get_u16s_hi_lo(k1_carry_hi_lo[1]);
-    let b_u16s = get_u16s_hi_lo(operands[1]);
-    let e_u16s = get_u16s_hi_lo(e);
-    let d_u16s = get_u16s_hi_lo(d);
-    let arb_carry_0_u16s = get_u16s_hi_lo(a_rem_mul_b_carry_0);
-    let arb_carry_1_u16s = get_u16s_hi_lo(a_rem_mul_b_carry_1);
-    let arb_carry_2_u16s = get_u16s_hi_lo(a_rem_mul_b_carry_2);
-    let k2_u16s = get_u16s_hi_lo(k2);
-    let r_u16s = get_u16s_hi_lo(r);
-    let k2n_carry_0_u16s = get_u16s_hi_lo(k2n_plus_r_carry_0);
-    let k2n_carry_1_u16s = get_u16s_hi_lo(k2n_plus_r_carry_1);
-    let k2n_carry_2_u16s = get_u16s_hi_lo(k2n_plus_r_carry_2);
-
-    let zero = U256::zero();
-    let k1_carry = [k1_carry_hi_lo[1], k1_carry_hi_lo[0]];
-    let a_rem_lt = [(a_rem_lt[0] as u8).into(), (a_rem_lt[1] as u8).into()];
-    let r_lt = [(r_lt[0] as u8).into(), (r_lt[1] as u8).into()];
-    let a_rem_carry_2 = [zero, a_rem_mul_b_carry_2];
-    let a_rem_carry = [a_rem_mul_b_carry_1, a_rem_mul_b_carry_0];
-    let k2n_carry_2 = [zero, k2n_plus_r_carry_2];
-    let k2n_carry = [k2n_plus_r_carry_1, k2n_plus_r_carry_0];
-
-    let row_0 = get_row(a, b, k1_u16s_hi, 0, Tag::Mulmod);
-    let row_1 = get_row(n, r_split, k1_u16s, 1, Tag::Mulmod);
-    let row_2 = get_row(k1_split, a_reminder_split, n_u16s.0, 2, Tag::Mulmod);
-    let row_3 = get_row(k1_carry, [zero; 2], n_u16s.1, 3, Tag::Mulmod);
-    let row_4 = get_row(ard_split, a_rem_lt, a_rem_u16s.0, 4, Tag::Mulmod);
-    let row_5 = get_row([zero; 2], [zero; 2], a_rem_u16s.1, 5, Tag::Mulmod);
-    let row_6 = get_row([zero; 2], [zero; 2], k1_carry_lo_u16s.1, 6, Tag::Mulmod);
-    let row_7 = get_row([zero; 2], [zero; 2], ard_u16s[0].clone(), 7, Tag::Mulmod);
-    let row_8 = get_row([zero; 2], [zero; 2], ard_u16s[1].clone(), 8, Tag::Mulmod);
-    let row_9 = get_row(e_split, d_split, b_u16s.0, 9, Tag::Mulmod);
-    let row_10 = get_row(a_rem_carry_2, a_rem_carry, b_u16s.1, 10, Tag::Mulmod);
-    let row_11 = get_row([zero; 2], [zero; 2], e_u16s.0, 11, Tag::Mulmod);
-    let row_12 = get_row([zero; 2], [zero; 2], e_u16s.1, 12, Tag::Mulmod);
-    let row_13 = get_row([zero; 2], [zero; 2], d_u16s.0, 13, Tag::Mulmod);
-    let row_14 = get_row([zero; 2], [zero; 2], d_u16s.1, 14, Tag::Mulmod);
-    let row_15 = get_row([zero; 2], [zero; 2], arb_carry_2_u16s.1, 15, Tag::Mulmod);
-    let row_16 = get_row([zero; 2], [zero; 2], arb_carry_1_u16s.1, 16, Tag::Mulmod);
-    let row_17 = get_row([zero; 2], [zero; 2], arb_carry_0_u16s.1, 17, Tag::Mulmod);
-    let row_18 = get_row(k2_split, [zero; 2], r_diff_u16s[0].clone(), 18, Tag::Mulmod);
-    let row_19 = get_row(r_diff_split, r_lt, r_diff_u16s[1].clone(), 19, Tag::Mulmod);
-    let row_20 = get_row(k2n_carry_2, k2n_carry, k2_u16s.0, 20, Tag::Mulmod);
-    let row_21 = get_row([zero; 2], [zero; 2], k2_u16s.1, 21, Tag::Mulmod);
-    let row_22 = get_row([zero; 2], [zero; 2], r_u16s.0, 22, Tag::Mulmod);
-    let row_23 = get_row([zero; 2], [zero; 2], r_u16s.1, 23, Tag::Mulmod);
-    let row_24 = get_row([zero; 2], [zero; 2], k2n_carry_2_u16s.1, 24, Tag::Mulmod);
-    let row_25 = get_row([zero; 2], [zero; 2], k2n_carry_1_u16s.1, 25, Tag::Mulmod);
-    let row_26 = get_row([zero; 2], [zero; 2], k2n_carry_0_u16s.1, 26, Tag::Mulmod);
-
-    (
-        vec![
-            row_26, row_25, row_24, row_23, row_22, row_21, row_20, row_19, row_18, row_17, row_16,
-            row_15, row_14, row_13, row_12, row_11, row_10, row_9, row_8, row_7, row_6, row_5,
-            row_4, row_3, row_2, row_1, row_0,
-        ],
-        vec![r],
-    )
+    (rows, vec![mul_mod_cal.r])
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
     Box::new(MulModGadget(PhantomData))
 }
 
-// 1. a * b + c = e + d * 2^256 --> return e, d, carry_0, carry_1, carry_2
-// 2. (a * b) / n = k2 (r) r --> return k, r  (Optional, n is 0 when no calculation is required)
-fn get_mul_add_word(operands: Vec<U256>) -> Vec<U256> {
-    assert!(operands.len() >= 3);
-    // 1. a * b + c = e + d * 2^256 --> e, d
-    let prod = operands[0].full_mul(operands[1]).add(operands[2]);
-    let mut prod_bytes = [0u8; 64];
-    prod.to_little_endian(&mut prod_bytes);
-    let e = U256::from_little_endian(&prod_bytes[0..32]);
-    let d = U256::from_little_endian(&prod_bytes[32..64]);
-    let e_split = split_u256_hi_lo(&e);
-    let d_split = split_u256_hi_lo(&d);
-    let c_split = split_u256_hi_lo(&operands[2]);
+struct MulModCalculator {
+    a: U256,
+    b: U256,
+    n: U256,
+    k1: U256,
+    k2: U256,
+    r: U256,
+    e: U256,
+    d: U256,
+    a_remainder: U256,
+}
 
-    // 1.1 a * b + c = e + d * 2^256 -->  carry_0, carry_1, carry_2
-    let a_limbs = split_u256_limb64(&operands[0]);
-    let b_limbs = split_u256_limb64(&operands[1]);
-    let t0 = a_limbs[0] * b_limbs[0];
-    let t1 = a_limbs[0] * b_limbs[1] + a_limbs[1] * b_limbs[0];
-    let t2 = a_limbs[0] * b_limbs[2] + a_limbs[1] * b_limbs[1] + a_limbs[2] * b_limbs[0];
-    let t3 = a_limbs[0] * b_limbs[3]
-        + a_limbs[1] * b_limbs[2]
-        + a_limbs[2] * b_limbs[1]
-        + a_limbs[3] * b_limbs[0];
-    let t4 = a_limbs[1] * b_limbs[3] + a_limbs[2] * b_limbs[2] + a_limbs[3] * b_limbs[1];
-    let t5 = a_limbs[2] * b_limbs[3] + a_limbs[3] * b_limbs[2];
+impl Default for MulModCalculator {
+    fn default() -> Self {
+        Self {
+            a: U256::zero(),
+            b: U256::zero(),
+            n: U256::zero(),
+            k1: U256::zero(),
+            k2: U256::zero(),
+            r: U256::zero(),
+            e: U256::zero(),
+            d: U256::zero(),
+            a_remainder: U256::zero(),
+        }
+    }
+}
 
-    let carry_0 = (t0 + (t1 << 64) + c_split[1]).saturating_sub(e_split[1]) >> 128;
-    let carry_1 = (t2 + (t3 << 64) + c_split[0] + carry_0).saturating_sub(e_split[0]) >> 128;
-    let carry_2 = (t4 + (t5 << 64) + carry_1).saturating_sub(d_split[1]) >> 128;
+impl MulModCalculator {
+    fn new(a: U256, b: U256, n: U256) -> Self {
+        Self {
+            a,
+            b,
+            n,
+            ..Default::default()
+        }
+    }
 
-    // 2. (a * b) / n = k2 (r) r
-    let (k, r) = if operands[3] == U256::zero() {
+    // 1.a/n = k1 (r) a_remainder
+    fn get_mul_add_rows(&mut self) -> Vec<Row> {
+        // Setup. a/n = k1 (r) a_remainder
+        // if n == 0, then a == 0;
+        // we assume that when `n==0`, we set the input `a == 0`
+        // in order to optimize subsequent calculations and constraints.
+        // we will make constant for this special case at execution.
+        let a = get_real_value(vec![self.a, self.n]);
+
+        let b = split_u256_hi_lo(&self.b);
+        let n = split_u256_hi_lo(&self.n);
+        let (k1, a_remainder) = get_div_mod(vec![self.a, U256::zero(), self.n], true);
+
+        self.k1 = k1;
+        self.a_remainder = a_remainder;
+
+        // 1.1 `k1 * n + a_remainder = a`
+        let k1_carry_hi_lo = get_mul_add(vec![k1, self.n, a_remainder, self.a]);
+
+        // 1.2 `a_remainder - n = a_remainder_diff - a_remainder_carry << 256`
+        let (a_rem_lt, ard_split, ard_u16s) = get_lt_word_operations(vec![a_remainder, self.n]);
+
+        // 1.3 `(a_remainder * b) / n = k2 (r) e`
+        let (k2, r) = get_div_mod(vec![a_remainder, self.b, self.n], false);
+        self.k2 = k2;
+        self.r = r;
+
+        let zero = [U256::zero(); 2];
+
+        let a_rem_u16s = get_u16s_hi_lo(a_remainder);
+        let k1_u16s = get_u16s_hi_lo(k1);
+
+        let r_split = split_u256_hi_lo(&r);
+        let k1_split = split_u256_hi_lo(&k1);
+        let a_reminder_split = split_u256_hi_lo(&a_remainder);
+        let n_u16s = get_u16s_hi_lo(self.n);
+        let k1_carry = [k1_carry_hi_lo[1], k1_carry_hi_lo[0]];
+        let a_rem_lt = [(a_rem_lt[0] as u8).into(), (a_rem_lt[1] as u8).into()];
+        let k1_carry_lo_u16s = get_u16s_hi_lo(k1_carry_hi_lo[1]);
+
+        let row_0 = get_row(a, b, k1_u16s.0, 0, Tag::Mulmod);
+        let row_1 = get_row(n, r_split, k1_u16s.1, 1, Tag::Mulmod);
+        let row_2 = get_row(k1_split, a_reminder_split, n_u16s.0, 2, Tag::Mulmod);
+        let row_3 = get_row(k1_carry, zero, n_u16s.1, 3, Tag::Mulmod);
+        let row_4 = get_row(ard_split, a_rem_lt, a_rem_u16s.0, 4, Tag::Mulmod);
+        let row_5 = get_row(zero, zero, a_rem_u16s.1, 5, Tag::Mulmod);
+        let row_6 = get_row(zero, zero, k1_carry_lo_u16s.1, 6, Tag::Mulmod);
+        let row_7 = get_row(zero, zero, ard_u16s[0].clone(), 7, Tag::Mulmod);
+        let row_8 = get_row(zero, zero, ard_u16s[1].clone(), 8, Tag::Mulmod);
+
+        vec![
+            row_8, row_7, row_6, row_5, row_4, row_3, row_2, row_1, row_0,
+        ]
+    }
+
+    // 2.`a_remainder * b + 0 = e + d * 2^256`
+    fn get_first_mul512_rows(&mut self) -> (Vec<Row>) {
+        let (e, d) = get_mul512(vec![self.a_remainder, self.b]);
+        let (a_rem_mul_b_carry_0, a_rem_mul_b_carry_1, a_rem_mul_b_carry_2) =
+            get_mul_add_word(vec![self.a_remainder, self.b, U256::zero(), e, d]);
+        self.e = e;
+        self.d = d;
+
+        let e_split = split_u256_hi_lo(&e);
+        let d_split = split_u256_hi_lo(&d);
+
+        let e_u16s = get_u16s_hi_lo(e);
+        let b_u16s = get_u16s_hi_lo(self.b);
+        let d_u16s = get_u16s_hi_lo(d);
+        let arb_carry_0_u16s = get_u16s_hi_lo(a_rem_mul_b_carry_0);
+        let arb_carry_1_u16s = get_u16s_hi_lo(a_rem_mul_b_carry_1);
+        let arb_carry_2_u16s = get_u16s_hi_lo(a_rem_mul_b_carry_2);
+
+        let zero = [U256::zero(); 2];
+        let a_rem_carry_2 = [U256::zero(), a_rem_mul_b_carry_2];
+        let a_rem_carry = [a_rem_mul_b_carry_1, a_rem_mul_b_carry_0];
+
+        let row_9 = get_row(e_split, d_split, b_u16s.0, 9, Tag::Mulmod);
+        let row_10 = get_row(a_rem_carry_2, a_rem_carry, b_u16s.1, 10, Tag::Mulmod);
+        let row_11 = get_row(zero, zero, e_u16s.0, 11, Tag::Mulmod);
+        let row_12 = get_row(zero, zero, e_u16s.1, 12, Tag::Mulmod);
+        let row_13 = get_row(zero, zero, d_u16s.0, 13, Tag::Mulmod);
+        let row_14 = get_row(zero, zero, d_u16s.1, 14, Tag::Mulmod);
+        let row_15 = get_row(zero, zero, arb_carry_2_u16s.1, 15, Tag::Mulmod);
+        let row_16 = get_row(zero, zero, arb_carry_1_u16s.1, 16, Tag::Mulmod);
+        let row_17 = get_row(zero, zero, arb_carry_0_u16s.1, 17, Tag::Mulmod);
+
+        vec![
+            row_17, row_16, row_15, row_14, row_13, row_12, row_11, row_10, row_9,
+        ]
+    }
+
+    // 3.`k2 * n + r = e + d * 2^256`
+    fn get_second_mul512_rows(&self) -> (Vec<Row>) {
+        // 3.1 `k2 * n + r = e + d * 2^256`
+        let (k2n_plus_r_carry_0, k2n_plus_r_carry_1, k2n_plus_r_carry_2) =
+            get_mul_add_word(vec![self.k2, self.n, self.r, self.e, self.d]);
+        // 3.2 `r - n = r_diff - r_carry << 256`
+        let (r_lt, r_diff_split, r_diff_u16s) = get_lt_word_operations(vec![self.r, self.n]);
+
+        let zero = [U256::zero(); 2];
+        let r_lt = [(r_lt[0] as u8).into(), (r_lt[1] as u8).into()];
+        let k2n_carry_2 = [U256::zero(), k2n_plus_r_carry_2];
+        let k2n_carry = [k2n_plus_r_carry_1, k2n_plus_r_carry_0];
+        let k2_split = split_u256_hi_lo(&self.k2);
+
+        let k2_u16s = get_u16s_hi_lo(self.k2);
+        let r_u16s = get_u16s_hi_lo(self.r);
+        let k2n_carry_0_u16s = get_u16s_hi_lo(k2n_plus_r_carry_0);
+        let k2n_carry_1_u16s = get_u16s_hi_lo(k2n_plus_r_carry_1);
+        let k2n_carry_2_u16s = get_u16s_hi_lo(k2n_plus_r_carry_2);
+
+        let row_18 = get_row(k2_split, zero, r_diff_u16s[0].clone(), 18, Tag::Mulmod);
+        let row_19 = get_row(r_diff_split, r_lt, r_diff_u16s[1].clone(), 19, Tag::Mulmod);
+        let row_20 = get_row(k2n_carry_2, k2n_carry, k2_u16s.0, 20, Tag::Mulmod);
+        let row_21 = get_row(zero, zero, k2_u16s.1, 21, Tag::Mulmod);
+        let row_22 = get_row(zero, zero, r_u16s.0, 22, Tag::Mulmod);
+        let row_23 = get_row(zero, zero, r_u16s.1, 23, Tag::Mulmod);
+        let row_24 = get_row(zero, zero, k2n_carry_2_u16s.1, 24, Tag::Mulmod);
+        let row_25 = get_row(zero, zero, k2n_carry_1_u16s.1, 25, Tag::Mulmod);
+        let row_26 = get_row(zero, zero, k2n_carry_0_u16s.1, 26, Tag::Mulmod);
+
+        vec![
+            row_26, row_25, row_24, row_23, row_22, row_21, row_20, row_19, row_18,
+        ]
+    }
+}
+
+// `(a * b) / n = k (r) r` --> return k, r
+// or `a / b = k (r) r` --> return k, r
+// input a, b, n, or b is zero
+fn get_div_mod(operands: Vec<U256>, is_u256: bool) -> (U256, U256) {
+    assert_eq!(operands.len(), 3);
+    let (k, r) = if operands[2] == U256::zero() {
         (U256::zero(), U256::zero())
+    } else if is_u256 {
+        operands[0].div_mod(operands[2])
     } else {
         // 1. k is 256-bit:
         // `a_remainder < n` -> `a_remainder / n <= 1`;
         // `b/n`  is 0-256 bit, so k2 is 0-256 bit
         // 2. r < n, 0-256 bit
+        let prod = operands[0].full_mul(operands[1]);
         (
-            U256::try_from(prod / operands[3]).unwrap(),
-            U256::try_from(prod % operands[3]).unwrap(),
+            U256::try_from(prod / operands[2]).unwrap(),
+            U256::try_from(prod % operands[2]).unwrap(),
         )
     };
+    (k, r)
+}
 
-    vec![e, d, carry_0, carry_1, carry_2, k, r]
+// a * b = e * d << 256 -> return e, d
+// a, b is 256-bit
+fn get_mul512(operands: Vec<U256>) -> (U256, U256) {
+    assert_eq!(operands.len(), 2);
+    let prod = operands[0].full_mul(operands[1]);
+    let mut prod_bytes = [0u8; 64];
+    prod.to_little_endian(&mut prod_bytes);
+    let e = U256::from_little_endian(&prod_bytes[0..32]);
+    let d = U256::from_little_endian(&prod_bytes[32..64]);
+    (e, d)
 }
 
 // `a * b + c = d` --> k1_carry_hi, k1_carry_lo
+// The maximum result is 256-bit
 fn get_mul_add(operands: Vec<U256>) -> Vec<U256> {
     assert_eq!(4, operands.len());
-
     let a_limbs = split_u256_limb64(&operands[0]);
     let b_limbs = split_u256_limb64(&operands[1]);
     let c_split = split_u256_hi_lo(&operands[2]);
@@ -499,6 +552,47 @@ fn get_mul_add(operands: Vec<U256>) -> Vec<U256> {
         (t2 + (t3 << 64) + c_split[0] + k1_carry_lo).saturating_sub(d_split[0]) >> 128;
 
     vec![k1_carry_hi, k1_carry_lo]
+}
+
+// a * b + c = e + d * 2^256 --> return carry_0, carry_1, carry_2
+// The maximum result is 512-bit
+fn get_mul_add_word(operands: Vec<U256>) -> (U256, U256, U256) {
+    assert_eq!(operands.len(), 5);
+    let e = operands[3];
+    let d = operands[4];
+    let e_split = split_u256_hi_lo(&e);
+    let d_split = split_u256_hi_lo(&d);
+    let c_split = split_u256_hi_lo(&operands[2]);
+
+    let a_limbs = split_u256_limb64(&operands[0]);
+    let b_limbs = split_u256_limb64(&operands[1]);
+    let t0 = a_limbs[0] * b_limbs[0];
+    let t1 = a_limbs[0] * b_limbs[1] + a_limbs[1] * b_limbs[0];
+    let t2 = a_limbs[0] * b_limbs[2] + a_limbs[1] * b_limbs[1] + a_limbs[2] * b_limbs[0];
+    let t3 = a_limbs[0] * b_limbs[3]
+        + a_limbs[1] * b_limbs[2]
+        + a_limbs[2] * b_limbs[1]
+        + a_limbs[3] * b_limbs[0];
+    let t4 = a_limbs[1] * b_limbs[3] + a_limbs[2] * b_limbs[2] + a_limbs[3] * b_limbs[1];
+    let t5 = a_limbs[2] * b_limbs[3] + a_limbs[3] * b_limbs[2];
+
+    let carry_0 = (t0 + (t1 << 64) + c_split[1]).saturating_sub(e_split[1]) >> 128;
+    let carry_1 = (t2 + (t3 << 64) + c_split[0] + carry_0).saturating_sub(e_split[0]) >> 128;
+    let carry_2 = (t4 + (t5 << 64) + carry_1).saturating_sub(d_split[1]) >> 128;
+
+    (carry_0, carry_1, carry_2)
+}
+
+// input a, n.
+// if n == 0, return a == 0
+fn get_real_value(operands: Vec<U256>) -> [U256; 2] {
+    assert_eq!(operands.len(), 2);
+    let a = if operands[1] == U256::zero() {
+        [U256::zero(), U256::zero()]
+    } else {
+        split_u256_hi_lo(&operands[0])
+    };
+    a
 }
 
 fn get_u16s_hi_lo(operands: U256) -> (Vec<u16>, Vec<u16>) {

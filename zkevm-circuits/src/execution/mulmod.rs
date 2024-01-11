@@ -97,7 +97,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
-        constraints.extend((0..8).map(|i| {
+
+        // if n == 0, then a in arithmetic == 0, n == 0 --> n_condition == 0
+        let n_condition = arithmetic_operands_full[0].clone()
+            + arithmetic_operands_full[1].clone()
+            + arithmetic_operands[4].clone()
+            + arithmetic_operands[5].clone();
+        // if n != 0, then a in arithmetic == in state lookup
+        let a_condition = arithmetic_operands_full[0].clone() + arithmetic_operands_full[1].clone()
+            - (arithmetic_operands[0].clone() + arithmetic_operands[1].clone());
+
+        constraints.extend([(
+            "if n == 0, then a in arithmetic == 0".to_string(),
+            n_condition.clone() * a_condition.clone(),
+        )]);
+
+        constraints.extend((2..8).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),
                 arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
@@ -180,15 +195,8 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    #[test]
-    fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[5.into(), 4.into(), 3.into()]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = WitnessExecHelper {
-            stack_pointer: stack.0.len(),
-            stack_top: Some(2.into()),
-            ..WitnessExecHelper::new()
-        };
+
+    fn test_witness(stack: Stack, stack_pointer: usize, current_state: &mut WitnessExecHelper) {
         let trace = prepare_trace_step!(0, OpcodeId::MULMOD, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -211,8 +219,32 @@ mod test {
             row
         };
         let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+            prepare_witness_and_prover!(trace, *current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
         prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn assign_and_constraint() {
+        let stack = Stack::from_slice(&[5.into(), 4.into(), 3.into()]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(2.into()),
+            ..WitnessExecHelper::new()
+        };
+        test_witness(stack, stack_pointer, &mut current_state)
+    }
+
+    #[test]
+    fn assign_and_constraint_zero() {
+        let stack = Stack::from_slice(&[0.into(), 4.into(), 3.into()]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(0.into()),
+            ..WitnessExecHelper::new()
+        };
+        test_witness(stack, stack_pointer, &mut current_state)
     }
 }

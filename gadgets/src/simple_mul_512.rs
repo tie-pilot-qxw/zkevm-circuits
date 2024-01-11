@@ -45,6 +45,7 @@ impl<F: Field> SimpleMul512Gadget<F> {
         &self,
         d: [Expression<F>; 2],
         e: [Expression<F>; 2],
+        prefix: String,
     ) -> Vec<(String, Expression<F>)> {
         let mut res: Vec<(String, Expression<F>)> = Vec::new();
         let t0 = self.a[0].clone() * self.b[0].clone();
@@ -63,7 +64,7 @@ impl<F: Field> SimpleMul512Gadget<F> {
         let t6 = self.a[3].clone() * self.b[3].clone();
 
         res.push((
-            "t0 + t1 * 2^64 + c_lo = e_lo + carry_0 * 2^128".to_string(),
+            format!("{}, t0 + t1 * 2^64 + c_lo = e_lo + carry_0 * 2^128", prefix),
             t0.clone() + t1.clone() * pow_of_two::<F>(64) + self.c[0].clone()
                 - (e[0].clone() + self.carry[0].clone() * pow_of_two::<F>(128)),
         ));
