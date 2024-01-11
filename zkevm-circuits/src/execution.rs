@@ -1,4 +1,4 @@
-pub mod add;
+pub mod add_sub_mul_div_mod;
 pub mod addmod;
 pub mod and_or_xor;
 pub mod begin_block;
@@ -14,7 +14,6 @@ pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
 pub mod codecopy;
-pub mod div_mod;
 pub mod dup;
 pub mod end_block;
 pub mod end_call;
@@ -23,7 +22,6 @@ pub mod end_tx;
 pub mod eq;
 pub mod exp;
 pub mod extcodecopy;
-pub mod gt;
 pub mod iszero;
 pub mod jump;
 pub mod jumpdest;
@@ -32,10 +30,9 @@ pub mod keccak;
 pub mod log_bytes;
 pub mod log_topic;
 pub mod log_topic_num_addr;
-pub mod lt;
+pub mod lt_gt_slt_sgt;
 pub mod memory;
 pub mod mstore8;
-pub mod mul;
 pub mod mulmod;
 pub mod not;
 pub mod pop;
@@ -45,13 +42,10 @@ pub mod return_revert;
 pub mod returndatacopy;
 pub mod returndatasize;
 pub mod selfbalance;
-pub mod sgt;
 pub mod shl_shr;
 pub mod signextend;
-pub mod slt;
 pub mod stop;
 pub mod storage;
-pub mod sub;
 pub mod swap;
 pub mod tx_context;
 
@@ -81,7 +75,7 @@ use strum_macros::EnumCount as EnumCountMacro;
 macro_rules! get_every_execution_gadgets {
     () => {{
         vec![
-            crate::execution::add::new(),
+            crate::execution::add_sub_mul_div_mod::new(),
             crate::execution::push::new(),
             crate::execution::stop::new(),
             crate::execution::end_block::new(),
@@ -100,15 +94,9 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::calldataload::new(),
             crate::execution::calldatacopy::new(),
             crate::execution::eq::new(),
-            crate::execution::lt::new(),
-            crate::execution::gt::new(),
-            crate::execution::slt::new(),
-            crate::execution::sgt::new(),
+            crate::execution::lt_gt_slt_sgt::new(),
             crate::execution::byte::new(),
             crate::execution::dup::new(),
-            crate::execution::mul::new(),
-            crate::execution::sub::new(),
-            crate::execution::div_mod::new(),
             crate::execution::addmod::new(),
             crate::execution::mulmod::new(),
             crate::execution::keccak::new(),
@@ -1431,11 +1419,8 @@ pub enum ExecutionState {
     END_BLOCK,
     // opcode/operation successful states
     STOP,
-    ADD,
-    MUL,
-    SUB,
+    ADD_SUB_MUL_DIV_MOD,
     EXP,
-    DIV_MOD,
     ADDMOD,
     MULMOD,
     POP,
@@ -1460,10 +1445,7 @@ pub enum ExecutionState {
     LOG_TOPIC,
     LOG_TOPIC_NUM_ADDR,
     EQ,
-    LT,
-    GT,
-    SLT,
-    SGT,
+    LT_GT_SLT_SGT,
     DUP,
     SWAP,
     BYTE,
@@ -1490,10 +1472,9 @@ impl ExecutionState {
     pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
         match opcode {
             OpcodeId::STOP => vec![Self::STOP],
-            OpcodeId::ADD => vec![Self::ADD],
-            OpcodeId::MUL => vec![Self::MUL],
-            OpcodeId::SUB => vec![Self::SUB],
-            OpcodeId::DIV | OpcodeId::MOD => vec![Self::DIV_MOD],
+            OpcodeId::ADD | OpcodeId::SUB | OpcodeId::MUL | OpcodeId::DIV | OpcodeId::MOD => {
+                vec![Self::ADD_SUB_MUL_DIV_MOD]
+            }
             OpcodeId::SDIV => {
                 todo!()
             }
@@ -1508,10 +1489,9 @@ impl ExecutionState {
             OpcodeId::SIGNEXTEND => {
                 vec![Self::SIGNEXTEND]
             }
-            OpcodeId::LT => vec![Self::LT],
-            OpcodeId::GT => vec![Self::GT],
-            OpcodeId::SLT => vec![Self::SLT],
-            OpcodeId::SGT => vec![Self::SGT],
+            OpcodeId::LT | OpcodeId::GT | OpcodeId::SLT | OpcodeId::SGT => {
+                vec![Self::LT_GT_SLT_SGT]
+            }
             OpcodeId::EQ => vec![Self::EQ],
             OpcodeId::ISZERO => vec![Self::ISZERO],
             OpcodeId::AND | OpcodeId::OR | OpcodeId::XOR => vec![Self::AND_OR_XOR],

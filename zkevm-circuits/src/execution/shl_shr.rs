@@ -163,8 +163,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
         // mul_div_arithmetic constraints
-        // mul_div_arithmetic_operands[0] = tack top 1 hi
-        // mul_div_arithmetic_operands[1] = tack top 1 lo
+        // mul_div_arithmetic_operands[0] = stack top 1 hi
+        // mul_div_arithmetic_operands[1] = stack top 1 lo
         // mul_div_arithmetic_operands[2] = exp_power
         // mul_div_arithmetic_operands[3] = exp_power
         // mul_div_arithmetic_operands[4](product_hi) = tack push hi
