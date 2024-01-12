@@ -82,25 +82,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 i == 2,
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            stack_operands.extend([value_hi, value_lo]);
+            stack_operands.push([value_hi, value_lo]);
         }
         // selector constraints
         // tag selector at row cnt = 1
         let selector = SimpleSelector::new(&[
+            // AND: vers[24] at row cnt = 1
             meta.query_advice(config.vers[24], Rotation::prev()),
+            // OR: vers[25] at row cnt = 1
             meta.query_advice(config.vers[25], Rotation::prev()),
+            // XOR: vers[26] at row cnt = 1
             meta.query_advice(config.vers[26], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
         // bitwise constraints
         // i = 0: bitwise hi lookup
-        //        bitwise hi lookup acc 0 = stack_operands 0 hi
-        //        bitwise hi lookup acc 1 = stack_operands 1 hi
-        //        bitwise hi lookup acc 2 = stack_operands 2 hi
+        //        bitwise hi lookup acc 0 = stack_operands[0][0]
+        //        bitwise hi lookup acc 1 = stack_operands[1][0]
+        //        bitwise hi lookup acc 2 = stack_operands[2][0]
         // i = 1: bitwise lo lookup
-        //        bitwise lo lookup acc 0 = stack_operands 0 lo
-        //        bitwise lo lookup acc 1 = stack_operands 1 lo
-        //        bitwise lo lookup acc 2 = stack_operands 2 lo
+        //        bitwise lo lookup acc 0 = stack_operands[0][1]
+        //        bitwise lo lookup acc 1 = stack_operands[1][1]
+        //        bitwise lo lookup acc 2 = stack_operands[2][1]
         for i in 0..2 {
             // get bitwise entry
             let bitwise_entry = config.get_bitwise_lookup(meta, i);
@@ -114,20 +117,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     bitwise_tag.clone() - (bitwise::Tag::Xor as usize).expr(),
                 ]),
             )]);
-            // bitwise acc 0 = stack_operands i
+            // bitwise acc 0 = stack_operands[0][i]
             constraints.extend([(
-                format!("bitwise{} acc 0 = stack_operands {}", i, i),
-                bitwise_acc[0].clone() - stack_operands[i].clone(),
+                format!("bitwise{} acc 0 = stack_operands{}{}", i, 0, i),
+                bitwise_acc[0].clone() - stack_operands[0][i].clone(),
             )]);
-            // bitwise acc 1 = stack_operands i+2
+            // bitwise acc 1 = stack_operands[1][i]
             constraints.extend([(
-                format!("bitwise{} acc 1 = stack_operands {}", i, i + 2),
-                bitwise_acc[1].clone() - stack_operands[i + 2].clone(),
+                format!("bitwise{} acc 1 = stack_operands{}{}", i, 1, i),
+                bitwise_acc[1].clone() - stack_operands[1][i].clone(),
             )]);
-            // bitwise acc 2 = stack_operands i + 4
+            // bitwise acc 2 = stack_operands[2][i]
             constraints.extend([(
-                format!("bitwise{} acc 2 = stack_operands {}", i, i + 4),
-                bitwise_acc[2].clone() - stack_operands[i + 4].clone(),
+                format!("bitwise{} acc 2 = stack_operands{}{}", i, 2, i),
+                bitwise_acc[2].clone() - stack_operands[2][i].clone(),
             )]);
         }
         // opcode constraints
