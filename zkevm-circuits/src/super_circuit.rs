@@ -1,4 +1,5 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
+use crate::arithmetic_circuit::{ArithmeticCircuitConfig, ArithmeticCircuitConfigArgs};
 use crate::bitwise_circuit::{BitwiseCircuit, BitwiseCircuitConfig, BitwiseCircuitConfigArgs};
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
@@ -6,7 +7,7 @@ use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs}
 use crate::fixed_circuit::{self, FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-use crate::table::{BytecodeTable, FixedTable, PublicTable, StateTable};
+use crate::table::{ArithmeticTable, BytecodeTable, FixedTable, PublicTable, StateTable};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -26,6 +27,7 @@ pub struct SuperCircuitConfig<
     copy_circuit: CopyCircuitConfig<F>,
     fixed_circuit: FixedCircuitConfig<F>,
     bitwise_circuit: BitwiseCircuitConfig<F>,
+    arithmetic_circuit: ArithmeticCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -42,11 +44,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let state_table = StateTable::construct(meta, q_enable_state);
         let public_table = PublicTable::construct(meta);
         let fixed_table = FixedTable::construct(meta);
+        let q_enable_arithmetic = meta.complex_selector();
+        let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
                 bytecode_table,
                 state_table,
+                arithmetic_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
@@ -82,6 +87,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let bitwise_circuit =
             BitwiseCircuitConfig::new(meta, BitwiseCircuitConfigArgs { fixed_table });
 
+        let arithmetic_circuit = ArithmeticCircuitConfig::new(
+            meta,
+            ArithmeticCircuitConfigArgs {
+                q_enable: q_enable_arithmetic,
+                arithmetic_table,
+            },
+        );
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
@@ -90,6 +102,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             copy_circuit,
             fixed_circuit,
             bitwise_circuit,
+            arithmetic_circuit,
         }
     }
 }

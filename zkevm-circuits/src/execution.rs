@@ -58,8 +58,8 @@ pub mod tx_context;
 use std::collections::HashMap;
 
 use crate::table::{
-    extract_lookup_expression, BytecodeTable, LookupEntry, StateTable, ANNOTATE_SEPARATOR,
-    PUBLIC_NUM_VALUES,
+    extract_lookup_expression, ArithmeticTable, BytecodeTable, LookupEntry, StateTable,
+    ANNOTATE_SEPARATOR, PUBLIC_NUM_VALUES,
 };
 use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
@@ -169,6 +169,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     // Tables used for lookup
     pub(crate) bytecode_table: BytecodeTable<F>,
     pub(crate) state_table: StateTable,
+    pub(crate) arithmetic_table: ArithmeticTable,
 }
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
@@ -1732,7 +1733,7 @@ mod test {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
-            use crate::table::{BytecodeTable, StateTable};
+            use crate::table::{BytecodeTable, StateTable, ArithmeticTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             use eth_types::GethExecStep;
@@ -1785,6 +1786,8 @@ mod test {
                     let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
                     let q_enable_state = meta.complex_selector();
                     let state_table = StateTable::construct(meta, q_enable_state);
+                    let q_enable_arithmetic = meta.complex_selector();
+                    let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
                     let q_first_exec_state = meta.selector();
                     let config = ExecutionConfig {
                         q_first_exec_state,
@@ -1800,6 +1803,7 @@ mod test {
                         execution_state_selector,
                         bytecode_table,
                         state_table,
+                        arithmetic_table,
                     };
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {
