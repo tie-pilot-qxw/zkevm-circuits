@@ -1733,7 +1733,7 @@ mod test {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
-            use crate::table::{BytecodeTable, StateTable,ArithmeticTable};
+            use crate::table::{BytecodeTable, StateTable, ArithmeticTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             use eth_types::GethExecStep;
@@ -1787,7 +1787,7 @@ mod test {
                     let q_enable_state = meta.complex_selector();
                     let state_table = StateTable::construct(meta, q_enable_state);
                     let q_enable_arithmetic = meta.complex_selector();
-                    let arithmetic_table = ArithmeticTable::construct(meta,q_enable_arithmetic);
+                    let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
                     let q_first_exec_state = meta.selector();
                     let config = ExecutionConfig {
                         q_first_exec_state,

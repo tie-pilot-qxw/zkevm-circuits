@@ -799,4 +799,33 @@ pub(crate) mod test_util {
             Ok(())
         }
     }
+    impl ArithmeticTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &arithmetic::Row,
+        ) -> Result<(), Error> {
+            let tag = BinaryNumberChip::construct(self.tag);
+            tag.assign(region, offset, &row.tag)?;
+            assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
+            assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
+            assign_advice_or_fixed(region, offset, &row.operand_1_hi, self.operands[1][0])?;
+            assign_advice_or_fixed(region, offset, &row.operand_1_lo, self.operands[1][1])?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.arithmetic.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
 }
