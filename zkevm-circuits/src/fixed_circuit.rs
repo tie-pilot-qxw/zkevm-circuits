@@ -75,16 +75,25 @@ impl<F: Field> FixedCircuitConfig<F> {
         for tag in [fixed::Tag::And, fixed::Tag::Or, fixed::Tag::Xor].iter() {
             vec.append(&mut Self::assign_with_tag_value(*tag, operand_num));
         }
-        // assign u10
+        // assign u10 and part of u16
+        let begin = u8::MAX as i32;
         for i in 0..1 << 10 {
             vec.push(fixed::Row {
+                // part of u16
+                // 紧凑电路布局，因为Row有3列数据，将后2列数据分配给U10，第一列数据分配给U16
+                // value_0使用u8::MAX + 1，因为在u8的And、Or、Xor逻辑操作中，该列已经填写
+                // 了[0..255]范围的数据，因此在与U10复用一行数据时，起始值需要除去已填写的范围
+                value_0: Some(U256::from(i + begin + 1)),
                 value_1: Some(U256::from(U10_TAG)),
                 value_2: Some(U256::from(i)),
                 ..Default::default()
             });
         }
+
         //assign u16
-        for i in 0..1 << 16 {
+        // 填写u16范围从1 << 10开始，因为在u8的逻辑运算与u10的填写过程中，已经将value_0列填写
+        // 了部分数值，此处为填写u16范围剩余部分的值
+        for i in 1 << 10..1 << 16 {
             vec.push(fixed::Row {
                 value_0: Some(U256::from(i)),
                 ..Default::default()
