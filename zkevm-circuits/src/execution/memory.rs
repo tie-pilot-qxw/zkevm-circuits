@@ -13,7 +13,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
-use super::{AuxiliaryDelta, CoreSinglePurposeOutcome};
+use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 
 /// +---+-------+--------+--------+----------+
 /// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
@@ -56,12 +56,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA_MLOAD.expr()
-                * (OpcodeId::MSTORE.as_u8().expr() - opcode.clone())
-                + STACK_POINTER_DELTA_MSTORE.expr()
-                    * (opcode.clone() - OpcodeId::MLOAD.as_u8().expr()), //the property OpcodeId::MSTORE - OpcodeId::MLOAD == 1 is used
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(
+                STACK_POINTER_DELTA_MLOAD.expr()
+                    * (OpcodeId::MSTORE.as_u8().expr() - opcode.clone())
+                    + STACK_POINTER_DELTA_MSTORE.expr()
+                        * (opcode.clone() - OpcodeId::MLOAD.as_u8().expr()),
+            ), //the property OpcodeId::MSTORE - OpcodeId::MLOAD == 1 is used
             ..Default::default()
         };
 

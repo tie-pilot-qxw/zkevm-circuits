@@ -1,6 +1,6 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    call_5, end_tx, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    call_5, end_tx, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -97,9 +97,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let parent_code_addr =
             operands[3][0].clone() * pow_of_two::<F>(128) + operands[3][1].clone();
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: parent_call_id.clone() * (parent_stack_pointer - stack_pointer_prev), // stack_pointer will recover to parent_stack_pointer if parent_call_id != 0s
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(
+                parent_call_id.clone() * (parent_stack_pointer - stack_pointer_prev),
+            ), // stack_pointer will recover to parent_stack_pointer if parent_call_id != 0s
             ..Default::default()
         };
 

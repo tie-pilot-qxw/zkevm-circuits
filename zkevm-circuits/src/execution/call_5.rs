@@ -1,7 +1,7 @@
 use crate::arithmetic_circuit::operation;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -64,9 +64,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
 

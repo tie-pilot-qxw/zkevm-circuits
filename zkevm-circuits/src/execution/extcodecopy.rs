@@ -2,7 +2,7 @@
 // This file is a generated execution gadget definition.
 
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -76,11 +76,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(copy, copy_entry.clone());
         let (_, _, _, _, _, _, _, _, _, copy_padding_lookup_len, _) =
             extract_lookup_expression!(copy, padding_entry.clone());
-        let auxiliary_delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr()
-                + copy_lookup_len.clone()
-                + copy_padding_lookup_len.clone(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let auxiliary_delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr()
+                    + copy_lookup_len.clone()
+                    + copy_padding_lookup_len.clone(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         // auxiliary constraints

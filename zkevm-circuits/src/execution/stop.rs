@@ -1,6 +1,6 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    end_call, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    end_call, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
@@ -57,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation::cur(),
         );
 
-        let delta = AuxiliaryDelta {
+        let delta = AuxiliaryOutcome {
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
