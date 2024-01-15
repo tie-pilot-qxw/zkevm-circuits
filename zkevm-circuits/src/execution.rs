@@ -179,39 +179,39 @@ pub(crate) struct Auxiliary {
     pub(crate) read_only: Column<Advice>,
 }
 
-/// Delta for `Auxiliary`. That is, we have constraint of `X_cur - X_prev - X_delta = 0`
-pub(crate) struct AuxiliaryDelta<F> {
-    /// Delta of state stamp (counter) at the end of the execution state and the previous state
-    pub(crate) state_stamp: Expression<F>,
-    /// Delta of stack pointer at the end of the execution state and the previous state
-    pub(crate) stack_pointer: Expression<F>,
-    /// Delta of log stamp (counter) at the end of the execution state and the previous state
-    pub(crate) log_stamp: Expression<F>,
-    /// Delta of gas left at the end of the execution state and the previous state
-    pub(crate) gas_left: Expression<F>,
-    /// Delta of refund at the end of the execution state and the previous state
-    pub(crate) refund: Expression<F>,
-    /// Delta of memory usage in chunk at the end of the execution state and the previous state
-    pub(crate) memory_chunk: Expression<F>,
-    /// Delta of read only indicator (0/1) at the end of the execution state and the previous state
-    pub(crate) read_only: Expression<F>,
+/// Outcome for `Auxiliary`. That is, we have constraint of `X_cur - X_prev - delta = 0` or `X_cur - to = 0`
+pub(crate) struct AuxiliaryOutcome<F> {
+    /// Outcome of state stamp (counter) at the end of the execution state and the previous state
+    pub(crate) state_stamp: ExpressionOutcome<F>,
+    /// Outcome of stack pointer at the end of the execution state and the previous state
+    pub(crate) stack_pointer: ExpressionOutcome<F>,
+    /// Outcome of log stamp (counter) at the end of the execution state and the previous state
+    pub(crate) log_stamp: ExpressionOutcome<F>,
+    /// Outcome of gas left at the end of the execution state and the previous state
+    pub(crate) gas_left: ExpressionOutcome<F>,
+    /// Outcome of refund at the end of the execution state and the previous state
+    pub(crate) refund: ExpressionOutcome<F>,
+    /// Outcome of memory usage in chunk at the end of the execution state and the previous state
+    pub(crate) memory_chunk: ExpressionOutcome<F>,
+    /// Outcome of read only indicator (0/1) at the end of the execution state and the previous state
+    pub(crate) read_only: ExpressionOutcome<F>,
 }
 
-impl<F: Field> Default for AuxiliaryDelta<F> {
+impl<F: Field> Default for AuxiliaryOutcome<F> {
     fn default() -> Self {
         Self {
-            state_stamp: 0.expr(),
-            stack_pointer: 0.expr(),
-            log_stamp: 0.expr(),
-            gas_left: 0.expr(),
-            refund: 0.expr(),
-            memory_chunk: 0.expr(),
-            read_only: 0.expr(),
+            state_stamp: ExpressionOutcome::Delta(0.expr()),
+            stack_pointer: ExpressionOutcome::Delta(0.expr()),
+            log_stamp: ExpressionOutcome::Delta(0.expr()),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
+            memory_chunk: ExpressionOutcome::Delta(0.expr()),
+            read_only: ExpressionOutcome::Delta(0.expr()),
         }
     }
 }
 
-/// Outcome for single-purpose (SP) columns in core circuit. That is, we have constraint of `X_next - X_cur - delta = 0`
+/// Outcome for single-purpose (SP) columns in core circuit. That is, we have constraint of `X_next - X_cur - delta = 0` or `X_next - to = 0`
 pub(crate) struct CoreSinglePurposeOutcome<F> {
     /// Delta of pc (program counter) at the next execution state and current execution state
     pub(crate) pc: ExpressionOutcome<F>,
@@ -995,7 +995,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         &self,
         meta: &mut VirtualCells<F>,
         prev_exec_state_row: usize,
-        delta: AuxiliaryDelta<F>,
+        delta: AuxiliaryOutcome<F>,
     ) -> Vec<(String, Expression<F>)> {
         let Auxiliary {
             state_stamp,
@@ -1009,27 +1009,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![
             (
                 "state stamp cur - prev - delta".into(),
-                meta.query_advice(state_stamp, Rotation::cur())
-                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - delta.state_stamp,
+                delta.state_stamp.into_constraint(
+                    meta.query_advice(state_stamp, Rotation::cur()),
+                    meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32)),
+                ),
             ),
             (
                 "stack pointer cur - prev - delta".into(),
-                meta.query_advice(stack_pointer, Rotation::cur())
-                    - meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
-                    - delta.stack_pointer,
+                delta.stack_pointer.into_constraint(
+                    meta.query_advice(stack_pointer, Rotation::cur()),
+                    meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32)),
+                ),
             ),
             (
                 "log stamp cur - prev - delta".into(),
-                meta.query_advice(log_stamp, Rotation::cur())
-                    - meta.query_advice(log_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - delta.log_stamp,
+                delta.log_stamp.into_constraint(
+                    meta.query_advice(log_stamp, Rotation::cur()),
+                    meta.query_advice(log_stamp, Rotation(-1 * prev_exec_state_row as i32)),
+                ),
             ),
             (
                 "read only cur - prev - delta".into(),
-                meta.query_advice(read_only, Rotation::cur())
-                    - meta.query_advice(read_only, Rotation(-1 * prev_exec_state_row as i32))
-                    - delta.read_only,
+                delta.read_only.into_constraint(
+                    meta.query_advice(read_only, Rotation::cur()),
+                    meta.query_advice(read_only, Rotation(-1 * prev_exec_state_row as i32)),
+                ),
             ),
             //todo other auxiliary
         ]

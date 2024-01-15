@@ -1,5 +1,5 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, ExecStateTransition, ExecutionConfig, ExecutionGadget,
+    Auxiliary, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
     ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -45,7 +45,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_next = meta.query_advice(config.pc, Rotation::next());
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
-        let delta = AuxiliaryDelta::default();
+        let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let (state_circuit_tag, state_circuit_stamp, _, _, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0)); // after state circuit has sorting, this may change todo

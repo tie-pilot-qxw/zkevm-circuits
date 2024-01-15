@@ -1,9 +1,9 @@
 use crate::execution::{
-    begin_tx_2, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    begin_tx_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, copy, public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
 use eth_types::GethExecStep;
@@ -62,8 +62,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
-        let delta = AuxiliaryDelta {
-            state_stamp: 4.expr() + copy_size,
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));

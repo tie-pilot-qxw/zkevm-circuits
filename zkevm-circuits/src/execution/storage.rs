@@ -1,5 +1,5 @@
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -56,12 +56,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA_SLOAD.expr()
-                * (OpcodeId::SSTORE.as_u8().expr() - opcode.clone())
-                + STACK_POINTER_DELTA_SSTORE.expr()
-                    * (opcode.clone() - OpcodeId::SLOAD.as_u8().expr()), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(
+                STACK_POINTER_DELTA_SLOAD.expr()
+                    * (OpcodeId::SSTORE.as_u8().expr() - opcode.clone())
+                    + STACK_POINTER_DELTA_SSTORE.expr()
+                        * (opcode.clone() - OpcodeId::SLOAD.as_u8().expr()),
+            ), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
             ..Default::default()
         };
 
