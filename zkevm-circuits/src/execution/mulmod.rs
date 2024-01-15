@@ -4,10 +4,11 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
-use eth_types::{Field, U256, U512};
+use eth_types::{Field, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -31,7 +32,7 @@ pub struct MulmodGadget<F: Field> {
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col |  8 col   |
 /// +---+-------+-------+-------+----------+
-/// | 2 | ARITH  |      |       |          |
+/// | 2 | ARITH  |      |       | n_inv(2) |
 /// | 1 | STATE | STATE | STATE |  STATE   |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -98,20 +99,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
 
-        // if n == 0, then a in arithmetic == 0, n == 0 --> n_condition == 0
-        let n_condition = arithmetic_operands_full[0].clone()
-            + arithmetic_operands_full[1].clone()
-            + arithmetic_operands[4].clone()
-            + arithmetic_operands[5].clone();
-        // if n != 0, then a in arithmetic == in state lookup
-        let a_condition = arithmetic_operands_full[0].clone() + arithmetic_operands_full[1].clone()
-            - (arithmetic_operands[0].clone() + arithmetic_operands[1].clone());
+        let hi_inv = meta.query_advice(config.vers[30], Rotation(-2));
+        let lo_inv = meta.query_advice(config.vers[31], Rotation(-2));
+
+        let n_is_zero_hi = SimpleIsZero::new(&arithmetic_operands[4], &hi_inv, String::from("hi"));
+        let n_is_zero_lo = SimpleIsZero::new(&arithmetic_operands[5], &lo_inv, String::from("lo"));
+
+        // if n == 0, then n_is_zero == 1;
+        let n_is_zero = n_is_zero_hi.expr() * n_is_zero_lo.expr();
 
         constraints.extend([(
             "if n == 0, then a in arithmetic == 0".to_string(),
-            n_condition.clone() * a_condition.clone(),
+            n_is_zero.clone()
+                * (arithmetic_operands_full[0].clone() + arithmetic_operands_full[1].clone()),
         )]);
 
+        constraints.extend((0..2).map(|i| {
+            (
+                "if n != 0, then a in arithmetic == in state".to_string(),
+                (1.expr() - n_is_zero.clone())
+                    * (arithmetic_operands_full[i].clone() - arithmetic_operands[i].clone()),
+            )
+        }));
         constraints.extend((2..8).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),
@@ -164,6 +173,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_arithmetic_lookup(0, &arithmetic);
+
+        let n_hi = F::from_u128((n >> 128).as_u128());
+        let n_lo = F::from_u128(n.low_u128());
+        let lo_inv = U256::from_little_endian(n_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        let hi_inv = U256::from_little_endian(n_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        assign_or_panic!(core_row_2.vers_30, hi_inv);
+        assign_or_panic!(core_row_2.vers_31, lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_push_0]);

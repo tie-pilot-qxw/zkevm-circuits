@@ -1,5 +1,6 @@
 use crate::arithmetic_circuit::operation::{
-    get_lt_word_operations, get_row, get_u16s, OperationConfig, OperationGadget,
+    get_div_mod, get_lt_word_operations, get_mul512, get_mul_add, get_mul_add_word, get_row,
+    get_u16s, get_u16s_hi_lo, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
@@ -7,15 +8,12 @@ use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::simple_mul::SimpleMulGadget;
 use gadgets::simple_mul_512::SimpleMul512Gadget;
-use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, split_u256_limb64, Expr};
+use gadgets::util::{expr_from_u16s, split_u256_hi_lo, Expr};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use itertools::Itertools;
-use sha3::digest::consts::U2;
-use sha3::digest::typenum::op;
 use std::marker::PhantomData;
 use std::ops::{Add, Mul};
-use std::os::unix::fs::FileExt;
 
 /// Construct the MulModGadget that checks a * b== r (mod n) ,
 /// where a, b, n, r are 256-bit words.
@@ -23,6 +21,8 @@ use std::os::unix::fs::FileExt;
 /// `k1 * n + a_remainder = a`
 /// `a_remainder * b + 0 = e + d * 2^256`
 /// `k2 * n + r = e + d * 2^256`
+/// We split it into three equations so that each operand appearing in the process is within the 256-bit range,
+/// and we split a 512-bit operation into three simpler 256-bit operations.
 pub(crate) struct MulModGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for MulModGadget<F> {
@@ -131,13 +131,12 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
                 a_rem_mul_b_carry[0].clone(),   // a_rem_mul_b_carry_1 -- above 256 bit
                 a_rem_mul_b_carry_2[1].clone(), // a_rem_mul_b_carry_2 -- above 384 bit
             ],
-        );
-
-        constraints.extend(a_rem_mul_512.get_constraints(
             [d[1].clone(), d[0].clone()],
             [e[1].clone(), e[0].clone()],
             "a_remainder * b + 0 = e + d * 2^256".to_string(),
-        ));
+        );
+
+        constraints.extend(a_rem_mul_512.get_constraints());
 
         // 2.1 a_rem_mul_b_carry[0..3] is 65 ~ 68bit, use 5 u16s to constrain
         let a_rem_mul_b_carry_u16s = [
@@ -185,13 +184,12 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
                 k2n_plus_r_carry[0].clone(),   // k2_mul_n_carry_1 -- above 256 bit
                 k2n_plus_r_carry_2[1].clone(), // k2_mul_n_carry_2 -- above 384 bit
             ],
-        );
-
-        constraints.extend(k2_mul_512.get_constraints(
             [d[1].clone(), d[0].clone()],
             [e[1].clone(), e[0].clone()],
             "k2 * n + r = e + d * 2^256".to_string(),
-        ));
+        );
+
+        constraints.extend(k2_mul_512.get_constraints());
 
         // 3.1 k2n_plus_r_carry[0..3] is 65 ~ 68bit, use 5 u16s to constrain
         let k2n_plus_r_carry_u16s = [
@@ -329,6 +327,10 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
     Box::new(MulModGadget(PhantomData))
 }
 
+/// MulModCalculator struct
+/// Divide into modules based on formulas,
+/// which facilitates troubleshooting and improves code readability.
+#[derive(Default, Debug)]
 struct MulModCalculator {
     a: U256,
     b: U256,
@@ -341,23 +343,8 @@ struct MulModCalculator {
     a_remainder: U256,
 }
 
-impl Default for MulModCalculator {
-    fn default() -> Self {
-        Self {
-            a: U256::zero(),
-            b: U256::zero(),
-            n: U256::zero(),
-            k1: U256::zero(),
-            k2: U256::zero(),
-            r: U256::zero(),
-            e: U256::zero(),
-            d: U256::zero(),
-            a_remainder: U256::zero(),
-        }
-    }
-}
-
 impl MulModCalculator {
+    /// Return new MulModCalculator
     fn new(a: U256, b: U256, n: U256) -> Self {
         Self {
             a,
@@ -367,15 +354,9 @@ impl MulModCalculator {
         }
     }
 
-    // 1.a/n = k1 (r) a_remainder
+    /// 1.`a/n = k1 (r) a_remainder`
     fn get_mul_add_rows(&mut self) -> Vec<Row> {
-        // Setup. a/n = k1 (r) a_remainder
-        // if n == 0, then a == 0;
-        // we assume that when `n==0`, we set the input `a == 0`
-        // in order to optimize subsequent calculations and constraints.
-        // we will make constant for this special case at execution.
         let a = get_real_value(vec![self.a, self.n]);
-
         let b = split_u256_hi_lo(&self.b);
         let n = split_u256_hi_lo(&self.n);
         let (k1, a_remainder) = get_div_mod(vec![self.a, U256::zero(), self.n], true);
@@ -422,7 +403,7 @@ impl MulModCalculator {
         ]
     }
 
-    // 2.`a_remainder * b + 0 = e + d * 2^256`
+    /// 2.`a_remainder * b + 0 = e + d * 2^256`
     fn get_first_mul512_rows(&mut self) -> (Vec<Row>) {
         let (e, d) = get_mul512(vec![self.a_remainder, self.b]);
         let (a_rem_mul_b_carry_0, a_rem_mul_b_carry_1, a_rem_mul_b_carry_2) =
@@ -459,7 +440,7 @@ impl MulModCalculator {
         ]
     }
 
-    // 3.`k2 * n + r = e + d * 2^256`
+    /// 3.`k2 * n + r = e + d * 2^256`
     fn get_second_mul512_rows(&self) -> (Vec<Row>) {
         // 3.1 `k2 * n + r = e + d * 2^256`
         let (k2n_plus_r_carry_0, k2n_plus_r_carry_1, k2n_plus_r_carry_2) =
@@ -495,96 +476,13 @@ impl MulModCalculator {
     }
 }
 
-// `(a * b) / n = k (r) r` --> return k, r
-// or `a / b = k (r) r` --> return k, r
-// input a, b, n, or b is zero
-fn get_div_mod(operands: Vec<U256>, is_u256: bool) -> (U256, U256) {
-    assert_eq!(operands.len(), 3);
-    let (k, r) = if operands[2] == U256::zero() {
-        (U256::zero(), U256::zero())
-    } else if is_u256 {
-        operands[0].div_mod(operands[2])
-    } else {
-        // 1. k is 256-bit:
-        // `a_remainder < n` -> `a_remainder / n <= 1`;
-        // `b/n`  is 0-256 bit, so k2 is 0-256 bit
-        // 2. r < n, 0-256 bit
-        let prod = operands[0].full_mul(operands[1]);
-        (
-            U256::try_from(prod / operands[2]).unwrap(),
-            U256::try_from(prod % operands[2]).unwrap(),
-        )
-    };
-    (k, r)
-}
-
-// a * b = e * d << 256 -> return e, d
-// a, b is 256-bit
-fn get_mul512(operands: Vec<U256>) -> (U256, U256) {
-    assert_eq!(operands.len(), 2);
-    let prod = operands[0].full_mul(operands[1]);
-    let mut prod_bytes = [0u8; 64];
-    prod.to_little_endian(&mut prod_bytes);
-    let e = U256::from_little_endian(&prod_bytes[0..32]);
-    let d = U256::from_little_endian(&prod_bytes[32..64]);
-    (e, d)
-}
-
-// `a * b + c = d` --> k1_carry_hi, k1_carry_lo
-// The maximum result is 256-bit
-fn get_mul_add(operands: Vec<U256>) -> Vec<U256> {
-    assert_eq!(4, operands.len());
-    let a_limbs = split_u256_limb64(&operands[0]);
-    let b_limbs = split_u256_limb64(&operands[1]);
-    let c_split = split_u256_hi_lo(&operands[2]);
-    let d_split = split_u256_hi_lo(&operands[3]);
-
-    let t0 = a_limbs[0] * b_limbs[0];
-    let t1 = a_limbs[0] * b_limbs[1] + a_limbs[1] * b_limbs[0];
-    let t2 = a_limbs[0] * b_limbs[2] + a_limbs[1] * b_limbs[1] + a_limbs[2] * b_limbs[0];
-    let t3 = a_limbs[0] * b_limbs[3]
-        + a_limbs[1] * b_limbs[2]
-        + a_limbs[2] * b_limbs[1]
-        + a_limbs[3] * b_limbs[0];
-
-    let k1_carry_lo = (t0 + (t1 << 64) + c_split[1]).saturating_sub(d_split[1]) >> 128;
-    let k1_carry_hi =
-        (t2 + (t3 << 64) + c_split[0] + k1_carry_lo).saturating_sub(d_split[0]) >> 128;
-
-    vec![k1_carry_hi, k1_carry_lo]
-}
-
-// a * b + c = e + d * 2^256 --> return carry_0, carry_1, carry_2
-// The maximum result is 512-bit
-fn get_mul_add_word(operands: Vec<U256>) -> (U256, U256, U256) {
-    assert_eq!(operands.len(), 5);
-    let e = operands[3];
-    let d = operands[4];
-    let e_split = split_u256_hi_lo(&e);
-    let d_split = split_u256_hi_lo(&d);
-    let c_split = split_u256_hi_lo(&operands[2]);
-
-    let a_limbs = split_u256_limb64(&operands[0]);
-    let b_limbs = split_u256_limb64(&operands[1]);
-    let t0 = a_limbs[0] * b_limbs[0];
-    let t1 = a_limbs[0] * b_limbs[1] + a_limbs[1] * b_limbs[0];
-    let t2 = a_limbs[0] * b_limbs[2] + a_limbs[1] * b_limbs[1] + a_limbs[2] * b_limbs[0];
-    let t3 = a_limbs[0] * b_limbs[3]
-        + a_limbs[1] * b_limbs[2]
-        + a_limbs[2] * b_limbs[1]
-        + a_limbs[3] * b_limbs[0];
-    let t4 = a_limbs[1] * b_limbs[3] + a_limbs[2] * b_limbs[2] + a_limbs[3] * b_limbs[1];
-    let t5 = a_limbs[2] * b_limbs[3] + a_limbs[3] * b_limbs[2];
-
-    let carry_0 = (t0 + (t1 << 64) + c_split[1]).saturating_sub(e_split[1]) >> 128;
-    let carry_1 = (t2 + (t3 << 64) + c_split[0] + carry_0).saturating_sub(e_split[0]) >> 128;
-    let carry_2 = (t4 + (t5 << 64) + carry_1).saturating_sub(d_split[1]) >> 128;
-
-    (carry_0, carry_1, carry_2)
-}
-
-// input a, n.
-// if n == 0, return a == 0
+/// input a, n.
+/// if n == 0, return a == 0
+/// Setup. a/n = k1 (r) a_remainder
+/// if n == 0, then a == 0;
+/// we assume that when `n==0`, we set the input `a == 0`
+/// in order to optimize subsequent calculations and constraints.
+/// we will make constant for this special case at execution.
 fn get_real_value(operands: Vec<U256>) -> [U256; 2] {
     assert_eq!(operands.len(), 2);
     let a = if operands[1] == U256::zero() {
@@ -593,17 +491,6 @@ fn get_real_value(operands: Vec<U256>) -> [U256; 2] {
         split_u256_hi_lo(&operands[0])
     };
     a
-}
-
-fn get_u16s_hi_lo(operands: U256) -> (Vec<u16>, Vec<u16>) {
-    let mut lo_u16s: Vec<u16> = operands
-        .to_le_bytes()
-        .chunks(2)
-        .map(|x| x[0] as u16 + x[1] as u16 * 256)
-        .collect();
-    assert_eq!(16, lo_u16s.len());
-    let hi_u16s = lo_u16s.split_off(8);
-    (hi_u16s, lo_u16s)
 }
 
 #[cfg(test)]
