@@ -1518,9 +1518,6 @@ impl core::Row {
         }
     }
 
-    pub fn insert_bitwise_op_tag(&mut self, tag: usize) {
-        assign_or_panic!(self.vers_25, tag.into());
-    }
     /// insert_bitwise_lookup insert bitwise lookup ,5 columns in row prev(-2)
     /// originated from 10 col
     /// cnt = 2 can hold at most 4 bitwise operations (10 + 5*4)

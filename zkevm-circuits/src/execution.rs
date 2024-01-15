@@ -251,20 +251,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         LookupEntry::Exp { base, index, power }
     }
 
-    pub(crate) fn get_bit_op_lookup(
-        &self,
-        meta: &mut VirtualCells<F>,
-        num: usize,
-    ) -> LookupEntry<F> {
-        assert!(num < 32);
-        LookupEntry::BitOp {
-            value_1: meta.query_advice(self.vers[num], Rotation(-2)),
-            value_2: meta.query_advice(self.vers[num], Rotation(-3)),
-            result: meta.query_advice(self.vers[num], Rotation(-4)),
-            tag: meta.query_advice(self.vers[25], Rotation(-1)),
-        }
-    }
-
     pub(crate) fn get_bitwise_lookup(
         &self,
 

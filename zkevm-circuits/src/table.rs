@@ -524,16 +524,6 @@ pub enum LookupEntry<F> {
         index: [Expression<F>; 2],
         power: [Expression<F>; 2],
     },
-    /// Bitwise operation, lookup to Fixed table
-    // todo remove this
-    BitOp {
-        value_1: Expression<F>,
-        value_2: Expression<F>,
-        result: Expression<F>,
-        /// Tag could be LogicAnd, LogicOr or LogicXor
-        tag: Expression<F>,
-    },
-
     /// Bitwise lookup operation, lookup to bitwise table
     Bitwise {
         /// Tag could be Nil, And, Or or Xor
@@ -681,19 +671,6 @@ impl<F: Field> LookupEntry<F> {
                 let mut contents = vec![tag.identifier()];
                 contents.extend(values.iter().map(|v| v.identifier()));
                 contents
-            }
-            LookupEntry::BitOp {
-                value_1,
-                value_2,
-                result,
-                tag,
-            } => {
-                vec![
-                    value_1.identifier(),
-                    value_2.identifier(),
-                    result.identifier(),
-                    tag.identifier(),
-                ]
             }
             LookupEntry::Bitwise { tag, acc, sum_2 } => {
                 let mut contents = vec![tag.identifier()];
