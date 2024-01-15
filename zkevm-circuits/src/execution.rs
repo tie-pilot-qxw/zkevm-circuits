@@ -179,7 +179,7 @@ pub(crate) struct Auxiliary {
     pub(crate) read_only: Column<Advice>,
 }
 
-/// That is, we have constraint of X_cur - X_prev - X_delta = 0
+/// Outcome for `Auxiliary`. That is, we have constraint of `X_cur - X_prev - delta = 0` or `X_cur - to = 0`
 pub(crate) struct AuxiliaryOutcome<F> {
     /// Outcome of state stamp (counter) at the end of the execution state and the previous state
     pub(crate) state_stamp: ExpressionOutcome<F>,
@@ -211,7 +211,7 @@ impl<F: Field> Default for AuxiliaryOutcome<F> {
     }
 }
 
-/// Outcome for single-purpose (SP) columns in core circuit. That is, we have constraint of `X_next - X_cur - delta = 0`
+/// Outcome for single-purpose (SP) columns in core circuit. That is, we have constraint of `X_next - X_cur - delta = 0` or `X_next - to = 0`
 pub(crate) struct CoreSinglePurposeOutcome<F> {
     /// Delta of pc (program counter) at the next execution state and current execution state
     pub(crate) pc: ExpressionOutcome<F>,
