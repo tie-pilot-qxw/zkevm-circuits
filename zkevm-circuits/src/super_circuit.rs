@@ -7,7 +7,9 @@ use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs}
 use crate::fixed_circuit::{self, FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-use crate::table::{ArithmeticTable, BytecodeTable, FixedTable, PublicTable, StateTable};
+use crate::table::{
+    ArithmeticTable, BytecodeTable, CopyTable, FixedTable, PublicTable, StateTable,
+};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -46,12 +48,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let fixed_table = FixedTable::construct(meta);
         let q_enable_arithmetic = meta.complex_selector();
         let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
+        let q_enable_copy = meta.complex_selector();
+        let copy_table = CopyTable::construct(meta, q_enable_copy);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
                 bytecode_table,
                 state_table,
                 arithmetic_table,
+                copy_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
@@ -81,6 +86,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 bytecode_table,
                 state_table,
                 public_table,
+                copy_table,
             },
         );
         let fixed_circuit = FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
