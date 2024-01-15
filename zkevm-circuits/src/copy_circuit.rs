@@ -1,5 +1,5 @@
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{BytecodeTable, FixedTable, LookupEntry, PublicTable, StateTable};
+use crate::table::{BytecodeTable, CopyTable, FixedTable, LookupEntry, PublicTable, StateTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -132,12 +132,15 @@ pub struct CopyCircuitConfig<F: Field> {
     state_table: StateTable,
     // add public_table
     public_table: PublicTable,
+    // copy table
+    copy_table: CopyTable,
 }
 
 pub struct CopyCircuitConfigArgs<F> {
     pub bytecode_table: BytecodeTable<F>,
     pub state_table: StateTable,
     pub public_table: PublicTable,
+    pub copy_table: CopyTable,
 }
 
 impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
@@ -148,21 +151,25 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             bytecode_table,
             state_table,
             public_table,
+            copy_table,
         }: Self::ConfigArgs,
     ) -> Self {
+        let CopyTable {
+            src_tag,
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_tag,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            cnt,
+            len,
+            acc,
+        } = copy_table;
         // initialize columns
         let q_enable = meta.complex_selector();
         let byte = meta.advice_column();
-        let src_id = meta.advice_column();
-        let src_pointer = meta.advice_column();
-        let src_stamp = meta.advice_column();
-        let dst_id = meta.advice_column();
-        let dst_pointer = meta.advice_column();
-        let dst_stamp = meta.advice_column();
-        let cnt = meta.advice_column();
-        let len = meta.advice_column();
-        let acc = meta.advice_column();
-
         let len_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), len);
         let cnt_is_zero =
@@ -179,10 +186,6 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             },
             _len_sub_cnt_one_is_zero_inv,
         );
-
-        let src_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
-        let dst_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
-
         // construct config object
         let config = Self {
             q_enable,
@@ -200,6 +203,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             bytecode_table,
             state_table,
             public_table,
+            copy_table,
             len_is_zero,
             cnt_is_zero,
             len_sub_cnt_one_is_zero,
@@ -878,6 +882,8 @@ mod test {
             let state_table = StateTable::construct(meta, q_enable_state);
             let public_table = PublicTable::construct(meta);
             let fixed_table = FixedTable::construct(meta);
+            let q_enable_copy = meta.complex_selector();
+            let copy_table = CopyTable::construct(meta, q_enable_copy);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
                 BytecodeCircuitConfigArgs {
@@ -906,6 +912,7 @@ mod test {
                     bytecode_table,
                     state_table,
                     public_table,
+                    copy_table,
                 },
             );
             let fixed_circuit =

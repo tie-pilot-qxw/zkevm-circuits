@@ -1,7 +1,7 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::witness::fixed;
 use crate::witness::{arithmetic, state};
+use crate::witness::{copy, fixed};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
@@ -363,6 +363,110 @@ impl ArithmeticTable {
         let cnt = meta.advice_column();
         let operands = std::array::from_fn(|_| [meta.advice_column(), meta.advice_column()]);
         Self { tag, cnt, operands }
+    }
+}
+
+// The table shared between Core circuit and Copy circuit
+#[derive(Clone, Copy, Debug)]
+pub struct CopyTable {
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
+    /// src Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    pub src_tag: BinaryNumberConfig<copy::Tag, LOG_NUM_STATE_TAG>,
+    /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
+    pub src_id: Column<Advice>,
+    /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
+    pub src_pointer: Column<Advice>,
+    /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
+    pub src_stamp: Column<Advice>,
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
+    /// dst Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    pub dst_tag: BinaryNumberConfig<copy::Tag, LOG_NUM_STATE_TAG>,
+    /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
+    pub dst_id: Column<Advice>,
+    /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
+    pub dst_pointer: Column<Advice>,
+    /// The destination stamp, state stamp for Memory, Calldata, Returndata. As for PublicLog it means the log_stamp
+    pub dst_stamp: Column<Advice>,
+    /// The counter for one copy operation
+    pub cnt: Column<Advice>,
+    /// The length for one copy operation
+    pub len: Column<Advice>,
+    /// The accumulation value of bytes for one copy operation
+    pub acc: Column<Advice>,
+}
+impl CopyTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
+        let src_id = meta.advice_column();
+        let src_pointer = meta.advice_column();
+        let src_stamp = meta.advice_column();
+        let dst_id = meta.advice_column();
+        let dst_pointer = meta.advice_column();
+        let dst_stamp = meta.advice_column();
+        let cnt = meta.advice_column();
+        let len = meta.advice_column();
+        let acc = meta.advice_column();
+        let src_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let dst_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        return Self {
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            cnt,
+            len,
+            src_tag,
+            dst_tag,
+            acc,
+        };
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_src_id = meta.query_advice(self.src_id, Rotation::cur());
+        let table_src_pointer = meta.query_advice(self.src_pointer, Rotation::cur());
+        let table_src_stamp = meta.query_advice(self.src_stamp, Rotation::cur());
+        let table_dst_id = meta.query_advice(self.dst_id, Rotation::cur());
+        let table_dst_pointer = meta.query_advice(self.dst_pointer, Rotation::cur());
+        let table_dst_stamp = meta.query_advice(self.dst_stamp, Rotation::cur());
+        let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
+        let table_len = meta.query_advice(self.len, Rotation::cur());
+        let table_acc = meta.query_advice(self.acc, Rotation::cur());
+        let table_src_tag = self.src_tag.value(Rotation::cur())(meta);
+        let table_dst_tag = self.dst_tag.value(Rotation::cur())(meta);
+        match entry {
+            LookupEntry::Copy {
+                src_type,
+                src_id,
+                src_pointer,
+                src_stamp,
+                dst_type,
+                dst_id,
+                dst_pointer,
+                dst_stamp,
+                cnt,
+                len,
+                acc,
+            } => {
+                vec![
+                    (src_type, table_src_tag),
+                    (dst_type, table_dst_tag),
+                    (src_id, table_src_id),
+                    (src_pointer, table_src_pointer),
+                    (src_stamp, table_src_stamp),
+                    (dst_id, table_dst_id),
+                    (dst_pointer, table_dst_pointer),
+                    (dst_stamp, table_dst_stamp),
+                    (cnt, table_cnt),
+                    (len, table_len),
+                    (acc, table_acc),
+                ]
+            }
+            _ => panic!("NOT copy lookup"),
+        }
     }
 }
 
@@ -823,6 +927,41 @@ pub(crate) mod test_util {
             witness: &Witness,
         ) -> Result<(), Error> {
             for (offset, row) in witness.arithmetic.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+    impl CopyTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &copy::Row,
+        ) -> Result<(), Error> {
+            let src_tag = BinaryNumberChip::construct(self.src_tag);
+            src_tag.assign(region, offset, &row.src_type)?;
+            assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
+            assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
+            assign_advice_or_fixed(region, offset, &row.src_stamp, self.src_stamp)?;
+            let dst_tag = BinaryNumberChip::construct(self.dst_tag);
+            dst_tag.assign(region, offset, &row.dst_type)?;
+            assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
+            assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
+            assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.len)?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.acc)?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.copy.iter().enumerate() {
                 self.assign_row(region, offset, row)?;
             }
             Ok(())
