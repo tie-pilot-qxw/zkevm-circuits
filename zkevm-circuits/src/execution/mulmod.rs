@@ -108,19 +108,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // if n == 0, then n_is_zero == 1;
         let n_is_zero = n_is_zero_hi.expr() * n_is_zero_lo.expr();
 
-        constraints.extend([(
-            "if n == 0, then a in arithmetic == 0".to_string(),
-            n_is_zero.clone()
-                * (arithmetic_operands_full[0].clone() + arithmetic_operands_full[1].clone()),
-        )]);
+        constraints.extend(n_is_zero_hi.get_constraints());
+        constraints.extend(n_is_zero_lo.get_constraints());
 
-        constraints.extend((0..2).map(|i| {
-            (
-                "if n != 0, then a in arithmetic == in state".to_string(),
-                (1.expr() - n_is_zero.clone())
-                    * (arithmetic_operands_full[i].clone() - arithmetic_operands[i].clone()),
-            )
+        constraints.extend((0..2).flat_map(|i| {
+            vec![
+                (
+                    // n == 0, arithmetic a == 0
+                    format!("if n == 0, then operand[{}] in arithmetic == 0", i),
+                    n_is_zero.clone() * arithmetic_operands_full[i].clone(),
+                ),
+                (
+                    // n != 0, arithmetic a == in state
+                    format!("if n != 0, then operand[{}] in arithmetic == in state", i),
+                    (1.expr() - n_is_zero.clone())
+                        * (arithmetic_operands_full[i].clone() - arithmetic_operands[i].clone()),
+                ),
+            ]
         }));
+
         constraints.extend((2..8).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),

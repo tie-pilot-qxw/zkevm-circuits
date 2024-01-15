@@ -2,7 +2,6 @@
 use crate::util::pow_of_two;
 use eth_types::Field;
 use halo2_proofs::plonk::Expression;
-use std::fmt::format;
 
 /// Construct the gadget that checks a * b + c == d * 2**256 + e
 /// where a, b, c, d, e are 256-bit words.
