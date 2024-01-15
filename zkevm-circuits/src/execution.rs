@@ -179,21 +179,21 @@ pub(crate) struct Auxiliary {
     pub(crate) read_only: Column<Advice>,
 }
 
-/// Delta for `Auxiliary`. That is, we have constraint of `X_cur - X_prev - X_delta = 0`
+/// That is, we have constraint of X_cur - X_prev - X_delta = 0
 pub(crate) struct AuxiliaryOutcome<F> {
-    /// Delta of state stamp (counter) at the end of the execution state and the previous state
+    /// Outcome of state stamp (counter) at the end of the execution state and the previous state
     pub(crate) state_stamp: ExpressionOutcome<F>,
-    /// Delta of stack pointer at the end of the execution state and the previous state
+    /// Outcome of stack pointer at the end of the execution state and the previous state
     pub(crate) stack_pointer: ExpressionOutcome<F>,
-    /// Delta of log stamp (counter) at the end of the execution state and the previous state
+    /// Outcome of log stamp (counter) at the end of the execution state and the previous state
     pub(crate) log_stamp: ExpressionOutcome<F>,
-    /// Delta of gas left at the end of the execution state and the previous state
+    /// Outcome of gas left at the end of the execution state and the previous state
     pub(crate) gas_left: ExpressionOutcome<F>,
-    /// Delta of refund at the end of the execution state and the previous state
+    /// Outcome of refund at the end of the execution state and the previous state
     pub(crate) refund: ExpressionOutcome<F>,
-    /// Delta of memory usage in chunk at the end of the execution state and the previous state
+    /// Outcome of memory usage in chunk at the end of the execution state and the previous state
     pub(crate) memory_chunk: ExpressionOutcome<F>,
-    /// Delta of read only indicator (0/1) at the end of the execution state and the previous state
+    /// Outcome of read only indicator (0/1) at the end of the execution state and the previous state
     pub(crate) read_only: ExpressionOutcome<F>,
 }
 
