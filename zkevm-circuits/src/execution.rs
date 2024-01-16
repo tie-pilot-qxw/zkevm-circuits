@@ -1467,9 +1467,10 @@ impl ExecutionState {
     pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
         match opcode {
             OpcodeId::STOP => vec![Self::STOP, Self::END_CALL],
-            OpcodeId::ADD | OpcodeId::SUB | OpcodeId::MUL | OpcodeId::DIV | OpcodeId::MOD => {
-                vec![Self::ADD_SUB_MUL_DIV_MOD]
-            }
+            OpcodeId::ADD => vec![Self::ADD_SUB_MUL_DIV_MOD],
+            OpcodeId::MUL => vec![Self::ADD_SUB_MUL_DIV_MOD],
+            OpcodeId::SUB => vec![Self::ADD_SUB_MUL_DIV_MOD],
+            OpcodeId::DIV | OpcodeId::MOD => vec![Self::ADD_SUB_MUL_DIV_MOD],
             OpcodeId::SDIV => {
                 todo!()
             }
@@ -1637,7 +1638,6 @@ impl ExecutionState {
             }
             OpcodeId::SLOAD | OpcodeId::SSTORE => vec![Self::STORAGE],
             OpcodeId::GAS => {
-                //todo!()
                 vec![Self::GAS] //TODO: implement this
             }
             //LOG TOPIC LOG BYTES

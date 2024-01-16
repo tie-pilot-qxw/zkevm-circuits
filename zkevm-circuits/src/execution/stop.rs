@@ -1,7 +1,7 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    end_call, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
+    end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};

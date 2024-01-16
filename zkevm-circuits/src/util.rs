@@ -10,7 +10,7 @@ use halo2_proofs::plonk::{
 use std::io::Read;
 use std::path::Path;
 use trace_parser::{
-    read_block_from_api_result_file, read_bytecode_from_api_result_file,
+    read_accounts_from_api_result_file, read_block_from_api_result_file,
     read_log_from_api_result_file, read_trace_from_api_result_file, read_tx_from_api_result_file,
 };
 
@@ -206,7 +206,7 @@ pub fn get_geth_data<P: AsRef<Path>>(
     tx_info_file: P,
     trace_file: P,
     receipt_file: P,
-    bytecode_file: P,
+    accounts_file: P,
 ) -> GethData {
     let eth_block = read_block_from_api_result_file(block_info_file);
     let tx = read_tx_from_api_result_file(tx_info_file);
@@ -214,7 +214,15 @@ pub fn get_geth_data<P: AsRef<Path>>(
     let trace = read_trace_from_api_result_file(trace_file);
     // transaction receipt for public log
     let receipt_log = read_log_from_api_result_file(receipt_file);
-    let bytecode = read_bytecode_from_api_result_file(bytecode_file);
+    // make accounts
+    let accounts = match tx.to {
+        None => vec![Account {
+            address: create_contract_addr_with_prefix(&tx),
+            code: tx.input,
+            ..Default::default()
+        }],
+        Some(_addr) => read_accounts_from_api_result_file(accounts_file),
+    };
 
     let chain_id = tx.chain_id.unwrap();
 
@@ -225,26 +233,13 @@ pub fn get_geth_data<P: AsRef<Path>>(
         history_hashes.push(i.into())
     }
 
-    // make account
-    let account_addr = match tx.to {
-        None => create_contract_addr_with_prefix(&tx),
-        Some(addr) => addr.as_bytes().into(),
-    };
-
-    // TODO read nonce, balance, storage from file
-    let account = Account {
-        address: account_addr,
-        code: bytecode.to_vec().into(),
-        ..Default::default()
-    };
-
     // build and return geth_data
     GethData {
         chain_id: chain_id.into(),
         history_hashes,
         eth_block,
+        accounts,
         geth_traces: vec![trace],
-        accounts: vec![account],
         logs: vec![receipt_log],
     }
 }
