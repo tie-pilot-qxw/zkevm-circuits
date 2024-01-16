@@ -229,9 +229,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //update returndata_call_id, returndata_call_size, returndata and return_success
         current_state.returndata_call_id = current_state.call_id.clone();
         current_state.returndata_size = length;
+        // it's guaranteed by Ethereum memory usage limitation that offset.as_usize() and length.as_usize() won't panic.
         let returndata = trace
             .memory
-            .read_chunk(offset.as_usize().into(), length.as_usize().into()); // it's guaranteed by Ethereum that offset.as_usize() and length.as_usize() won't panic.
+            .read_chunk(offset.as_usize().into(), length.as_usize().into());
         current_state
             .return_data
             .insert(current_state.returndata_call_id, returndata);
