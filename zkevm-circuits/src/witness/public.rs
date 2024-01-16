@@ -31,6 +31,9 @@ pub enum Tag {
     BlockGasLimit,
     BlockBaseFee,
     BlockHash,
+
+    // txs number in one block
+    BlockTxNum,
     TxStatus,
     // combine From and Value together to reduce number of lookups
     TxFromValue,
@@ -176,6 +179,17 @@ impl Row {
                 (format!("tag"), format!("BlockBaseFee")),
                 (format!("value_0"), format!("BlockBaseFee[..16]")),
                 (format!("value_1"), format!("BlockBaseFee[16..]")),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
+        result.push(Row {
+            tag: Tag::BlockTxNum,
+            value_0: Some(geth_data.eth_block.transactions.len().into()),
+            comments: [
+                (format!("tag"), format!("BlockTxNum")),
+                (format!("value_0"), format!("txNumber")),
             ]
             .into_iter()
             .collect(),
