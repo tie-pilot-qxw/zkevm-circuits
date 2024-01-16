@@ -22,6 +22,7 @@ pub mod end_tx;
 pub mod eq;
 pub mod exp;
 pub mod extcodecopy;
+pub mod gas;
 pub mod iszero;
 pub mod jump;
 pub mod jumpdest;
@@ -123,6 +124,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_tx::new(),
             crate::execution::log_topic_num_addr::new(),
             crate::execution::log_topic::new(),
+            crate::execution::gas::new(),
         ]
     }};
 }
@@ -1457,13 +1459,14 @@ pub enum ExecutionState {
     CALL_5,
     END_CALL,
     END_TX,
+    GAS,
 }
 
 impl ExecutionState {
     // a mapping from opcode to execution state(s)
     pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
         match opcode {
-            OpcodeId::STOP => vec![Self::STOP],
+            OpcodeId::STOP => vec![Self::STOP, Self::END_CALL],
             OpcodeId::ADD | OpcodeId::SUB | OpcodeId::MUL | OpcodeId::DIV | OpcodeId::MOD => {
                 vec![Self::ADD_SUB_MUL_DIV_MOD]
             }
@@ -1583,7 +1586,7 @@ impl ExecutionState {
             | OpcodeId::SWAP16 => vec![Self::SWAP],
 
             OpcodeId::RETURN | OpcodeId::REVERT => {
-                vec![Self::RETURN_REVERT]
+                vec![Self::RETURN_REVERT, Self::END_CALL]
             }
             OpcodeId::INVALID(_) => {
                 todo!()
@@ -1612,7 +1615,7 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::RETURNDATASIZE => {
-                todo!()
+                vec![Self::RETURNDATASIZE]
             }
             OpcodeId::RETURNDATACOPY => {
                 vec![Self::RETURNDATACOPY]
@@ -1634,7 +1637,8 @@ impl ExecutionState {
             }
             OpcodeId::SLOAD | OpcodeId::SSTORE => vec![Self::STORAGE],
             OpcodeId::GAS => {
-                todo!()
+                //todo!()
+                vec![Self::GAS] //TODO: implement this
             }
             //LOG TOPIC LOG BYTES
             OpcodeId::LOG0 => {
@@ -1677,7 +1681,7 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::CALL => {
-                todo!()
+                vec![Self::CALL_1, Self::CALL_2, Self::CALL_3, Self::CALL_4]
             }
             OpcodeId::CALLCODE => {
                 todo!()

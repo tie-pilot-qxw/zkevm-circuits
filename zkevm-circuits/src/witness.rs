@@ -184,18 +184,37 @@ impl WitnessExecHelper {
         );
         let mut iter_for_next_step = trace.iter();
         iter_for_next_step.next();
+
+        let mut prev_is_return_revert_or_stop = false;
+        let mut call_step_store: Vec<&GethExecStep> = vec![];
         for step in trace {
             if let Some(next_step) = iter_for_next_step.next() {
                 self.update_from_next_step(next_step);
             }
-            res.append(self.generate_execution_witness(step, &execution_gadgets_map))
+
+            if prev_is_return_revert_or_stop {
+                // append CALL5 when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append CALL5 at the end of the top-level call, because the total for-loop has ended)
+                let call_trace_step = call_step_store.pop().unwrap();
+                res.append(
+                    execution_gadgets_map
+                        .get(&ExecutionState::CALL_5)
+                        .unwrap()
+                        .gen_witness(call_trace_step, self),
+                );
+                prev_is_return_revert_or_stop = false;
+            }
+            res.append(self.generate_execution_witness(step, &execution_gadgets_map));
+
+            match step.op {
+                OpcodeId::RETURN | OpcodeId::REVERT | OpcodeId::STOP => {
+                    prev_is_return_revert_or_stop = true;
+                }
+                OpcodeId::CALL => {
+                    call_step_store.push(step);
+                }
+                _ => {}
+            }
         }
-        res.append(
-            execution_gadgets_map
-                .get(&ExecutionState::END_CALL)
-                .unwrap()
-                .gen_witness(last_step, self),
-        );
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::END_TX)
@@ -279,7 +298,7 @@ impl WitnessExecHelper {
             value_lo: Some(value.low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((self.stack_pointer - index_start_at_1 + 1).into()), // stack pointer start at 1, hence +1
+            pointer_lo: Some((self.stack_pointer + 1 - index_start_at_1).into()), // stack pointer start at 1, hence +1
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
@@ -711,7 +730,7 @@ impl WitnessExecHelper {
         let temp_256_f = F::from(256);
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
-            let data = self.return_data.get(&self.call_id).unwrap();
+            let data = self.return_data.get(&self.returndata_call_id).unwrap();
             let byte = data.get(src + i).cloned().unwrap();
 
             // calc acc
@@ -728,7 +747,7 @@ impl WitnessExecHelper {
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::Returndata,
-                src_id: self.call_id.into(),
+                src_id: self.returndata_call_id.into(),
                 src_pointer: src.into(),
                 src_stamp: copy_stamp.into(),
                 dst_type: copy::Tag::Memory,
@@ -740,12 +759,15 @@ impl WitnessExecHelper {
                 acc: acc,
             });
 
-            state_rows.push(self.get_return_data_read_row(src + i, self.call_id).0);
+            state_rows.push(
+                self.get_return_data_read_row(src + i, self.returndata_call_id)
+                    .0,
+            );
         }
 
         for i in 0..len {
             // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
-            let data = self.return_data.get(&self.call_id).unwrap();
+            let data = self.return_data.get(&self.returndata_call_id).unwrap();
             let byte = data.get(src + i).cloned().unwrap();
 
             state_rows.push(self.get_memory_write_row(dst + i, byte));
@@ -1928,6 +1950,9 @@ impl Witness {
             let mut this_op = vec![];
             if op.is_push() {
                 let mut cnt = op.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
+                if pc + cnt as usize >= machine_code.len() {
+                    break;
+                } // NOTE: the purpose is to avoid the effects of invalid bytecodes, for example, a PUSH31 opcode at machine_code.len()-23
                 let mut acc_hi = 0u128;
                 let mut acc_lo = 0u128;
                 this_op.push(bytecode::Row {
