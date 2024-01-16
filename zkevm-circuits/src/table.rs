@@ -1,7 +1,7 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
-use crate::constant::LOG_NUM_STATE_TAG;
+use crate::constant::{LOG_NUM_BITWISE_TAG, LOG_NUM_STATE_TAG};
 use crate::witness::{arithmetic, state};
-use crate::witness::{copy, fixed};
+use crate::witness::{bitwise, copy, fixed};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
@@ -16,6 +16,7 @@ pub const U10_TAG: usize = 256;
 pub const PUBLIC_NUM_VALUES: usize = 4;
 pub const SEPARATOR: &str = "-";
 pub const ANNOTATE_SEPARATOR: &str = ",";
+pub const BITWISE_NUM_OPERAND: usize = 3;
 
 macro_rules! extract_lookup_expression {
     (state, $value:expr) => {
@@ -522,6 +523,54 @@ impl PublicTable {
     }
 }
 
+/// The table shared between Core Circuit and Bitwise Circuit
+#[derive(Clone, Copy, Debug)]
+pub struct BitwiseTable {
+    /// The operation tag, one of AND, OR, XOR
+    pub tag: BinaryNumberConfig<bitwise::Tag, LOG_NUM_BITWISE_TAG>,
+    /// The accumulation of bytes in one operation for each operand in one row
+    pub acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND],
+    /// The sum of bytes in one operation of operand 2, used to compute byte opcode
+    pub sum_2: Column<Advice>,
+}
+
+impl BitwiseTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
+        let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND] =
+            std::array::from_fn(|_| meta.advice_column());
+        let sum_2 = meta.advice_column();
+        Self {
+            tag,
+            acc_vec,
+            sum_2,
+        }
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = self.tag.value(Rotation::cur())(meta);
+        let table_acc_0 = meta.query_advice(self.acc_vec[0], Rotation::cur());
+        let table_acc_1 = meta.query_advice(self.acc_vec[1], Rotation::cur());
+        let table_acc_2 = meta.query_advice(self.acc_vec[2], Rotation::cur());
+        let table_sum_2 = meta.query_advice(self.sum_2, Rotation::cur());
+        match entry {
+            LookupEntry::Bitwise { tag, acc, sum_2 } => {
+                vec![
+                    (tag.clone(), table_tag),
+                    (acc[0].clone(), table_acc_0),
+                    (acc[1].clone(), table_acc_1),
+                    (acc[2].clone(), table_acc_2),
+                    (sum_2.clone(), table_sum_2),
+                ]
+            }
+            _ => panic!("Not bitwise lookup!"),
+        }
+    }
+}
+
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug, EnumVariantNames, AsRefStr)]
 pub enum LookupEntry<F> {
@@ -939,6 +988,34 @@ pub(crate) mod test_util {
             witness: &Witness,
         ) -> Result<(), Error> {
             for (offset, row) in witness.copy.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+    impl BitwiseTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &bitwise::Row,
+        ) -> Result<(), Error> {
+            let tag = BinaryNumberChip::construct(self.tag);
+            tag.assign(region, offset, &row.tag)?;
+            assign_advice_or_fixed(region, offset, &row.acc_0, self.acc_vec[0])?;
+            assign_advice_or_fixed(region, offset, &row.acc_1, self.acc_vec[1])?;
+            assign_advice_or_fixed(region, offset, &row.acc_2, self.acc_vec[2])?;
+            assign_advice_or_fixed(region, offset, &row.sum_2, self.sum_2)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.bitwise.iter().enumerate() {
                 self.assign_row(region, offset, row)?;
             }
             Ok(())

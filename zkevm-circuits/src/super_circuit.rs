@@ -8,7 +8,7 @@ use crate::fixed_circuit::{self, FixedCircuit, FixedCircuitConfig, FixedCircuitC
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{
-    ArithmeticTable, BytecodeTable, CopyTable, FixedTable, PublicTable, StateTable,
+    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, FixedTable, PublicTable, StateTable,
 };
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
@@ -50,6 +50,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
         let q_enable_copy = meta.complex_selector();
         let copy_table = CopyTable::construct(meta, q_enable_copy);
+        let q_enable_bitwise = meta.complex_selector();
+        let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
@@ -57,6 +59,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 state_table,
                 arithmetic_table,
                 copy_table,
+                bitwise_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
@@ -90,8 +93,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             },
         );
         let fixed_circuit = FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
-        let bitwise_circuit =
-            BitwiseCircuitConfig::new(meta, BitwiseCircuitConfigArgs { fixed_table });
+        let bitwise_circuit = BitwiseCircuitConfig::new(
+            meta,
+            BitwiseCircuitConfigArgs {
+                fixed_table,
+                bitwise_table,
+            },
+        );
 
         let arithmetic_circuit = ArithmeticCircuitConfig::new(
             meta,

@@ -1,5 +1,5 @@
 use crate::constant::LOG_NUM_BITWISE_TAG;
-use crate::table::{FixedTable, LookupEntry};
+use crate::table::{BitwiseTable, FixedTable, LookupEntry};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::bitwise::Row;
@@ -65,10 +65,12 @@ pub struct BitwiseCircuitConfig<F: Field> {
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
     // table used for lookup
     fixed_table: FixedTable,
+    bitwise_table: BitwiseTable,
 }
 
 pub struct BitwiseCircuitConfigArgs {
     pub fixed_table: FixedTable,
+    pub bitwise_table: BitwiseTable,
 }
 
 impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
@@ -77,14 +79,19 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
     /// Constructor， used to construct config object
     fn new(
         meta: &mut ConstraintSystem<F>,
-        Self::ConfigArgs { fixed_table }: Self::ConfigArgs,
+        Self::ConfigArgs {
+            fixed_table,
+            bitwise_table,
+        }: Self::ConfigArgs,
     ) -> Self {
         // initialize columns
         let q_enable = meta.complex_selector();
-        let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let BitwiseTable {
+            tag,
+            acc_vec,
+            sum_2,
+        } = bitwise_table;
         let bytes: [Column<Advice>; NUM_OPERAND] = std::array::from_fn(|_| meta.advice_column());
-        let acc_vec: [Column<Advice>; NUM_OPERAND] = std::array::from_fn(|_| meta.advice_column());
-        let sum_2 = meta.advice_column();
         let cnt = meta.advice_column();
         let cnt_is_zero =
             IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
@@ -99,6 +106,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             cnt,
             cnt_is_zero,
             fixed_table,
+            bitwise_table,
         };
 
         // Bitwise gate constraints
@@ -419,8 +427,16 @@ mod test {
         fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
             let q_enable = meta.complex_selector();
             let fixed_table = FixedTable::construct(meta);
-            let bitwise_circuit =
-                BitwiseCircuitConfig::new(meta, BitwiseCircuitConfigArgs { fixed_table });
+            let q_enable_bitwise = meta.complex_selector();
+            let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
+            let bitwise_circuit = BitwiseCircuitConfig::new(
+                meta,
+                BitwiseCircuitConfigArgs {
+                    fixed_table,
+                    bitwise_table,
+                },
+            );
+
             BitwiseTestCircuitConfig {
                 q_enable,
                 bitwise_circuit,
@@ -470,6 +486,7 @@ mod test {
             // used to verify whether acc_0, acc_1, accc_2, sum2 can be correctly looked up
             meta.lookup_any("bitwise test lookup", |meta| {
                 // get the value of the specified Column in BitwiseTestCircuit
+
                 let bitwise_entry_tag = meta.query_advice(config.tag, Rotation::cur());
                 let bitwise_entry_acc_0 = meta.query_advice(config.acc_0, Rotation::cur());
                 let bitwise_entry_acc_1 = meta.query_advice(config.acc_1, Rotation::cur());
