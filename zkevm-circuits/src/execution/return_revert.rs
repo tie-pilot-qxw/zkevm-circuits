@@ -197,6 +197,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         vec![
             (
@@ -207,6 +209,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "state lookup, stack pop lookup length".into(),
                 stack_lookup_1,
             ),
+            (
+                "state lookup, call_context write returndata_call_id".into(),
+                call_context_lookup_0,
+            ),
+            (
+                "state lookup, call_context write returndata_size".into(),
+                call_context_lookup_1,
+            ),
             ("code copy lookup".into(), copy_lookup),
         ]
     }
@@ -216,9 +226,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
 
-        //update returndata_call_id and returndata_call_size
+        //update returndata_call_id, returndata_call_size, returndata and return_success
         current_state.returndata_call_id = current_state.call_id.clone();
         current_state.returndata_size = length;
+        // it's guaranteed by Ethereum memory usage limitation that offset.as_usize() and length.as_usize() won't panic.
+        let returndata = trace
+            .memory
+            .read_chunk(offset.as_usize().into(), length.as_usize().into());
+        current_state
+            .return_data
+            .insert(current_state.returndata_call_id, returndata);
+        current_state.return_success = true;
 
         //get call_context write rows.
         let call_context_write_row_0 = current_state.get_call_context_write_row(

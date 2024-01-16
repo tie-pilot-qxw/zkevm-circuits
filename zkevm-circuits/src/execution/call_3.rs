@@ -114,7 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("ParentStackPointer write hi".into(), operands[2][0].clone()),
             (
                 "ParentCallId write lo".into(),
-                operands[1][0].clone() - call_id_cur,
+                operands[0][1].clone() - call_id_cur,
             ),
             (
                 "ParentProgramCounter write lo".into(),
@@ -264,6 +264,7 @@ mod test {
             ..WitnessExecHelper::new()
         };
         let state_stamp_init = 3;
+        current_state.call_id = 1;
         current_state.state_stamp = state_stamp_init + 3 + 2 * 0x04 + 2;
         current_state.call_id_new = state_stamp_init + 1;
 
