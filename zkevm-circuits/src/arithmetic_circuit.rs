@@ -288,15 +288,15 @@ mod test {
     use super::*;
     use crate::util::log2_ceil;
     use eth_types::U256;
-    use gadgets::util::pow_of_two;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
 
-    const TEST_SIZE: usize = 70;
+    const TEST_SIZE: usize = 200;
 
     #[derive(Clone, Default, Debug)]
     pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
+
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
         type Config = ArithmeticCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
@@ -350,6 +350,7 @@ mod test {
             itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().1)).unwrap();
         (usable_max, unusable_end)
     }
+
     #[test]
     fn test_add_witness() {
         let (arithmetic, result) =
@@ -483,6 +484,42 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_mulmod_witness() {
+        let (arithmetic1, _) = operation::mulmod::gen_witness(vec![4.into(), 7.into(), 5.into()]);
+        let (arithmetic2, result2) = operation::mulmod::gen_witness(vec![
+            U256::MAX - U256::from(59509090),
+            U256::MAX - U256::from(590),
+            U256::MAX,
+        ]);
+        let (arithmetic3, _) = operation::mulmod::gen_witness(vec![
+            u128::MAX.into(),
+            U256::MAX - U256::from(3434),
+            255.into(),
+        ]);
+        let (arithmetic4, _) = operation::mulmod::gen_witness(vec![
+            u128::MAX.into(),
+            U256::MAX - U256::from(434),
+            0.into(),
+        ]);
+
+        let mut arithmetic = Vec::new();
+        arithmetic.extend(arithmetic1);
+        arithmetic.extend(arithmetic2);
+        arithmetic.extend(arithmetic3);
+        arithmetic.extend(arithmetic4);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness.clone());
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        witness.print_csv();
         prover.assert_satisfied_par();
     }
 }

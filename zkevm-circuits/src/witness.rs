@@ -1726,6 +1726,18 @@ impl core::Row {
                     ),
                 ]);
             }
+            arithmetic::Tag::Mulmod => {
+                self.comments.extend([
+                    (
+                        format!("vers_{}", index * WIDTH + 6),
+                        format!("arithmetic r hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 7),
+                        format!("arithmetic r lo"),
+                    ),
+                ]);
+            }
             arithmetic::Tag::DivMod => self.comments.extend([
                 (
                     format!("vers_{}", index * WIDTH + 4),
