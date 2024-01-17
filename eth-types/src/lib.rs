@@ -489,6 +489,21 @@ pub struct WrapByteCode {
     pub result: String,
 }
 
+///Account Wrapper in api result
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct WrapAccount {
+    ///bytecode in each account
+    pub bytecode: String,
+    ///contract_addr in each account
+    pub contract_addr: Address,
+}
+/// Accounts Wrapper in api result
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+pub struct WrapAccounts {
+    /// result in api result json
+    pub result: Vec<WrapAccount>,
+}
+
 #[macro_export]
 /// Create an [`Address`] from a hex string.  Panics on invalid input.
 macro_rules! address {
