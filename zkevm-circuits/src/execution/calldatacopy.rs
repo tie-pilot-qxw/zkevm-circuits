@@ -159,11 +159,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_2, length) = current_state.get_pop_stack_row_value(&trace);
 
         // get copydata and state from calldata
-        let (copy_rows, mut state_rows) = current_state.get_calldata_copy_rows::<F>(
-            dst_offset.as_usize(),
-            calldata_offset.as_usize(),
-            length.as_usize(),
-        );
+        let (copy_rows, mut state_rows) =
+            current_state.get_calldata_copy_rows::<F>(dst_offset, calldata_offset, length);
 
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);

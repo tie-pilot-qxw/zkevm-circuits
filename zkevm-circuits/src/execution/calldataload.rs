@@ -180,8 +180,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 生成copy_rows和state_rows，将copy_rows数据写入core_row_2
         // calldataload 读取的32字节数据分为两步进行，每次读取16byte由
         // core::Row的acc标识，所以将索引为15、31的copy row写入core_row_2
-        let (copy_rows, mut state_rows) =
-            current_state.get_calldata_load_rows::<F>(index.as_usize());
+        let (copy_rows, mut state_rows) = current_state.get_calldata_load_rows::<F>(index);
         let copy_row_0 = copy_rows.get(15).unwrap();
         let copy_row_1 = copy_rows.get(31).unwrap();
         core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));

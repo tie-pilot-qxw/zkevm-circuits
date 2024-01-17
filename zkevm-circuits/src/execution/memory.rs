@@ -178,8 +178,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_row_0, offset) = current_state.get_pop_stack_row_value(&trace);
 
         let (stack_row_1, mut state_rows, copy_rows) = if trace.op == OpcodeId::MLOAD {
-            let (copy_rows, state_rows) =
-                current_state.get_mload_rows::<F>(trace, offset.as_usize());
+            let (copy_rows, state_rows) = current_state.get_mload_rows::<F>(trace, offset);
 
             let copy_row_0 = copy_rows.get(15).unwrap();
             let copy_row_1 = copy_rows.get(31).unwrap();
@@ -192,8 +191,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             let (stack_row_1, value) = current_state.get_pop_stack_row_value(&trace);
 
-            let (copy_rows, state_rows) =
-                current_state.get_mstore_rows::<F>(offset.as_usize(), value);
+            let (copy_rows, state_rows) = current_state.get_mstore_rows::<F>(offset, value);
 
             let copy_row_0 = copy_rows.get(15).unwrap();
             let copy_row_1 = copy_rows.get(31).unwrap();

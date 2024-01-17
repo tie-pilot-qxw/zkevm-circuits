@@ -305,8 +305,14 @@ impl WitnessExecHelper {
         (res, *value)
     }
 
-    pub fn get_memory_read_row(&mut self, trace_step: &GethExecStep, dst: usize) -> state::Row {
-        let value = trace_step.memory.0.get(dst).cloned().unwrap_or_default();
+    pub fn get_memory_read_row(&mut self, trace_step: &GethExecStep, offset: U256) -> state::Row {
+        // we don't need to consider whether offset.as_usize() panics, which is guaranteed by its callers.
+        let value = trace_step
+            .memory
+            .0
+            .get(offset.as_usize())
+            .cloned()
+            .unwrap_or_default();
         let res = state::Row {
             tag: Some(Tag::Memory),
             stamp: Some(self.state_stamp.into()),
@@ -314,14 +320,14 @@ impl WitnessExecHelper {
             value_lo: Some(value.into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some(dst.into()),
+            pointer_lo: Some(offset),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
         res
     }
 
-    pub fn get_memory_write_row(&mut self, dst: usize, value: u8) -> state::Row {
+    pub fn get_memory_write_row(&mut self, offset: U256, value: u8) -> state::Row {
         let res = state::Row {
             tag: Some(Tag::Memory),
             stamp: Some(self.state_stamp.into()),
@@ -329,19 +335,20 @@ impl WitnessExecHelper {
             value_lo: Some(value.into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some(dst.into()),
+            pointer_lo: Some(offset),
             is_write: Some(1.into()),
         };
         self.state_stamp += 1;
         res
     }
 
-    pub fn get_return_data_read_row(&mut self, dst: usize, call_id: u64) -> (state::Row, u8) {
+    pub fn get_return_data_read_row(&mut self, offset: U256, call_id: u64) -> (state::Row, u8) {
+        // we don't need to consider whether offset.as_usize() panics, which is guaranteed by its callers.
         let value = self
             .return_data
             .get(&call_id)
             .unwrap()
-            .get(dst)
+            .get(offset.as_usize())
             .cloned()
             .unwrap_or_default();
         let res = state::Row {
@@ -351,14 +358,14 @@ impl WitnessExecHelper {
             value_lo: Some(value.into()),
             call_id_contract_addr: Some(call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some(dst.into()),
+            pointer_lo: Some(offset),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
         (res, value)
     }
 
-    pub fn get_return_data_write_row(&mut self, dst: usize, value: u8) -> state::Row {
+    pub fn get_return_data_write_row(&mut self, offset: U256, value: u8) -> state::Row {
         let res = state::Row {
             tag: Some(state::Tag::ReturnData),
             stamp: Some(self.state_stamp.into()),
@@ -366,7 +373,7 @@ impl WitnessExecHelper {
             value_lo: Some(value.into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some(dst.into()),
+            pointer_lo: Some(offset),
             is_write: Some(1.into()),
         };
         self.state_stamp += 1;
@@ -547,6 +554,7 @@ impl WitnessExecHelper {
         let src_offset = if uint64_with_overflow(&src) {
             u64::MAX
         } else {
+            // it's guaranteed by caller that it is in range u64
             src.as_u64()
         };
         let dst_offset = dst.low_u64();
@@ -600,15 +608,18 @@ impl WitnessExecHelper {
                     len: code_copy_length.into(),
                     acc,
                 });
-                state_rows.push(self.get_memory_write_row((dst_offset + i) as usize, byte));
+                // it's guaranteed by Ethereum that dst + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L31
+                state_rows.push(self.get_memory_write_row(dst + i, byte));
             }
         }
         let codecopy_padding_stamp = self.state_stamp;
         if padding_length > 0 {
             for i in 0..padding_length {
-                state_rows.push(
-                    self.get_memory_write_row((dst_offset + code_copy_length + i) as usize, 0u8),
-                );
+                state_rows.push(self.get_memory_write_row(
+                    // in the same way, dst + code_copy_length + i doesn't overflow
+                    dst + code_copy_length + i,
+                    0u8,
+                ));
                 copy_rows.push(copy::Row {
                     byte: 0.into(),
                     src_type: copy::Tag::Zero,
@@ -642,9 +653,7 @@ impl WitnessExecHelper {
     ) -> (Vec<copy::Row>, Vec<state::Row>, u64) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        // way of processing len, reference go-ethereum's method
-        // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L664
-
+        // it's guaranteed by caller that it is in range u64
         let dst_offset = dst.low_u64();
         let length = len.low_u64();
         let copy_stamp = self.state_stamp;
@@ -653,13 +662,13 @@ impl WitnessExecHelper {
             .get(&self.returndata_call_id)
             .unwrap()
             .len() as u64;
-        let copy_length: u64;
-
-        if length > return_data_length {
-            copy_length = return_data_length;
+        // way of processing len, reference go-ethereum's method
+        // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L664
+        let copy_length = if length > return_data_length {
+            return_data_length
         } else {
-            copy_length = length;
-        }
+            length
+        };
 
         if copy_length > 0 {
             let mut acc_pre = U256::from(0);
@@ -694,7 +703,7 @@ impl WitnessExecHelper {
                     acc,
                 });
                 state_rows.push(
-                    self.get_return_data_read_row(i as usize, self.returndata_call_id)
+                    self.get_return_data_read_row(i.into(), self.returndata_call_id)
                         .0,
                 );
             }
@@ -702,7 +711,8 @@ impl WitnessExecHelper {
             for i in 0..copy_length {
                 let return_data = self.return_data.get(&self.returndata_call_id).unwrap();
                 let byte = return_data.get(i as usize).cloned().unwrap_or_default();
-                state_rows.push(self.get_memory_write_row((dst_offset + i) as usize, byte));
+                // it's guaranteed by Ethereum that dst + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L67
+                state_rows.push(self.get_memory_write_row(dst + i, byte));
             }
         }
 
@@ -711,22 +721,33 @@ impl WitnessExecHelper {
 
     pub fn get_return_data_copy_rows<F: Field>(
         &mut self,
-        dst: usize,
-        src: usize,
-        len: usize,
+        dst: U256,
+        src: U256,
+        len: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
-        //TODO: src_id need use last_call_id (return_data_write maybe use last_call_id )
+        // it's guaranteed by caller that it is in range u64
+        let src_offset = src.low_u64();
+        let dst_offset = dst.low_u64();
+        let length = len.low_u64();
+
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
-        let dst_copy_stamp = self.state_stamp + len as u64;
+        let dst_copy_stamp = self.state_stamp + length;
 
         let mut acc_pre = U256::from(0);
         let temp_256_f = F::from(256);
-        for i in 0..len {
-            // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
-            let data = self.return_data.get(&self.returndata_call_id).unwrap();
-            let byte = data.get(src + i).cloned().unwrap();
+
+        for i in 0..length {
+            // todo situations to deal: if according to address ,get nil
+            let data = self
+                .return_data
+                .get(&self.call_id)
+                .unwrap_or_else(|| panic!("return data doesn't exist at current call_id"));
+            let byte = data
+                .get((src_offset + i) as usize)
+                .cloned()
+                .unwrap_or_else(|| panic!("err return data out of bounds. should not occur here."));
 
             // calc acc
             let acc: U256 = if i == 0 {
@@ -743,36 +764,42 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Tag::Returndata,
                 src_id: self.returndata_call_id.into(),
-                src_pointer: src.into(),
+                src_pointer: src,
                 src_stamp: copy_stamp.into(),
                 dst_type: copy::Tag::Memory,
                 dst_id: self.call_id.into(),
-                dst_pointer: dst.into(),
+                dst_pointer: dst,
                 dst_stamp: dst_copy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
                 acc,
             });
-
+            // it's guaranteed by Ethereum that src + i < returndata's total length, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L337
             state_rows.push(
                 self.get_return_data_read_row(src + i, self.returndata_call_id)
                     .0,
             );
         }
 
-        for i in 0..len {
-            // todo situations to deal: 1. if according to address ,get nil ;2. or return_data is not long enough
-            let data = self.return_data.get(&self.returndata_call_id).unwrap();
-            let byte = data.get(src + i).cloned().unwrap();
-
+        for i in 0..length {
+            let data = self
+                .return_data
+                .get(&self.returndata_call_id)
+                .unwrap_or_else(|| panic!("return data doesn't exist at current call_id"));
+            let byte = data
+                .get((src + i).as_usize())
+                .cloned()
+                .unwrap_or_else(|| panic!("err return data out of bounds. should not occur here."));
+            // it's guaranteed by Ethereum that dst + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L27
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 
         (copy_rows, state_rows)
     }
-    pub fn get_calldata_read_row(&mut self, dst: usize) -> (state::Row, u8) {
+    pub fn get_calldata_read_row(&mut self, offset: U256) -> (state::Row, u8) {
+        // we don't need to consider whether offset.as_usize() panics, which is guaranteed by its callers.
         let val = self.call_data[&self.call_id]
-            .get(dst)
+            .get(offset.as_usize())
             .cloned()
             .unwrap_or_default();
         let state_row = state::Row {
@@ -782,22 +809,27 @@ impl WitnessExecHelper {
             value_lo: Some(val.into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some(dst.into()),
+            pointer_lo: Some(offset),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
         (state_row, val)
     }
 
-    pub fn get_calldata_write_row(&mut self, dst: usize, val: u8, dst_call_id: u64) -> state::Row {
+    pub fn get_calldata_write_row(
+        &mut self,
+        offset: U256,
+        value: u8,
+        dst_call_id: u64,
+    ) -> state::Row {
         let state_row = state::Row {
             tag: Some(Tag::CallData),
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
-            value_lo: Some(val.into()),
+            value_lo: Some(value.into()),
             call_id_contract_addr: Some(dst_call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some(dst.into()),
+            pointer_lo: Some(offset),
             is_write: Some(1.into()),
         };
         self.state_stamp += 1;
@@ -805,19 +837,23 @@ impl WitnessExecHelper {
     }
 
     pub fn get_calldata_copy_rows<F: Field>(
+        //TODO: in its caller (calldatacopy.rs), guarantee that src and len are the result of length arithmetic.
         &mut self,
-        dst: usize,
-        src: usize,
-        len: usize,
+        dst: U256,
+        src: U256,
+        len: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
+        // it's guaranteed by caller that it is in range u64
+        let length = len.low_u64();
 
         let mut acc_pre = U256::from(0);
         let temp_256_f = F::from(256);
 
-        for i in 0..len {
+        for i in 0..length {
+            // we don't need to consider overflow panics, which is guaranteed by its callers.
             let (state_row, byte) = self.get_calldata_read_row(src + i);
 
             // calc acc
@@ -835,12 +871,12 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Tag::Calldata,
                 src_id: self.call_id.into(),
-                src_pointer: src.into(),
+                src_pointer: src,
                 src_stamp: copy_stamp.into(),
                 dst_type: copy::Tag::Memory,
                 dst_id: self.call_id.into(),
-                dst_pointer: dst.into(),
-                dst_stamp: (copy_stamp + len as u64).into(),
+                dst_pointer: dst,
+                dst_stamp: (copy_stamp + length).into(),
                 cnt: i.into(),
                 len: len.into(),
                 acc,
@@ -848,9 +884,13 @@ impl WitnessExecHelper {
             state_rows.push(state_row);
         }
 
-        for i in 0..len {
+        for i in 0..length {
             let call_data = self.call_data.get(&self.call_id).unwrap();
-            let byte = call_data.get(src + i).cloned().unwrap_or_default();
+            // it's guaranteed by the caller that (src + i).as_usize() doesn't panic.
+            let byte = call_data
+                .get((src + i).as_usize())
+                .cloned()
+                .unwrap_or_default();
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
 
@@ -860,12 +900,15 @@ impl WitnessExecHelper {
     pub fn get_calldata_write_rows<F: Field>(
         &mut self,
         trace: &GethExecStep,
-        args_offset: usize,
-        args_len: usize,
+        src: U256,
+        len: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
         let copy_stamp = self.state_stamp;
+        // it's guaranteed by caller that it is in range u64
+        let args_offset = src.low_u64();
+        let args_len = len.low_u64();
 
         let mut acc_pre = U256::from(0);
         let temp_256_f = F::from(256);
@@ -876,7 +919,7 @@ impl WitnessExecHelper {
             let byte = trace
                 .memory
                 .0
-                .get(args_offset + i)
+                .get((args_offset + i) as usize)
                 .cloned()
                 .unwrap_or_default();
             calldata_new.push(byte);
@@ -900,16 +943,21 @@ impl WitnessExecHelper {
                 dst_type: copy::Tag::Calldata,
                 dst_id: self.call_id_new.into(),
                 dst_pointer: 0.into(),
-                dst_stamp: (copy_stamp + args_len as u64).into(),
+                dst_stamp: (copy_stamp + args_len).into(),
                 cnt: i.into(),
                 len: args_len.into(),
                 acc,
             });
-            state_rows.push(self.get_memory_read_row(trace, args_offset + i));
+            // it's guaranteed by Ethereum that src + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L67
+            state_rows.push(self.get_memory_read_row(trace, src + i));
         }
 
-        for i in 0..args_len {
-            state_rows.push(self.get_calldata_write_row(i, calldata_new[i], self.call_id_new));
+        for i in 0..args_len as usize {
+            state_rows.push(self.get_calldata_write_row(
+                i.into(),
+                calldata_new[i],
+                self.call_id_new,
+            ));
         }
 
         self.call_data.insert(self.call_id_new, calldata_new);
@@ -918,8 +966,9 @@ impl WitnessExecHelper {
     }
 
     pub fn get_calldata_load_rows<F: Field>(
+        // TODO: in its caller(calldataload.rs), guarantee that offset < u64::MAX - 32
         &mut self,
-        offset: usize,
+        offset: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let call_data = &self.call_data[&self.call_id];
 
@@ -939,8 +988,9 @@ impl WitnessExecHelper {
             let mut acc_pre = U256::from(0);
             let stamp_start = self.state_stamp;
             for j in 0..16 {
+                // we don't need to consider overflow panics, which is guaranteed by its callers.
                 let byte = call_data
-                    .get(i * 16 + j + offset)
+                    .get((offset + i * 16 + j).as_usize())
                     .cloned()
                     .unwrap_or_default();
                 let acc: U256 = if j == 0 {
@@ -956,7 +1006,7 @@ impl WitnessExecHelper {
                     byte: byte.into(),
                     src_type: copy::Tag::Calldata,
                     src_id: self.call_id.into(),
-                    src_pointer: offset_start.into(),
+                    src_pointer: offset_start,
                     src_stamp: stamp_start.into(),
                     dst_type: copy::Tag::Null,
                     dst_id: 0.into(),
@@ -973,12 +1023,12 @@ impl WitnessExecHelper {
                     value_lo: Some(byte.into()),
                     call_id_contract_addr: Some(self.call_id.into()),
                     pointer_hi: None,
-                    pointer_lo: Some((offset_start + j).into()),
+                    pointer_lo: Some(offset_start + j),
                     is_write: Some(0.into()),
                 });
                 self.state_stamp += 1;
             }
-            offset_start += 16;
+            offset_start += 16.into();
         }
         (copy_rows, state_rows)
     }
@@ -1039,7 +1089,7 @@ impl WitnessExecHelper {
     pub fn get_mload_rows<F: Field>(
         &mut self,
         trace: &GethExecStep,
-        offset: usize,
+        offset: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
@@ -1051,12 +1101,15 @@ impl WitnessExecHelper {
         for _i in 0..2 {
             let mut acc_pre = U256::from(0);
             for j in 0..16 {
+                // we don't need to consider whether (offset_start + j).as_usize() panics because Ethereum has checked whether it overflows.
+                // reference : https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L39
                 let byte = trace
                     .memory
                     .0
-                    .get(offset_start + j)
+                    .get((offset_start + j).as_usize())
                     .cloned()
                     .unwrap_or_default();
+
                 // calc acc
                 let acc: U256 = if j == 0 {
                     byte.into()
@@ -1072,7 +1125,7 @@ impl WitnessExecHelper {
                     byte: byte.into(),
                     src_type: copy::Tag::Memory,
                     src_id: self.call_id.into(),
-                    src_pointer: offset_start.into(),
+                    src_pointer: offset_start,
                     src_stamp: stamp_start.into(),
                     dst_type: copy::Tag::Null,
                     dst_id: 0.into(),
@@ -1089,21 +1142,23 @@ impl WitnessExecHelper {
                     value_lo: Some(byte.into()),
                     call_id_contract_addr: Some(self.call_id.into()),
                     pointer_hi: None,
-                    pointer_lo: Some((offset_start + j).into()),
+                    // it's guaranteed by Ethereum that offset_start + j doesn't overflow.
+                    pointer_lo: Some(offset_start + j),
                     is_write: Some(0.into()),
                 });
                 self.state_stamp += 1;
             }
             stamp_start += 16;
-            offset_start += 16;
+            offset_start += 16.into();
         }
 
         (copy_rows, state_rows)
     }
 
+    //store 32-bytes value to memory
     pub fn get_mstore_rows<F: Field>(
         &mut self,
-        offset: usize,
+        offset: U256,
         value: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
@@ -1137,7 +1192,7 @@ impl WitnessExecHelper {
                     src_stamp: 0.into(),
                     dst_type: copy::Tag::Memory,
                     dst_id: self.call_id.into(),
-                    dst_pointer: offset_start.into(),
+                    dst_pointer: offset_start,
                     dst_stamp: stamp_start.into(),
                     cnt: j.into(),
                     len: 16.into(),
@@ -1150,13 +1205,14 @@ impl WitnessExecHelper {
                     value_lo: Some(byte.into()),
                     call_id_contract_addr: Some(self.call_id.into()),
                     pointer_hi: None,
-                    pointer_lo: Some((offset_start + j).into()),
+                    // it's guaranteed by Ethereum that offset_start + j doesn't overflow, reference : https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L47
+                    pointer_lo: Some(offset_start + j),
                     is_write: Some(1.into()),
                 });
                 self.state_stamp += 1;
             }
             stamp_start += 16;
-            offset_start += 16;
+            offset_start += 16.into();
         }
 
         (copy_rows, state_rows)
@@ -1186,19 +1242,28 @@ impl WitnessExecHelper {
     pub fn get_return_revert_rows<F: Field>(
         &mut self,
         trace: &GethExecStep,
-        offset: usize,
-        len: usize,
+        offset: U256,
+        len: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
+        // it's guaranteed by caller that it is in range u64
+        let length = len.low_u64();
         let copy_stamp = self.state_stamp;
-        let dst_copy_stamp = self.state_stamp + len as u64;
+        let dst_copy_stamp = self.state_stamp + length;
 
         let mut acc_pre = U256::from(0);
         let temp_256_f = F::from(256);
 
-        for i in 0..len {
-            let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+        for i in 0..length {
+            // we don't need to consider whether (offset + i).as_usize() panics because Ethereum has checked whether it overflows.
+            // reference : https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L111
+            let byte = trace
+                .memory
+                .0
+                .get((offset + i).as_usize())
+                .cloned()
+                .unwrap_or_default();
 
             // calc acc
             let acc: U256 = if i == 0 {
@@ -1215,21 +1280,27 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Tag::Memory,
                 src_id: self.call_id.into(),
-                src_pointer: offset.into(),
+                src_pointer: offset,
                 src_stamp: copy_stamp.into(),
                 dst_type: copy::Tag::Returndata,
                 dst_id: self.call_id.into(),
                 dst_pointer: 0.into(),
                 dst_stamp: dst_copy_stamp.into(),
                 cnt: i.into(),
-                len: len.into(),
+                len,
                 acc,
             });
+            // it's guaranteed by Ethereum that offset + i doesn't overflow
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }
-        for i in 0..len {
-            let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
-            state_rows.push(self.get_return_data_write_row(i, byte));
+        for i in 0..length {
+            let byte = trace
+                .memory
+                .0
+                .get((offset + i).as_usize())
+                .cloned()
+                .unwrap_or_default();
+            state_rows.push(self.get_return_data_write_row(i.into(), byte));
         }
 
         (copy_rows, state_rows)
@@ -1281,19 +1352,27 @@ impl WitnessExecHelper {
     pub fn get_log_bytes_rows<F: Field>(
         &mut self,
         trace: &GethExecStep,
-        offset: usize,
-        len: usize,
+        offset: U256,
+        len: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
+        let length = len.low_u64();
         let copy_stamp = self.state_stamp;
         let log_stamp = self.log_stamp;
 
         let mut acc_pre = U256::from(0);
         let temp_256_f = F::from(256);
 
-        for i in 0..len {
-            let byte = trace.memory.0.get(offset + i).cloned().unwrap_or_default();
+        for i in 0..length {
+            // we don't need to consider whether (offset + i).as_usize() panics because Ethereum has checked whether it overflows.
+            // reference : https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L119
+            let byte = trace
+                .memory
+                .0
+                .get((offset + i).as_usize())
+                .cloned()
+                .unwrap_or_default();
 
             // calc acc
             let acc: U256 = if i == 0 {
@@ -1309,7 +1388,7 @@ impl WitnessExecHelper {
                 byte: byte.into(),
                 src_type: copy::Tag::Memory,
                 src_id: self.call_id.into(),
-                src_pointer: offset.into(),
+                src_pointer: offset,
                 src_stamp: copy_stamp.into(),
                 dst_type: copy::Tag::PublicLog,
                 dst_id: self.tx_idx.into(), // tx_idx
@@ -1319,6 +1398,7 @@ impl WitnessExecHelper {
                 len: len.into(),
                 acc,
             });
+            // it's guaranteed by Ethereum that offset + i doesn't overflow.
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }
 
@@ -2078,6 +2158,7 @@ impl Witness {
 
     /// Generate witness of one transaction's trace
     pub fn new(geth_data: &GethData) -> Self {
+        assert!(U256::from(usize::MAX) >= U256::from(u64::MAX),"struct Memory doesn't support evm's memory because the range of usize is smaller than that of u64");
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         > = get_every_execution_gadgets!();
