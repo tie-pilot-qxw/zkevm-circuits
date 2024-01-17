@@ -53,8 +53,8 @@ pub mod tx_context;
 use std::collections::HashMap;
 
 use crate::table::{
-    extract_lookup_expression, ArithmeticTable, BytecodeTable, CopyTable, LookupEntry, StateTable,
-    ANNOTATE_SEPARATOR, PUBLIC_NUM_VALUES,
+    extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable,
+    LookupEntry, StateTable, ANNOTATE_SEPARATOR, PUBLIC_NUM_VALUES,
 };
 use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
@@ -161,6 +161,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     pub(crate) state_table: StateTable,
     pub(crate) arithmetic_table: ArithmeticTable,
     pub(crate) copy_table: CopyTable,
+    pub(crate) bitwise_table: BitwiseTable,
 }
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
@@ -1708,7 +1709,7 @@ mod test {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
-            use crate::table::{BytecodeTable, StateTable, ArithmeticTable, CopyTable};
+            use crate::table::{BitwiseTable, BytecodeTable, StateTable, ArithmeticTable, CopyTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             use eth_types::GethExecStep;
@@ -1764,7 +1765,9 @@ mod test {
                     let q_enable_arithmetic = meta.complex_selector();
                     let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
                     let q_enable_copy = meta.complex_selector();
-                    let copy_table = CopyTable::construct(meta,q_enable_copy);
+                    let copy_table = CopyTable::construct(meta, q_enable_copy);
+                    let q_enable_bitwise = meta.complex_selector();
+                    let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
                     let q_first_exec_state = meta.selector();
                     let config = ExecutionConfig {
                         q_first_exec_state,
@@ -1782,6 +1785,7 @@ mod test {
                         state_table,
                         arithmetic_table,
                         copy_table,
+                        bitwise_table,
                     };
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {
