@@ -5,6 +5,7 @@ pub(crate) mod mul;
 pub(crate) mod mulmod;
 pub(crate) mod slt_sgt;
 pub(crate) mod sub;
+pub(crate) mod u64overflow;
 
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
 use crate::witness::arithmetic::{Row, Tag};
@@ -24,6 +25,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::div_mod::new(),
             crate::arithmetic_circuit::operation::length::new(),
             crate::arithmetic_circuit::operation::mulmod::new(),
+            crate::arithmetic_circuit::operation::u64overflow::new(),
         ]
     }};
 }
