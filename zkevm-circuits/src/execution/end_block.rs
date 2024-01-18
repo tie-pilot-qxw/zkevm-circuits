@@ -5,8 +5,7 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{state, Witness, WitnessExecHelper};
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -150,7 +149,7 @@ mod test {
                 NUM_STATE_LO_COL,
             )
         };
-        let (witness, prover) =
+        let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
     }

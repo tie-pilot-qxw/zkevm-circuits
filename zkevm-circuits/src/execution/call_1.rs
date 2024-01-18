@@ -15,11 +15,11 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
-/// | 2 | COPY  |                          |
+/// | 2 | COPY  |                          |
 /// | 1 | STATE1| STATE2| STATE3|LEN_INV(1)|
-/// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
+/// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
 /// +---+-------+-------+-------+----------+
 ///
 /// STATE_STAMP_INIT means the state stamp just before the call operation is executed, which is used by the next gadget.
@@ -228,9 +228,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_read_0, &stack_read_1, &call_context_write_row]);
 
         let len_lo = F::from_u128(args_len.low_u128());
-        let lenlo_inv =
+        let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_1.vers_24, lenlo_inv);
+        assign_or_panic!(core_row_1.vers_24, len_lo_inv);
 
         let mut core_row_0 = ExecutionState::CALL_1.into_exec_state_core_row(
             trace,
@@ -299,7 +299,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::CALL_2.into_exec_state_core_row(
+            let row = ExecutionState::CALL_2.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

@@ -57,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::end_call::NUM_ROW)
+        (NUM_ROW, end_call::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -176,8 +176,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // extend opcode and pc constraints
         constraints.extend([(
-            format!("opcode is RETURN or REVERT").into(),
-            (opcode.clone() - (OpcodeId::RETURN).expr()) * (opcode - (OpcodeId::REVERT).expr()),
+            "opcode is RETURN or REVERT".into(),
+            (opcode.clone() - OpcodeId::RETURN.expr()) * (opcode - OpcodeId::REVERT.expr()),
         )]);
         // next state is END_CALL
         constraints.extend(config.get_exec_state_constraints(

@@ -60,8 +60,7 @@ use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::simple_seletor::SimpleSelector;
@@ -132,6 +131,7 @@ use crate::constant::NUM_VERS;
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
+#[allow(unused)]
 #[derive(Clone)]
 pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> {
     /// only enable for BEGIN_BLOCK
@@ -275,27 +275,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_calldata_load_lookup(
-        &self,
-        meta: &mut VirtualCells<F>,
-        index: usize, // 0..31
-        base_pointer: Expression<F>,
-        base_stamp: Expression<F>,
-        value: &Column<Advice>,
-    ) -> LookupEntry<F> {
-        assert!(index < 32);
-        LookupEntry::State {
-            tag: (state::Tag::CallData as u8).expr(),
-            stamp: base_stamp + index.expr(),
-            value_lo: meta.query_advice(*value, Rotation(-2)),
-            call_id_contract_addr: meta.query_advice(self.call_id, Rotation(-2)),
-            pointer_lo: base_pointer + index.expr(),
-            value_hi: 0.expr(),
-            pointer_hi: 0.expr(),
-            is_write: 0.expr(),
-        }
-    }
-
     pub(crate) fn get_state_lookup(
         &self,
         meta: &mut VirtualCells<F>,
@@ -399,17 +378,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     + len_is_zero.clone() * copy_lookup_src_type,
             ),
             (
-                format!("src_id of copy"),
+                "src_id of copy".into(),
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_src_id.clone() - src_id)
                     + len_is_zero.clone() * copy_lookup_src_id,
             ),
             (
-                format!("src_pointer of copy"),
+                "src_pointer of copy".into(),
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_src_pointer.clone() - src_pointer)
                     + len_is_zero.clone() * copy_lookup_src_pointer,
             ),
             (
-                format!("src_stamp of copy"),
+                "src_stamp of copy".into(),
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_src_stamp.clone() - src_stamp)
                     + len_is_zero.clone() * copy_lookup_src_stamp,
             ),
@@ -420,39 +399,39 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     + len_is_zero.clone() * copy_lookup_dst_type,
             ),
             (
-                format!("dst_id of copy"),
+                "dst_id of copy".into(),
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_id.clone() - dst_id)
                     + len_is_zero.clone() * copy_lookup_dst_id,
             ),
             (
-                format!("dst_pointer of copy"),
+                "dst_pointer of copy".into(),
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_pointer.clone() - dst_pointer)
                     + len_is_zero.clone() * copy_lookup_dst_pointer,
             ),
             (
-                format!("dst_stamp of copy"),
+                "dst_stamp of copy".into(),
                 (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_stamp.clone() - dst_stamp)
                     + len_is_zero.clone() * copy_lookup_dst_stamp,
             ),
-            (format!("length of copy"), copy_lookup_length.expr() - len),
+            ("length of copy".into(), copy_lookup_length.expr() - len),
             (
-                format!("cnt of copy = 0 if len = 0"),
+                "cnt of copy = 0 if len = 0".into(),
                 len_is_zero.clone() * copy_lookup_cnt.clone(),
             ),
             (
-                format!("acc of copy = 0 if len = 0"),
+                "acc of copy = 0 if len = 0".into(),
                 len_is_zero.clone() * copy_lookup_acc.clone(),
             ),
         ]);
         if let Some(cnt) = cnt {
             constraints.push((
-                format!("cnt of copy = some value"),
+                "cnt of copy = some value".into(),
                 copy_lookup_cnt - cnt.clone(),
             ))
         }
         if let Some(acc) = acc {
             constraints.push((
-                format!("acc of copy = some value"),
+                "acc of copy = some value".into(),
                 copy_lookup_acc - acc.clone(),
             ))
         }
@@ -477,7 +456,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         selector: Expression<F>,
         copy_lookup_entry: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let mut constraints_raw = self.get_copy_constraints(
+        let constraints_raw = self.get_copy_constraints(
             src_type,
             src_id,
             src_pointer,
@@ -493,7 +472,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_lookup_entry.clone(),
         );
 
-        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+        let res: Vec<(String, Expression<F>)> = constraints_raw
             .into_iter()
             .map(|constraint| (constraint.0, selector.clone() * constraint.1))
             .collect();
@@ -655,7 +634,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             write,
         );
 
-        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+        let res: Vec<(String, Expression<F>)> = constraints_raw
             .into_iter()
             .map(|constraint| (constraint.0, selector.clone() * constraint.1))
             .collect();
@@ -689,7 +668,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             write,
         );
 
-        let mut res: Vec<(String, Expression<F>)> = constraints_raw
+        let res: Vec<(String, Expression<F>)> = constraints_raw
             .into_iter()
             .map(|constraint| (constraint.0, selector.clone() * constraint.1))
             .collect();
@@ -711,7 +690,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             index,
             prev_exec_state_row,
             write,
-            (state::CallContextTag::ReturnDataCallId as u8).expr(),
+            (CallContextTag::ReturnDataCallId as u8).expr(),
             0.expr(),
         );
         let (_, _, value_hi, _, _, _, _, _) = extract_lookup_expression!(state, entry);
@@ -1201,18 +1180,13 @@ pub(crate) trait ExecutionGadget<
 }
 
 #[derive(Clone)]
-pub(crate) struct ExecutionGadgets<
-    F: Field,
-    const NUM_STATE_HI_COL: usize,
-    const NUM_STATE_LO_COL: usize,
-> {
-    config: ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+pub(crate) struct ExecutionGadgets<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> {
 }
 
-impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    ExecutionGadgets<NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
-    pub(crate) fn configure(
+    pub(crate) fn configure<F: Field>(
         meta: &mut ConstraintSystem<F>,
         config: ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     ) -> Self {
@@ -1388,10 +1362,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             });
         }
 
-        ExecutionGadgets { config }
+        ExecutionGadgets {}
     }
 
-    pub(crate) fn unusable_rows() -> (usize, usize) {
+    pub(crate) fn unusable_rows<F: Field>() -> (usize, usize) {
         let gadgets: Vec<Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>> =
             get_every_execution_gadgets!();
         let unusable_begin =
@@ -1712,7 +1686,8 @@ mod test {
             use crate::table::{BitwiseTable, BytecodeTable, StateTable, ArithmeticTable, CopyTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
-            use eth_types::GethExecStep;
+            #[allow(unused_imports)]
+            use eth_types::{GethExecStep, U256};
             use gadgets::dynamic_selector::DynamicSelectorChip;
             use gadgets::is_zero::IsZeroInstruction;
             use gadgets::is_zero_with_rotation::IsZeroWithRotationChip;
@@ -1824,7 +1799,7 @@ mod test {
                             config
                                 .cnt_is_zero
                                 .annotate_columns_in_region(&mut region, "CORE_cnt_is_zero");
-                            config.q_first_exec_state.enable(&mut region, ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)?;
+                            config.q_first_exec_state.enable(&mut region, ExecutionGadgets::<NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows::<F>().0)?;
                             for (offset, row) in self.witness.core.iter().enumerate() {
                                 let cnt_is_zero: IsZeroWithRotationChip<F> =
                                     IsZeroWithRotationChip::construct(config.cnt_is_zero);
@@ -1936,7 +1911,7 @@ mod test {
             for _ in 0..gadget.unusable_rows().0 {
                 witness.core.insert(0, $padding_begin_row(&$current_state));
             }
-            let mut this_witness = gadget.gen_witness(&$trace, &mut $current_state);
+            let this_witness = gadget.gen_witness(&$trace, &mut $current_state);
             assert_eq!(gadget.num_row(), this_witness.core.len());
             witness.append(this_witness);
             for _ in 0..gadget.unusable_rows().1 {

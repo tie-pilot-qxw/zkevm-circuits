@@ -131,7 +131,7 @@ macro_rules! test_super_circuit_short_bytecode {
             MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
         };
         use zkevm_circuits::super_circuit::SuperCircuit;
-        use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
+        use zkevm_circuits::util::{geth_data_test, SubCircuit};
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
@@ -217,7 +217,7 @@ pub fn gen_random_hex_str(len: usize) -> String {
     let mut rng = rand::thread_rng();
     let one_char = || CHARSET[rng.gen_range(0..CHARSET.len())] as char;
     let rstr: String = iter::repeat_with(one_char).take(len).collect();
-    let prefix: String = "0x".to_string();
+    let prefix: String = "0x".into();
     format!("{prefix}{rstr}")
 }
 

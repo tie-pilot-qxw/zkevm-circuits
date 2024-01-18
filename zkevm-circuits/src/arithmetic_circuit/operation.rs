@@ -51,7 +51,7 @@ pub(crate) trait OperationGadget<F: Field> {
 //create a row of the arithmetic circuit
 pub(crate) fn get_row(a: [U256; 2], b: [U256; 2], u16s: Vec<u16>, cnt: u8, tag: Tag) -> Row {
     Row {
-        tag: tag,
+        tag,
         cnt: cnt.into(),
         operand_0_hi: a[0],
         operand_0_lo: a[1],

@@ -3,7 +3,7 @@ use crate::arithmetic_circuit::operation::{
     get_u16s, get_u16s_hi_lo, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, U256};
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::simple_mul::SimpleMulGadget;
@@ -11,9 +11,7 @@ use gadgets::simple_mul_512::SimpleMul512Gadget;
 use gadgets::util::{expr_from_u16s, split_u256_hi_lo, Expr};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-use itertools::Itertools;
 use std::marker::PhantomData;
-use std::ops::{Add, Mul};
 
 /// Construct the MulModGadget that checks a * b== r (mod n) ,
 /// where a, b, n, r are 256-bit words.
@@ -84,12 +82,12 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
             .collect();
         let u16_sum_for_carry_lo = expr_from_u16s(&carry_lo_u16s);
         constraints.push((
-            "carry_lo = u16 sum".to_string(),
+            "carry_lo = u16 sum".into(),
             k1_carry[1].clone() - u16_sum_for_carry_lo.clone(),
         ));
 
         // carry_hi == 0 in division, because 'a' as the dividend is 256-bit
-        constraints.push(("carry_hi == 0 ".to_string(), k1_carry[0].clone()));
+        constraints.push(("carry_hi == 0 ".into(), k1_carry[0].clone()));
 
         // 1.2 a_remainder < n if n != 0
         let is_lt_lo =
@@ -104,15 +102,15 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
 
         constraints.extend(is_lt.get_constraints());
         constraints.push((
-            "a_remainder < n if n != 0".to_string(),
+            "a_remainder < n if n != 0".into(),
             (1.expr() - is_lt.expr()) * (n[0].clone() + n[1].clone()),
         ));
 
         // 2.`a_remainder * b + 0 = e + d * 2^256 `
-        let mut e = config.get_operand(18)(meta);
-        let mut d = config.get_operand(19)(meta);
-        let mut a_rem_mul_b_carry_2 = config.get_operand(20)(meta);
-        let mut a_rem_mul_b_carry = config.get_operand(21)(meta);
+        let e = config.get_operand(18)(meta);
+        let d = config.get_operand(19)(meta);
+        let a_rem_mul_b_carry_2 = config.get_operand(20)(meta);
+        let a_rem_mul_b_carry = config.get_operand(21)(meta);
 
         let (sum_for_a_rem_hi, a_rem_hi_1, a_rem_hi_2) = get_u16s(config, meta, Rotation(-4));
         let (sum_for_a_rem_lo, a_rem_lo_1, a_rem_lo_2) = get_u16s(config, meta, Rotation(-5));
@@ -133,7 +131,7 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
             ],
             [d[1].clone(), d[0].clone()],
             [e[1].clone(), e[0].clone()],
-            "a_remainder * b + 0 = e + d * 2^256".to_string(),
+            "a_remainder * b + 0 = e + d * 2^256".into(),
         );
 
         constraints.extend(a_rem_mul_512.get_constraints());
@@ -168,8 +166,8 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
         }
 
         // 3. `k2 * n + r = e + d * 2^256`
-        let mut k2n_plus_r_carry_2 = config.get_operand(40)(meta);
-        let mut k2n_plus_r_carry = config.get_operand(41)(meta);
+        let k2n_plus_r_carry_2 = config.get_operand(40)(meta);
+        let k2n_plus_r_carry = config.get_operand(41)(meta);
 
         let (sum_for_k2_hi, k2_hi_1, k2_hi_2) = get_u16s(config, meta, Rotation(-20));
         let (sum_for_k2_lo, k2_lo_1, k2_lo_2) = get_u16s(config, meta, Rotation(-21));
@@ -186,7 +184,7 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
             ],
             [d[1].clone(), d[0].clone()],
             [e[1].clone(), e[0].clone()],
-            "k2 * n + r = e + d * 2^256".to_string(),
+            "k2 * n + r = e + d * 2^256".into(),
         );
 
         constraints.extend(k2_mul_512.get_constraints());
@@ -229,7 +227,7 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
 
         constraints.extend(is_lt.get_constraints());
         constraints.push((
-            "r < n if n != 0".to_string(),
+            "r < n if n != 0".into(),
             (1.expr() - is_lt.expr()) * (n[0].clone() + n[1].clone()),
         ));
 
@@ -404,7 +402,7 @@ impl MulModCalculator {
     }
 
     /// 2.`a_remainder * b + 0 = e + d * 2^256`
-    fn get_first_mul512_rows(&mut self) -> (Vec<Row>) {
+    fn get_first_mul512_rows(&mut self) -> Vec<Row> {
         let (e, d) = get_mul512(vec![self.a_remainder, self.b]);
         let (a_rem_mul_b_carry_0, a_rem_mul_b_carry_1, a_rem_mul_b_carry_2) =
             get_mul_add_word(vec![self.a_remainder, self.b, U256::zero(), e, d]);
@@ -441,7 +439,7 @@ impl MulModCalculator {
     }
 
     /// 3.`k2 * n + r = e + d * 2^256`
-    fn get_second_mul512_rows(&self) -> (Vec<Row>) {
+    fn get_second_mul512_rows(&self) -> Vec<Row> {
         // 3.1 `k2 * n + r = e + d * 2^256`
         let (k2n_plus_r_carry_0, k2n_plus_r_carry_1, k2n_plus_r_carry_2) =
             get_mul_add_word(vec![self.k2, self.n, self.r, self.e, self.d]);

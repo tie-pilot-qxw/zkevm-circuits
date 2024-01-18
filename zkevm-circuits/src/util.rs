@@ -7,7 +7,6 @@ use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
     Advice, Any, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells,
 };
-use std::io::Read;
 use std::path::Path;
 use trace_parser::{
     read_accounts_from_api_result_file, read_block_from_api_result_file,

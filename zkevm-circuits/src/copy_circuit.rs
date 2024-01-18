@@ -132,8 +132,6 @@ pub struct CopyCircuitConfig<F: Field> {
     state_table: StateTable,
     // add public_table
     public_table: PublicTable,
-    // copy table
-    copy_table: CopyTable,
 }
 
 pub struct CopyCircuitConfigArgs<F> {
@@ -203,7 +201,6 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             bytecode_table,
             state_table,
             public_table,
-            copy_table,
             len_is_zero,
             cnt_is_zero,
             len_sub_cnt_one_is_zero,
@@ -872,7 +869,7 @@ mod test {
 
     impl<F: Field> SubCircuitConfig<F> for CopyTestCircuitConfig<F> {
         type ConfigArgs = ();
-        fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+        fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
             // initialize columns
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);

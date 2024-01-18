@@ -114,7 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assert_eq!(exp_d, d);
         // let arithmetic_rows = Witness::gen_arithmetic_witness(arithmetic::Tag::Addmod, [a, b, c, d]);
 
-        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        let core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         //core_row_2.insert_arithmetic_lookup(&arithmetic_rows);(&arithmetic_rows[0]);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 

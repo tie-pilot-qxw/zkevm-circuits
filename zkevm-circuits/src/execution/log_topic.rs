@@ -4,13 +4,12 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{assign_or_panic, copy, public, Witness, WitnessExecHelper};
+use crate::witness::{public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
 use eth_types::evm_types::OpcodeId;
-use eth_types::GethExecStep;
-use eth_types::{Field, U256};
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -111,40 +110,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                format!("public tag is tx_log").into(),
+                "public tag is tx_log".into(),
                 public_tag - (public::Tag::TxLog as u8).expr(),
             ),
             (
-                format!("public tx_idx is config.tx_idx").into(),
+                "public tx_idx is config.tx_idx".into(),
                 public_tx_idx - tx_idx.clone(),
             ),
             (
-                format!("public log stamp is correct").into(),
+                "public log stamp is correct".into(),
                 public_values[0].clone() - log_stamp,
             ),
             (
-                format!("public topic log tag is TopicX depends on LOG_LEFT_X and opcode").into(),
+                "public topic log tag is TopicX depends on LOG_LEFT_X and opcode".into(),
                 selector.select(&[
                     0.expr(), // impossible! LOG_LEFT_4 only happens in LOG_TOPIC_NUM_ADDR
-                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
+                    (opcode.expr() - OpcodeId::LOG1.as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 3.expr(), // LOG_LEFT_3
-                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
+                    (opcode.expr() - OpcodeId::LOG1.as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 2.expr(), // LOG_LEFT_2
-                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
+                    (opcode.expr() - OpcodeId::LOG1.as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr())
                         - 1.expr(), // LOG_LEFT_1
-                    (opcode.expr() - (OpcodeId::LOG1).as_u8().expr())
+                    (opcode.expr() - OpcodeId::LOG1.as_u8().expr())
                         - (public_values[1].clone() - (LogTag::Topic0 as u8).expr()), // LOG_LEFT_0
                 ]),
             ),
             (
-                format!("public topic hash hi is stack value_hi").into(),
+                "public topic hash hi is stack value_hi".into(),
                 public_values[2].clone() - value_hi.clone(),
             ),
             (
-                format!("public topic hash lo is stack value_lo").into(),
+                "public topic hash lo is stack value_lo".into(),
                 public_values[3].clone() - value_lo.clone(),
             ),
         ]);
@@ -207,7 +206,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        let mut state_rows = vec![stack_pop_topic];
+        let state_rows = vec![stack_pop_topic];
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -230,7 +229,6 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     use crate::witness::WitnessExecHelper;
-    use std::hash::Hash;
     generate_execution_gadget_test_circuit!();
     #[test]
     fn test_log_topic_log1() {
@@ -240,7 +238,6 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-        let topic_left = 1;
 
         let stack = Stack::from_slice(&[topic0_hash.into()]);
         let stack_pointer = stack.0.len();

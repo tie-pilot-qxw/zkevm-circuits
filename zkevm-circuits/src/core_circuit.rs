@@ -18,6 +18,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use strum::EnumCount;
 
+#[allow(unused)]
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 {
@@ -44,7 +45,7 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     pub execution_state_selector:
         DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     /// Execution gadgets to constraint execution states
-    execution_gadgets: ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    execution_gadgets: ExecutionGadgets<NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
     state_table: StateTable,
@@ -384,7 +385,7 @@ impl<
     }
 
     fn unusable_rows() -> (usize, usize) {
-        ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows()
+        ExecutionGadgets::<NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows::<F>()
         //todo add other values
     }
 
@@ -396,15 +397,9 @@ impl<
 
 #[cfg(test)]
 mod test {
-
     use super::*;
-    use crate::bytecode_circuit::{
-        BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
-    };
-    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+    use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::core_circuit::CoreCircuit;
-    use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-    use crate::table::FixedTable;
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::bytecode;

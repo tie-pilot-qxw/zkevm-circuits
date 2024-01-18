@@ -1,4 +1,3 @@
-use crate::table::LookupEntry;
 use crate::witness::state;
 use crate::{state_circuit::SortedElements, table::FixedTable};
 use eth_types::{Field, ToBigEndian};
@@ -269,7 +268,7 @@ impl<F: Field> Queries<F> {
         let tag = keys.tag.value(ratation)(meta);
         let mut query_advice = |column| meta.query_advice(column, ratation);
         Self {
-            tag: tag,
+            tag,
             call_id_or_address: keys.call_id_or_address.limbs.map(&mut query_advice),
             pointer_hi: keys.pointer_hi.limbs.map(&mut query_advice),
             pointer_lo: keys.pointer_lo.limbs.map(&mut query_advice),

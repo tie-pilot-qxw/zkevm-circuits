@@ -5,8 +5,7 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -113,10 +112,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let bytecode_loopup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
+        let bytecode_lookup = query_expression(meta, |meta| config.get_bytecode_full_lookup(meta));
         vec![
             ("jump_lookup_stack".into(), stack_lookup),
-            ("jump_lookup_bytecode".into(), bytecode_loopup),
+            ("jump_lookup_bytecode".into(), bytecode_lookup),
         ]
     }
 

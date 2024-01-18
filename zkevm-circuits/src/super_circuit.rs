@@ -4,7 +4,7 @@ use crate::bitwise_circuit::{BitwiseCircuit, BitwiseCircuitConfig, BitwiseCircui
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-use crate::fixed_circuit::{self, FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
+use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{
@@ -221,7 +221,7 @@ impl<
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let mut num_rows = vec![
+        let num_rows = vec![
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
@@ -322,7 +322,7 @@ mod tests {
         ));
         let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
         witness.write_html(&mut buf);
-        let (k, circuit, prover) = test_super_circuit(witness);
+        let (_k, _circuit, prover) = test_super_circuit(witness);
         prover.assert_satisfied_par();
     }
 
@@ -387,7 +387,7 @@ mod tests {
             Default::default(),
         ));
 
-        let (k, circuit, prover) = test_super_circuit(witness);
+        let (k, circuit, _prover) = test_super_circuit(witness);
         let circuit_cost: CircuitCost<
             G1,
             SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,

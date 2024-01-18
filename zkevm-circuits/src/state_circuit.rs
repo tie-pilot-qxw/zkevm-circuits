@@ -3,9 +3,9 @@ pub mod ordering;
 
 use self::ordering::Config as OrderingConfig;
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{FixedTable, LookupEntry, StateTable};
+use crate::table::{FixedTable, StateTable};
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
-use crate::witness::state::{self, Row, Tag};
+use crate::witness::state::{Row, Tag};
 use crate::witness::Witness;
 use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
@@ -123,25 +123,13 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         meta.create_gate("STATE_constraint_in_different_region", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let is_first_access = meta.query_advice(config.is_first_access, Rotation::cur());
-            let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
-            let memory_condition =
-                config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
-            let storage_condition =
-                config
-                    .tag
-                    .value_equals(state::Tag::Storage, Rotation::cur())(meta);
+            let stack_condition = config.tag.value_equals(Tag::Stack, Rotation::cur())(meta);
+            let memory_condition = config.tag.value_equals(Tag::Memory, Rotation::cur())(meta);
+            let _storage_condition = config.tag.value_equals(Tag::Storage, Rotation::cur())(meta);
             let callcontext_condition =
-                config
-                    .tag
-                    .value_equals(state::Tag::CallContext, Rotation::cur())(meta);
-            let calldata_condition =
-                config
-                    .tag
-                    .value_equals(state::Tag::CallData, Rotation::cur())(meta);
-            let return_condition =
-                config
-                    .tag
-                    .value_equals(state::Tag::ReturnData, Rotation::cur())(meta);
+                config.tag.value_equals(Tag::CallContext, Rotation::cur())(meta);
+            let calldata_condition = config.tag.value_equals(Tag::CallData, Rotation::cur())(meta);
+            let return_condition = config.tag.value_equals(Tag::ReturnData, Rotation::cur())(meta);
             let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
             let prev_value_hi = meta.query_advice(config.value_hi, Rotation::prev());
             let prev_value_lo = meta.query_advice(config.value_lo, Rotation::prev());
@@ -339,7 +327,7 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_first_access)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_write)?;
         let tag = BinaryNumberChip::construct(self.tag);
-        tag.assign(region, offset, &state::Tag::EndPadding)?;
+        tag.assign(region, offset, &Tag::EndPadding)?;
 
         self.sort_keys
             .call_id_or_address
@@ -453,19 +441,19 @@ impl<F: Field> StateCircuitConfig<F> {
             .annotate_columns_in_region(region, "STATE_config_tag");
         self.sort_keys
             .tag
-            .annotate_columns_in_region(region, "STATE_sort_elelents_tag");
+            .annotate_columns_in_region(region, "STATE_sort_elements_tag");
         self.sort_keys
             .call_id_or_address
-            .annotate_colums_in_region(region, "STATE_sore_elelents_call_id_or_address");
+            .annotate_columns_in_region(region, "STATE_sore_elements_call_id_or_address");
         self.sort_keys
             .pointer_hi
-            .annotate_colums_in_region(region, "STATE_sore_elelents_pointer_hi");
+            .annotate_columns_in_region(region, "STATE_sore_elements_pointer_hi");
         self.sort_keys
             .pointer_lo
-            .annotate_colums_in_region(region, "STATE_sore_elelents_pointer_lo");
+            .annotate_columns_in_region(region, "STATE_sore_elements_pointer_lo");
         self.sort_keys
             .stamp
-            .annotate_colums_in_region(region, "STATE_sore_elelents_stamp");
+            .annotate_colums_in_region(region, "STATE_sore_elements_stamp");
         self.ordering_config
             .annotate_columns_in_region(region, "STATE_ordering");
     }
@@ -491,7 +479,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
     fn synthesize_sub(
         &self,
         config: &Self::Config,
-        mut layouter: &mut impl Layouter<F>,
+        layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -524,7 +512,7 @@ mod test {
     use crate::constant::MAX_NUM_ROW;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
-    use crate::witness::{state, Witness};
+    use crate::witness::Witness;
     use eth_types::bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -545,7 +533,7 @@ mod test {
 
     impl<F: Field> SubCircuitConfig<F> for StateTestCircuitConfig<F> {
         type ConfigArgs = ();
-        fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+        fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
             let q_enable: Selector = meta.complex_selector(); //todo complex?
             let state_table = StateTable::construct(meta, q_enable);
             let fixed_table = FixedTable::construct(meta);
@@ -630,16 +618,16 @@ mod test {
     fn test_valid_ordering_state() {
         let witness = Witness {
             state: vec![
-                state::Row {
-                    tag: Some(state::Tag::Stack),
+                Row {
+                    tag: Some(Tag::Stack),
                     call_id_contract_addr: Some(1.into()),
                     pointer_lo: Some(8.into()),
                     stamp: Some(10.into()),
                     is_write: Some(1.into()),
                     ..Default::default()
                 },
-                state::Row {
-                    tag: Some(state::Tag::Stack),
+                Row {
+                    tag: Some(Tag::Stack),
                     call_id_contract_addr: Some(1.into()),
                     pointer_lo: Some(9.into()),
                     stamp: Some(11.into()),
@@ -663,16 +651,16 @@ mod test {
     fn test_invalid_order() {
         let witness = Witness {
             state: vec![
-                state::Row {
-                    tag: Some(state::Tag::Stack),
+                Row {
+                    tag: Some(Tag::Stack),
                     call_id_contract_addr: Some(1.into()),
                     pointer_lo: Some(9.into()),
                     stamp: Some(10.into()),
                     is_write: Some(1.into()),
                     ..Default::default()
                 },
-                state::Row {
-                    tag: Some(state::Tag::Stack),
+                Row {
+                    tag: Some(Tag::Stack),
                     call_id_contract_addr: Some(1.into()),
                     pointer_lo: Some(8.into()),
                     stamp: Some(11.into()),

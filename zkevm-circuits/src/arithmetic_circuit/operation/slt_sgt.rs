@@ -2,7 +2,7 @@ use crate::arithmetic_circuit::operation::{
     get_lt_operations, get_row, get_u16s, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::util::{pow_of_two, split_u256_hi_lo, Expr};
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -102,11 +102,11 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
 
         //constrain the a_hi and b_hi range
         constraints.push((
-            format!("a_hi = u16 sum"),
+            "a_hi = u16 sum".into(),
             a[0].clone() - u16_sum_for_a_hi.clone(),
         ));
         constraints.push((
-            format!("b_hi = u16 sum"),
+            "b_hi = u16 sum".into(),
             b[0].clone() - u16_sum_for_b_hi.clone(),
         ));
 
@@ -117,7 +117,7 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
         //  - if a_lt == 1, then a > b, carry_hi = 0; otherwise a_lt == 0, carry_hi = 1.
         //  - `lt[0].clone() != lt[1].clone()`.
         constraints.push((
-            format!("if a_lt = 1, then carry_hi = 0 or a_lt = 0.then carry_hi = 1"),
+            "if a_lt = 1, then carry_hi = 0 or a_lt = 0.then carry_hi = 1".into(),
             (1.expr() - (lt[0].clone() + carry[0].clone())) * (lt[0].clone() - lt[1].clone()),
         ));
 
@@ -132,12 +132,12 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let a = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
 
-    /// 1. build a_lt,a_diff b_lt,b_diff. And get a_hi_u16s b_hi_u16s
+    // 1. build a_lt,a_diff b_lt,b_diff. And get a_hi_u16s b_hi_u16s
     let lt_rows = get_lt_rows::<Fr>(&a[0], &b[0]);
     let a_lt = lt_rows[2].u16_0;
     let b_lt = lt_rows[2].u16_1;
 
-    /// 2. If a_lt is not equal to b_lt, then c equals 0. And when a_lt equals 1, carry is set to 0; otherwise, carry is set to 1.
+    // 2. If a_lt is not equal to b_lt, then c equals 0. And when a_lt equals 1, carry is set to 0; otherwise, carry is set to 1.
     let (c, carry) = if a_lt != b_lt {
         let c = U256::zero();
         let carry = if a_lt == 1.into() {
@@ -153,8 +153,8 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         (c, carry)
     };
 
-    let carrys = split_u256_hi_lo(&carry);
-    let (carry_hi, carry_lo) = (carrys[0], carrys[1]);
+    let carries = split_u256_hi_lo(&carry);
+    let (carry_hi, carry_lo) = (carries[0], carries[1]);
 
     let mut c_u16s: Vec<u16> = c
         .to_le_bytes()
@@ -263,7 +263,7 @@ mod test {
         };
         witness.print_csv();
         assert_eq!(
-            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            // a_lo + carry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
             arith[4].operand_0_lo + (arith[3].operand_1_lo << 128),
             arith[4].operand_1_lo + arith[3].operand_0_lo
         );
@@ -321,7 +321,7 @@ mod test {
 
         assert_eq!(U256::from(0), result[1] >> 128);
         // test a == b
-        let (arithmetic, result) = gen_witness(vec![b, a]);
+        let (_arithmetic, result) = gen_witness(vec![b, a]);
         assert_eq!(arith[3].operand_1_lo + arith[3].operand_1_hi, U256::zero());
 
         assert_eq!(U256::from(1), result[1] >> 128);

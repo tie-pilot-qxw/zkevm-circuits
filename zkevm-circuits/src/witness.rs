@@ -31,7 +31,6 @@ use eth_types::geth_types::GethData;
 use eth_types::{Bytecode, Field, GethExecStep, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
-use gadgets::util::Expr;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -142,7 +141,6 @@ impl WitnessExecHelper {
             "the tx idx should match that in current_state"
         );
         // due to we decide to start idx at 1 in witness
-        let tx_idx = tx_idx + 1;
         // if contract-create tx, calculate `to`, else convert `to`
         let to = tx.to.map_or_else(
             || create_contract_addr_with_prefix(&tx),
@@ -267,7 +265,7 @@ impl WitnessExecHelper {
             .get(self.stack_pointer - 1)
             .expect("error in current_state.get_pop_stack_row");
         let res = state::Row {
-            tag: Some(state::Tag::Stack),
+            tag: Some(Tag::Stack),
             stamp: Some((self.state_stamp).into()),
             value_hi: Some((value >> 128).as_u128().into()),
             value_lo: Some(value.low_u128().into()),
@@ -292,7 +290,7 @@ impl WitnessExecHelper {
             .get(trace_step.stack.0.len() - index_start_at_1)
             .expect("error in current_state.get_peek_stack_row_value");
         let res = state::Row {
-            tag: Some(state::Tag::Stack),
+            tag: Some(Tag::Stack),
             stamp: Some((self.state_stamp).into()),
             value_hi: Some((value >> 128).as_u128().into()),
             value_lo: Some(value.low_u128().into()),
@@ -308,7 +306,7 @@ impl WitnessExecHelper {
     pub fn get_memory_read_row(&mut self, trace_step: &GethExecStep, dst: usize) -> state::Row {
         let value = trace_step.memory.0.get(dst).cloned().unwrap_or_default();
         let res = state::Row {
-            tag: Some(state::Tag::Memory),
+            tag: Some(Tag::Memory),
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
             value_lo: Some(value.into()),
@@ -323,7 +321,7 @@ impl WitnessExecHelper {
 
     pub fn get_memory_write_row(&mut self, dst: usize, value: u8) -> state::Row {
         let res = state::Row {
-            tag: Some(state::Tag::Memory),
+            tag: Some(Tag::Memory),
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
             value_lo: Some(value.into()),
@@ -514,11 +512,10 @@ impl WitnessExecHelper {
 
     pub fn get_overwrite_stack_row(
         &mut self,
-        trace_step: &GethExecStep,
+        _trace_step: &GethExecStep,
         index_start_at_1: usize,
         value: U256,
     ) -> state::Row {
-        let len = trace_step.stack.0.len();
         let res = state::Row {
             tag: Some(state::Tag::Stack),
             stamp: Some((self.state_stamp).into()),
@@ -545,12 +542,11 @@ impl WitnessExecHelper {
         // way of processing address and src and len, reference go-ethereum's method
         // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L373
         // src offset check
-        let mut src_offset: u64 = 0;
-        if uint64_with_overflow(&src) {
-            src_offset = u64::MAX;
+        let src_offset = if uint64_with_overflow(&src) {
+            u64::MAX
         } else {
-            src_offset = src.as_u64();
-        }
+            src.as_u64()
+        };
         let dst_offset = dst.low_u64();
         let length = len.low_u64();
         let codecopy_stamp = self.state_stamp;
@@ -600,7 +596,7 @@ impl WitnessExecHelper {
                     dst_stamp: codecopy_stamp.into(),
                     cnt: i.into(),
                     len: code_copy_length.into(),
-                    acc: acc,
+                    acc,
                 });
                 state_rows.push(self.get_memory_write_row((dst_offset + i) as usize, byte));
             }
@@ -609,10 +605,7 @@ impl WitnessExecHelper {
         if padding_length > 0 {
             for i in 0..padding_length {
                 state_rows.push(
-                    self.get_memory_write_row(
-                        (dst_offset + code_copy_length + i) as usize,
-                        0 as u8,
-                    ),
+                    self.get_memory_write_row((dst_offset + code_copy_length + i) as usize, 0u8),
                 );
                 copy_rows.push(copy::Row {
                     byte: 0.into(),
@@ -658,7 +651,7 @@ impl WitnessExecHelper {
             .get(&self.returndata_call_id)
             .unwrap()
             .len() as u64;
-        let mut copy_length: u64 = 0;
+        let copy_length: u64;
 
         if length > return_data_length {
             copy_length = return_data_length;
@@ -696,7 +689,7 @@ impl WitnessExecHelper {
                     dst_stamp: (copy_stamp + copy_length).into(),
                     cnt: i.into(),
                     len: copy_length.into(),
-                    acc: acc,
+                    acc,
                 });
                 state_rows.push(
                     self.get_return_data_read_row(i as usize, self.returndata_call_id)
@@ -756,7 +749,7 @@ impl WitnessExecHelper {
                 dst_stamp: dst_copy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
-                acc: acc,
+                acc,
             });
 
             state_rows.push(
@@ -796,7 +789,7 @@ impl WitnessExecHelper {
 
     pub fn get_calldata_write_row(&mut self, dst: usize, val: u8, dst_call_id: u64) -> state::Row {
         let state_row = state::Row {
-            tag: Some(state::Tag::CallData),
+            tag: Some(Tag::CallData),
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
             value_lo: Some(val.into()),
@@ -848,7 +841,7 @@ impl WitnessExecHelper {
                 dst_stamp: (copy_stamp + len as u64).into(),
                 cnt: i.into(),
                 len: len.into(),
-                acc: acc,
+                acc,
             });
             state_rows.push(state_row);
         }
@@ -908,7 +901,7 @@ impl WitnessExecHelper {
                 dst_stamp: (copy_stamp + args_len as u64).into(),
                 cnt: i.into(),
                 len: args_len.into(),
-                acc: acc,
+                acc,
             });
             state_rows.push(self.get_memory_read_row(trace, args_offset + i));
         }
@@ -1023,7 +1016,7 @@ impl WitnessExecHelper {
                 dst_stamp: stamp_start.into(),
                 cnt: i.into(),
                 len: len.into(),
-                acc: acc,
+                acc,
             });
             state_rows.push(state::Row {
                 tag: Some(state::Tag::CallData),
@@ -1053,7 +1046,7 @@ impl WitnessExecHelper {
 
         let temp_256_f = F::from(256);
 
-        for i in 0..2 {
+        for _i in 0..2 {
             let mut acc_pre = U256::from(0);
             for j in 0..16 {
                 let byte = trace
@@ -1085,10 +1078,10 @@ impl WitnessExecHelper {
                     dst_stamp: 0.into(),
                     cnt: j.into(),
                     len: 16.into(),
-                    acc: acc,
+                    acc,
                 });
                 state_rows.push(state::Row {
-                    tag: Some(state::Tag::Memory),
+                    tag: Some(Tag::Memory),
                     stamp: Some((stamp_start + j as u64).into()),
                     value_hi: None,
                     value_lo: Some(byte.into()),
@@ -1146,7 +1139,7 @@ impl WitnessExecHelper {
                     dst_stamp: stamp_start.into(),
                     cnt: j.into(),
                     len: 16.into(),
-                    acc: acc,
+                    acc,
                 });
                 state_rows.push(state::Row {
                     tag: Some(state::Tag::Memory),
@@ -1228,7 +1221,7 @@ impl WitnessExecHelper {
                 dst_stamp: dst_copy_stamp.into(),
                 cnt: i.into(),
                 len: len.into(),
-                acc: acc,
+                acc,
             });
             state_rows.push(self.get_memory_read_row(trace, offset + i));
         }
@@ -1255,13 +1248,13 @@ impl WitnessExecHelper {
     }
     pub fn get_returndata_size_row(&mut self) -> (state::Row, U256) {
         let res = state::Row {
-            tag: Some(state::Tag::CallContext),
+            tag: Some(Tag::CallContext),
             stamp: Some((self.state_stamp).into()),
             value_hi: Some((self.returndata_size >> 128).as_u128().into()),
             value_lo: Some(self.returndata_size.low_u128().into()),
             call_id_contract_addr: Some(self.returndata_call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((state::CallContextTag::ReturnDataSize as u8).into()),
+            pointer_lo: Some((CallContextTag::ReturnDataSize as u8).into()),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
@@ -1270,13 +1263,13 @@ impl WitnessExecHelper {
     pub fn get_storage_contract_addr_row(&mut self) -> (state::Row, U256) {
         let value = self.storage_contract_addr.get(&self.call_id).unwrap();
         let res = state::Row {
-            tag: Some(state::Tag::CallContext),
+            tag: Some(Tag::CallContext),
             stamp: Some((self.state_stamp).into()),
             value_hi: Some((value.clone() >> 128).as_u128().into()),
             value_lo: Some(value.clone().low_u128().into()),
             call_id_contract_addr: Some(self.call_id.into()),
             pointer_hi: None,
-            pointer_lo: Some((state::CallContextTag::StorageContractAddr as u8).into()),
+            pointer_lo: Some((CallContextTag::StorageContractAddr as u8).into()),
             is_write: Some(0.into()),
         };
         self.state_stamp += 1;
@@ -1334,11 +1327,11 @@ impl WitnessExecHelper {
     pub fn get_public_log_data_size_row(&self, data_len: U256) -> public::Row {
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
-        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
-        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 28), "log_index".into());
         comments.insert(format!("vers_{}", 29), format!("log tag={}", "DataSize"));
-        comments.insert(format!("vers_{}", 30), format!("0"));
-        comments.insert(format!("vers_{}", 31), format!("data_len"));
+        comments.insert(format!("vers_{}", 30), "0".into());
+        comments.insert(format!("vers_{}", 31), "data_len".into());
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
@@ -1371,14 +1364,14 @@ impl WitnessExecHelper {
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
-        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
-        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 28), "log_index".into());
         comments.insert(
             format!("vers_{}", 29),
             format!("topic_log_tag={}", topic_tag),
         );
-        comments.insert(format!("vers_{}", 30), format!("topic_hash[..16]"));
-        comments.insert(format!("vers_{}", 31), format!("topic_hash[16..]"));
+        comments.insert(format!("vers_{}", 30), "topic_hash[..16]".into());
+        comments.insert(format!("vers_{}", 31), "topic_hash[16..]".into());
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
@@ -1394,8 +1387,8 @@ impl WitnessExecHelper {
     }
 
     pub fn get_public_log_topic_num_addr_row(&self, opcode_id: OpcodeId) -> public::Row {
-        let mut log_tag: LogTag;
-        let mut log_tag_name: &str;
+        let log_tag: LogTag;
+        let log_tag_name: &str;
 
         match opcode_id {
             OpcodeId::LOG0 => {
@@ -1427,11 +1420,11 @@ impl WitnessExecHelper {
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
-        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
-        comments.insert(format!("vers_{}", 28), format!("log_index"));
+        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 28), "log_index".into());
         comments.insert(format!("vers_{}", 29), format!("log_tag={}", log_tag_name));
-        comments.insert(format!("vers_{}", 30), format!("address[..4]"));
-        comments.insert(format!("vers_{}", 31), format!("address[4..]"));
+        comments.insert(format!("vers_{}", 30), "address[..4]".into());
+        comments.insert(format!("vers_{}", 31), "address[4..]".into());
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
@@ -1482,15 +1475,15 @@ impl WitnessExecHelper {
         };
 
         let mut comments = HashMap::new();
-        comments.insert(format!("vers_{}", 26), format!("tag"));
-        comments.insert(format!("vers_{}", 27), format!("tx_idx"));
+        comments.insert(format!("vers_{}", 26), "tag".into());
+        comments.insert(format!("vers_{}", 27), "tx_idx".into());
         comments.insert(format!("vers_{}", 28), value_comments[0].clone());
         comments.insert(format!("vers_{}", 29), value_comments[1].clone());
         comments.insert(format!("vers_{}", 30), value_comments[2].clone());
         comments.insert(format!("vers_{}", 31), value_comments[3].clone());
 
         let public_row = public::Row {
-            tag: tag,
+            tag,
             tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
             value_0: values[0],
             value_1: values[1],
@@ -1568,10 +1561,10 @@ impl core::Row {
                 format!("vers_{}", index * 5),
                 format!("tag:{:?}", bitwise_row.tag),
             ),
-            (format!("vers_{}", index * 5 + 1), format!("acc_0")),
-            (format!("vers_{}", index * 5 + 2), format!("acc_1")),
-            (format!("vers_{}", index * 5 + 3), format!("acc_2")),
-            (format!("vers_{}", index * 5 + 4), format!("sum_2")),
+            (format!("vers_{}", index * 5 + 1), "acc_0".into()),
+            (format!("vers_{}", index * 5 + 2), "acc_1".into()),
+            (format!("vers_{}", index * 5 + 3), "acc_2".into()),
+            (format!("vers_{}", index * 5 + 4), "sum_2".into()),
         ]);
     }
     pub fn insert_state_lookups<const NUM_LOOKUP: usize>(
@@ -1605,13 +1598,13 @@ impl core::Row {
             #[rustfmt::skip]
             self.comments.extend([
                 (format!("vers_{}", n * 8), format!("tag={:?}", state_row.tag)),
-                (format!("vers_{}", n * 8 + 1), format!("stamp")),
-                (format!("vers_{}", n * 8 + 2), format!("value_hi")),
-                (format!("vers_{}", n * 8 + 3), format!("value_lo")),
-                (format!("vers_{}", n * 8 + 4), format!("call_id")),
-                (format!("vers_{}", n * 8 + 5), format!("not used")),
-                (format!("vers_{}", n * 8 + 6), format!("stack pointer")),
-                (format!("vers_{}", n * 8 + 7), format!("is_write: read=0, write=1")),
+                (format!("vers_{}", n * 8 + 1), "stamp".into()),
+                (format!("vers_{}", n * 8 + 2), "value_hi".into()),
+                (format!("vers_{}", n * 8 + 3), "value_lo".into()),
+                (format!("vers_{}", n * 8 + 4), "call_id".into()),
+                (format!("vers_{}", n * 8 + 5), "not used".into()),
+                (format!("vers_{}", n * 8 + 6), "stack pointer".into()),
+                (format!("vers_{}", n * 8 + 7), "is_write: read=0, write=1".into()),
             ]);
         }
     }
@@ -1654,14 +1647,14 @@ impl core::Row {
         }
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", 24), format!("code_addr")),
-            (format!("vers_{}", 25), format!("pc")),
+            (format!("vers_{}", 24), "code_addr".into()),
+            (format!("vers_{}", 25), "pc".into()),
             (format!("vers_{}", 26), format!("opcode={}", opcode)),
-            (format!("vers_{}", 27), format!("non_code must be 0")),
-            (format!("vers_{}", 28), format!("push_value_hi")),
-            (format!("vers_{}", 29), format!("push_value_lo")),
-            (format!("vers_{}", 30), format!("X for PUSHX")),
-            (format!("vers_{}", 31), format!("is_push")),
+            (format!("vers_{}", 27), "non_code must be 0".into()),
+            (format!("vers_{}", 28), "push_value_hi".into()),
+            (format!("vers_{}", 29), "push_value_lo".into()),
+            (format!("vers_{}", 30), "X for PUSHX".into()),
+            (format!("vers_{}", 31), "is_push".into()),
         ]);
     }
 
@@ -1701,10 +1694,10 @@ impl core::Row {
         assign_or_panic!(*vec[index][8], (row_0.tag as u8).into());
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", index * WIDTH), format!("arithmetic operand 0 hi")),
-            (format!("vers_{}", index * WIDTH + 1), format!("arithmetic operand 0 lo")),
-            (format!("vers_{}", index * WIDTH + 2), format!("arithmetic operand 1 hi")),
-            (format!("vers_{}", index * WIDTH + 3), format!("arithmetic operand 1 lo")),
+            (format!("vers_{}", index * WIDTH), "arithmetic operand 0 hi".into()),
+            (format!("vers_{}", index * WIDTH + 1), "arithmetic operand 0 lo".into()),
+            (format!("vers_{}", index * WIDTH + 2), "arithmetic operand 1 hi".into()),
+            (format!("vers_{}", index * WIDTH + 3), "arithmetic operand 1 lo".into()),
             (format!("vers_{}", index * WIDTH + 8), format!("arithmetic tag={:?}", row_0.tag)),
         ]);
         match row_0.tag {
@@ -1712,19 +1705,19 @@ impl core::Row {
                 self.comments.extend([
                     (
                         format!("vers_{}", index * WIDTH + 4),
-                        format!("arithmetic sum hi"),
+                        "arithmetic sum hi".into(),
                     ),
                     (
                         format!("vers_{}", index * WIDTH + 5),
-                        format!("arithmetic sum lo"),
+                        "arithmetic sum lo".into(),
                     ),
                     (
                         format!("vers_{}", index * WIDTH + 6),
-                        format!("arithmetic carry hi"),
+                        "arithmetic carry hi".into(),
                     ),
                     (
                         format!("vers_{}", index * WIDTH + 7),
-                        format!("arithmetic carry lo"),
+                        "arithmetic carry lo".into(),
                     ),
                 ]);
             }
@@ -1732,19 +1725,19 @@ impl core::Row {
                 self.comments.extend([
                     (
                         format!("vers_{}", index * WIDTH + 4),
-                        format!("arithmetic difference hi"),
+                        "arithmetic difference hi".into(),
                     ),
                     (
                         format!("vers_{}", index * WIDTH + 5),
-                        format!("arithmetic difference lo"),
+                        "arithmetic difference lo".into(),
                     ),
                     (
                         format!("vers_{}", index * WIDTH + 6),
-                        format!("arithmetic carry hi"),
+                        "arithmetic carry hi".into(),
                     ),
                     (
                         format!("vers_{}", index * WIDTH + 7),
-                        format!("arithmetic carry lo"),
+                        "arithmetic carry lo".into(),
                     ),
                 ]);
             }
@@ -1763,19 +1756,19 @@ impl core::Row {
             arithmetic::Tag::DivMod => self.comments.extend([
                 (
                     format!("vers_{}", index * WIDTH + 4),
-                    format!("arithmetic quotient hi"),
+                    "arithmetic quotient hi".into(),
                 ),
                 (
                     format!("vers_{}", index * WIDTH + 5),
-                    format!("arithmetic quotient lo"),
+                    "arithmetic quotient lo".into(),
                 ),
                 (
                     format!("vers_{}", index * WIDTH + 6),
-                    format!("arithmetic remainder hi"),
+                    "arithmetic remainder hi".into(),
                 ),
                 (
                     format!("vers_{}", index * WIDTH + 7),
-                    format!("arithmetic remainder lo"),
+                    "arithmetic remainder lo".into(),
                 ),
             ]),
             _ => (),
@@ -1816,11 +1809,11 @@ impl core::Row {
         }
         let comments = vec![
             (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
-            (format!("vers_{}", 27), format!("tx_idx_or_number_diff")),
-            (format!("vers_{}", 28), format!("value_0")),
-            (format!("vers_{}", 29), format!("value_1")),
-            (format!("vers_{}", 30), format!("value_2")),
-            (format!("vers_{}", 31), format!("value_3")),
+            (format!("vers_{}", 27), "tx_idx_or_number_diff".into()),
+            (format!("vers_{}", 28), "value_0".into()),
+            (format!("vers_{}", 29), "value_1".into()),
+            (format!("vers_{}", 30), "value_2".into()),
+            (format!("vers_{}", 31), "value_3".into()),
         ];
         self.comments.extend(comments);
     }
@@ -1848,19 +1841,19 @@ impl core::Row {
                 format!("vers_{}", 0),
                 format!("src_type={:?}", copy.src_type),
             ),
-            (format!("vers_{}", 1), format!("src_id")),
-            (format!("vers_{}", 2), format!("src_pointer")),
-            (format!("vers_{}", 3), format!("src_stamp")),
+            (format!("vers_{}", 1), "src_id".into()),
+            (format!("vers_{}", 2), "src_pointer".into()),
+            (format!("vers_{}", 3), "src_stamp".into()),
             (
                 format!("vers_{}", 4),
                 format!("dst_type={:?}", copy.dst_type),
             ),
-            (format!("vers_{}", 5), format!("dst_id")),
-            (format!("vers_{}", 6), format!("dst_pointer")),
-            (format!("vers_{}", 7), format!("dst_stamp")),
-            (format!("vers_{}", 8), format!("cnt")),
-            (format!("vers_{}", 9), format!("len")),
-            (format!("vers_{}", 10), format!("acc")),
+            (format!("vers_{}", 5), "dst_id".into()),
+            (format!("vers_{}", 6), "dst_pointer".into()),
+            (format!("vers_{}", 7), "dst_stamp".into()),
+            (format!("vers_{}", 8), "cnt".into()),
+            (format!("vers_{}", 9), "len".into()),
+            (format!("vers_{}", 10), "acc".into()),
         ];
         match padding_copy {
             Some(padding_copy_new) => {
@@ -1884,19 +1877,19 @@ impl core::Row {
                         format!("vers_{}", 11),
                         format!("padding_src_type={:?}", padding_copy_new.src_type),
                     ),
-                    (format!("vers_{}", 12), format!("padding_src_id")),
-                    (format!("vers_{}", 13), format!("padding_src_pointer")),
-                    (format!("vers_{}", 14), format!("padding_src_stamp")),
+                    (format!("vers_{}", 12), "padding_src_id".into()),
+                    (format!("vers_{}", 13), "padding_src_pointer".into()),
+                    (format!("vers_{}", 14), "padding_src_stamp".into()),
                     (
                         format!("vers_{}", 15),
                         format!("padding_dst_type={:?}", padding_copy_new.dst_type),
                     ),
-                    (format!("vers_{}", 16), format!("padding_dst_id")),
-                    (format!("vers_{}", 17), format!("padding_dst_pointer")),
-                    (format!("vers_{}", 18), format!("padding_dst_stamp")),
-                    (format!("vers_{}", 19), format!("padding_cnt")),
-                    (format!("vers_{}", 20), format!("padding_len")),
-                    (format!("vers_{}", 21), format!("padding_acc")),
+                    (format!("vers_{}", 16), "padding_dst_id".into()),
+                    (format!("vers_{}", 17), "padding_dst_pointer".into()),
+                    (format!("vers_{}", 18), "padding_dst_stamp".into()),
+                    (format!("vers_{}", 19), "padding_cnt".into()),
+                    (format!("vers_{}", 20), "padding_len".into()),
+                    (format!("vers_{}", 21), "padding_acc".into()),
                 ]);
             }
             None => (),
@@ -2016,9 +2009,9 @@ impl Witness {
             .append(&mut public::Row::from_geth_data(&geth_data).unwrap());
         for account in &geth_data.accounts {
             if !account.code.is_empty() {
-                let mut bytcode_table =
+                let mut bytecode_table =
                     Self::gen_bytecode_witness(account.address, account.code.as_ref());
-                self.bytecode.append(&mut bytcode_table);
+                self.bytecode.append(&mut bytecode_table);
             }
         }
     }
@@ -2094,7 +2087,7 @@ impl Witness {
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
         witness.insert_begin_block(&mut current_state);
-        for (i, trace) in geth_data.geth_traces.iter().enumerate() {
+        for (i, _trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
             witness.append(trace_related_witness);
@@ -2201,7 +2194,7 @@ impl Witness {
                 });
             }
             writer
-                .write(csv2html::row(&vec, i_row == 0, "".to_string(), &col_attrs).as_ref())
+                .write(csv2html::row(&vec, i_row == 0, "".into(), &col_attrs).as_ref())
                 .unwrap();
         }
         writer.write(csv2html::end().as_ref()).unwrap();

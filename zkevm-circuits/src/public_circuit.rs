@@ -94,7 +94,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
     fn synthesize_sub(
         &self,
         _config: &Self::Config,
-        mut _layouter: &mut impl Layouter<F>,
+        _layouter: &mut impl Layouter<F>,
     ) -> Result<(), Error> {
         // all instance column , do nothing
         Ok(())

@@ -134,7 +134,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "opcode is RETURNDATACOPY".into(),
-                opcode - (OpcodeId::RETURNDATACOPY).expr(),
+                opcode - OpcodeId::RETURNDATACOPY.expr(),
             ),
             ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
         ]);
@@ -213,11 +213,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         let len_lo = F::from_u128(length.low_u128());
-        let lenlo_inv =
+        let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
 
         //lenlo_inv
-        assign_or_panic!(core_row_2.vers_11, lenlo_inv);
+        assign_or_panic!(core_row_2[11], len_lo_inv);
 
         // get returndata_size
         let returndata_size = current_state
@@ -278,7 +278,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        //add WitnessExecHelper test retur_data 数据
+        //add WitnessExecHelper test return_data 数据
         let stack = Stack::from_slice(&[0.into(), 0.into(), 2.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {

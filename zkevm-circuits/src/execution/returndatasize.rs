@@ -1,6 +1,4 @@
-use crate::execution::{
-    Auxiliary, AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
-};
+use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{state, Witness, WitnessExecHelper};
@@ -174,8 +172,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use eth_types::U256;
-
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

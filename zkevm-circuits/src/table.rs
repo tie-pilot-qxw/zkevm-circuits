@@ -352,7 +352,7 @@ impl FixedTable {
 pub struct ArithmeticTable {
     /// Tag for arithmetic operation type
     pub tag: BinaryNumberConfig<arithmetic::Tag, LOG_NUM_ARITHMETIC_TAG>,
-    /// The operands in one row, splitted to 2 (high and low 128-bit)
+    /// The operands in one row, split to 2 (high and low 128-bit)
     pub operands: [[Column<Advice>; 2]; NUM_OPERAND],
     /// Row counter, decremented for rows in one execution state
     pub cnt: Column<Advice>,
@@ -841,7 +841,7 @@ impl<F: Field> LookupEntry<F> {
             LookupEntry::U10(value) | LookupEntry::U16(value) | LookupEntry::U8(value) => {
                 vec![value.identifier()]
             }
-            _ => panic!("Not lookupentry!"),
+            _ => panic!("Not lookup entry!"),
         };
         // 添加Entry枚举自身名称作为去向
         strings.extend(vec![self.as_ref().to_string()]);
