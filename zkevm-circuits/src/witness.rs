@@ -58,6 +58,7 @@ pub struct WitnessExecHelper {
     pub value: HashMap<u64, U256>,
     pub sender: HashMap<u64, U256>,
     pub tx_idx: usize,
+    pub tx_num_in_block: usize,
     pub call_id: u64,
     pub call_id_new: u64,
     pub parent_call_id: HashMap<u64, u64>,
@@ -92,6 +93,7 @@ impl WitnessExecHelper {
             value: HashMap::new(),
             sender: HashMap::new(),
             tx_idx: 0,
+            tx_num_in_block: 0,
             call_id: 0,
             call_id_new: 0,
             parent_call_id: HashMap::new(),
@@ -1471,6 +1473,10 @@ impl WitnessExecHelper {
                     "value[16..]".into(),
                 ]
             }
+            public::Tag::BlockTxNum => {
+                values = [Some(self.tx_num_in_block.into()), None, None, None];
+                value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
+            }
             _ => panic!(),
         };
 
@@ -2087,6 +2093,8 @@ impl Witness {
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
         witness.insert_begin_block(&mut current_state);
+        // initialize txs number in current_state with geth_data
+        current_state.tx_num_in_block = geth_data.eth_block.transactions.len();    
         for (i, _trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
