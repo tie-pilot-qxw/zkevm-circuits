@@ -742,7 +742,7 @@ impl WitnessExecHelper {
             // todo situations to deal: if according to address ,get nil
             let data = self
                 .return_data
-                .get(&self.call_id)
+                .get(&self.returndata_call_id)
                 .expect("return data doesn't exist at current call_id");
             let byte = data
                 .get((src_offset + i) as usize)
@@ -2176,7 +2176,7 @@ impl Witness {
         witness.insert_begin_block(&mut current_state);
         // initialize txs number in current_state with geth_data
         current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
-        for (i, _trace) in geth_data.geth_traces.iter().enumerate() {
+        for i in 0..geth_data.geth_traces.len() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
             witness.append(trace_related_witness);
