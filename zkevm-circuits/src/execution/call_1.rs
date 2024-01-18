@@ -14,6 +14,10 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(super) const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: usize = 3;
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+
 /// Call1 is the first step of opcode CALL
 /// Algorithm overview:
 ///     1. read args_len, args_offset from stack (temporarily not popped)
@@ -35,11 +39,6 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+----------+
 ///
 /// Note: call_context write's call_id should be callee's
-
-pub(super) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: usize = 3;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
-
 pub struct Call1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }

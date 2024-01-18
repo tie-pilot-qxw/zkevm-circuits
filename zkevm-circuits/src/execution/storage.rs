@@ -11,6 +11,13 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+const NUM_ROW: usize = 2;
+
+const STATE_STAMP_DELTA: u64 = 4;
+const STACK_POINTER_DELTA_SLOAD: i32 = 0;
+const STACK_POINTER_DELTA_SSTORE: i32 = -2;
+const PC_DELTA: u64 = 1;
+
 /// Storage is a combination of Sload and Sstore.
 /// Algorithm overview:
 /// SLOAD:
@@ -41,14 +48,6 @@ use std::marker::PhantomData;
 /// Note:
 ///     1. In STATE3 of SLOAD and STATE4 of SSTORE, contract_addr is value hi,lo of STATE1 and pointer hi,lo is value hi,lo of STATE2.
 ///     2. STATE4's value hi,lo equals to value hi,lo of STATE3
-
-const NUM_ROW: usize = 2;
-
-const STATE_STAMP_DELTA: u64 = 4;
-const STACK_POINTER_DELTA_SLOAD: i32 = 0;
-const STACK_POINTER_DELTA_SSTORE: i32 = -2;
-const PC_DELTA: u64 = 1;
-
 pub struct StorageGadget<F: Field> {
     _marker: PhantomData<F>,
 }

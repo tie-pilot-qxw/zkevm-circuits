@@ -13,7 +13,13 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-// core rows
+pub(crate) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: u64 = 2;
+
+pub struct StopGadget<F: Field> {
+    _marker: PhantomData<F>,
+}
+
 /// Stop Execution State layout is as follows
 /// where STATE1 means state table lookup (call_context write returndata_call_id),
 /// STATE2 means state table lookup (call_context write returndata_size),
@@ -29,14 +35,6 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+---------+
 ///
 /// Note: here we constraint RETURNDATASIZE == 0.expr()
-
-pub(crate) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: u64 = 2;
-
-pub struct StopGadget<F: Field> {
-    _marker: PhantomData<F>,
-}
-
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for StopGadget<F>
 {

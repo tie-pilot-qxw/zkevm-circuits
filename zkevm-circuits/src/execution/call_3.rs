@@ -12,6 +12,11 @@ use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+
+pub(super) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: usize = 4;
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+
 /// Call3 is the third step of opcode CALL
 /// Algorithm overview:
 ///     1. set call_context's parent_call_id = current call_id
@@ -31,11 +36,6 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+----------+
 ///
 /// Note: call_context write's call_id should be callee's
-
-pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 4;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
-
 pub struct Call3Gadget<F: Field> {
     _marker: PhantomData<F>,
 }

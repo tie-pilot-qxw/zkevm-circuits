@@ -12,6 +12,10 @@ use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+
+pub(super) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: usize = 4;
+
 /// Call4 is the fourth step of opcode CALL.
 /// After Call4, there should be execution states of the callee.
 /// Algorithm overview:
@@ -30,10 +34,6 @@ use std::marker::PhantomData;
 /// +---+-------+-------+-------+----------+
 ///
 /// Note: call_context write's call_id should be callee's
-
-pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 4;
-
 pub struct Call4Gadget<F: Field> {
     _marker: PhantomData<F>,
 }

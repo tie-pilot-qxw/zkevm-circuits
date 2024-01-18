@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{Witness, WitnessExecHelper};
@@ -9,7 +11,11 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::CoreSinglePurposeOutcome;
+const NUM_ROW: usize = 2;
+
+const STATE_STAMP_DELTA: u64 = 2;
+const STACK_POINTER_DELTA: i32 = 0;
+const PC_DELTA: u64 = 1;
 
 /// NotGadget deal OpCodeId:NOT,
 /// it read an operand from the stack,
@@ -26,13 +32,6 @@ use super::CoreSinglePurposeOutcome;
 /// | 1 | STATE | STATE |                |
 /// | 0 | DYNA_SELECTOR   | AUX          |
 /// +---+-------+-------+-------+--------+
-
-const NUM_ROW: usize = 2;
-
-const STATE_STAMP_DELTA: u64 = 2;
-const STACK_POINTER_DELTA: i32 = 0;
-const PC_DELTA: u64 = 1;
-
 pub struct NotGadget<F: Field> {
     _marker: PhantomData<F>,
 }

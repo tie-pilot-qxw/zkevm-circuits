@@ -10,6 +10,13 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+const NUM_ROW: usize = 3;
+
+const STATE_STAMP_DELTA: u64 = 3;
+const STACK_POINTER_DELTA: i32 = -2;
+const PC_DELTA: u64 = 1;
+const BYTE_MAX: u8 = 0xff;
+
 /// MSTORE8 gadget:
 /// MSTORE8 algorithm overview：
 ///    1.pop the two elements on top of the stack
@@ -29,14 +36,6 @@ use std::marker::PhantomData;
 /// +---+-------+--------+--------+----------+
 ///
 /// NOTE: here we only need bitwise_lo, because proving result == value & 0xff is equivalent to proving result == value_lo & 0xff.
-
-const NUM_ROW: usize = 3;
-
-const STATE_STAMP_DELTA: u64 = 3;
-const STACK_POINTER_DELTA: i32 = -2;
-const PC_DELTA: u64 = 1;
-const BYTE_MAX: u8 = 0xff;
-
 pub struct MStore8Gadget<F: Field> {
     _marker: PhantomData<F>,
 }

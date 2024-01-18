@@ -15,6 +15,11 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(super) const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: usize = 4;
+const STACK_POINTER_DELTA: i32 = -6;
+const PC_DELTA: u64 = 1;
+
 /// Call5 is the last step of opcode CALL, which is
 /// located after the callee's all execution states.
 ///
@@ -44,12 +49,6 @@ use std::marker::PhantomData;
 /// Note:
 ///     1. The actual number of bytes copied might be smaller than ret_len, and we use length arithmetic to handle the problem.
 ///     2. According to Ethereum, the exceeding parts won't be padded with 0, so we don't need ZERO_COPY lookup.
-
-pub(super) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: usize = 4;
-const STACK_POINTER_DELTA: i32 = -6;
-const PC_DELTA: u64 = 1;
-
 pub struct Call5Gadget<F: Field> {
     _marker: PhantomData<F>,
 }

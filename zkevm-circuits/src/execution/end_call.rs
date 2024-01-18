@@ -13,6 +13,9 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(crate) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: usize = 4;
+
 /// EndCall recovers the current state from the callee to the caller.
 /// More precisely, it reads parent_call_id, parent_pc, parent_stack_pointer and parent_code_addr
 /// from call_context, and constraint the next state's call_id, pc and code_addr
@@ -33,10 +36,6 @@ use std::marker::PhantomData;
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
 /// | 0 | DYNA_SELECTOR   | AUX    |SUCCESS(1)| PARENT_CALL_ID_INV(1)| RETURNDATA_SIZE(1)|
 /// +---+-------+-------+-------+----------+
-
-pub(crate) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 4;
-
 pub struct EndCallGadget<F: Field> {
     _marker: PhantomData<F>,
 }

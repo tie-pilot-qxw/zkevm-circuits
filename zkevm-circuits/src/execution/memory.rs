@@ -1,4 +1,6 @@
-use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
@@ -9,7 +11,12 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
+const NUM_ROW: usize = 3;
+
+const STATE_STAMP_DELTA: u64 = 34;
+const STACK_POINTER_DELTA_MLOAD: i32 = 0;
+const STACK_POINTER_DELTA_MSTORE: i32 = -2;
+const PC_DELTA: u64 = 1;
 
 /// Memory is a combination of Mload and Mstore.
 /// Algorithm overview:
@@ -35,14 +42,6 @@ use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 /// +---+-------+--------+--------+----------+
 ///
 /// Note: acc of COPY1 and COPY2 are respectively value_hi and value_lo of STATE1
-
-const NUM_ROW: usize = 3;
-
-const STATE_STAMP_DELTA: u64 = 34;
-const STACK_POINTER_DELTA_MLOAD: i32 = 0;
-const STACK_POINTER_DELTA_MSTORE: i32 = -2;
-const PC_DELTA: u64 = 1;
-
 pub struct MemoryGadget<F: Field> {
     _marker: PhantomData<F>,
 }

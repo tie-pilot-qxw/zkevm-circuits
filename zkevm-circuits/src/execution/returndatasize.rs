@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{state, Witness, WitnessExecHelper};
@@ -9,7 +11,12 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::CoreSinglePurposeOutcome;
+const NUM_ROW: usize = 2;
+
+const STATE_STAMP_DELTA: u64 = 3;
+const STACK_POINTER_DELTA: i32 = 1;
+const PC_DELTA: u64 = 1;
+
 /// ReturnDataSize writes the size of the returned data from the last external call to the stack.
 /// ReturnDataSize algorithm overview：
 ///    1.read call_context's returndata_call_id
@@ -29,13 +36,6 @@ use super::CoreSinglePurposeOutcome;
 ///     1.In STATE1, callid=None (0); value_hi,lo is callid; usually value_hi is 0 and we can constraint "value_hi=0".
 ///     2.In STATE2, callid=value_lo of STATE1; value_hi,lo is result.
 ///     3.In STATE3, value hi,lo is STATE2's.
-
-const NUM_ROW: usize = 2;
-
-const STATE_STAMP_DELTA: u64 = 3;
-const STACK_POINTER_DELTA: i32 = 1;
-const PC_DELTA: u64 = 1;
-
 pub struct ReturnDataSizeGadget<F: Field> {
     _marker: PhantomData<F>,
 }
