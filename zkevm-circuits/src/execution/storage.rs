@@ -1,22 +1,21 @@
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
-/// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
+/// | 1 | STATE1| STATE2| STATE3| STATE4   |
+/// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 
 //STATE1: CallContext's StorageContractAddr, value hi,lo is the result.
@@ -56,12 +55,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA_SLOAD.expr()
-                * (OpcodeId::SSTORE.as_u8().expr() - opcode.clone())
-                + STACK_POINTER_DELTA_SSTORE.expr()
-                    * (opcode.clone() - OpcodeId::SLOAD.as_u8().expr()), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(
+                STACK_POINTER_DELTA_SLOAD.expr()
+                    * (OpcodeId::SSTORE.as_u8().expr() - opcode.clone())
+                    + STACK_POINTER_DELTA_SSTORE.expr()
+                        * (opcode.clone() - OpcodeId::SLOAD.as_u8().expr()),
+            ), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
             ..Default::default()
         };
 
@@ -131,18 +132,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                format!("storage_read == stack_push or stack_pop == storage_write hi"),
+                "storage_read == stack_push or stack_pop == storage_write hi".into(),
                 storage_read_stack_pop[0].clone() - stack_push_storage_write[0].clone(),
             ),
             (
-                format!("storage_read == stack_push or stack_pop == storage_write lo"),
+                "storage_read == stack_push or stack_pop == storage_write lo".into(),
                 storage_read_stack_pop[1].clone() - stack_push_storage_write[1].clone(),
             ),
         ]);
 
         constraints.extend([(
             "opcode".into(),
-            (opcode.clone() - (OpcodeId::SLOAD).expr()) * (opcode - (OpcodeId::SSTORE).expr()),
+            (opcode.clone() - OpcodeId::SLOAD.expr()) * (opcode - OpcodeId::SSTORE.expr()),
         )]);
 
         let core_single_delta = CoreSinglePurposeOutcome {
@@ -238,9 +239,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 mod test {
     use std::collections::HashMap;
 
-    use eth_types::U256;
-    use sha3::digest::typenum::U2;
-
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -255,7 +253,7 @@ mod test {
             stack_pointer: stack.0.len(),
             stack_top: Some(U256::from(0x1234)),
             call_id: 0x01,
-            storage_contract_addr: storage_contract_addr,
+            storage_contract_addr,
             ..WitnessExecHelper::new()
         };
 
@@ -300,7 +298,7 @@ mod test {
             stack_pointer: stack.0.len(),
             stack_top: None,
             call_id: 0x01,
-            storage_contract_addr: storage_contract_addr,
+            storage_contract_addr,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::SSTORE, stack);

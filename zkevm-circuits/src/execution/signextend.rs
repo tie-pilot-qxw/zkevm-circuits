@@ -1,7 +1,7 @@
 use crate::arithmetic_circuit::operation;
 use crate::constant::{self};
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -111,9 +111,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // not_is_zero
         let query_not_is_zero = meta.query_advice(config.vers[SKIP_WIDTH + 4], Rotation::cur());
 
-        let auxiliary_delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let auxiliary_delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         // auxiliary constraints
@@ -222,15 +222,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let operator_constraints = if i < 2 {
                 (
                     format!("bitwise[{}] operator = opAnd ", i),
-                    tag.clone() - (bitwise::Tag::And as u8).expr(),
+                    tag.clone() - (Tag::And as u8).expr(),
                 )
             } else {
                 (
                     format!("bitwise[{}] operator", i),
-                    (1.expr() - query_not_is_zero.expr())
-                        * (tag.clone() - (bitwise::Tag::And as u8).expr())
-                        + query_not_is_zero.expr()
-                            * (tag.clone() - (bitwise::Tag::Or as u8).expr()),
+                    (1.expr() - query_not_is_zero.expr()) * (tag.clone() - (Tag::And as u8).expr())
+                        + query_not_is_zero.expr() * (tag.clone() - (Tag::Or as u8).expr()),
                 )
             };
             // constraints
@@ -274,10 +272,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let exp_lookup = query_expression(meta, |meta| config.get_exp_lookup(meta));
         //  add bitwise lookups
-        let bitwise_lookup_0 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 0));
-        let bitwise_lookup_1 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 1));
-        let bitwise_lookup_2 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 2));
-        let bitwise_lookup_3 = query_expression(meta, |meta| config.get_bit_op_lookup(meta, 3));
+        let bitwise_lookup_0 = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 0));
+        let bitwise_lookup_1 = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 1));
+        let bitwise_lookup_2 = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 2));
+        let bitwise_lookup_3 = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 3));
         // arithmetic lookup
         let arithmetic_lookup =
             query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
@@ -316,17 +314,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let a_hi = a >> 128;
         let operand_1_hi_128 = operand_1 >> 128;
         let operand_1_lo_128: U256 = operand_1.low_u128().into();
-        let bitwise_lookup1 = bitwise::Row::from_operation::<F>(
-            bitwise::Tag::And,
-            operand_1_hi_128.as_u128(),
-            a_hi.as_u128(),
-        );
+        let bitwise_lookup1 =
+            bitwise::Row::from_operation::<F>(Tag::And, operand_1_hi_128.as_u128(), a_hi.as_u128());
 
-        let bitwise_lookup2 = bitwise::Row::from_operation::<F>(
-            bitwise::Tag::And,
-            operand_1_lo_128.as_u128(),
-            a_lo.as_u128(),
-        );
+        let bitwise_lookup2 =
+            bitwise::Row::from_operation::<F>(Tag::And, operand_1_lo_128.as_u128(), a_lo.as_u128());
 
         // get not_is_zero = (sum((operand_1 & a).as_bytes))/128
         let not_is_zero = (bitwise_lookup1.last().unwrap().sum_2

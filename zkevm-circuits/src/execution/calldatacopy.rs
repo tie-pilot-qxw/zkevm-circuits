@@ -1,5 +1,5 @@
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -21,7 +21,7 @@ const STACK_POINTER_DELTA: i32 = -3;
 ///
 /// CALLDATACOPY Execution State layout is as follows
 /// where COPY means copy table lookup (dst_offset, src_offset, length),
-/// LENGTH means retrive data length from calldata,
+/// LENGTH means retrieve data length from calldata,
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
@@ -65,9 +65,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -118,13 +120,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
         constraints.extend([
             (
-                format!("opcode").into(),
+                "opcode".into(),
                 opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
             ),
-            (
-                format!("next pc").into(),
-                pc_next - pc_cur - PC_DELTA.expr(),
-            ),
+            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
         ]);
         constraints
     }
@@ -270,7 +269,7 @@ mod test {
         run_prover(stack, current_state, "copylength_eq_0");
     }
 
-    fn run_prover(stack: Stack, mut current_state: WitnessExecHelper, file_name: &str) {
+    fn run_prover(stack: Stack, mut current_state: WitnessExecHelper, _file_name: &str) {
         let stack_pointer = stack.0.len();
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATACOPY, stack);
         let padding_begin_row = |current_state| {

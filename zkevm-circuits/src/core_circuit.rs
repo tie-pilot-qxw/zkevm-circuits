@@ -1,6 +1,8 @@
 use crate::constant::NUM_VERS;
 use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
-use crate::table::{BytecodeTable, LookupEntry, StateTable};
+use crate::table::{
+    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, LookupEntry, StateTable,
+};
 use crate::util::assign_advice_or_fixed;
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::core::Row;
@@ -16,6 +18,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use strum::EnumCount;
 
+#[allow(unused)]
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 {
@@ -42,15 +45,21 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     pub execution_state_selector:
         DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     /// Execution gadgets to constraint execution states
-    execution_gadgets: ExecutionGadgets<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    execution_gadgets: ExecutionGadgets<NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     // Tables used for lookup
     bytecode_table: BytecodeTable<F>,
     state_table: StateTable,
+    arithmetic_table: ArithmeticTable,
+    copy_table: CopyTable,
+    bitwise_table: BitwiseTable,
 }
 
 pub struct CoreCircuitConfigArgs<F> {
     pub bytecode_table: BytecodeTable<F>,
     pub state_table: StateTable,
+    pub arithmetic_table: ArithmeticTable,
+    pub copy_table: CopyTable,
+    pub bitwise_table: BitwiseTable,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -63,6 +72,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         Self::ConfigArgs {
             bytecode_table,
             state_table,
+            arithmetic_table,
+            copy_table,
+            bitwise_table,
         }: Self::ConfigArgs,
     ) -> Self {
         let q_enable = meta.complex_selector();
@@ -106,6 +118,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             execution_state_selector,
             bytecode_table,
             state_table,
+            arithmetic_table,
+            copy_table,
+            bitwise_table,
         };
         // all execution gadgets are created here
         let execution_gadgets = ExecutionGadgets::configure(meta, execution_config);
@@ -124,6 +139,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             execution_gadgets,
             bytecode_table,
             state_table,
+            arithmetic_table,
+            copy_table,
+            bitwise_table,
         };
 
         meta.create_gate("CORE_cnt_decrement_unless_0", |meta| {
@@ -367,7 +385,7 @@ impl<
     }
 
     fn unusable_rows() -> (usize, usize) {
-        ExecutionGadgets::<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows()
+        ExecutionGadgets::<NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows::<F>()
         //todo add other values
     }
 
@@ -379,15 +397,9 @@ impl<
 
 #[cfg(test)]
 mod test {
-
     use super::*;
-    use crate::bytecode_circuit::{
-        BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
-    };
-    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+    use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::core_circuit::CoreCircuit;
-    use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-    use crate::table::FixedTable;
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::bytecode;
@@ -401,6 +413,9 @@ mod test {
         pub core_circuit: CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         pub bytecode_table: BytecodeTable<F>,
         pub state_table: StateTable,
+        pub arithmetic_table: ArithmeticTable,
+        pub copy_table: CopyTable,
+        pub bitwise_table: BitwiseTable,
     }
     #[derive(Clone, Default, Debug)]
     pub struct CoreTestCircuit<F: Field> {
@@ -419,17 +434,29 @@ mod test {
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
+            let q_enable_arithmetic = meta.complex_selector();
+            let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
+            let q_enable_copy = meta.complex_selector();
+            let copy_table = CopyTable::construct(meta, q_enable_copy);
+            let q_enable_bitwise = meta.complex_selector();
+            let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
             let core_circuit = CoreCircuitConfig::new(
                 meta,
                 CoreCircuitConfigArgs {
                     bytecode_table,
                     state_table,
+                    arithmetic_table,
+                    copy_table,
+                    bitwise_table,
                 },
             );
             Self::Config {
                 core_circuit,
                 bytecode_table,
                 state_table,
+                arithmetic_table,
+                copy_table,
+                bitwise_table,
             }
 
             // let q_enable_bytecode = meta.complex_selector();
@@ -467,6 +494,33 @@ mod test {
                 |mut region| {
                     config
                         .state_table
+                        .assign_with_region(&mut region, &self.witness)
+                },
+            )?;
+            // assign arithmetic table, but do not enable selector, since we are not testing it here
+            layouter.assign_region(
+                || "test, arithmetic circuit",
+                |mut region| {
+                    config
+                        .arithmetic_table
+                        .assign_with_region(&mut region, &self.witness)
+                },
+            )?;
+            //  assign copy table, but do not enable selector, since we are not testing it here
+            layouter.assign_region(
+                || "test, copy circuit",
+                |mut region| {
+                    config
+                        .copy_table
+                        .assign_with_region(&mut region, &self.witness)
+                },
+            )?;
+            //  assign bitwise table, but do not enable selector, since we are not testing it here
+            layouter.assign_region(
+                || "test, bitwise circuit",
+                |mut region| {
+                    config
+                        .bitwise_table
                         .assign_with_region(&mut region, &self.witness)
                 },
             )?;

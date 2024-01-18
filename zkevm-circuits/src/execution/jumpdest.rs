@@ -1,19 +1,17 @@
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
 use crate::util::ExpressionOutcome;
 use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 1;
-const PC_DELTA: u64 = 1;
 
 /// JumpDest Execution State layout is as follows
 /// DYNA_SELECTOR is dynamic selector of the state,
@@ -51,7 +49,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
-        let delta = AuxiliaryDelta {
+        let delta = AuxiliaryOutcome {
             ..Default::default()
         };
 
@@ -70,8 +68,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut ConstraintSystem<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }

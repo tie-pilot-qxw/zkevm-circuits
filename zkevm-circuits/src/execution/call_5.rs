@@ -1,7 +1,7 @@
 use crate::arithmetic_circuit::operation;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -16,11 +16,11 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 2 | COPY(11) | COPY_LEN(1)| LEN_INV(1)| COPY_PADDING_LEN(1)  |
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
+/// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 ///
 /// COPY_PADDING_LEN is only used to construct a lookup entry to arithmetic circuit.
@@ -64,9 +64,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
 
@@ -331,7 +333,7 @@ mod test {
         let value_vec = [0x12; 10];
         current_state.return_data.insert(0x50, value_vec.to_vec());
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_CALL.into_exec_state_core_row(

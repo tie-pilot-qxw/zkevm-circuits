@@ -1,29 +1,34 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, bitwise, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::GethExecStep;
-use eth_types::{Field, U256};
-use gadgets::simple_seletor::SimpleSelector;
-use gadgets::util::{expr_from_bytes, Expr};
+use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::{Auxiliary, CoreSinglePurposeOutcome};
-
-const NUM_ROW: usize = 5;
+const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
-
-#[derive(Debug, Clone, Copy)]
-enum BitOp {
-    And,
-    Or,
-    Xor,
-}
-
+/// AndOrXorGadget deal OpCodeId:{AND,OR,XOR}
+/// STATE0 record operand_0
+/// STATE1 record operand_1
+/// STATE2 record result
+/// TAG_SEL 3 columns, And Or Xor ,depends on opcode , only 1, else 0
+/// BW0 bitwise hi lookup , record operand_0 hi operator operand_1 hi ,originated from column 10
+/// BW1 bitwise lo lookup , record operand_0 hi operator operand_1 hi ,originated from column 15
+/// +---+-------+-------+-------+-----------+
+/// |cnt| 8 col | 8 col | 8 col |    8 col  |
+/// +---+-------+-------+-------+-----------+
+/// | 2 | UNUSED(10) |BW0|BW1|              |
+/// | 1 | STATE0|STATE1 |STATE2 |TAG_SEL(3) |                                                                  |
+/// | 0 | DYNA_SELECTOR   | AUX             |
+/// +---+-------+-------+-------+-----------|
 pub struct AndOrXorGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -47,22 +52,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let auxiliary_delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        let delta = CoreSinglePurposeOutcome {
+        // auxiliary constraints
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
+        // core single constraints
+        let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(1.expr()),
             ..Default::default()
         };
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-
-        let mut operands = vec![];
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+        // stack_operands [operand_0 hi, operand_0 lo , operand_1 hi, operand_1 lo,result hi,result lo]
+        let mut stack_operands = vec![];
         let stack_pointer_delta = vec![0, -1, -1];
+        // stack constraints
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
@@ -74,81 +82,58 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 i == 2,
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            operands.extend([value_hi, value_lo]);
+            stack_operands.push([value_hi, value_lo]);
         }
+        // selector constraints
+        // tag selector at row cnt = 1
         let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[29], Rotation::prev()),
-            meta.query_advice(config.vers[30], Rotation::prev()),
-            meta.query_advice(config.vers[31], Rotation::prev()),
+            // AND: vers[24] at row cnt = 1
+            meta.query_advice(config.vers[24], Rotation::prev()),
+            // OR: vers[25] at row cnt = 1
+            meta.query_advice(config.vers[25], Rotation::prev()),
+            // XOR: vers[26] at row cnt = 1
+            meta.query_advice(config.vers[26], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
-        let bit_op = meta.query_advice(config.vers[25], Rotation::prev());
-        constraints.push((
-            "bit op is correct".into(),
-            selector.select(&[
-                bit_op.clone() - (BitOp::And as usize).expr(),
-                bit_op.clone() - (BitOp::Or as usize).expr(),
-                bit_op.clone() - (BitOp::Xor as usize).expr(),
-            ]),
-        ));
-
-        constraints.extend([
-            (
-                "operand 0 hi".into(),
-                expr_from_bytes(
-                    &(16..32)
-                        .into_iter()
-                        .map(|x| meta.query_advice(config.vers[x], Rotation(-2)).clone())
-                        .collect::<Vec<_>>(),
-                ) - operands[0].clone(),
-            ),
-            (
-                "operand 0 lo".into(),
-                expr_from_bytes(
-                    &(0..16)
-                        .into_iter()
-                        .map(|x| meta.query_advice(config.vers[x], Rotation(-2)).clone())
-                        .collect::<Vec<_>>(),
-                ) - operands[1].clone(),
-            ),
-            (
-                "operand 1 hi".into(),
-                expr_from_bytes(
-                    &(16..32)
-                        .into_iter()
-                        .map(|x| meta.query_advice(config.vers[x], Rotation(-3)).clone())
-                        .collect::<Vec<_>>(),
-                ) - operands[2].clone(),
-            ),
-            (
-                "operand 1 lo".into(),
-                expr_from_bytes(
-                    &(0..16)
-                        .into_iter()
-                        .map(|x| meta.query_advice(config.vers[x], Rotation(-3)).clone())
-                        .collect::<Vec<_>>(),
-                ) - operands[3].clone(),
-            ),
-            (
-                "operand 2 hi".into(),
-                expr_from_bytes(
-                    &(16..32)
-                        .into_iter()
-                        .map(|x| meta.query_advice(config.vers[x], Rotation(-4)).clone())
-                        .collect::<Vec<_>>(),
-                ) - operands[4].clone(),
-            ),
-            (
-                "operand 2 lo".into(),
-                expr_from_bytes(
-                    &(0..16)
-                        .into_iter()
-                        .map(|x| meta.query_advice(config.vers[x], Rotation(-4)).clone())
-                        .collect::<Vec<_>>(),
-                ) - operands[5].clone(),
-            ),
-        ]);
-
+        // bitwise constraints
+        // i = 0: bitwise hi lookup
+        //        bitwise hi lookup acc 0 = stack_operands[0][0]
+        //        bitwise hi lookup acc 1 = stack_operands[1][0]
+        //        bitwise hi lookup acc 2 = stack_operands[2][0]
+        // i = 1: bitwise lo lookup
+        //        bitwise lo lookup acc 0 = stack_operands[0][1]
+        //        bitwise lo lookup acc 1 = stack_operands[1][1]
+        //        bitwise lo lookup acc 2 = stack_operands[2][1]
+        for i in 0..2 {
+            // get bitwise entry
+            let bitwise_entry = config.get_bitwise_lookup(meta, i);
+            let (bitwise_tag, bitwise_acc, _) = extract_lookup_expression!(bitwise, bitwise_entry);
+            // bitwise tag constraints
+            constraints.extend([(
+                "bitwise tag constraints".into(),
+                selector.select(&[
+                    bitwise_tag.clone() - (bitwise::Tag::And as usize).expr(),
+                    bitwise_tag.clone() - (bitwise::Tag::Or as usize).expr(),
+                    bitwise_tag.clone() - (bitwise::Tag::Xor as usize).expr(),
+                ]),
+            )]);
+            // bitwise acc 0 = stack_operands[0][i]
+            constraints.extend([(
+                format!("bitwise{} acc 0 = stack_operands{}{}", i, 0, i),
+                bitwise_acc[0].clone() - stack_operands[0][i].clone(),
+            )]);
+            // bitwise acc 1 = stack_operands[1][i]
+            constraints.extend([(
+                format!("bitwise{} acc 1 = stack_operands{}{}", i, 1, i),
+                bitwise_acc[1].clone() - stack_operands[1][i].clone(),
+            )]);
+            // bitwise acc 2 = stack_operands[2][i]
+            constraints.extend([(
+                format!("bitwise{} acc 2 = stack_operands{}{}", i, 2, i),
+                bitwise_acc[2].clone() - stack_operands[2][i].clone(),
+            )]);
+        }
+        // opcode constraints
         constraints.extend([(
             "opcode is correct".into(),
             selector.select(&[
@@ -164,74 +149,65 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // stack lookups
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
-        let mut lookups = vec![
+        // bitwise lookups
+        let bitwise_lookup_hi = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 0));
+        let bitwise_lookup_lo = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 1));
+        let lookups = vec![
             ("stack pop a".into(), stack_lookup_0),
             ("stack pop b".into(), stack_lookup_1),
             ("stack push".into(), stack_lookup_2),
+            ("bitwise hi lookup".into(), bitwise_lookup_hi),
+            ("bitwise lo lookup".into(), bitwise_lookup_lo),
         ];
-        (0..32).into_iter().for_each(|x| {
-            lookups.push((
-                format!("bitwise lookup {}", x).into(),
-                query_expression(meta, |meta| config.get_bit_op_lookup(meta, x)),
-            ))
-        });
         lookups
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // operand a
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
+        // operand b
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
+        // c is result
         let c = current_state.stack_top.unwrap_or_default();
-        let tag = match trace.op {
-            OpcodeId::AND => {
-                assert_eq!(c, a & b);
-                BitOp::And
-            }
-            OpcodeId::OR => {
-                assert_eq!(c, a | b);
-                BitOp::Or
-            }
-            OpcodeId::XOR => {
-                assert_eq!(c, a ^ b);
-                BitOp::Xor
-            }
-            _ => panic!("not and or xor"),
+        // bit_wise_rows = [bitwise hi, bitwise lo]
+        let mut bit_wise_rows = vec![];
+        let (result, op_tag, index) = match trace.op {
+            OpcodeId::AND => (a & b, bitwise::Tag::And, 0usize),
+            OpcodeId::OR => (a | b, bitwise::Tag::Or, 1),
+            OpcodeId::XOR => (a ^ b, bitwise::Tag::Xor, 2),
+            _ => panic!("not and,or,xor"),
         };
-
+        assert_eq!(c, result);
+        // get operands_hi bitwise rows
+        let bitwise_rows_hi =
+            bitwise::Row::from_operation::<F>(op_tag, (a >> 128).as_u128(), (b >> 128).as_u128());
+        // get operands_lo bitwise rows
+        let bitwise_rows_lo = bitwise::Row::from_operation::<F>(op_tag, a.low_u128(), b.low_u128());
         let stack_push_0 = current_state.get_push_stack_row(trace, c);
-
-        let mut core_row_4 = current_state.get_core_row_without_versatile(&trace, 4);
-        let mut v_c = [0u8; 32];
-        c.to_little_endian(&mut v_c);
-        core_row_4.fill_versatile_with_values(
-            &v_c.into_iter().map(|x| U256::from(x)).collect::<Vec<_>>(),
-        );
-
-        let mut core_row_3 = current_state.get_core_row_without_versatile(&trace, 3);
-        let mut v_b = [0u8; 32];
-        b.to_little_endian(&mut v_b);
-        core_row_3.fill_versatile_with_values(
-            &v_b.into_iter().map(|x| U256::from(x)).collect::<Vec<_>>(),
-        );
-
+        // insert bitwise lookups
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let mut v_a = [0u8; 32];
-        a.to_little_endian(&mut v_a);
-        core_row_2.fill_versatile_with_values(
-            &v_a.into_iter().map(|x| U256::from(x)).collect::<Vec<_>>(),
-        );
-
+        // bitwise hi lookup
+        core_row_2.insert_bitwise_lookups(0, &bitwise_rows_hi.last().unwrap());
+        // bitwise lo lookup
+        core_row_2.insert_bitwise_lookups(1, &bitwise_rows_lo.last().unwrap());
+        // fill bit_wise_rows
+        bit_wise_rows.extend(bitwise_rows_hi);
+        bit_wise_rows.extend(bitwise_rows_lo);
+        // insert state lookups
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
-        core_row_1.insert_bitwise_op_tag(tag as usize);
-        let mut v = [U256::from(0); 3];
-        v[tag as usize] = 1.into();
-        assign_or_panic!(core_row_1.vers_29, v[0]);
-        assign_or_panic!(core_row_1.vers_30, v[1]);
-        assign_or_panic!(core_row_1.vers_31, v[2]);
-
+        simple_selector_assign(
+            [
+                &mut core_row_1.vers_24,
+                &mut core_row_1.vers_25,
+                &mut core_row_1.vers_26,
+            ],
+            index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
         let core_row_0 = ExecutionState::AND_OR_XOR.into_exec_state_core_row(
             trace,
             current_state,
@@ -239,8 +215,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         Witness {
-            core: vec![core_row_4, core_row_3, core_row_2, core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
+            bitwise: bit_wise_rows,
             ..Default::default()
         }
     }
@@ -257,16 +234,15 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    #[test]
-    fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0xffff.into(), 0xff00.into()]);
+
+    fn run(opcode: OpcodeId, stack: Stack, stack_top: U256) {
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(0xff.into()),
+            stack_top: Some(stack_top),
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::XOR, stack);
+        let trace = prepare_trace_step!(0, opcode, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -291,5 +267,32 @@ mod test {
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
         prover.assert_satisfied_par();
+    }
+    #[test]
+    fn run_and() {
+        // 0xffff & 0xff00 = 0xff00
+        run(
+            OpcodeId::AND,
+            Stack::from_slice(&[0xffff.into(), 0xff00.into()]),
+            0xff00.into(),
+        )
+    }
+    #[test]
+    fn run_xor() {
+        // 0xffff ^ 0xff00 = 0x00ff
+        run(
+            OpcodeId::XOR,
+            Stack::from_slice(&[0xffff.into(), 0xff00.into()]),
+            0xff.into(),
+        )
+    }
+    #[test]
+    fn run_or() {
+        // 0xffff | 0xff00 = 0x00ff
+        run(
+            OpcodeId::OR,
+            Stack::from_slice(&[0xffff.into(), 0xff00.into()]),
+            0xffff.into(),
+        )
     }
 }

@@ -4,8 +4,7 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use std::marker::PhantomData;
 
@@ -31,15 +30,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn get_constraints(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut VirtualCells<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         vec![]
     }
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut ConstraintSystem<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }

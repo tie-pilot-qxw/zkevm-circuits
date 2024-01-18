@@ -1,10 +1,10 @@
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    call_4, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    call_4, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
@@ -14,10 +14,10 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
+/// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
 /// +---+-------+-------+-------+----------+
 ///
 /// STATE_STAMP_INIT means the state stamp just before the call operation is executed, which is used by the next gadget.
@@ -42,7 +42,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::call_4::NUM_ROW)
+        (NUM_ROW, call_4::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -68,9 +68,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation::cur(),
         );
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
 
@@ -114,7 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("ParentStackPointer write hi".into(), operands[2][0].clone()),
             (
                 "ParentCallId write lo".into(),
-                operands[1][0].clone() - call_id_cur,
+                operands[0][1].clone() - call_id_cur,
             ),
             (
                 "ParentProgramCounter write lo".into(),
@@ -264,10 +264,11 @@ mod test {
             ..WitnessExecHelper::new()
         };
         let state_stamp_init = 3;
+        current_state.call_id = 1;
         current_state.state_stamp = state_stamp_init + 3 + 2 * 0x04 + 2;
         current_state.call_id_new = state_stamp_init + 1;
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::CALL_2.into_exec_state_core_row(
@@ -281,7 +282,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::CALL_4.into_exec_state_core_row(
+            let row = ExecutionState::CALL_4.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

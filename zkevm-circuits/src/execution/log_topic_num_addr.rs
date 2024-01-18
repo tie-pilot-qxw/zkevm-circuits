@@ -1,5 +1,5 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
+    Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
     ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -8,8 +8,7 @@ use crate::witness::{public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use eth_types::evm_types::OpcodeId;
-use eth_types::GethExecStep;
-use eth_types::{Field, U256};
+use eth_types::{Field, GethExecStep};
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -76,10 +75,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0.expr(),
             LOG_STAMP_DELTA.expr(),
         ]);
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
-            log_stamp: log_stamp_delta,
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            log_stamp: ExpressionOutcome::Delta(log_stamp_delta),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -97,23 +96,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                format!("public tag is tx_log").into(),
+                "public tag is tx_log".into(),
                 public_tag - (public::Tag::TxLog as u8).expr(),
             ),
             (
-                format!("public tx_idx is config.tx_idx").into(),
+                "public tx_idx is config.tx_idx".into(),
                 public_tx_idx - tx_idx.clone(),
             ),
             (
-                format!("public log_stamp is correct").into(),
+                "public log_stamp is correct".into(),
                 public_values[0].clone() - log_stamp,
             ),
             (
-                format!("public log tag is addrWithXLog").into(),
-                public_values[1].clone() - (opcode.clone() - (OpcodeId::LOG0).as_u8().expr()),
+                "public log tag is addrWithXLog".into(),
+                public_values[1].clone() - (opcode.clone() - OpcodeId::LOG0.as_u8().expr()),
             ),
             (
-                format!("public log addr hi and lo is code_addr").into(),
+                "public log addr hi and lo is code_addr".into(),
                 public_values[2].clone() * pow_of_two::<F>(128) + public_values[3].clone()
                     - code_addr,
             ),
@@ -210,7 +209,6 @@ mod test {
         let call_id: u64 = 0xa;
         let tx_idx = 0xb;
         let log_stamp = 0x0;
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[length.into(), offset.into()]);
         let stack_pointer = stack.0.len();
@@ -261,7 +259,6 @@ mod test {
         let tx_idx = 0xb;
         let log_stamp = 0x1;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[topic0_hash.into(), length.into(), offset.into()]);
         let stack_pointer = stack.0.len();
@@ -312,7 +309,6 @@ mod test {
         let log_stamp = 0x2;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[
             topic1_hash.into(),
@@ -369,7 +365,6 @@ mod test {
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
 
         let stack = Stack::from_slice(&[
             topic2_hash.into(),

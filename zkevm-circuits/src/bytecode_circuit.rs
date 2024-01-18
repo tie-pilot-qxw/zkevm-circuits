@@ -1,15 +1,13 @@
-use crate::table::{BytecodeTable, FixedTable, LookupEntry};
+use crate::table::{BytecodeTable, FixedTable};
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::bytecode::Row;
-use crate::witness::{fixed, Witness};
+use crate::witness::Witness;
 use eth_types::{Field, U256};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Error, Expression, Instance, Selector,
-};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Instance, Selector};
 use halo2_proofs::poly::Rotation;
 use std::iter::zip;
 use std::marker::PhantomData;
@@ -49,6 +47,7 @@ use std::marker::PhantomData;
 ///  the data of PUSH instruction PUSH is bytes, so the range of a byte is 0~255
 ///  Fixed circuit table stores all values from 0 to 255.
 ///  that is, lookup src: Bytecode Circuit, lookup target: Fixed Circuit table， use LookupEntry::U8
+#[allow(unused)]
 #[derive(Clone)]
 pub struct BytecodeCircuitConfig<F> {
     q_enable: Selector,
@@ -537,7 +536,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 
     /// use Lookup to constrain the correctness of Opcode.
     /// src: bytecode circuit, target: fixed circuit table
-    pub fn bytecode_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
+    pub fn bytecode_lookup(&self, meta: &mut ConstraintSystem<F>, _name: &str) {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any(name, |meta| {
@@ -640,7 +639,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
                 // set column information
                 config.annotate_circuit_in_region(&mut region);
 
-                // assgin circuit table value
+                // assign circuit table value
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
                 config.assign_from_instance_with_region(
                     &mut region,
@@ -665,7 +664,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 
     fn num_rows(_witness: &Witness) -> usize {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
-        // Check that total number of rows in this subcircuit does not exceed max number of row (a super circuit level parameter)
+        // Check that total number of rows in this sub circuit does not exceed max number of row (a super circuit level parameter)
         assert!(
             num_padding_begin + MAX_CODESIZE + num_padding_end <= MAX_NUM_ROW,
             "begin padding {} + MAX_CODESIZE {} + end padding {} > MAX_NUM_ROW {} (consider increase parameter MAX_NUM_ROW)",
@@ -704,7 +703,7 @@ mod test {
     impl<F: Field> SubCircuitConfig<F> for BytecodeTestCircuitConfig<F> {
         type ConfigArgs = ();
 
-        fn new(meta: &mut ConstraintSystem<F>, args: Self::ConfigArgs) -> Self {
+        fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
             // initialize columns
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);

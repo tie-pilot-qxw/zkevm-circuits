@@ -2,7 +2,7 @@ use crate::arithmetic_circuit::operation::{
     get_lt_word_operations, get_row, get_u16s, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, split_u256_limb64, Expr};
@@ -10,7 +10,6 @@ use halo2_proofs::halo2curves::bn256::Fr;
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::ops::Mul;
 
 /// Construct the DivModGadget that checks b * c + d == a (modulo 2**256)(we have a/b = c reminder d,  ==> a = b * c + d),
 /// where a, b, c, d,carry are 256-bit words.
@@ -91,7 +90,7 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
             + c_limbs[3].clone() * b_limbs[0].clone();
 
         //get the u16s sum for carry_lo
-        let mut carry_lo_u16s: Vec<_> = (0..5)
+        let carry_lo_u16s: Vec<_> = (0..5)
             .map(|i| config.get_u16(i, Rotation(-8))(meta))
             .collect();
         let u16_sum_for_carry_lo = expr_from_u16s(&carry_lo_u16s);
@@ -120,20 +119,20 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
 
         // when carrying, ensure that carry_lo is within the 65-bit range
         constraints.push((
-            format!("carry_lo = u16 sum"),
+            "carry_lo = u16 sum".into(),
             carry[1].clone() - u16_sum_for_carry_lo.clone(),
         ));
         // carry_hi == 0 in division, because 'a' as the dividend is 256-bit
-        constraints.push((format!("carry_hi == 0 "), carry[0].clone()));
+        constraints.push(("carry_hi == 0 ".into(), carry[0].clone()));
 
         constraints.push((
-            format!("(c * b)_lo + d_lo == a_lo + carry_lo * 128"),
+            "(c * b)_lo + d_lo == a_lo + carry_lo * 128".into(),
             (t0.expr() + (t1.expr() * pow_of_two::<F>(64))) + d[1].clone()
                 - a[1].clone()
                 - carry[1].clone() * pow_of_two::<F>(128),
         ));
         constraints.push((
-            format!("(c * b)_hi + d_hi + carry_lo == a_hi "),
+            "(c * b)_hi + d_hi + carry_lo == a_hi ".into(),
             (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + d[0].clone() + carry[1].clone()
                 - a[0].clone(),
         ));
@@ -144,7 +143,7 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         // constraint d < b if b!=0
         constraints.extend(is_lt.get_constraints());
         constraints.push((
-            format!("d < b if b!=0 "),
+            "d < b if b!=0 ".into(),
             (1.expr() - is_lt.expr()) * (b[0].clone() + b[1].clone()),
         ));
 
@@ -284,7 +283,7 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
 }
 
 ///get d < b rows
-fn get_lt_word_rows<F: Field>(operands: Vec<U256>) -> (Vec<Row>) {
+fn get_lt_word_rows<F: Field>(operands: Vec<U256>) -> Vec<Row> {
     let (carry, diff_split, diff_u16s) = get_lt_word_operations(operands);
     let row_7 = get_row(
         [U256::zero(), U256::zero()],
@@ -309,15 +308,14 @@ fn get_lt_word_rows<F: Field>(operands: Vec<U256>) -> (Vec<Row>) {
 mod test {
     use super::{gen_witness, get_lt_word_rows};
     use crate::witness::Witness;
-    use eth_types::{Field, ToLittleEndian, U256};
-    use gadgets::util::split_u256_hi_lo;
+    use eth_types::{ToLittleEndian, U256};
     use halo2_proofs::halo2curves::bn256::Fr;
 
     #[test]
     fn test_gen_witness() {
         let a = 3.into();
         let b = u128::MAX.into();
-        let (arithmetic, result) = gen_witness(vec![a, b]);
+        let (arithmetic, _result) = gen_witness(vec![a, b]);
         let witness = Witness {
             arithmetic,
             ..Default::default()

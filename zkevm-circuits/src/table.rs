@@ -1,7 +1,7 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
-use crate::constant::LOG_NUM_STATE_TAG;
-use crate::witness::fixed;
+use crate::constant::{LOG_NUM_BITWISE_TAG, LOG_NUM_STATE_TAG};
 use crate::witness::{arithmetic, state};
+use crate::witness::{bitwise, copy, fixed};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
@@ -16,6 +16,7 @@ pub const U10_TAG: usize = 256;
 pub const PUBLIC_NUM_VALUES: usize = 4;
 pub const SEPARATOR: &str = "-";
 pub const ANNOTATE_SEPARATOR: &str = ",";
+pub const BITWISE_NUM_OPERAND: usize = 3;
 
 macro_rules! extract_lookup_expression {
     (state, $value:expr) => {
@@ -351,7 +352,7 @@ impl FixedTable {
 pub struct ArithmeticTable {
     /// Tag for arithmetic operation type
     pub tag: BinaryNumberConfig<arithmetic::Tag, LOG_NUM_ARITHMETIC_TAG>,
-    /// The operands in one row, splitted to 2 (high and low 128-bit)
+    /// The operands in one row, split to 2 (high and low 128-bit)
     pub operands: [[Column<Advice>; 2]; NUM_OPERAND],
     /// Row counter, decremented for rows in one execution state
     pub cnt: Column<Advice>,
@@ -363,6 +364,110 @@ impl ArithmeticTable {
         let cnt = meta.advice_column();
         let operands = std::array::from_fn(|_| [meta.advice_column(), meta.advice_column()]);
         Self { tag, cnt, operands }
+    }
+}
+
+// The table shared between Core circuit and Copy circuit
+#[derive(Clone, Copy, Debug)]
+pub struct CopyTable {
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
+    /// src Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    pub src_tag: BinaryNumberConfig<copy::Tag, LOG_NUM_STATE_TAG>,
+    /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
+    pub src_id: Column<Advice>,
+    /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
+    pub src_pointer: Column<Advice>,
+    /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
+    pub src_stamp: Column<Advice>,
+    /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
+    /// dst Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
+    pub dst_tag: BinaryNumberConfig<copy::Tag, LOG_NUM_STATE_TAG>,
+    /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
+    pub dst_id: Column<Advice>,
+    /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
+    pub dst_pointer: Column<Advice>,
+    /// The destination stamp, state stamp for Memory, Calldata, Returndata. As for PublicLog it means the log_stamp
+    pub dst_stamp: Column<Advice>,
+    /// The counter for one copy operation
+    pub cnt: Column<Advice>,
+    /// The length for one copy operation
+    pub len: Column<Advice>,
+    /// The accumulation value of bytes for one copy operation
+    pub acc: Column<Advice>,
+}
+impl CopyTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
+        let src_id = meta.advice_column();
+        let src_pointer = meta.advice_column();
+        let src_stamp = meta.advice_column();
+        let dst_id = meta.advice_column();
+        let dst_pointer = meta.advice_column();
+        let dst_stamp = meta.advice_column();
+        let cnt = meta.advice_column();
+        let len = meta.advice_column();
+        let acc = meta.advice_column();
+        let src_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let dst_tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        return Self {
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            cnt,
+            len,
+            src_tag,
+            dst_tag,
+            acc,
+        };
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_src_id = meta.query_advice(self.src_id, Rotation::cur());
+        let table_src_pointer = meta.query_advice(self.src_pointer, Rotation::cur());
+        let table_src_stamp = meta.query_advice(self.src_stamp, Rotation::cur());
+        let table_dst_id = meta.query_advice(self.dst_id, Rotation::cur());
+        let table_dst_pointer = meta.query_advice(self.dst_pointer, Rotation::cur());
+        let table_dst_stamp = meta.query_advice(self.dst_stamp, Rotation::cur());
+        let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
+        let table_len = meta.query_advice(self.len, Rotation::cur());
+        let table_acc = meta.query_advice(self.acc, Rotation::cur());
+        let table_src_tag = self.src_tag.value(Rotation::cur())(meta);
+        let table_dst_tag = self.dst_tag.value(Rotation::cur())(meta);
+        match entry {
+            LookupEntry::Copy {
+                src_type,
+                src_id,
+                src_pointer,
+                src_stamp,
+                dst_type,
+                dst_id,
+                dst_pointer,
+                dst_stamp,
+                cnt,
+                len,
+                acc,
+            } => {
+                vec![
+                    (src_type, table_src_tag),
+                    (dst_type, table_dst_tag),
+                    (src_id, table_src_id),
+                    (src_pointer, table_src_pointer),
+                    (src_stamp, table_src_stamp),
+                    (dst_id, table_dst_id),
+                    (dst_pointer, table_dst_pointer),
+                    (dst_stamp, table_dst_stamp),
+                    (cnt, table_cnt),
+                    (len, table_len),
+                    (acc, table_acc),
+                ]
+            }
+            _ => panic!("NOT copy lookup"),
+        }
     }
 }
 
@@ -414,6 +519,54 @@ impl PublicTable {
                 ]
             }
             _ => panic!("Not public lookup!"),
+        }
+    }
+}
+
+/// The table shared between Core Circuit and Bitwise Circuit
+#[derive(Clone, Copy, Debug)]
+pub struct BitwiseTable {
+    /// The operation tag, one of AND, OR, XOR
+    pub tag: BinaryNumberConfig<bitwise::Tag, LOG_NUM_BITWISE_TAG>,
+    /// The accumulation of bytes in one operation for each operand in one row
+    pub acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND],
+    /// The sum of bytes in one operation of operand 2, used to compute byte opcode
+    pub sum_2: Column<Advice>,
+}
+
+impl BitwiseTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
+        let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND] =
+            std::array::from_fn(|_| meta.advice_column());
+        let sum_2 = meta.advice_column();
+        Self {
+            tag,
+            acc_vec,
+            sum_2,
+        }
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = self.tag.value(Rotation::cur())(meta);
+        let table_acc_0 = meta.query_advice(self.acc_vec[0], Rotation::cur());
+        let table_acc_1 = meta.query_advice(self.acc_vec[1], Rotation::cur());
+        let table_acc_2 = meta.query_advice(self.acc_vec[2], Rotation::cur());
+        let table_sum_2 = meta.query_advice(self.sum_2, Rotation::cur());
+        match entry {
+            LookupEntry::Bitwise { tag, acc, sum_2 } => {
+                vec![
+                    (tag.clone(), table_tag),
+                    (acc[0].clone(), table_acc_0),
+                    (acc[1].clone(), table_acc_1),
+                    (acc[2].clone(), table_acc_2),
+                    (sum_2.clone(), table_sum_2),
+                ]
+            }
+            _ => panic!("Not bitwise lookup!"),
         }
     }
 }
@@ -524,16 +677,6 @@ pub enum LookupEntry<F> {
         index: [Expression<F>; 2],
         power: [Expression<F>; 2],
     },
-    /// Bitwise operation, lookup to Fixed table
-    // todo remove this
-    BitOp {
-        value_1: Expression<F>,
-        value_2: Expression<F>,
-        result: Expression<F>,
-        /// Tag could be LogicAnd, LogicOr or LogicXor
-        tag: Expression<F>,
-    },
-
     /// Bitwise lookup operation, lookup to bitwise table
     Bitwise {
         /// Tag could be Nil, And, Or or Xor
@@ -682,19 +825,6 @@ impl<F: Field> LookupEntry<F> {
                 contents.extend(values.iter().map(|v| v.identifier()));
                 contents
             }
-            LookupEntry::BitOp {
-                value_1,
-                value_2,
-                result,
-                tag,
-            } => {
-                vec![
-                    value_1.identifier(),
-                    value_2.identifier(),
-                    result.identifier(),
-                    tag.identifier(),
-                ]
-            }
             LookupEntry::Bitwise { tag, acc, sum_2 } => {
                 let mut contents = vec![tag.identifier()];
                 contents.extend(acc.iter().map(|v| v.identifier()));
@@ -711,7 +841,7 @@ impl<F: Field> LookupEntry<F> {
             LookupEntry::U10(value) | LookupEntry::U16(value) | LookupEntry::U8(value) => {
                 vec![value.identifier()]
             }
-            _ => panic!("Not lookupentry!"),
+            _ => panic!("Not lookup entry!"),
         };
         // 添加Entry枚举自身名称作为去向
         strings.extend(vec![self.as_ref().to_string()]);
@@ -794,6 +924,98 @@ pub(crate) mod test_util {
             witness: &Witness,
         ) -> Result<(), Error> {
             for (offset, row) in witness.state.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+    impl ArithmeticTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &arithmetic::Row,
+        ) -> Result<(), Error> {
+            let tag = BinaryNumberChip::construct(self.tag);
+            tag.assign(region, offset, &row.tag)?;
+            assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
+            assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
+            assign_advice_or_fixed(region, offset, &row.operand_1_hi, self.operands[1][0])?;
+            assign_advice_or_fixed(region, offset, &row.operand_1_lo, self.operands[1][1])?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.arithmetic.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+    impl CopyTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &copy::Row,
+        ) -> Result<(), Error> {
+            let src_tag = BinaryNumberChip::construct(self.src_tag);
+            src_tag.assign(region, offset, &row.src_type)?;
+            assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
+            assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
+            assign_advice_or_fixed(region, offset, &row.src_stamp, self.src_stamp)?;
+            let dst_tag = BinaryNumberChip::construct(self.dst_tag);
+            dst_tag.assign(region, offset, &row.dst_type)?;
+            assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
+            assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
+            assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.len)?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.acc)?;
+            assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.copy.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+    impl BitwiseTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &bitwise::Row,
+        ) -> Result<(), Error> {
+            let tag = BinaryNumberChip::construct(self.tag);
+            tag.assign(region, offset, &row.tag)?;
+            assign_advice_or_fixed(region, offset, &row.acc_0, self.acc_vec[0])?;
+            assign_advice_or_fixed(region, offset, &row.acc_1, self.acc_vec[1])?;
+            assign_advice_or_fixed(region, offset, &row.acc_2, self.acc_vec[2])?;
+            assign_advice_or_fixed(region, offset, &row.sum_2, self.sum_2)?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.bitwise.iter().enumerate() {
                 self.assign_row(region, offset, row)?;
             }
             Ok(())

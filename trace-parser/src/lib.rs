@@ -1,7 +1,8 @@
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
+use eth_types::geth_types::Account;
 use eth_types::{
     Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace, Transaction,
-    WrapBlock, WrapByteCode, WrapReceiptLog, WrapTransaction, U256,
+    WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, U256,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -205,15 +206,28 @@ pub fn read_block_from_api_result_file<P: AsRef<Path>>(path: P) -> Block<Transac
     x.result
 }
 
-pub fn read_bytecode_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<u8> {
+pub fn read_accounts_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<Account> {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
-    let x: WrapByteCode = serde_json::from_reader(reader).unwrap();
-    let mut bytecode = x.result;
-    if bytecode.starts_with("0x") {
-        bytecode = bytecode.split_off(2);
+    let x: WrapAccounts = serde_json::from_reader(reader).unwrap();
+    let accounts_len = x.result.len();
+    let mut accounts: Vec<Account> = vec![];
+    for i in 0..accounts_len {
+        let mut bytecode = x.result[i].bytecode.clone();
+        let contract_addr = x.result[i].contract_addr.clone();
+        if bytecode.starts_with("0x") {
+            bytecode = bytecode.split_off(2);
+        }
+        let bytecode_vec = hex::decode(bytecode).unwrap();
+        // TODO read nonce, balance, storage from file
+        let account = Account {
+            address: contract_addr.as_bytes().into(),
+            code: bytecode_vec.into(),
+            ..Default::default()
+        };
+        accounts.push(account);
     }
-    hex::decode(bytecode).unwrap()
+    accounts
 }
 
 #[cfg(test)]

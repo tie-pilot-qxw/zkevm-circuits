@@ -1,6 +1,6 @@
 use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, Expr};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -148,7 +148,7 @@ mod test {
         };
         witness.print_csv();
         assert_eq!(
-            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            // a_lo + carry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
             arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
             arith[1].operand_1_lo + arith[0].operand_0_lo
         );
@@ -181,7 +181,7 @@ mod test {
         );
         println!("{}", arith[1].operand_1_hi + arith[0].operand_0_hi);
         assert_eq!(
-            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            // a_lo + carry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
             arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
             arith[1].operand_1_lo + arith[0].operand_0_lo
         );
@@ -204,7 +204,7 @@ mod test {
         witness.print_csv();
 
         assert_eq!(
-            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            // a_lo + carry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
             arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
             arith[1].operand_1_lo + arith[0].operand_0_lo
         );
@@ -214,9 +214,9 @@ mod test {
         );
         assert_eq!(U256::from(1), result[1] >> 128);
         // test a == b
-        let (arithmetic, result) = gen_witness(vec![b, b]);
+        let (_arithmetic, result) = gen_witness(vec![b, b]);
         assert_eq!(
-            // a_lo + carrry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
+            // a_lo + carry_lo = b_lo + c_lo  a_hi + carry_hi << 128 - carry_lo= b_hi + c_hi
             arith[1].operand_0_lo + (arith[0].operand_1_lo << 128),
             arith[1].operand_1_lo + arith[0].operand_0_lo
         );

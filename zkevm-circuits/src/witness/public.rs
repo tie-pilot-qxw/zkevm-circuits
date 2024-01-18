@@ -83,9 +83,9 @@ impl Row {
             // chain_id low 16 byte
             value_1: Some(geth_data.chain_id.to_be_bytes()[16..].into()),
             comments: [
-                (format!("tag"), format!("ChainId")),
-                (format!("value_0"), format!("ChainId[..16]")),
-                (format!("value_1"), format!("ChainId[16..]")),
+                ("tag".into(), "ChainId".into()),
+                ("value_0".into(), "ChainId[..16]".into()),
+                ("value_1".into(), "ChainId[16..]".into()),
             ]
             .into_iter()
             .collect(),
@@ -99,9 +99,9 @@ impl Row {
             // coinbase low 16 byte
             value_1: Some(block_constant.coinbase.as_fixed_bytes()[4..].into()),
             comments: [
-                (format!("tag"), format!("BlockCoinbase")),
-                (format!("value_0"), format!("BlockCoinbase[..4]")),
-                (format!("value_1"), format!("BlockCoinbase[4..]")),
+                ("tag".into(), "BlockCoinbase".into()),
+                ("value_0".into(), "BlockCoinbase[..4]".into()),
+                ("value_1".into(), "BlockCoinbase[4..]".into()),
             ]
             .into_iter()
             .collect(),
@@ -115,9 +115,9 @@ impl Row {
             // timestamp low 16 byte
             value_1: Some(block_constant.timestamp.to_be_bytes()[16..].into()),
             comments: [
-                (format!("tag"), format!("BlockTimestamp")),
-                (format!("value_0"), format!("BlockTimestamp[..16]")),
-                (format!("value_1"), format!("BlockCoinbase[16..]")),
+                ("tag".into(), "BlockTimestamp".into()),
+                ("value_0".into(), "BlockTimestamp[..16]".into()),
+                ("value_1".into(), "BlockCoinbase[16..]".into()),
             ]
             .into_iter()
             .collect(),
@@ -129,8 +129,8 @@ impl Row {
             // block number as u64
             value_1: Some(block_constant.number.as_u64().into()),
             comments: [
-                (format!("tag"), format!("BlockNumber")),
-                (format!("value_1"), format!("BlockNumber as u64")),
+                ("tag".into(), "BlockNumber".into()),
+                ("value_1".into(), "BlockNumber as u64".into()),
             ]
             .into_iter()
             .collect(),
@@ -144,9 +144,9 @@ impl Row {
             // difficulty low 16 byte
             value_1: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
             comments: [
-                (format!("tag"), format!("BlockDifficulty")),
-                (format!("value_0"), format!("BlockDifficulty[..16]")),
-                (format!("value_1"), format!("BlockDifficulty[16..]")),
+                ("tag".into(), "BlockDifficulty".into()),
+                ("value_0".into(), "BlockDifficulty[..16]".into()),
+                ("value_1".into(), "BlockDifficulty[16..]".into()),
             ]
             .into_iter()
             .collect(),
@@ -160,9 +160,9 @@ impl Row {
             // gaslimit low 16 byte
             value_1: Some(block_constant.gas_limit.to_be_bytes()[16..].into()),
             comments: [
-                (format!("tag"), format!("BlockGasLimit")),
-                (format!("value_0"), format!("BlockGasLimit[..16]")),
-                (format!("value_1"), format!("BlockGasLimit[16..]")),
+                ("tag".into(), "BlockGasLimit".into()),
+                ("value_0".into(), "BlockGasLimit[..16]".into()),
+                ("value_1".into(), "BlockGasLimit[16..]".into()),
             ]
             .into_iter()
             .collect(),
@@ -171,14 +171,14 @@ impl Row {
         // | BlockBaseFee | 0 | BlockBaseFee[..16] | BlockBaseFee[16..] | 0 | 0 |
         result.push(Row {
             tag: Tag::BlockBaseFee,
-            // basefee hight 16 byte
+            // basefee high 16 byte
             value_0: Some(block_constant.base_fee.to_be_bytes()[..16].into()),
             // basefee low 16 byte
             value_1: Some(block_constant.base_fee.to_be_bytes()[16..].into()),
             comments: [
-                (format!("tag"), format!("BlockBaseFee")),
-                (format!("value_0"), format!("BlockBaseFee[..16]")),
-                (format!("value_1"), format!("BlockBaseFee[16..]")),
+                ("tag".into(), "BlockBaseFee".into()),
+                ("value_0".into(), "BlockBaseFee[..16]".into()),
+                ("value_1".into(), "BlockBaseFee[16..]".into()),
             ]
             .into_iter()
             .collect(),
@@ -212,15 +212,12 @@ impl Row {
                 // tx.value low 16 byte
                 value_3: Some(tx.value.to_be_bytes()[16..].into()),
                 comments: [
-                    (format!("tag"), format!("TxFromValue")),
-                    (
-                        format!("tx_idx_or_number_diff"),
-                        format!("tx_idx{}", tx_idx),
-                    ),
-                    (format!("value_0"), format!("tx.from[..4]")),
-                    (format!("value_1"), format!("tx.from[4..]")),
-                    (format!("value_2"), format!("tx.value[..16]")),
-                    (format!("value_3"), format!("tx.value[16..]")),
+                    ("tag".into(), "TxFromValue".into()),
+                    ("tx_idx_or_number_diff".into(), format!("tx_idx{}", tx_idx)),
+                    ("value_0".into(), "tx.from[..4]".into()),
+                    ("value_1".into(), "tx.from[4..]".into()),
+                    ("value_2".into(), "tx.value[..16]".into()),
+                    ("value_3".into(), "tx.value[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -250,15 +247,12 @@ impl Row {
                 // tx.input length
                 value_3: Some(tx.input.len().into()),
                 comments: [
-                    (format!("tag"), format!("TxToCallDataSize")),
-                    (
-                        format!("tx_idx_or_number_diff"),
-                        format!("tx_idx={}", tx_idx),
-                    ),
-                    (format!("value_0"), format!("to_hi")),
-                    (format!("value_1"), format!("to_low")),
-                    (format!("value_2"), format!("0")),
-                    (format!("value_3"), format!("tx.input.len")),
+                    ("tag".into(), "TxToCallDataSize".into()),
+                    ("tx_idx_or_number_diff".into(), format!("tx_idx={}", tx_idx)),
+                    ("value_0".into(), "to_hi".into()),
+                    ("value_1".into(), "to_low".into()),
+                    ("value_2".into(), "0".into()),
+                    ("value_3".into(), "tx.input.len".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -272,13 +266,10 @@ impl Row {
                 // if isCreate 1 ,else 0
                 value_1: Some((tx.to.is_none() as u8).into()),
                 comments: [
-                    (format!("tag"), format!("TxIsCreate")),
-                    (
-                        format!("tx_idx_or_number_diff"),
-                        format!("tx_idx{}", tx_idx),
-                    ),
-                    (format!("value_0"), format!("0")),
-                    (format!("value_1"), format!("tx.to.is_none")),
+                    ("tag".into(), "TxIsCreate".into()),
+                    ("tx_idx_or_number_diff".into(), format!("tx_idx{}", tx_idx)),
+                    ("value_0".into(), "0".into()),
+                    ("value_1".into(), "tx.to.is_none".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -288,18 +279,15 @@ impl Row {
             result.push(Row {
                 tag: Tag::TxGasLimit,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
-                // tx gas hight 16 byte
+                // tx gas high 16 byte
                 value_0: Some(tx.gas.to_be_bytes()[..16].into()),
                 // tx gas low 16 byte
                 value_1: Some(tx.gas.to_be_bytes()[16..].into()),
                 comments: [
-                    (format!("tag"), format!("TxGasLimit")),
-                    (
-                        format!("tx_idx_or_number_diff"),
-                        format!("tx_idx{}", tx_idx),
-                    ),
-                    (format!("value_0"), format!("tx.gas[..16]")),
-                    (format!("value_1"), format!("tx.gas[16..]")),
+                    ("tag".into(), "TxGasLimit".into()),
+                    ("tx_idx_or_number_diff".into(), format!("tx_idx{}", tx_idx)),
+                    ("value_0".into(), "tx.gas[..16]".into()),
+                    ("value_1".into(), "tx.gas[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -314,13 +302,10 @@ impl Row {
                 // tx gas_price low 16 byte
                 value_1: Some(gas_price.to_be_bytes()[16..].into()),
                 comments: [
-                    (format!("tag"), format!("TxGasPrice")),
-                    (
-                        format!("tx_idx_or_number_diff"),
-                        format!("tx_idx{}", tx_idx),
-                    ),
-                    (format!("value_0"), format!("gas_price[..16]")),
-                    (format!("value_1"), format!("gas_price[16..]")),
+                    ("tag".into(), "TxGasPrice".into()),
+                    ("tx_idx_or_number_diff".into(), format!("tx_idx{}", tx_idx)),
+                    ("value_0".into(), "gas_price[..16]".into()),
+                    ("value_1".into(), "gas_price[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -337,13 +322,10 @@ impl Row {
                     // input byte
                     value_1: Some((*byte).into()),
                     comments: [
-                        (format!("tag"), format!("TxCalldata")),
-                        (
-                            format!("tx_idx_or_number_diff"),
-                            format!("tx_idx{}", tx_idx),
-                        ),
-                        (format!("value_0"), format!("idx")),
-                        (format!("value_1"), format!("byte")),
+                        ("tag".into(), "TxCalldata".into()),
+                        ("tx_idx_or_number_diff".into(), format!("tx_idx{}", tx_idx)),
+                        ("value_0".into(), "idx".into()),
+                        ("value_1".into(), "byte".into()),
                     ]
                     .into_iter()
                     .collect(),
@@ -362,10 +344,10 @@ impl Row {
                 // hash low 16 byte
                 value_1: Some(hash.to_be_bytes()[16..].into()),
                 comments: [
-                    (format!("tag"), format!("BlockHash")),
-                    (format!("tx_idx_or_number_diff"), format!("diff")),
-                    (format!("value_0"), format!("hash[..16]")),
-                    (format!("value_1"), format!("hash[16..]")),
+                    ("tag".into(), "BlockHash".into()),
+                    ("tx_idx_or_number_diff".into(), "diff".into()),
+                    ("value_0".into(), "hash[..16]".into()),
+                    ("value_1".into(), "hash[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -408,15 +390,12 @@ impl Row {
                     // address low 16 byte
                     value_3: Some(address[4..].into()),
                     comments: [
-                        (format!("tag"), format!("{:?}", Tag::TxLog)),
-                        (
-                            format!("tx_idx_or_number_diff"),
-                            format!("transactionIndex"),
-                        ),
-                        (format!("value_0"), format!("logIndex")),
-                        (format!("value_1"), format!("log_tag = {:?}", log_tag)),
-                        (format!("value_2"), format!("address[..4]")),
-                        (format!("value_3"), format!("address[4..]")),
+                        ("tag".into(), format!("{:?}", Tag::TxLog)),
+                        ("tx_idx_or_number_diff".into(), "transactionIndex".into()),
+                        ("value_0".into(), "logIndex".into()),
+                        ("value_1".into(), format!("log_tag = {:?}", log_tag)),
+                        ("value_2".into(), "address[..4]".into()),
+                        ("value_3".into(), "address[4..]".into()),
                     ]
                     .into_iter()
                     .collect(),
@@ -445,15 +424,12 @@ impl Row {
                     // log data's length
                     value_3: Some(log.data.len().into()),
                     comments: [
-                        (format!("tag"), format!("{:?}", Tag::TxLogSize)),
-                        (
-                            format!("tx_idx_or_number_diff"),
-                            format!("transactionIndex"),
-                        ),
-                        (format!("value_0"), format!("log_index")),
-                        (format!("value_1"), format!("log_tag = {}", "DataSize")),
-                        (format!("value_2"), format!("0")),
-                        (format!("value_3"), format!("data_len = {}", log.data.len())),
+                        ("tag".into(), format!("{:?}", Tag::TxLogSize)),
+                        ("tx_idx_or_number_diff".into(), "transactionIndex".into()),
+                        ("value_0".into(), "log_index".into()),
+                        ("value_1".into(), format!("log_tag = {}", "DataSize")),
+                        ("value_2".into(), "0".into()),
+                        ("value_3".into(), format!("data_len = {}", log.data.len())),
                     ]
                     .into_iter()
                     .collect(),
@@ -472,15 +448,12 @@ impl Row {
                         // data byte index
                         value_3: Some(U256::from(data_idx as u64)),
                         comments: [
-                            (format!("tag"), format!("{:?}", Tag::TxLog)),
-                            (
-                                format!("tx_idx_or_number_diff"),
-                                format!("transactionIndex"),
-                            ),
-                            (format!("value_0"), format!("logIndex")),
-                            (format!("value_1"), format!("log_tag = {:?}", LogTag::Data)),
-                            (format!("value_2"), format!("byte")),
-                            (format!("value_3"), format!("byte index")),
+                            ("tag".into(), format!("{:?}", Tag::TxLog)),
+                            ("tx_idx_or_number_diff".into(), "transactionIndex".into()),
+                            ("value_0".into(), "logIndex".into()),
+                            ("value_1".into(), format!("log_tag = {:?}", LogTag::Data)),
+                            ("value_2".into(), "byte".into()),
+                            ("value_3".into(), "byte index".into()),
                         ]
                         .into_iter()
                         .collect(),
@@ -519,21 +492,12 @@ impl Row {
             value_2: Some(topic_hash[..16].into()),
             value_3: Some(topic_hash[16..].into()),
             comments: [
-                (format!("tag"), format!("{:?}", Tag::TxLog)),
-                (
-                    format!("tx_idx_or_number_diff"),
-                    format!("transactionIndex"),
-                ),
-                (format!("value_0"), format!("logIndex")),
-                (format!("value_1"), format!("log_tag = {:?}", log_tag)),
-                (
-                    format!("value_2"),
-                    format!("topicHash[{:}][..16]", topic_idx),
-                ),
-                (
-                    format!("value_3"),
-                    format!("topicHash[{:}][16..]", topic_idx),
-                ),
+                ("tag".into(), format!("{:?}", Tag::TxLog)),
+                ("tx_idx_or_number_diff".into(), "transactionIndex".into()),
+                ("value_0".into(), "logIndex".into()),
+                ("value_1".into(), format!("log_tag = {:?}", log_tag)),
+                ("value_2".into(), format!("topicHash[{:}][..16]", topic_idx)),
+                ("value_3".into(), format!("topicHash[{:}][16..]", topic_idx)),
             ]
             .into_iter()
             .collect(),

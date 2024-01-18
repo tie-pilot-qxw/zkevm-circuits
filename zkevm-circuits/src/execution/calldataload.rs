@@ -1,12 +1,11 @@
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -24,13 +23,13 @@ pub struct CalldataloadGadget<F: Field> {
 }
 
 /// Calldataload read word from msg data at index idx in EVM,
-/// idx in stack and will retrive data from msg.data[idx:idx+32] to stack.
+/// idx in stack and will retrieve data from msg.data[idx:idx+32] to stack.
 /// data[idx]: 32-byte value starting from the given offset of the calldata.
 /// All bytes after the end of the calldata are set to 0.
 ///
 /// Calldataload Execution State layout is as follows
 /// where STATE means state table lookup,
-/// copy0/1 means the bytes retrived from msg.data (calldata),
+/// copy0/1 means the bytes retried from msg.data (calldata),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
@@ -66,9 +65,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -218,7 +217,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use eth_types::U256;
     use std::{collections::HashMap, panic};
 
     use crate::execution::test::{
@@ -271,10 +269,10 @@ mod test {
         let stack = Stack::from_slice(&[index]);
         let result = panic::catch_unwind(|| assign_and_constraint(stack));
         match result {
-            Ok(_) => panic!("shoule be panic, due to index > usize::max-32"),
+            Ok(_) => panic!("should be panic, due to index > usize::max-32"),
             Err(err) => {
                 if let Some(msg) = err.downcast_ref::<&str>() {
-                    assert!(*msg == "not support offset > usize::MAX-32 for CALLDATALOAD");
+                    assert_eq!(*msg, "not support offset > usize::MAX-32 for CALLDATALOAD");
                 }
             }
         }
@@ -287,10 +285,10 @@ mod test {
         let stack = Stack::from_slice(&[index]);
         let result = panic::catch_unwind(|| assign_and_constraint(stack));
         match result {
-            Ok(_) => panic!("shoule be panic, due to index > u128"),
+            Ok(_) => panic!("should be panic, due to index > u128"),
             Err(err) => {
                 if let Some(msg) = err.downcast_ref::<&str>() {
-                    assert!(*msg == "not support offset >= 2^128 for CALLDATALOAD");
+                    assert_eq!(*msg, "not support offset >= 2^128 for CALLDATALOAD");
                 }
             }
         }

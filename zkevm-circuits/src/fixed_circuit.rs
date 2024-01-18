@@ -235,8 +235,8 @@ mod test {
         fn assign_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
             assign_advice_or_fixed(region, 1, &U256::from((1 << 16) - 1), self.test_u16)?; //65535
             assign_advice_or_fixed(region, 10, &U256::from(1 << 13), self.test_u16)?; //8192
-            self.selector.enable(region, 1);
-            self.selector.enable(region, 9);
+            self.selector.enable(region, 1)?;
+            self.selector.enable(region, 9)?;
             assign_advice_or_fixed(region, 1, &U256::from(1 << 10), self.test_u10)?; //1024
             assign_advice_or_fixed(region, 9, &U256::from(1 << 9), self.test_u10)?; //512
             assign_advice_or_fixed(region, 1, &U256::from((1 << 8) - 1), self.test_u8)?; //255

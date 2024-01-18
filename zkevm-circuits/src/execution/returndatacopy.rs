@@ -1,8 +1,8 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
@@ -13,12 +13,12 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 3;
+const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -3;
 const PC_DELTA: u64 = 1;
 
 /// ReturnDataCopy Execution State layout is as follows
-/// where STATE means state table lookup,
+/// where STATE means state table lookup(call_context read returndata_call_id, stack pop dst_offset, stack_pop offset, stack_pop length),
 /// Copy means byte table lookup (full mode),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -26,8 +26,8 @@ const PC_DELTA: u64 = 1;
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
-/// | 2 | COPY(9)|
-/// | 1 | STATE | STATE | STATE |         |
+/// | 2 | COPY(11)|LEN_INV(1)|OVERFLOW(1) |
+/// | 1 | STATE | STATE | STATE | STATE   |
 /// | 0 | DYNA_SELECTOR   | AUX           |
 /// +---+-------+-------+-------+---------+
 pub struct ReturndatacopyGadget<F: Field> {
@@ -65,55 +65,67 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + copy_lookup_len(copied code)
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + (len.clone() * 2.expr()),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr() + (len.clone() * 2.expr()),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        // index0: dst_offset, index1: offset, index2:             copy_lookup_len,
+        // index0: dst_offset, index1: offset, index2: copy_lookup_len,
         let mut top2_stamp = 0.expr();
-        let mut stack_pop_values = vec![];
-        for i in 0..3 {
+        let mut state_values = vec![];
+        for i in 0..4 {
             let state_entry = config.get_state_lookup(meta, i);
-            constraints.append(&mut config.get_stack_constraints(
-                meta,
-                state_entry.clone(),
-                i,
-                NUM_ROW,
-                (-1 * i as i32).expr(),
-                false,
-            ));
+            if i == 0 {
+                constraints.append(&mut config.get_returndata_call_id_constraints(
+                    meta,
+                    state_entry.clone(),
+                    i,
+                    NUM_ROW,
+                    false,
+                ));
+            } else {
+                constraints.append(&mut config.get_stack_constraints(
+                    meta,
+                    state_entry.clone(),
+                    i,
+                    NUM_ROW,
+                    (-1 * (i - 1) as i32).expr(),
+                    false,
+                ));
+            }
             let (_, stamp, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, state_entry);
 
             constraints.extend([(format!("value_high_{} = 0", i), value_hi.expr())]);
 
-            stack_pop_values.push(value_lo);
-            if i == 2 {
+            state_values.push(value_lo);
+            if i == 3 {
                 top2_stamp = stamp;
             }
         }
 
-        let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
-
+        let len_lo_inv = meta.query_advice(config.vers[11], Rotation(-2));
         let is_zero_len =
-            SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("lengthlo"));
-
+            SimpleIsZero::new(&state_values[3], &len_lo_inv, String::from("lengthlo"));
         constraints.append(&mut is_zero_len.get_constraints());
+
+        let returndata_call_id = state_values[0].clone();
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Returndata,
-            call_id.clone(),
-            stack_pop_values[1].clone(),
+            returndata_call_id.clone(),
+            state_values[2].clone(),
             top2_stamp.clone() + 1.expr(),
             copy::Tag::Memory,
             call_id,
-            stack_pop_values[0].clone(),
-            top2_stamp + stack_pop_values[2].clone() + 1.expr(),
+            state_values[1].clone(),
+            top2_stamp + state_values[3].clone() + 1.expr(),
             None,
-            stack_pop_values[2].clone(),
+            state_values[3].clone(),
             is_zero_len.expr(),
             None,
             copy_entry,
@@ -122,7 +134,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "opcode is RETURNDATACOPY".into(),
-                opcode - (OpcodeId::RETURNDATACOPY).expr(),
+                opcode - OpcodeId::RETURNDATACOPY.expr(),
             ),
             ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
         ]);
@@ -135,11 +147,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let call_context_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         vec![
+            (
+                "state lookup, call_context read returndata_call_id".into(),
+                call_context_lookup,
+            ),
             ("state lookup, stack pop dst_offset".into(), stack_lookup_0),
             (
                 "state lookup, stack pop lookup offset".into(),
@@ -155,6 +172,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::RETURNDATACOPY);
+        //get call_context read returndata_call_id row
+        let call_context_read = current_state.get_returndata_call_id_row();
 
         // get dstOffset、offset、length from stack top
         let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
@@ -193,33 +212,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(&copy_rows[0], None);
         }
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        // insert lookUp: Core ---> State
-        core_row_1.insert_state_lookups([
-            &stack_pop_dst_offset,
-            &stack_pop_offset,
-            &stack_pop_length,
-        ]);
-
         let len_lo = F::from_u128(length.low_u128());
-        let lenlo_inv =
+        let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
 
         //lenlo_inv
-        assign_or_panic!(core_row_1.vers_24, lenlo_inv);
+        assign_or_panic!(core_row_2[11], len_lo_inv);
 
         // get returndata_size
         let returndata_size = current_state
             .return_data
-            .get(&current_state.call_id)
+            .get(&current_state.returndata_call_id)
             .map(|v| v.len())
             .unwrap_or_default();
-
         if (offset + length) > U256::from(returndata_size) {
-            assign_or_panic!(core_row_1.vers_25, U256::from(1));
+            assign_or_panic!(core_row_2.vers_12, U256::from(1));
         } else {
-            assign_or_panic!(core_row_1.vers_25, U256::zero());
+            assign_or_panic!(core_row_2.vers_12, U256::zero());
         };
+
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        // insert lookUp: Core ---> State
+        core_row_1.insert_state_lookups([
+            &call_context_read,
+            &stack_pop_dst_offset,
+            &stack_pop_offset,
+            &stack_pop_length,
+        ]);
 
         let core_row_0 = ExecutionState::RETURNDATACOPY.into_exec_state_core_row(
             trace,
@@ -228,7 +247,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
-        let mut state_rows = vec![stack_pop_dst_offset, stack_pop_offset, stack_pop_length];
+        let mut state_rows = vec![
+            call_context_read,
+            stack_pop_dst_offset,
+            stack_pop_offset,
+            stack_pop_length,
+        ];
         state_rows.extend(copy_state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
@@ -254,14 +278,24 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        //add WitnessExecHelper test retur_data 数据
+        //add WitnessExecHelper test return_data 数据
         let stack = Stack::from_slice(&[0.into(), 0.into(), 2.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer,
-            stack_top: Some(0xff.into()),
+            stack_top: None,
             ..WitnessExecHelper::new()
         };
+        current_state.returndata_call_id = 0xff;
+        current_state.return_data.insert(
+            current_state.returndata_call_id,
+            [0x12, 0x13, 0x14, 0x15, 0x16].to_vec(),
+        );
+        current_state.returndata_size = current_state.return_data
+            [&current_state.returndata_call_id]
+            .len()
+            .into();
+
         let trace = prepare_trace_step!(0, OpcodeId::RETURNDATACOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(

@@ -1,5 +1,4 @@
 use eth_types::{Field, GethExecStep};
-use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 
@@ -79,8 +78,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut ConstraintSystem<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
@@ -118,7 +117,7 @@ mod test {
         let mut current_state = WitnessExecHelper::new();
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, Stack::new());
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
@@ -127,7 +126,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::BEGIN_TX_1.into_exec_state_core_row(
+            let row = ExecutionState::BEGIN_TX_1.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

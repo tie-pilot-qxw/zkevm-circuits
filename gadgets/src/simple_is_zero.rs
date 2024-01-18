@@ -1,10 +1,8 @@
 //! SimpleIsZero gadget helps to generate the expression 1-value*value_inv and the corresponding constraint.
 
-use eth_types::Field;
-use halo2_proofs::plonk::{Advice, Column, Expression};
-use std::marker::PhantomData;
-
 use crate::util::Expr;
+use eth_types::Field;
+use halo2_proofs::plonk::Expression;
 
 /// SimpleIsZero helps to generate the expression 1-value*value_inv and the corresponding constraint.
 #[derive(Clone, Debug)]

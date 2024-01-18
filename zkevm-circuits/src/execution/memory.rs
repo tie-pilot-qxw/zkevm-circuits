@@ -1,26 +1,22 @@
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, copy, state, Witness, WitnessExecHelper};
+use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::GethExecStep;
-use eth_types::{Field, U256};
-use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_seletor::SimpleSelector;
-use gadgets::util::{pow_of_two, Expr};
+use eth_types::{Field, GethExecStep};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::str::FromStr;
 
-use super::{AuxiliaryDelta, CoreSinglePurposeOutcome};
+use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 
 /// +---+-------+--------+--------+----------+
-/// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
+/// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
 /// +---+-------+--------+--------+----------+
 /// | 2 | COPY1(11) | COPY2(11) |            |
 /// | 1 | STATE1| STATE2 |                   |
-/// | 0 | DYNA_SELECTOR         | AUX        |
+/// | 0 | DYNA_SELECTOR         | AUX        |
 /// +---+-------+--------+--------+----------+
 
 const NUM_ROW: usize = 3;
@@ -56,12 +52,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA_MLOAD.expr()
-                * (OpcodeId::MSTORE.as_u8().expr() - opcode.clone())
-                + STACK_POINTER_DELTA_MSTORE.expr()
-                    * (opcode.clone() - OpcodeId::MLOAD.as_u8().expr()), //the property OpcodeId::MSTORE - OpcodeId::MLOAD == 1 is used
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(
+                STACK_POINTER_DELTA_MLOAD.expr()
+                    * (OpcodeId::MSTORE.as_u8().expr() - opcode.clone())
+                    + STACK_POINTER_DELTA_MSTORE.expr()
+                        * (opcode.clone() - OpcodeId::MLOAD.as_u8().expr()),
+            ), //the property OpcodeId::MSTORE - OpcodeId::MLOAD == 1 is used
             ..Default::default()
         };
 
@@ -140,7 +138,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([(
             "opcode".into(),
-            (opcode.clone() - (OpcodeId::MLOAD).expr()) * (opcode - (OpcodeId::MSTORE).expr()),
+            (opcode.clone() - OpcodeId::MLOAD.expr()) * (opcode - OpcodeId::MSTORE.expr()),
         )]);
 
         let core_single_delta = CoreSinglePurposeOutcome {
@@ -180,7 +178,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_row_0, offset) = current_state.get_pop_stack_row_value(&trace);
 
         let (stack_row_1, mut state_rows, copy_rows) = if trace.op == OpcodeId::MLOAD {
-            let (copy_rows, mut state_rows) =
+            let (copy_rows, state_rows) =
                 current_state.get_mload_rows::<F>(trace, offset.as_usize());
 
             let copy_row_0 = copy_rows.get(15).unwrap();
@@ -194,7 +192,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             let (stack_row_1, value) = current_state.get_pop_stack_row_value(&trace);
 
-            let (copy_rows, mut state_rows) =
+            let (copy_rows, state_rows) =
                 current_state.get_mstore_rows::<F>(offset.as_usize(), value);
 
             let copy_row_0 = copy_rows.get(15).unwrap();
@@ -289,7 +287,7 @@ mod test {
             ..WitnessExecHelper::new()
         };
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::MSTORE, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::MSTORE, stack);
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(

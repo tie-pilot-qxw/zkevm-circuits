@@ -1,12 +1,15 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
+use crate::arithmetic_circuit::{ArithmeticCircuitConfig, ArithmeticCircuitConfigArgs};
 use crate::bitwise_circuit::{BitwiseCircuit, BitwiseCircuitConfig, BitwiseCircuitConfigArgs};
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
-use crate::fixed_circuit::{self, FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
+use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-use crate::table::{BytecodeTable, FixedTable, PublicTable, StateTable};
+use crate::table::{
+    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, FixedTable, PublicTable, StateTable,
+};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
@@ -26,6 +29,7 @@ pub struct SuperCircuitConfig<
     copy_circuit: CopyCircuitConfig<F>,
     fixed_circuit: FixedCircuitConfig<F>,
     bitwise_circuit: BitwiseCircuitConfig<F>,
+    arithmetic_circuit: ArithmeticCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -42,11 +46,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let state_table = StateTable::construct(meta, q_enable_state);
         let public_table = PublicTable::construct(meta);
         let fixed_table = FixedTable::construct(meta);
+        let q_enable_arithmetic = meta.complex_selector();
+        let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
+        let q_enable_copy = meta.complex_selector();
+        let copy_table = CopyTable::construct(meta, q_enable_copy);
+        let q_enable_bitwise = meta.complex_selector();
+        let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
                 bytecode_table,
                 state_table,
+                arithmetic_table,
+                copy_table,
+                bitwise_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
@@ -76,12 +89,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 bytecode_table,
                 state_table,
                 public_table,
+                copy_table,
             },
         );
         let fixed_circuit = FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
-        let bitwise_circuit =
-            BitwiseCircuitConfig::new(meta, BitwiseCircuitConfigArgs { fixed_table });
+        let bitwise_circuit = BitwiseCircuitConfig::new(
+            meta,
+            BitwiseCircuitConfigArgs {
+                fixed_table,
+                bitwise_table,
+            },
+        );
 
+        let arithmetic_circuit = ArithmeticCircuitConfig::new(
+            meta,
+            ArithmeticCircuitConfigArgs {
+                q_enable: q_enable_arithmetic,
+                arithmetic_table,
+            },
+        );
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
@@ -90,6 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             copy_circuit,
             fixed_circuit,
             bitwise_circuit,
+            arithmetic_circuit,
         }
     }
 }
@@ -194,7 +221,7 @@ impl<
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let mut num_rows = vec![
+        let num_rows = vec![
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
@@ -295,7 +322,7 @@ mod tests {
         ));
         let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
         witness.write_html(&mut buf);
-        let (k, circuit, prover) = test_super_circuit(witness);
+        let (_k, _circuit, prover) = test_super_circuit(witness);
         prover.assert_satisfied_par();
     }
 
@@ -360,7 +387,7 @@ mod tests {
             Default::default(),
         ));
 
-        let (k, circuit, prover) = test_super_circuit(witness);
+        let (k, circuit, _prover) = test_super_circuit(witness);
         let circuit_cost: CircuitCost<
             G1,
             SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,

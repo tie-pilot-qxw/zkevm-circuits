@@ -31,7 +31,7 @@ pub struct ArithmeticCircuitConfig<F> {
     q_enable: Selector,
     /// Tag for arithmetic operation type
     tag: BinaryNumberConfig<Tag, LOG_NUM_ARITHMETIC_TAG>,
-    /// The operands in one row, splitted to 2 (high and low 128-bit)
+    /// The operands in one row, split to 2 (high and low 128-bit)
     operands: [[Column<Advice>; 2]; NUM_OPERAND],
     /// The 16-bit values in one row
     u16s: [Column<Advice>; NUM_U16],
@@ -288,15 +288,15 @@ mod test {
     use super::*;
     use crate::util::log2_ceil;
     use eth_types::U256;
-    use gadgets::util::pow_of_two;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, halo2curves::bn256::Fr, plonk::Circuit,
     };
 
-    const TEST_SIZE: usize = 70;
+    const TEST_SIZE: usize = 200;
 
     #[derive(Clone, Default, Debug)]
     pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
+
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
         type Config = ArithmeticCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
@@ -350,10 +350,11 @@ mod test {
             itertools::max(gadgets.iter().map(|gadget| gadget.unusable_rows().1)).unwrap();
         (usable_max, unusable_end)
     }
+
     #[test]
     fn test_add_witness() {
         let (arithmetic, result) =
-            self::operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
+            operation::add::gen_witness(vec![388822.into(), u128::MAX.into()]);
 
         // there is carry for low 128-bit
         assert_eq!(result[1], 1.into());
@@ -369,8 +370,7 @@ mod test {
 
     #[test]
     fn test_sub_gt_witness() {
-        let (arithmetic, result) =
-            self::operation::sub::gen_witness(vec![128.into(), u128::MAX.into()]);
+        let (arithmetic, result) = operation::sub::gen_witness(vec![128.into(), u128::MAX.into()]);
 
         // there is no carry, so it is 0
         assert_eq!(result[1], (U256::from(1) << 128) + 1);
@@ -386,8 +386,7 @@ mod test {
 
     #[test]
     fn test_lt_witness() {
-        let (arithmetic, result) =
-            self::operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+        let (arithmetic, result) = operation::sub::gen_witness(vec![u128::MAX.into(), U256::MAX]);
 
         // there is carry for high 128-bit, so it is 1<<128
         assert_eq!(result[1], U256::from(1) << 128);
@@ -403,8 +402,7 @@ mod test {
 
     #[test]
     fn test_mul_witness() {
-        let (arithmetic, result) =
-            self::operation::mul::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+        let (arithmetic, _result) = operation::mul::gen_witness(vec![u128::MAX.into(), U256::MAX]);
 
         let witness = Witness {
             arithmetic,
@@ -419,22 +417,20 @@ mod test {
     #[test]
     fn test_div_mod_witness() {
         let (arithmetic1, result) =
-            self::operation::div_mod::gen_witness(vec![u128::MAX.into(), U256::MAX]);
+            operation::div_mod::gen_witness(vec![u128::MAX.into(), U256::MAX]);
         let (arithmetic2, result2) =
-            self::operation::div_mod::gen_witness(vec![U256::MAX, u128::MAX.into()]);
-        let (arithmetic3, result3) =
-            self::operation::div_mod::gen_witness(vec![0.into(), u128::MAX.into()]);
-        let (arithmetic4, result4) =
-            self::operation::div_mod::gen_witness(vec![U256::MAX, 0.into()]);
-        let (arithmetic5, result5) =
-            self::operation::div_mod::gen_witness(vec![0.into(), 0.into()]);
+            operation::div_mod::gen_witness(vec![U256::MAX, u128::MAX.into()]);
+        let (arithmetic3, _result3) =
+            operation::div_mod::gen_witness(vec![0.into(), u128::MAX.into()]);
+        let (arithmetic4, _result4) = operation::div_mod::gen_witness(vec![U256::MAX, 0.into()]);
+        let (arithmetic5, _result5) = operation::div_mod::gen_witness(vec![0.into(), 0.into()]);
         // there is a < b, so result[1] == 0,result[0] == a
         assert_eq!(result[1], 0.into());
         assert_eq!(result[0], u128::MAX.into());
 
         // there is a = U256::MAX b = u128::MAX, so result[0] == 0,result[1]_hi == 1 result[1]_lo = 1
         assert_eq!(result2[1] >> 128, 1.into());
-        assert_eq!(result2[1].low_u128(), 1 as u128);
+        assert_eq!(result2[1].low_u128(), 1u128);
         assert_eq!(result2[0], 0.into());
 
         // there is a = 0
@@ -457,18 +453,16 @@ mod test {
 
     #[test]
     fn test_slt_sgt_witness() {
-        let (arithmetic1, result) = self::operation::slt_sgt::gen_witness(vec![
+        let (arithmetic1, _result) = self::operation::slt_sgt::gen_witness(vec![
             U256::from(u128::MAX) + U256::from(59509090),
             U256::from(u128::MAX) + U256::from(56789),
         ]);
-        let (arithmetic2, result2) = operation::slt_sgt::gen_witness(vec![
+        let (arithmetic2, _result2) = operation::slt_sgt::gen_witness(vec![
             U256::MAX - U256::from(59509090),
             U256::MAX - U256::from(590),
         ]);
-        let (arithmetic3, result3) = self::operation::slt_sgt::gen_witness(vec![
-            u128::MAX.into(),
-            U256::MAX - U256::from(3434),
-        ]);
+        let (arithmetic3, _result3) =
+            operation::slt_sgt::gen_witness(vec![u128::MAX.into(), U256::MAX - U256::from(3434)]);
 
         // there is a = 0
         let mut arithmetic = Vec::new();
@@ -483,6 +477,42 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_mulmod_witness() {
+        let (arithmetic1, _) = operation::mulmod::gen_witness(vec![4.into(), 7.into(), 5.into()]);
+        let (arithmetic2, _result2) = operation::mulmod::gen_witness(vec![
+            U256::MAX - U256::from(59509090),
+            U256::MAX - U256::from(590),
+            U256::MAX,
+        ]);
+        let (arithmetic3, _) = operation::mulmod::gen_witness(vec![
+            u128::MAX.into(),
+            U256::MAX - U256::from(3434),
+            255.into(),
+        ]);
+        let (arithmetic4, _) = operation::mulmod::gen_witness(vec![
+            u128::MAX.into(),
+            U256::MAX - U256::from(434),
+            0.into(),
+        ]);
+
+        let mut arithmetic = Vec::new();
+        arithmetic.extend(arithmetic1);
+        arithmetic.extend(arithmetic2);
+        arithmetic.extend(arithmetic3);
+        arithmetic.extend(arithmetic4);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness.clone());
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        witness.print_csv();
         prover.assert_satisfied_par();
     }
 }

@@ -1,12 +1,11 @@
 use crate::execution::{
-    AuxiliaryDelta, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -58,8 +57,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
         // auxiliary and single purpose constraints
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));

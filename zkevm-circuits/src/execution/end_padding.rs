@@ -1,10 +1,9 @@
 use crate::execution::{
-    AuxiliaryDelta, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -40,7 +39,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        let delta = AuxiliaryDelta::default();
+        let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // prev state should be end_block or self
         constraints.extend(config.get_exec_state_constraints(
@@ -115,7 +114,7 @@ mod test {
                 NUM_STATE_LO_COL,
             )
         };
-        let (witness, prover) =
+        let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
     }

@@ -1,6 +1,6 @@
 use crate::arithmetic_circuit::operation;
 use crate::execution::{
-    AuxiliaryDelta, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -12,7 +12,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::ops::Shl;
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
@@ -79,9 +78,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         // auxiliary constraints
@@ -163,8 +162,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
         // mul_div_arithmetic constraints
-        // mul_div_arithmetic_operands[0] = tack top 1 hi
-        // mul_div_arithmetic_operands[1] = tack top 1 lo
+        // mul_div_arithmetic_operands[0] = stack top 1 hi
+        // mul_div_arithmetic_operands[1] = stack top 1 lo
         // mul_div_arithmetic_operands[2] = exp_power
         // mul_div_arithmetic_operands[3] = exp_power
         // mul_div_arithmetic_operands[4](product_hi) = tack push hi

@@ -2,13 +2,14 @@ pub(crate) mod add;
 pub(crate) mod div_mod;
 pub(crate) mod length;
 pub(crate) mod mul;
+pub(crate) mod mulmod;
 pub(crate) mod slt_sgt;
 pub(crate) mod sub;
 
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256};
-use gadgets::util::{expr_from_u16s, split_u256_hi_lo};
+use gadgets::util::{expr_from_u16s, split_u256_hi_lo, split_u256_limb64};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 
@@ -22,6 +23,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::slt_sgt::new(),
             crate::arithmetic_circuit::operation::div_mod::new(),
             crate::arithmetic_circuit::operation::length::new(),
+            crate::arithmetic_circuit::operation::mulmod::new(),
         ]
     }};
 }
@@ -49,7 +51,7 @@ pub(crate) trait OperationGadget<F: Field> {
 //create a row of the arithmetic circuit
 pub(crate) fn get_row(a: [U256; 2], b: [U256; 2], u16s: Vec<u16>, cnt: u8, tag: Tag) -> Row {
     Row {
-        tag: tag,
+        tag,
         cnt: cnt.into(),
         operand_0_hi: a[0],
         operand_0_lo: a[1],
@@ -123,4 +125,111 @@ fn get_lt_operations(lhs: &U256, rhs: &U256, range: &U256) -> (bool, U256, Vec<u
     let _ = diff_u16s.split_off(8);
 
     (lt, diff, diff_u16s)
+}
+
+/// `(a * b) / n = k (r) r` --> return k, r
+/// or `a / b = k (r) r` --> return k, r
+/// input a, b, n, or b is zero
+fn get_div_mod(operands: Vec<U256>, is_u256: bool) -> (U256, U256) {
+    assert_eq!(operands.len(), 3);
+    let (k, r) = if operands[2] == U256::zero() {
+        (U256::zero(), U256::zero())
+    } else if is_u256 {
+        operands[0].div_mod(operands[2])
+    } else {
+        // 1. k is 256-bit:
+        // `a_remainder < n` -> `a_remainder / n <= 1`;
+        // `b/n`  is 0-256 bit, so k2 is 0-256 bit
+        // 2. r < n, 0-256 bit
+        let prod = operands[0].full_mul(operands[1]);
+        (
+            U256::try_from(prod / operands[2]).unwrap(),
+            U256::try_from(prod % operands[2]).unwrap(),
+        )
+    };
+    (k, r)
+}
+
+/// a * b = e * d << 256 -> return e, d
+/// a, b is 256-bit
+/// MulMod contains two muladd512. Extracting mul512 can only perform one multiplication.
+fn get_mul512(operands: Vec<U256>) -> (U256, U256) {
+    assert_eq!(operands.len(), 2);
+    let prod = operands[0].full_mul(operands[1]);
+    let mut prod_bytes = [0u8; 64];
+    prod.to_little_endian(&mut prod_bytes);
+    let e = U256::from_little_endian(&prod_bytes[0..32]);
+    let d = U256::from_little_endian(&prod_bytes[32..64]);
+    (e, d)
+}
+
+/// `a * b + c = d` --> k1_carry_hi, k1_carry_lo
+/// The maximum result is 256-bit
+/// Use limbs calculation multiplication operations to calculate carry_lo and carry_hi,
+/// focusing only on the 256-bit result.
+fn get_mul_add(operands: Vec<U256>) -> Vec<U256> {
+    assert_eq!(4, operands.len());
+    let a_limbs = split_u256_limb64(&operands[0]);
+    let b_limbs = split_u256_limb64(&operands[1]);
+    let c_split = split_u256_hi_lo(&operands[2]);
+    let d_split = split_u256_hi_lo(&operands[3]);
+
+    let t0 = a_limbs[0] * b_limbs[0];
+    let t1 = a_limbs[0] * b_limbs[1] + a_limbs[1] * b_limbs[0];
+    let t2 = a_limbs[0] * b_limbs[2] + a_limbs[1] * b_limbs[1] + a_limbs[2] * b_limbs[0];
+    let t3 = a_limbs[0] * b_limbs[3]
+        + a_limbs[1] * b_limbs[2]
+        + a_limbs[2] * b_limbs[1]
+        + a_limbs[3] * b_limbs[0];
+
+    let k1_carry_lo = (t0 + (t1 << 64) + c_split[1]).saturating_sub(d_split[1]) >> 128;
+    let k1_carry_hi =
+        (t2 + (t3 << 64) + c_split[0] + k1_carry_lo).saturating_sub(d_split[0]) >> 128;
+
+    vec![k1_carry_hi, k1_carry_lo]
+}
+
+/// a * b + c = e + d * 2^256 --> return carry_0, carry_1, carry_2
+/// The maximum result is 512-bit
+/// Use limbs calculation multiplication operations to calculate carry_0, carry_1 and carry_2,
+/// focusing only on the 512-bit result.
+fn get_mul_add_word(operands: Vec<U256>) -> (U256, U256, U256) {
+    assert_eq!(operands.len(), 5);
+    let e = operands[3];
+    let d = operands[4];
+    let e_split = split_u256_hi_lo(&e);
+    let d_split = split_u256_hi_lo(&d);
+    let c_split = split_u256_hi_lo(&operands[2]);
+
+    let a_limbs = split_u256_limb64(&operands[0]);
+    let b_limbs = split_u256_limb64(&operands[1]);
+    let t0 = a_limbs[0] * b_limbs[0];
+    let t1 = a_limbs[0] * b_limbs[1] + a_limbs[1] * b_limbs[0];
+    let t2 = a_limbs[0] * b_limbs[2] + a_limbs[1] * b_limbs[1] + a_limbs[2] * b_limbs[0];
+    let t3 = a_limbs[0] * b_limbs[3]
+        + a_limbs[1] * b_limbs[2]
+        + a_limbs[2] * b_limbs[1]
+        + a_limbs[3] * b_limbs[0];
+    let t4 = a_limbs[1] * b_limbs[3] + a_limbs[2] * b_limbs[2] + a_limbs[3] * b_limbs[1];
+    let t5 = a_limbs[2] * b_limbs[3] + a_limbs[3] * b_limbs[2];
+
+    let carry_0 = (t0 + (t1 << 64) + c_split[1]).saturating_sub(e_split[1]) >> 128;
+    let carry_1 = (t2 + (t3 << 64) + c_split[0] + carry_0).saturating_sub(e_split[0]) >> 128;
+    let carry_2 = (t4 + (t5 << 64) + carry_1).saturating_sub(d_split[1]) >> 128;
+
+    (carry_0, carry_1, carry_2)
+}
+
+/// return u16s hi and lo.
+/// Inorder to optimize the code rows.
+/// When this function is called multiple times, the effect is significant.
+fn get_u16s_hi_lo(operands: U256) -> (Vec<u16>, Vec<u16>) {
+    let mut lo_u16s: Vec<u16> = operands
+        .to_le_bytes()
+        .chunks(2)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .collect();
+    assert_eq!(16, lo_u16s.len());
+    let hi_u16s = lo_u16s.split_off(8);
+    (hi_u16s, lo_u16s)
 }

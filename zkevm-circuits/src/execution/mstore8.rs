@@ -1,11 +1,10 @@
-use crate::execution::{AuxiliaryDelta, CoreSinglePurposeOutcome};
+use crate::execution::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{bitwise, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::Field;
-use eth_types::GethExecStep;
+use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -22,11 +21,11 @@ use std::marker::PhantomData;
 ///     STATE1:  State lookup(stack_pop_1), src: Core circuit, target: State circuit table, 8 columns
 ///     STATE2:  stack lookup(memory_write), src: Core circuit, target: State circuit table, 8 columns
 /// +---+-------+--------+--------+----------+
-/// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
+/// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
 /// +---+-------+--------+--------+----------+
 /// | 2 | NOTUSED(10)| BITWISE_LO(5)         |
 /// | 1 | STATE1| STATE2 | STATE3 |          |
-/// | 0 | DYNA_SELECTOR         | AUX        |
+/// | 0 | DYNA_SELECTOR         | AUX        |
 /// +---+-------+--------+--------+----------+
 ///
 /// NOTE: here we only need bitwise_lo, because proving result == value & 0xff is equivalent to proving result == value_lo & 0xff.
@@ -63,9 +62,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
 
@@ -192,8 +191,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use eth_types::U256;
-
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

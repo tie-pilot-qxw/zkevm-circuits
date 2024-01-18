@@ -1,8 +1,8 @@
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
-use crate::witness::{arithmetic, WitnessExecHelper};
-use crate::witness::{core, state, Witness};
+use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::Witness;
+use crate::witness::WitnessExecHelper;
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -11,7 +11,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::thread::current;
 
 const NUM_ROW: usize = 2;
 
@@ -46,9 +45,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let pc_next = meta.query_advice(config.pc, Rotation::next());
 
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
 

@@ -3,7 +3,7 @@
 
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    end_call, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -57,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::end_call::NUM_ROW)
+        (NUM_ROW, end_call::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -72,9 +72,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-        let delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -174,8 +176,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // extend opcode and pc constraints
         constraints.extend([(
-            format!("opcode is RETURN or REVERT").into(),
-            (opcode.clone() - (OpcodeId::RETURN).expr()) * (opcode - (OpcodeId::REVERT).expr()),
+            "opcode is RETURN or REVERT".into(),
+            (opcode.clone() - OpcodeId::RETURN.expr()) * (opcode - OpcodeId::REVERT.expr()),
         )]);
         // next state is END_CALL
         constraints.extend(config.get_exec_state_constraints(
@@ -195,6 +197,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         vec![
             (
@@ -205,6 +209,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "state lookup, stack pop lookup length".into(),
                 stack_lookup_1,
             ),
+            (
+                "state lookup, call_context write returndata_call_id".into(),
+                call_context_lookup_0,
+            ),
+            (
+                "state lookup, call_context write returndata_size".into(),
+                call_context_lookup_1,
+            ),
             ("code copy lookup".into(), copy_lookup),
         ]
     }
@@ -214,9 +226,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
 
-        //update returndata_call_id and returndata_call_size
+        //update returndata_call_id, returndata_call_size, returndata and return_success
         current_state.returndata_call_id = current_state.call_id.clone();
         current_state.returndata_size = length;
+        // it's guaranteed by Ethereum memory usage limitation that offset.as_usize() and length.as_usize() won't panic.
+        let returndata = trace
+            .memory
+            .read_chunk(offset.as_usize().into(), length.as_usize().into());
+        current_state
+            .return_data
+            .insert(current_state.returndata_call_id, returndata);
+        current_state.return_success = true;
 
         //get call_context write rows.
         let call_context_write_row_0 = current_state.get_call_context_write_row(

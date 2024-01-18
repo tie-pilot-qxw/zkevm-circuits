@@ -12,7 +12,7 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::{AuxiliaryDelta, CoreSinglePurposeOutcome};
+use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
@@ -60,9 +60,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let auxiliary_delta = AuxiliaryDelta {
-            state_stamp: STATE_STAMP_DELTA.expr(),
-            stack_pointer: STACK_POINTER_DELTA.expr(),
+        let auxiliary_delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         // auxiliary constraints
@@ -81,7 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             entry.clone(),
             0,
             NUM_ROW,
-            (1i32).expr(),
+            1i32.expr(),
             true,
         ));
         // value_hi,value_lo constraints
@@ -107,8 +107,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "opcode constraints".into(),
             opcode
                 - selector.select(&[
-                    (OpcodeId::ORIGIN.as_u8()).expr(),
-                    (OpcodeId::GASPRICE.as_u8()).expr(),
+                    OpcodeId::ORIGIN.as_u8().expr(),
+                    OpcodeId::GASPRICE.as_u8().expr(),
                 ]),
         )]);
         constraints

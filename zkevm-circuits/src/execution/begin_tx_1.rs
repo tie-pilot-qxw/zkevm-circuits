@@ -1,9 +1,9 @@
 use crate::execution::{
-    begin_tx_2, Auxiliary, AuxiliaryDelta, CoreSinglePurposeOutcome, ExecStateTransition,
+    begin_tx_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, copy, public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
 use eth_types::GethExecStep;
@@ -50,7 +50,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::begin_tx_2::NUM_ROW)
+        (NUM_ROW, begin_tx_2::NUM_ROW)
     }
 
     fn get_constraints(
@@ -62,8 +62,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
-        let delta = AuxiliaryDelta {
-            state_stamp: 4.expr() + copy_size,
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -238,7 +238,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         current_state
             .parent_code_addr
-            .insert(current_state.call_id, 0.into()); // updage current_state's parent_code_addr
+            .insert(current_state.call_id, 0.into()); // update current_state's parent_code_addr
         let write_parent_code_addr_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
@@ -320,8 +320,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use eth_types::U256;
-
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
