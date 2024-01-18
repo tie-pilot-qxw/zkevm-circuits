@@ -743,11 +743,11 @@ impl WitnessExecHelper {
             let data = self
                 .return_data
                 .get(&self.call_id)
-                .unwrap_or_else(|| panic!("return data doesn't exist at current call_id"));
+                .expect("return data doesn't exist at current call_id");
             let byte = data
                 .get((src_offset + i) as usize)
                 .cloned()
-                .unwrap_or_else(|| panic!("err return data out of bounds. should not occur here."));
+                .expect("err return data out of bounds. should not occur here.");
 
             // calc acc
             let acc: U256 = if i == 0 {
@@ -785,11 +785,11 @@ impl WitnessExecHelper {
             let data = self
                 .return_data
                 .get(&self.returndata_call_id)
-                .unwrap_or_else(|| panic!("return data doesn't exist at current call_id"));
+                .expect("return data doesn't exist at current call_id");
             let byte = data
                 .get((src + i).as_usize())
                 .cloned()
-                .unwrap_or_else(|| panic!("err return data out of bounds. should not occur here."));
+                .expect("err return data out of bounds. should not occur here.");
             // it's guaranteed by Ethereum that dst + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L27
             state_rows.push(self.get_memory_write_row(dst + i, byte));
         }
