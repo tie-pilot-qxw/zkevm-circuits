@@ -11,6 +11,21 @@ use std::marker::PhantomData;
 
 use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 
+/// Memory is a combination of Mload and Mstore.
+/// Algorithm overview:
+/// MLOAD:
+///     1. get offset from stack
+///     2. get value = memory[offset:offset+32]
+///     3. write value to stack
+/// MSTORE:
+///     1. get offset and value from stack
+///     2. write value to memory[offset:offset+32]
+/// Table layout:
+///     STATE1:  State lookup(stack pop offset), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(stack pop/push value), src: Core circuit, target: State circuit table, 8 columns
+///     COPY1:   Copy lookup(copy of high 16 bytes from/to memory), src:Core circuit, target:Copy circuit table, 11 columns
+///     COPY2:   Copy lookup(copy of low 16 bytes from/to memory), src:Core circuit, target:Copy circuit table, 11 columns
+///
 /// +---+-------+--------+--------+----------+
 /// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
 /// +---+-------+--------+--------+----------+
@@ -18,6 +33,8 @@ use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 /// | 1 | STATE1| STATE2 |                   |
 /// | 0 | DYNA_SELECTOR         | AUX        |
 /// +---+-------+--------+--------+----------+
+///
+/// Note: acc of COPY1 and COPY2 are respectively value_hi and value_lo of STATE1
 
 const NUM_ROW: usize = 3;
 
@@ -51,7 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(
@@ -64,7 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints
         let mut operands = vec![];
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
@@ -90,9 +107,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // append constraint for state_lookup's value
         constraints.extend([("offset_hi == 0".into(), operands[0][0].clone())]);
-
+        // append copy constraints
         for i in 0..2 {
             let copy_entry = if i == 0 {
                 config.get_copy_lookup(meta)
@@ -135,12 +152,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 copy_entry.clone(),
             ));
         }
-
+        // append opcode constraint
         constraints.extend([(
             "opcode".into(),
             (opcode.clone() - OpcodeId::MLOAD.expr()) * (opcode - OpcodeId::MSTORE.expr()),
         )]);
-
+        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
@@ -171,10 +188,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert!(trace.op == OpcodeId::MLOAD || trace.op == OpcodeId::MSTORE);
-
+        //generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
+        //generate stack pop/push rows, memory read/write rows and copy rows
         let (stack_row_0, offset) = current_state.get_pop_stack_row_value(&trace);
 
         let (stack_row_1, mut state_rows, copy_rows) = if trace.op == OpcodeId::MLOAD {
@@ -182,6 +199,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
             let copy_row_0 = copy_rows.get(15).unwrap();
             let copy_row_1 = copy_rows.get(31).unwrap();
+            // insert lookUp: Core ---> Copy
             core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
 
             let value = (copy_row_0.acc << 128) + copy_row_1.acc;
@@ -195,13 +213,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
             let copy_row_0 = copy_rows.get(15).unwrap();
             let copy_row_1 = copy_rows.get(31).unwrap();
+            // insert lookUp: Core ---> Copy
             core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
 
             (stack_row_1, state_rows, copy_rows)
         };
 
         state_rows.extend(vec![stack_row_0.clone(), stack_row_1.clone()]);
-
+        // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([&stack_row_0, &stack_row_1]);
         let core_row_0 = ExecutionState::MEMORY.into_exec_state_core_row(
             trace,

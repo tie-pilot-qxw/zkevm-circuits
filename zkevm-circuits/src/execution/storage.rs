@@ -11,17 +11,36 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+/// Storage is a combination of Sload and Sstore.
+/// Algorithm overview:
+/// SLOAD:
+///     1. get key from stack
+///     2. get value = storage[key]
+///     3. write value to stack
+/// SSTORE:
+///     1. get key and value from stack
+///     2. write value to storage[key]
+/// Table layout:
+/// SLOAD:
+///     STATE1:  State lookup(call_context read storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(stack pop key), src: Core circuit, target: State circuit table, 8 columns
+///     STATE3:  State lookup(storage read value), src: Core circuit, target: State circuit table, 8 columns
+///     STATE4:  stack lookup(stack push value), src: Core circuit, target: State circuit table, 8 columns
+/// SSTORE:
+///     STATE1:  State lookup(call_context read storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(stack pop key), src: Core circuit, target: State circuit table, 8 columns
+///     STATE3:  State lookup(stack pop value), src: Core circuit, target: State circuit table, 8 columns
+///     STATE4:  stack lookup(storage write value), src: Core circuit, target: State circuit table, 8 columns
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
-
-//STATE1: CallContext's StorageContractAddr, value hi,lo is the result.
-//STATE2: stack pop, value hi,lo is the storage key.
-//STATE3: storage read, pointer hi,lo is value hi,lo of STATE2, contract_addr is value hi,lo of STATE1 (when opcode is SLOAD) or stack pop, value hi,lo is the storage value (when opcode is SSTORE).
-//STATE4: stack push, value hi,lo is STATE3's (when opcode is SLOAD) or storage write, pointer hi,lo is value hi,lo of STATE2, value hi,lo is STATE3's and contract_addr is value hi,lo of STATE1 (when opcode is SSTORE).
+///
+/// Note:
+///     1. In STATE3 of SLOAD and STATE4 of SSTORE, contract_addr is value hi,lo of STATE1 and pointer hi,lo is value hi,lo of STATE2.
+///     2. STATE4's value hi,lo equals to value hi,lo of STATE3
 
 const NUM_ROW: usize = 2;
 
@@ -54,7 +73,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(
@@ -67,7 +86,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints, call_context constraints and storage constrains
         let mut operands: Vec<[Expression<F>; 2]> = vec![];
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -129,7 +148,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let storage_read_stack_pop = operands[2].clone();
         let stack_push_storage_write = operands[3].clone();
-
+        // append constraints for state_lookup's values
         constraints.extend([
             (
                 "storage_read == stack_push or stack_pop == storage_write hi".into(),
@@ -140,12 +159,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 storage_read_stack_pop[1].clone() - stack_push_storage_write[1].clone(),
             ),
         ]);
-
+        // append opcode constraint
         constraints.extend([(
             "opcode".into(),
             (opcode.clone() - OpcodeId::SLOAD.expr()) * (opcode - OpcodeId::SSTORE.expr()),
         )]);
-
+        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
@@ -182,12 +201,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert!(trace.op == OpcodeId::SLOAD || trace.op == OpcodeId::SSTORE);
-
+        //generate storage_contract_addr read row
         let (storage_contract_addr_row, storage_contract_addr) =
             current_state.get_storage_contract_addr_row();
-
+        //generate storage pop key row
         let (stack_pop_row, storage_key) = current_state.get_pop_stack_row_value(&trace);
-
+        //generate storage read row and stack push value row (for SLOAD) or stack pop value row and storage write row (for SSTORE)
         let (storage_or_stack_0, storage_or_stack_1) = if trace.op == OpcodeId::SLOAD {
             let (storage_or_stack_0, value) = current_state.get_storage_read_row_value(
                 &trace,
@@ -202,8 +221,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 current_state.get_storage_write_row(storage_key, value, storage_contract_addr);
             (storage_or_stack_0, storage_or_stack_1)
         };
-
+        //generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([
             &storage_contract_addr_row,
             &stack_pop_row,

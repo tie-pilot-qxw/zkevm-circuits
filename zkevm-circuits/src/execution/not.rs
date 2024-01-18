@@ -11,6 +11,15 @@ use std::marker::PhantomData;
 
 use super::CoreSinglePurposeOutcome;
 
+/// NotGadget deal OpCodeId:NOT,
+/// it read an operand from the stack,
+/// calculate !operand and write the answer back to the stack.
+///
+/// Not Execution State layout is as follows
+/// where STATE means state table lookup (stack pop operand0, stack push operand1),
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+--------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+--------+
@@ -48,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -57,7 +66,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let mut operands = vec![];
-
+        // append stack constraints
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
@@ -74,8 +83,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let a = &operands[0];
         let b = &operands[1];
-
         let sum_expr = 1.expr() * pow_of_two::<F>(128) - 1.expr(); // expression for 2^128 - 1
+                                                                   // constraint that the answer is correst
         constraints.extend([
             (
                 "not operation correct hi".into(),
@@ -86,9 +95,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 a[1].clone() + b[1].clone() - sum_expr.clone(),
             ),
         ]);
-
+        // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::NOT.as_u8().expr())]);
-
+        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
@@ -111,13 +120,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        //generate stack_pop row
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
         let b = current_state.stack_top.unwrap_or_default();
+        //generate stack_push row
         let stack_push_0 = current_state.get_push_stack_row(trace, b);
         let exp_b = !a;
         assert_eq!(exp_b, b);
+        //generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
+        // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
         let core_row_0 = ExecutionState::NOT.into_exec_state_core_row(
             trace,

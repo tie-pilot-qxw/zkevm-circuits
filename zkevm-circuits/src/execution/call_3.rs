@@ -12,7 +12,17 @@ use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-
+/// Call3 is the third step of opcode CALL
+/// Algorithm overview:
+///     1. set call_context's parent_call_id = current call_id
+///     2. set call_context's parent_pc = current pc
+///     3. set call_context's parent_stack_pointer = current stack_pointer
+///     4. set call_context's parent_code_addr = current code_addr
+/// Table layout:
+///     1. State lookup(call_context write parent_call_id), src: Core circuit, target: State circuit table, 8 columns
+///     2. State lookup(call_context write parent_pc), src: Core circuit, target: State circuit table, 8 columns
+///     3. State lookup(call_context write parent_stack_pointer), src: Core circuit, target: State circuit table, 8 columns
+///     4. State lookup(call_context write parent_code_addr), src: Core circuit, target: State circuit table, 8 columns
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
@@ -20,7 +30,7 @@ use std::marker::PhantomData;
 /// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
 /// +---+-------+-------+-------+----------+
 ///
-/// STATE_STAMP_INIT means the state stamp just before the call operation is executed, which is used by the next gadget.
+/// Note: call_context write's call_id should be callee's
 
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
@@ -67,7 +77,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -75,7 +85,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -104,7 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // append constraints for state lookup's values
         constraints.extend([
             ("ParentCallId write hi".into(), operands[0][0].clone()),
             (
@@ -129,13 +139,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 operands[3][0].clone() * pow_of_two::<F>(128) + operands[3][1].clone() - code_addr,
             ),
         ]);
-
+        // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        // append constraint for the next execution state's stamp_init
         constraints.extend([(
             "state_init_for_next_gadget correct".into(),
             stamp_init_for_next_gadget - state_stamp_init,
         )]);
-
+        // append core single purpose constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome {
             ..Default::default()
         };
@@ -170,6 +181,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        //generate call_context rows
         let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentCallId,
             current_state.call_id.into(),
@@ -191,7 +203,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id_new,
         );
 
-        //update current_state's parent_call_id, parent_pc, parent_stack_pointer, parent_code_addr
+        //update current_state's parent_call_id, parent_pc, parent_stack_pointer and parent_code_addr
         current_state
             .parent_call_id
             .insert(current_state.call_id_new, current_state.call_id);
@@ -204,9 +216,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         current_state
             .parent_code_addr
             .insert(current_state.call_id_new, current_state.code_addr);
-
+        //generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-
+        // insert lookup: Core ---> State
         core_row_1.insert_state_lookups([
             &call_context_write_row_0,
             &call_context_write_row_1,
@@ -219,7 +231,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        let stamp_init = current_state.call_id_new - 1; // here we use the property that call_id_new == state_stamp + 1, where state_stamp is the stamp just before call operation is executed (instead of before the call_3 gadget).
+        // here we use the property that call_id_new == state_stamp + 1, where state_stamp is the stamp just before call operation is executed (instead of before the call_3 gadget).
+        let stamp_init = current_state.call_id_new - 1;
         assign_or_panic!(core_row_0.vers_27, stamp_init.into());
         Witness {
             core: vec![core_row_1, core_row_0],

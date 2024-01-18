@@ -61,7 +61,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -69,7 +69,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints and memory constraints
         let mut operands: Vec<[Expression<F>; 2]> = vec![];
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
@@ -96,12 +96,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // offset hi and value hi of memory-type state lookup should be zero
         constraints.extend([
             ("offset_hi == 0".into(), operands[0][0].clone()),
             ("memory write value hi ==0".into(), operands[2][0].clone()),
         ]);
-
+        // append bitwise constraints
         let bitwise_entry = config.get_bitwise_lookup(meta, 0);
         constraints.append(&mut config.get_bitwise_constraints(
             meta,
@@ -112,12 +112,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some(operands[2][1].clone()), // acc_2 (the result of value_lo & 0xff) should be equal to memory write value
             None,
         ));
-
+        // append opcode constraint
         constraints.extend([(
             "opcode".into(),
             opcode.clone() - OpcodeId::MSTORE8.as_u8().expr(),
         )]);
-
+        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
@@ -162,11 +162,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let acc_2 = bitwise_rows.last().unwrap().acc_2;
         let memory_write_row = current_state.get_memory_write_row(offset, acc_2.as_usize() as u8);
 
-        // generate core row
+        // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        // insert lookUp: Core ---> Bitwise
         core_row_2.insert_bitwise_lookups(0, &bitwise_rows.last().unwrap());
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &memory_write_row]);
 
         let core_row_0 = ExecutionState::MSTORE8.into_exec_state_core_row(
