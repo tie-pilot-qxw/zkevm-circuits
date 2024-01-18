@@ -31,7 +31,7 @@ impl<F: Field> OperationGadget<F> for U64OverflowGadget<F> {
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (1, 1)
+        (0, 0)
     }
 
     fn get_constraints(
@@ -44,6 +44,7 @@ impl<F: Field> OperationGadget<F> for U64OverflowGadget<F> {
         let a = config.get_operand(0)(meta);
         let w = config.get_operand(1)(meta);
 
+        // Get the high 64 bits of a_lo.
         let a_lo_u16s = {
             let u16s: Vec<_> = (4..8)
                 .map(|i| config.get_u16(i, Rotation::cur())(meta))
@@ -81,6 +82,10 @@ pub(crate) fn gen_witness<F: Field>(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>
     let w_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(&w));
     let w_inv = U256::from_little_endian(w_f.invert().unwrap_or(F::ZERO).to_repr().as_ref());
 
+    // a_lo_u16s is converted from a_lo (which is a 128-bit U256 type) to a vec<u16> vector
+    // with a length of 16 in little-endian format. The elements from 0 to 8 represent the low 128 bits,
+    // while the elements from 9 to 16 represent the high 128 bits, with all high bits being zero.
+    // so, wo only need 0..8 elements.
     let row_0 = get_row(a, [w, w_inv], a_lo_u16s, 0, Tag::U64Overflow);
 
     (vec![row_0], vec![w, w_inv])
@@ -108,5 +113,18 @@ mod test {
 
         witness.print_csv();
         assert_eq!(U256::from(0), result[0]);
+    }
+
+    #[test]
+    fn test_gen_witness_overflow() {
+        let a = u128::MAX.into();
+        let (arithmetic, result) = gen_witness::<Fr>(vec![a]);
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+
+        witness.print_csv();
+        assert!(result[0] > 0.into());
     }
 }
