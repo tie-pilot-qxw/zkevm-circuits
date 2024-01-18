@@ -1460,7 +1460,7 @@ impl WitnessExecHelper {
             }
             public::Tag::BlockTxNum => {
                 values = [Some(self.tx_num_in_block.into()), None, None, None];
-                value_comments = ["tx_num_in_block".into(), "0".into(), "0".into(), "0".into()];
+                value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
             }
             _ => panic!(),
         };
@@ -2066,6 +2066,7 @@ impl Witness {
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
         witness.insert_begin_block(&mut current_state);
+        // initialize txs number in current_state with geth_data
         current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
         for (i, trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =

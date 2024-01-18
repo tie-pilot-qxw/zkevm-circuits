@@ -1,3 +1,4 @@
+use crate::execution::{begin_tx_1, end_block, CoreSinglePurposeOutcome, ExecStateTransition};
 use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
@@ -9,7 +10,6 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use crate::execution::{begin_tx_1, end_block, CoreSinglePurposeOutcome, ExecStateTransition};
 pub(crate) const NUM_ROW: usize = 3;
 pub struct EndTxGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -45,24 +45,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let (_, _, [public_tx_num_in_block, _, _, _]) =
+        let (public_tag, _, [public_tx_num_in_block, _, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta));
 
-        let tx_id_diff = meta.query_advice(config.vers[22], Rotation(-2));
         let tx_id_diff_inv = meta.query_advice(config.vers[23], Rotation(-2));
-        let is_zero = SimpleIsZero::new(&tx_id_diff, &tx_id_diff_inv, String::from("tx_id_diff"));
+        let is_zero = SimpleIsZero::new(
+            &(public_tx_num_in_block.clone() - tx_idx.clone()),
+            &tx_id_diff_inv,
+            String::from("tx_id_diff"),
+        );
         constraints.append(&mut is_zero.get_constraints());
-        // 约束 txnum - tx_idx - diff = 0.
         constraints.push((
-            "tx_is_end_in_block".into(),
-            public_tx_num_in_block - tx_idx - tx_id_diff,
+            "tag is BlockTxNum".into(),
+            public_tag - (public::Tag::BlockTxNum as u8).expr(),
         ));
 
         // 约束下一个执行状态
         constraints.append(&mut config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![],
+                vec![ExecutionState::END_CALL],
                 NUM_ROW,
                 vec![
                     // 非区块中最后一笔交易时（即tx_id_diff>0），约束下一个状态为begin_tx_1
@@ -116,8 +118,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        // 将差值和它的相反数填入core_row_2的22、23列
-        assign_or_panic!(core_row_2.vers_22, U256::from(tx_num_diff));
+        // 将差值的相反数填入core_row_2的23列
         assign_or_panic!(core_row_2.vers_23, tx_num_diff_inv);
 
         // core_row_2添加public entry记录总的交易数，
@@ -153,7 +154,7 @@ mod test {
         };
         let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let mut row = ExecutionState::END_CALL.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
