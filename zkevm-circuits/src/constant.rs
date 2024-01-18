@@ -23,6 +23,9 @@ pub(crate) const LOG_NUM_BITWISE_TAG: usize = 2;
 /// this+NUM_STATE_HI_COL+NUM_STATE_LO_COL should be no greater than 32
 pub(crate) const NUM_AUXILIARY: usize = 7;
 
+/// PUBLIC_NUM_VALUES values array's length
+pub(crate) const PUBLIC_NUM_VALUES: usize = 4;
+
 /// The text description for columns used by auxiliary
 pub(crate) const DESCRIPTION_AUXILIARY: [&'static str; NUM_AUXILIARY] = [
     "state_stamp",

@@ -1,13 +1,11 @@
+use crate::constant::PUBLIC_NUM_VALUES;
 use crate::table::PublicTable;
-use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
 use halo2_proofs::circuit::Layouter;
 use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Instance};
 use std::marker::PhantomData;
-
-/// NUM_VALUES values array's length
-const NUM_VALUES: usize = 4;
 
 #[derive(Clone, Debug)]
 pub struct PublicCircuitConfig {
@@ -16,7 +14,7 @@ pub struct PublicCircuitConfig {
     // tx_idx_or_number_diff (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
     tx_idx_or_number_diff: Column<Instance>,
     // values , 4 columns
-    values: [Column<Instance>; NUM_VALUES],
+    values: [Column<Instance>; PUBLIC_NUM_VALUES],
 }
 
 pub struct PublicCircuitConfigArgs {
@@ -68,27 +66,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
     /// +-----+-----------------------+--------+--------+--------+--------+
     /// | tag | tx_idx_or_number_diff | value0 | value1 | value2 | value3 |
     fn instance(&self) -> Vec<Vec<F>> {
-        let mut tag = vec![];
-        let mut tx_idx_or_number_diff = vec![];
-        let mut values: [Vec<F>; NUM_VALUES] = std::array::from_fn(|_| vec![]);
-        // assign values from witness of public
-        for row in &self.witness.public {
-            tag.push(F::from_u128(row.tag as u128));
-            // tx_idx_or_number_diff to little endian,u64
-            tx_idx_or_number_diff.push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                &row.tx_idx_or_number_diff.unwrap_or_default(),
-            )));
-            let array: [_; NUM_VALUES] = [row.value_0, row.value_1, row.value_2, row.value_3];
-            for i in 0..NUM_VALUES {
-                // value[i] to little endian,u64
-                values[i].push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                    &array[i].unwrap_or_default(),
-                )));
-            }
-        }
-        let mut res: Vec<Vec<F>> = vec![tag, tx_idx_or_number_diff];
-        res.extend(values);
-        res
+        self.witness.get_public_instance()
     }
 
     fn synthesize_sub(
@@ -130,7 +108,7 @@ mod test {
         pub public_circuit_config: PublicCircuitConfig,
         pub tag: Column<Advice>,
         pub tx_idx_or_number_diff: Column<Advice>,
-        pub values: [Column<Advice>; NUM_VALUES],
+        pub values: [Column<Advice>; PUBLIC_NUM_VALUES],
     }
 
     impl<F: Field> Circuit<F> for PublicTestCircuit<F> {
@@ -172,7 +150,7 @@ mod test {
                 ];
                 // values lookup constraints
                 v.append(
-                    &mut (0..NUM_VALUES)
+                    &mut (0..PUBLIC_NUM_VALUES)
                         .map(|i| {
                             (
                                 // query value advice

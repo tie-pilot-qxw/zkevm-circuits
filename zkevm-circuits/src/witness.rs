@@ -13,16 +13,16 @@ use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    PUBLIC_NUM_VALUES,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
-use crate::table::PUBLIC_NUM_VALUES;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
-    SubCircuit,
+    convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f,
+    create_contract_addr_with_prefix, uint64_with_overflow, SubCircuit,
 };
 use crate::witness::public::LogTag;
 use crate::witness::state::{CallContextTag, Tag};
@@ -2312,6 +2312,33 @@ impl Witness {
         self.write_one_table(&mut writer, &self.bitwise, "Bitwise", None);
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
         writer.write(csv2html::epilogue().as_ref()).unwrap();
+    }
+    // instance return vector of vector
+    /// +-----+-----------------------+--------+--------+--------+--------+
+    /// | tag | tx_idx_or_number_diff | value0 | value1 | value2 | value3 |
+    pub fn get_public_instance<F: Field>(&self) -> Vec<Vec<F>> {
+        let mut tag = vec![];
+        let mut tx_idx_or_number_diff = vec![];
+        let mut values: [Vec<F>; PUBLIC_NUM_VALUES] = std::array::from_fn(|_| vec![]);
+        // assign values from witness of public
+        for row in &self.public {
+            tag.push(F::from_u128(row.tag as u128));
+            // tx_idx_or_number_diff to little endian,u64
+            tx_idx_or_number_diff.push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &row.tx_idx_or_number_diff.unwrap_or_default(),
+            )));
+            let array: [_; PUBLIC_NUM_VALUES] =
+                [row.value_0, row.value_1, row.value_2, row.value_3];
+            for i in 0..PUBLIC_NUM_VALUES {
+                // value[i] to little endian,u64
+                values[i].push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                    &array[i].unwrap_or_default(),
+                )));
+            }
+        }
+        let mut res: Vec<Vec<F>> = vec![tag, tx_idx_or_number_diff];
+        res.extend(values);
+        res
     }
 }
 

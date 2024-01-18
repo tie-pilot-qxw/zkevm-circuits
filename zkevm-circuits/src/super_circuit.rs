@@ -60,6 +60,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 arithmetic_table,
                 copy_table,
                 bitwise_table,
+                public_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
