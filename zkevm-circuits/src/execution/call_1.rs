@@ -195,11 +195,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .call_data_size
             .insert(current_state.call_id_new, args_len);
 
-        let (copy_rows, mut state_rows) = current_state.get_calldata_write_rows::<F>(
-            trace,
-            args_offset.as_usize(),
-            args_len.as_usize(),
-        );
+        let (copy_rows, mut state_rows) =
+            current_state.get_calldata_write_rows::<F>(trace, args_offset, args_len);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
         if args_len.is_zero() {

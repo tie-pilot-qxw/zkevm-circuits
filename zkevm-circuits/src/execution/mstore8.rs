@@ -157,9 +157,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let bitwise_rows =
             bitwise::Row::from_operation::<F>(bitwise::Tag::And, value_lo, BYTE_MAX.into());
         // get memory write value and memory write row
+        // we don't need to consider whether offset overflows because Ethereum has checked that.
+        // reference : https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L43
         let acc_2 = bitwise_rows.last().unwrap().acc_2;
-        let memory_write_row =
-            current_state.get_memory_write_row(offset.low_u64() as usize, acc_2.as_usize() as u8);
+        let memory_write_row = current_state.get_memory_write_row(offset, acc_2.as_usize() as u8);
 
         // generate core row
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
