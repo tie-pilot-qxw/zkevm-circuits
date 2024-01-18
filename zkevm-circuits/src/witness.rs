@@ -2156,10 +2156,12 @@ impl Witness {
         self.append(end_block_gadget.gen_witness(last_step, current_state));
     }
 
-    fn insert_begin_block(&mut self, current_state: &mut WitnessExecHelper) {
-        let begin_block: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> =
-            crate::execution::begin_block::new();
-        self.append(begin_block.gen_witness(
+    fn insert_begin_block(
+        &mut self,
+        current_state: &mut WitnessExecHelper,
+        gadget: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+    ) {
+        self.append(gadget.gen_witness(
             &GethExecStep {
                 pc: 0,
                 op: OpcodeId::default(),
@@ -2213,7 +2215,6 @@ impl Witness {
             &mut current_state,
             &execution_gadgets_map,
         );
-
         witness.state.sort_by(|a, b| {
             let key_a = state_to_be_limbs(a);
             let key_b = state_to_be_limbs(b);

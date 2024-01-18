@@ -46,6 +46,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        // 约束指令当前的stamp与state电路的stamp
+        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let (state_circuit_tag, state_circuit_stamp, _, _, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0)); // after state circuit has sorting, this may change todo
         constraints.extend([

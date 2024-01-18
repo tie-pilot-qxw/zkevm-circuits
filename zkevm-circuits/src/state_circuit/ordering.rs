@@ -236,7 +236,6 @@ impl Config {
             offset,
             || Value::known(limb_difference.invert().unwrap()),
         )?;
-
         Ok(index)
     }
 
