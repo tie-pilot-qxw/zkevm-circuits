@@ -1,5 +1,5 @@
 use crate::execution::{begin_tx_1, end_block, CoreSinglePurposeOutcome, ExecStateTransition};
-use crate::execution::{AuxiliaryDelta, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
@@ -32,11 +32,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn get_constraints(
         &self,
-        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        _meta: &mut VirtualCells<F>,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         // 约束辅助列的所有元素与上一个指令相同
-        let delta = AuxiliaryDelta {
+        let delta = AuxiliaryOutcome {
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -92,8 +92,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn get_lookups(
         &self,
-        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        _meta: &mut ConstraintSystem<F>,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let public_entry = query_expression(meta, |meta| config.get_public_lookup(meta));
 

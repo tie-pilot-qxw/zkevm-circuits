@@ -2094,7 +2094,7 @@ impl Witness {
         let mut current_state = WitnessExecHelper::new();
         witness.insert_begin_block(&mut current_state);
         // initialize txs number in current_state with geth_data
-        current_state.tx_num_in_block = geth_data.eth_block.transactions.len();    
+        current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
         for (i, _trace) in geth_data.geth_traces.iter().enumerate() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
