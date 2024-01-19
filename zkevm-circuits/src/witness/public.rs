@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-
-use crate::util::create_contract_addr_with_prefix;
+use crate::constant::PUBLIC_NUM_VALUES;
+use crate::util::{convert_u256_to_64_bytes, create_contract_addr_with_prefix};
 use eth_types::geth_types::{BlockConstants, GethData};
-use eth_types::{ToBigEndian, U256};
+use eth_types::{Field, ToBigEndian, U256};
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
@@ -505,6 +505,32 @@ impl Row {
         }
     }
 }
+
+/// Get instance from witness.public (`&[Row]`), return a vector of vector of F
+pub fn public_rows_to_instance<F: Field>(rows: &[Row]) -> Vec<Vec<F>> {
+    let mut tag = vec![];
+    let mut tx_idx_or_number_diff = vec![];
+    let mut values: [Vec<F>; PUBLIC_NUM_VALUES] = std::array::from_fn(|_| vec![]);
+    // assign values from witness of public
+    for row in rows {
+        tag.push(F::from_u128(row.tag as u128));
+        // tx_idx_or_number_diff to little endian,u64
+        tx_idx_or_number_diff.push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+            &row.tx_idx_or_number_diff.unwrap_or_default(),
+        )));
+        let array: [_; PUBLIC_NUM_VALUES] = [row.value_0, row.value_1, row.value_2, row.value_3];
+        for i in 0..PUBLIC_NUM_VALUES {
+            // value[i] to little endian,u64
+            values[i].push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &array[i].unwrap_or_default(),
+            )));
+        }
+    }
+    let mut res: Vec<Vec<F>> = vec![tag, tx_idx_or_number_diff];
+    res.extend(values);
+    res
+}
+
 #[cfg(test)]
 mod test {
     use crate::util::geth_data_test;
