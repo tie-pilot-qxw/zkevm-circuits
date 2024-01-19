@@ -156,6 +156,7 @@ impl Config {
                     meta
                 );
                 let mut constraints = vec![];
+                // TODO: should use true rlc rather than square, see https://git.code.tencent.com/chainmaker-zk/zkevm/issues/44
                 for (i, rlc_expression) in LimbIndex::iter().zip(square_limb_differences(cur, prev))
                 {
                     constraints.push(
