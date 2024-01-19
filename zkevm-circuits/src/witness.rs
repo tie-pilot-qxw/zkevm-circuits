@@ -2313,9 +2313,7 @@ impl Witness {
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
         writer.write(csv2html::epilogue().as_ref()).unwrap();
     }
-    // instance return vector of vector
-    /// +-----+-----------------------+--------+--------+--------+--------+
-    /// | tag | tx_idx_or_number_diff | value0 | value1 | value2 | value3 |
+    // get_public_instance  get instance from witness.public, return  vector of vector of F
     pub fn get_public_instance<F: Field>(&self) -> Vec<Vec<F>> {
         let mut tag = vec![];
         let mut tx_idx_or_number_diff = vec![];
