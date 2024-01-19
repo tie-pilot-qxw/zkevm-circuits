@@ -1,4 +1,4 @@
-use crate::arithmetic_circuit::operation::{get_row, OperationConfig, OperationGadget};
+use crate::arithmetic_circuit::operation::{get_row, get_u16s, OperationConfig, OperationGadget};
 use crate::util::convert_u256_to_64_bytes;
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
@@ -45,20 +45,16 @@ impl<F: Field> OperationGadget<F> for U64OverflowGadget<F> {
         let w = config.get_operand(1)(meta);
 
         // Get the high 64 bits of a_lo.
-        let a_lo_u16s = {
-            let u16s: Vec<_> = (4..8)
-                .map(|i| config.get_u16(i, Rotation::cur())(meta))
-                .collect();
-            expr_from_u16s(&u16s)
-        };
+        let (a_lo_u16_sum, _, a_lo_u16_hi_sum) = get_u16s(config, meta, Rotation::cur());
 
         let w_is_zero = SimpleIsZero::new(&w[0], &w[1], String::from("w"));
         constraints.extend(w_is_zero.get_constraints());
 
         constraints.push((
             "w = a_lo >> 64 + a_hi << 64".to_string(),
-            w[0].clone() - (a_lo_u16s + a[0].clone() * pow_of_two::<F>(64)),
+            w[0].clone() - (a_lo_u16_hi_sum + a[0].clone() * pow_of_two::<F>(64)),
         ));
+        constraints.push(("a_lo = u16 sum".to_string(), a[1].clone() - a_lo_u16_sum));
 
         constraints
     }
