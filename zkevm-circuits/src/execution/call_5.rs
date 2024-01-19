@@ -15,6 +15,29 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(super) const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: usize = 4;
+const STACK_POINTER_DELTA: i32 = -6;
+const PC_DELTA: u64 = 1;
+
+/// Call5 is the last step of opcode CALL, which is
+/// located after the callee's all execution states.
+///
+/// Algorithn overview:
+///     1. read ret_offset and ret_len from stack
+///     2. read returndata_call_id from call_context
+///     3. copy bytes from returndata to memory[ret_offset:ret_offset+ret_len]
+///     4. write success flag to stack
+/// Table layout:
+///     1. STATE1: State lookup(stack read ret_offset), src: Core circuit, target: State circuit table, 8 columns
+///     2. STATE2: State lookup(stack read ret_len), src: Core circuit, target: State circuit table, 8 columns
+///     3. STATE3: State lookup(call_context read returndata_call_id), src: Core circuit, target: State circuit table, 8 columns
+///     4. STATE4: State lookup(stack write success), src: Core circuit, target: State circuit table, 8 columns
+///     5. COPY: Copy lookup(copy bytes from returndata to memory), src:Core circuit, target:Copy circuit table, 11 columns
+///     6. COPY_LEN: the actual number of bytes copied, which is equal to copy lookup's len, 1 column
+///     7. LEN_INV: the inverse of copy lookup's len, 1 column
+///     8. COPY_PADDING_LEN: only used to construct a lookup entry to arithmetic circuit (tag: length), 1 column
+///     
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
@@ -23,13 +46,9 @@ use std::marker::PhantomData;
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 ///
-/// COPY_PADDING_LEN is only used to construct a lookup entry to arithmetic circuit.
-
-pub(super) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: usize = 4;
-const STACK_POINTER_DELTA: i32 = -6;
-const PC_DELTA: u64 = 1;
-
+/// Note:
+///     1. The actual number of bytes copied might be smaller than ret_len, and we use length arithmetic to handle the problem.
+///     2. According to Ethereum, the exceeding parts won't be padded with 0, so we don't need ZERO_COPY lookup.
 pub struct Call5Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -63,7 +82,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(
                 STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
@@ -73,7 +92,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -100,7 +119,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // append constraints for state lookup's values
         constraints.extend([
             ("ret_offset hi".into(), operands[0][0].clone()),
             ("ret_len hi".into(), operands[1][0].clone()),
@@ -111,7 +130,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let ret_offset = operands[0][1].clone();
         let returndata_call_id = operands[2][1].clone();
-
+        //append copy constraints
         let copy_len_lo = meta.query_advice(config.vers[11], Rotation(-2));
         let len_lo_inv = meta.query_advice(config.vers[12], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&copy_len_lo, &len_lo_inv, String::from("copy_len_lo"));
@@ -140,7 +159,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             ExecStateTransition::new(vec![ExecutionState::END_CALL], NUM_ROW, vec![]),
         ));
+        // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
@@ -206,21 +227,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        //generate stack read rows
         let (stack_read_0, ret_offset) = current_state.get_peek_stack_row_value(trace, 6);
         let (stack_read_1, ret_length) = current_state.get_peek_stack_row_value(trace, 7);
 
         //pop all the stack values of call opcode
         current_state.stack_pointer -= 7;
-
+        //generate call_context read row
         let call_context_read_row = current_state.get_returndata_call_id_row();
-
+        //generate stack_write row
         let stack_write_row =
             current_state.get_push_stack_row(trace, U256::from(current_state.return_success as u8));
-
+        //generate copy rows and memory write rows
         let (copy_rows, mut state_rows, copy_len) =
             current_state.get_call_return_data_copy_rows::<F>(ret_offset, ret_length);
-
+        //generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
+        // insert lookup: Core ---> Copy
         if copy_len == 0 {
             core_row_2.insert_copy_lookup(
                 &copy::Row {
@@ -242,7 +265,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap(), None);
         }
-
+        //calculate and assign copy_len, copy_len_inv and copy_padding_len
         assign_or_panic!(core_row_2.vers_11, copy_len.into());
         let copy_len_inv = U256::from_little_endian(
             F::from_u128(copy_len as u128)
@@ -260,7 +283,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_2.vers_13, copy_padding_len);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-
+        // insert lookup: Core ---> State
         core_row_1.insert_state_lookups([
             &stack_read_0,
             &stack_read_1,
@@ -280,7 +303,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_context_read_row,
             stack_write_row,
         ]);
-
+        //generate arithmetic rows
         let (arithmetic_rows, _) = operation::length::gen_witness(vec![
             ret_length,
             ret_offset,

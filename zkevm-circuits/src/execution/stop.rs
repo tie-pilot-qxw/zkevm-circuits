@@ -13,15 +13,6 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-/// +---+-------+-------+-------+---------+
-/// |cnt| 8 col | 8 col | 8 col |  8col   |
-/// +---+-------+-------+-------+---------+
-/// | 1 | STATE1| STATE2|                 |
-/// | 0 | DYNA_SELECTOR   | AUX     |RETURNDATASIZE(1) |
-/// +---+-------+-------+-------+---------+
-/// STATE1: call_context write returndata_call_id; STATE2: call_context write returndata_size
-/// here we constraint RETURNDATASIZE == 0.expr()
-
 pub(crate) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 
@@ -29,6 +20,21 @@ pub struct StopGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
+/// Stop Execution State layout is as follows
+/// where STATE1 means state table lookup (call_context write returndata_call_id),
+/// STATE2 means state table lookup (call_context write returndata_size),
+/// RETURNDATASIZE means the updated returndata_size used by the next execution state (END_CALL),
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+---------+
+/// |cnt| 8 col | 8 col | 8 col |  8col   |
+/// +---+-------+-------+-------+---------+
+/// | 1 | STATE1| STATE2|                 |
+/// | 0 | DYNA_SELECTOR   | AUX     |RETURNDATASIZE(1) |
+/// +---+-------+-------+-------+---------+
+///
+/// Note: here we constraint RETURNDATASIZE == 0.expr()
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for StopGadget<F>
 {
@@ -59,7 +65,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             ..Default::default()
@@ -98,7 +104,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 extract_lookup_expression!(state, state_entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // append constraints for state lookup's values
         constraints.extend([
             ("returndata_call_id hi == 0".into(), operands[0][0].clone()),
             (
@@ -170,9 +176,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.returndata_size,
             current_state.returndata_call_id,
         );
-
+        //generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
+        //insert lookup: Core ---> State
         core_row_1.insert_state_lookups([&call_context_write_row_0, &call_context_write_row_1]);
 
         let mut core_row_0 = ExecutionState::STOP.into_exec_state_core_row(

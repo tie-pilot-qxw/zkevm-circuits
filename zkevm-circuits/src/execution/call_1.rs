@@ -14,6 +14,22 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(super) const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: usize = 3;
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+
+/// Call1 is the first step of opcode CALL
+/// Algorithm overview:
+///     1. read args_len, args_offset from stack (temporarily not popped)
+///     2. set callcontext's calldata_size = args_len
+///     3. copy memory[args_offset:args_offset + args_len] to calldata
+/// Table layout:
+///     STATE1:  State lookup(stack read args_offset), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(stack read args_len), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(call_context write calldata_size), src: Core circuit, target: State circuit table, 8 columns
+///     COPY:   Copy lookup(copy args_len bytes from memory to calldata), src:Core circuit, target:Copy circuit table, 11 columns
+///     LEN_INV: the inverse of copy lookup's len, used to check whether copy lookup's len == 0
+///     STATE_STAMP_INIT: the state stamp just before the execution of opcode CALL, which will be used by the next execution states
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
@@ -22,12 +38,7 @@ use std::marker::PhantomData;
 /// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
 /// +---+-------+-------+-------+----------+
 ///
-/// STATE_STAMP_INIT means the state stamp just before the call operation is executed, which is used by the next gadget.
-
-pub(super) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: usize = 3;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
-
+/// Note: call_context write's call_id should be callee's
 pub struct Call1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -64,7 +75,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(
                 STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
@@ -74,7 +85,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
@@ -105,7 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let args_offset = &operands[0];
         let args_len = &operands[1];
         let calldata_size = &operands[2];
-
+        // append constraints for state_lookup's values
         constraints.extend([
             ("offset_hi == 0".into(), args_offset[0].clone()),
             ("len_hi == 0".into(), args_len[0].clone()),
@@ -115,7 +126,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 args_len[1].clone() - calldata_size[1].clone(),
             ),
         ]);
-
+        //append copy constraints
         let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
         let is_zero_len = SimpleIsZero::new(&args_len[1], &len_lo_inv, String::from("length_lo"));
 
@@ -138,13 +149,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             copy_entry,
         ));
-
+        // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
         constraints.extend([(
             "state_init_for_next_gadget correct".into(),
             stamp_init_for_next_gadget - state_stamp_prev,
         )]);
-
+        // append core single purpose constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome {
             ..Default::default()
         };
@@ -182,23 +193,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         current_state.call_id_new = current_state.state_stamp + 1;
         let stamp_init = current_state.state_stamp;
-
+        // generate stack read rows
         let (stack_read_0, args_offset) = current_state.get_peek_stack_row_value(trace, 4);
         let (stack_read_1, args_len) = current_state.get_peek_stack_row_value(trace, 5);
-
+        // generate call_context write row
         let call_context_write_row = current_state.get_call_context_write_row(
             state::CallContextTag::CallDataSize,
             args_len,
             current_state.call_id_new,
         );
+        //update current_state's call_data_size
         current_state
             .call_data_size
             .insert(current_state.call_id_new, args_len);
-
+        //generate copy rows and memory read rows
         let (copy_rows, mut state_rows) =
             current_state.get_calldata_write_rows::<F>(trace, args_offset, args_len);
-
+        // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
+        // insert lookup: Core ---> Copy
         if args_len.is_zero() {
             core_row_2.insert_copy_lookup(
                 &copy::Row {
@@ -222,8 +235,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
+        // insert lookup: Core ---> State
         core_row_1.insert_state_lookups([&stack_read_0, &stack_read_1, &call_context_write_row]);
-
+        // calculate and assign len_inv
         let len_lo = F::from_u128(args_len.low_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());

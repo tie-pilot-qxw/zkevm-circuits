@@ -13,6 +13,18 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(super) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: usize = 2;
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+
+/// Call2 is the second step of opcode CALL
+/// Algorithm overview:
+/// 1. read value from stack (temporarily not popped)
+/// 2. write value to call_context
+/// Table layout:
+///     STATE1:  State lookup(stack read value), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(call_context write value), src: Core circuit, target: State circuit table, 8 columns
+///     STATE_STAMP_INIT: the state stamp just before CALL1, which is obtained from the previous execution state (CALL1) and will be used by the next execution states
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
@@ -20,12 +32,7 @@ use std::marker::PhantomData;
 /// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
 /// +---+-------+-------+-------+----------+
 ///
-/// STATE_STAMP_INIT means the state stamp just before the call operation is executed, which is used by the next gadget.
-
-pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 2;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
-
+/// Note: call_context write's call_id should be callee's
 pub struct Call2Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -59,7 +66,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -67,7 +74,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
@@ -94,7 +101,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // append constraints for state_lookup's values
         constraints.extend([
             (
                 "value equal hi".into(),
@@ -105,20 +112,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 operands[0][1].clone() - operands[1][1].clone(),
             ),
         ]);
-
+        // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        // append constraint for the next execution state's stamp_init
         constraints.extend([(
             "state_init_for_next_gadget correct".into(),
             stamp_init_for_next_gadget - state_stamp_init,
         )]);
-
+        // append core single purpose constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome {
             ..Default::default()
         };
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
-        // prev call is CALL_1
-        // next call is CALL_3
+        // prev execution state is CALL_1
+        // next execution state is CALL_3
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -143,17 +151,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        //generate stack read row
         let (stack_read_row, value) = current_state.get_peek_stack_row_value(trace, 3);
-
+        //generate stack write row
         let call_context_write_row = current_state.get_call_context_write_row(
             state::CallContextTag::Value,
             value,
             current_state.call_id_new,
         );
+        // update current_state's value
         current_state.value.insert(current_state.call_id_new, value);
-
+        // generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-
+        // insert lookup: Core ---> State
         core_row_1.insert_state_lookups([&stack_read_row, &call_context_write_row]);
         let mut core_row_0 = ExecutionState::CALL_2.into_exec_state_core_row(
             trace,

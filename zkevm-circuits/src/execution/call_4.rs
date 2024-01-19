@@ -13,16 +13,27 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+pub(super) const NUM_ROW: usize = 2;
+const STATE_STAMP_DELTA: usize = 4;
+
+/// Call4 is the fourth step of opcode CALL.
+/// After Call4, there should be execution states of the callee.
+/// Algorithm overview:
+///     1. read gas, addr from stack (temporarily not popped)
+///     2. set call_context's storage_contract_addr = addr, caller = current code_addr
+/// Table layout:
+///     1. State lookup(stack read gas), src: Core circuit, target: State circuit table, 8 columns
+///     2. State lookup(stack read addr), src: Core circuit, target: State circuit table, 8 columns
+///     3. State lookup(call_context write storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
+///     4. State lookup(call_context write caller), src: Core circuit, target: State circuit table, 8 columns
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
-
-pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 4;
-
+///
+/// Note: call_context write's call_id should be callee's
 pub struct Call4Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -58,7 +69,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation(-1 * NUM_ROW as i32), // call_1， call_2 and call_3 don't change the stack_pointer value, so stack_pointer of the last gadget equals to the stack_pointer just before the call operation.
         );
         let call_id_new = state_stamp_init.clone() + 1.expr();
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(-stack_pointer_prev.expr()), // stack pointer will become 0 after call_4
@@ -66,7 +77,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
+        // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -100,7 +111,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // append constraints for state lookup's values
         let addr = operands[1].clone();
         let storage_contract_addr = operands[2].clone();
         let sender_addr = operands[3].clone();
@@ -120,9 +131,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     - code_addr_cur,
             ),
         ]);
-
+        // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
-
+        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::To(0.expr()),
             call_id: ExpressionOutcome::To(call_id_new),
@@ -164,9 +175,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_read_0, _gas) = current_state.get_peek_stack_row_value(trace, 1);
+        // generate stack_read rows
+        let (stack_read_0, gas) = current_state.get_peek_stack_row_value(trace, 1);
         let (stack_read_1, addr) = current_state.get_peek_stack_row_value(trace, 2);
-
+        // generate call_context rows
         let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::StorageContractAddr,
             addr.into(),
@@ -177,7 +189,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.code_addr,
             current_state.call_id_new,
         );
-        //update current_state's storage_contract_addr and sender
+        // update current_state's storage_contract_addr and sender
         current_state
             .storage_contract_addr
             .insert(current_state.call_id_new, addr);
@@ -185,11 +197,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .sender
             .insert(current_state.call_id_new, current_state.code_addr);
 
-        //update current_state's stack_pointer
+        // update current_state's stack_pointer
         current_state.stack_pointer = 0;
-
+        // generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-
+        // insert lookup: Core ---> State
         core_row_1.insert_state_lookups([
             &stack_read_0,
             &stack_read_1,
@@ -203,7 +215,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
-        //update call_id, code_addr
+        // update call_id, code_addr
         current_state.call_id = current_state.call_id_new;
         current_state.code_addr = addr;
 

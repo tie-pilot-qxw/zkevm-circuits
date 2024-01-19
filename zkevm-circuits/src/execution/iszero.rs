@@ -1,8 +1,9 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::Witness;
-use crate::witness::WitnessExecHelper;
+use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -18,6 +19,23 @@ const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 1;
 
+/// Iszero read an operand from the stack,
+/// write 1 to the stack if the operand equals to zero,
+/// and write 0 otherwise.
+///
+/// Iszero Execution State layout is as follows
+/// where STATE means state table lookup (stack pop operand0, stack push iszero),
+/// HI_INV and LO_INV are the inverse of operand0_hi and operand0_lo,
+/// HI_ISZERO and LO_ISZERO mean whether operand0_hi and operand0_lo equals to zero,
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col  |
+/// +---+-------+-------+-------+----------+
+/// | 1 | STATE | STATE | HI_INV(1)| LO_INV(1)| HI_ISZERO(1)| LO_ISZERO(1) |
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 pub struct IszeroGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -42,15 +60,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
-
+        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
-
+        // append stack constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let mut operands = vec![];
 
@@ -83,18 +99,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend(iszero_gadget_hi.get_constraints());
         constraints.extend(iszero_gadget_lo.get_constraints());
-
+        // constraint that the answer is correst
         constraints.extend([
             ("hi_iszero".into(), expr_hi - hi_iszero.clone()),
             ("lo_iszero".into(), expr_lo - lo_iszero.clone()),
             ("hi_ans".into(), b[0].clone()),
             ("lo_ans".into(), b[1].clone() - hi_iszero * lo_iszero),
         ]);
-
-        constraints.extend([
-            ("opcode".into(), opcode - OpcodeId::ISZERO.as_u8().expr()),
-            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
-        ]);
+        // append opcode constraint
+        constraints.extend([("opcode".into(), opcode - OpcodeId::ISZERO.as_u8().expr())]);
+        // append core single purpose constraints
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         constraints
     }
     fn get_lookups(
@@ -110,20 +130,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        //generate stack_pop row
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
 
         assert_eq!(
             current_state.stack_top.unwrap().as_u64(),
             if a == U256::from(0) { 1 } else { 0 }
         );
-
+        //generate stack_push row
         let stack_push_0 =
             current_state.get_push_stack_row(trace, current_state.stack_top.unwrap_or_default());
-
+        //generate core rows
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-
+        // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
-
+        // calculate and assign values used to comfirm correctness
         let a_hi = F::from_u128((a >> 128).as_u128());
         let hi_inv = U256::from_little_endian(a_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         core_row_1.vers_16 = Some(hi_inv);
