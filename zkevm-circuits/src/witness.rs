@@ -13,18 +13,18 @@ use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    PUBLIC_NUM_VALUES,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
-use crate::table::PUBLIC_NUM_VALUES;
 use crate::util::{
     convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
     SubCircuit,
 };
-use crate::witness::public::LogTag;
+use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
 use eth_types::geth_types::GethData;
@@ -2312,6 +2312,11 @@ impl Witness {
         self.write_one_table(&mut writer, &self.bitwise, "Bitwise", None);
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
         writer.write(csv2html::epilogue().as_ref()).unwrap();
+    }
+
+    /// get_public_instance get instance from witness.public, return a vector of vector of F
+    pub fn get_public_instance<F: Field>(&self) -> Vec<Vec<F>> {
+        public_rows_to_instance(&self.public)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
-use crate::constant::{LOG_NUM_BITWISE_TAG, LOG_NUM_STATE_TAG};
+use crate::constant::{LOG_NUM_BITWISE_TAG, LOG_NUM_STATE_TAG, PUBLIC_NUM_VALUES};
 use crate::witness::{arithmetic, state};
 use crate::witness::{bitwise, copy, fixed};
 use eth_types::Field;
@@ -13,7 +13,6 @@ use halo2_proofs::poly::Rotation;
 use strum_macros::{AsRefStr, EnumVariantNames};
 
 pub const U10_TAG: usize = 256;
-pub const PUBLIC_NUM_VALUES: usize = 4;
 pub const SEPARATOR: &str = "-";
 pub const ANNOTATE_SEPARATOR: &str = ",";
 pub const BITWISE_NUM_OPERAND: usize = 3;

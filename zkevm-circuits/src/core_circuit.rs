@@ -1,7 +1,7 @@
 use crate::constant::NUM_VERS;
 use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
 use crate::table::{
-    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, LookupEntry, StateTable,
+    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, LookupEntry, PublicTable, StateTable,
 };
 use crate::util::assign_advice_or_fixed;
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
@@ -52,6 +52,7 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     arithmetic_table: ArithmeticTable,
     copy_table: CopyTable,
     bitwise_table: BitwiseTable,
+    public_table: PublicTable,
 }
 
 pub struct CoreCircuitConfigArgs<F> {
@@ -60,6 +61,7 @@ pub struct CoreCircuitConfigArgs<F> {
     pub arithmetic_table: ArithmeticTable,
     pub copy_table: CopyTable,
     pub bitwise_table: BitwiseTable,
+    pub public_table: PublicTable,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -75,6 +77,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             arithmetic_table,
             copy_table,
             bitwise_table,
+            public_table,
         }: Self::ConfigArgs,
     ) -> Self {
         let q_enable = meta.complex_selector();
@@ -121,6 +124,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             arithmetic_table,
             copy_table,
             bitwise_table,
+            public_table,
         };
         // all execution gadgets are created here
         let execution_gadgets = ExecutionGadgets::configure(meta, execution_config);
@@ -142,6 +146,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             arithmetic_table,
             copy_table,
             bitwise_table,
+            public_table,
         };
 
         meta.create_gate("CORE_cnt_decrement_unless_0", |meta| {
@@ -416,6 +421,7 @@ mod test {
         pub arithmetic_table: ArithmeticTable,
         pub copy_table: CopyTable,
         pub bitwise_table: BitwiseTable,
+        pub public_table: PublicTable,
     }
     #[derive(Clone, Default, Debug)]
     pub struct CoreTestCircuit<F: Field> {
@@ -434,6 +440,7 @@ mod test {
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
+            let public_table = PublicTable::construct(meta);
             let q_enable_arithmetic = meta.complex_selector();
             let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
             let q_enable_copy = meta.complex_selector();
@@ -448,6 +455,7 @@ mod test {
                     arithmetic_table,
                     copy_table,
                     bitwise_table,
+                    public_table,
                 },
             );
             Self::Config {
@@ -457,6 +465,7 @@ mod test {
                 arithmetic_table,
                 copy_table,
                 bitwise_table,
+                public_table,
             }
 
             // let q_enable_bytecode = meta.complex_selector();
@@ -539,8 +548,9 @@ mod test {
 
     fn test_simple_core_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
+        let instance = witness.get_public_instance();
         let circuit = CoreTestCircuit::<Fp>::new(witness);
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover
     }
 

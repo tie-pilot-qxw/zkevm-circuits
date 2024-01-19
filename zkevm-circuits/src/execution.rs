@@ -54,7 +54,7 @@ use std::collections::HashMap;
 
 use crate::table::{
     extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable,
-    LookupEntry, StateTable, ANNOTATE_SEPARATOR, PUBLIC_NUM_VALUES,
+    LookupEntry, PublicTable, StateTable, ANNOTATE_SEPARATOR,
 };
 use crate::witness::state::CallContextTag;
 use crate::witness::WitnessExecHelper;
@@ -127,7 +127,7 @@ macro_rules! get_every_execution_gadgets {
         ]
     }};
 }
-use crate::constant::NUM_VERS;
+use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
@@ -162,6 +162,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     pub(crate) arithmetic_table: ArithmeticTable,
     pub(crate) copy_table: CopyTable,
     pub(crate) bitwise_table: BitwiseTable,
+    pub(crate) public_table: PublicTable,
 }
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
@@ -1683,7 +1684,7 @@ mod test {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
-            use crate::table::{BitwiseTable, BytecodeTable, StateTable, ArithmeticTable, CopyTable};
+            use crate::table::{BitwiseTable, BytecodeTable, PublicTable, StateTable, ArithmeticTable, CopyTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             #[allow(unused_imports)]
@@ -1737,6 +1738,7 @@ mod test {
                     let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
                     let q_enable_state = meta.complex_selector();
                     let state_table = StateTable::construct(meta, q_enable_state);
+                    let public_table = PublicTable::construct(meta);
                     let q_enable_arithmetic = meta.complex_selector();
                     let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
                     let q_enable_copy = meta.complex_selector();
@@ -1761,6 +1763,7 @@ mod test {
                         arithmetic_table,
                         copy_table,
                         bitwise_table,
+                        public_table,
                     };
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {
@@ -1918,8 +1921,9 @@ mod test {
                 witness.core.push($padding_end_row(&$current_state));
             }
             let k = 8;
+            let instance = witness.get_public_instance();
             let circuit = TestCircuit::<Fr>::new(witness.clone());
-            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            let prover = MockProver::run(k, &circuit, instance).unwrap();
             (witness, prover)
         }};
     }
