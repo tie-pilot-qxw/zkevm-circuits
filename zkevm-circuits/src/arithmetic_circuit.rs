@@ -515,4 +515,25 @@ mod test {
         witness.print_csv();
         prover.assert_satisfied_par();
     }
+
+    #[test]
+    fn test_u64overflow_witness() {
+        let (arithmetic1, result) = operation::u64overflow::gen_witness::<Fr>(vec![0xfa.into()]);
+        let (arithmetic2, result2) =
+            operation::u64overflow::gen_witness::<Fr>(vec![u128::MAX.into()]);
+
+        let mut arithmetic = Vec::new();
+        arithmetic.extend(arithmetic1);
+        arithmetic.extend(arithmetic2);
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+        let circuit = ArithmeticTestCircuit::new(witness.clone());
+        let k = log2_ceil(TEST_SIZE);
+        let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
+        witness.print_csv();
+        prover.assert_satisfied_par();
+    }
 }

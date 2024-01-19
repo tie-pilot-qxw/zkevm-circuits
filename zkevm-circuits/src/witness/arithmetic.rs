@@ -26,7 +26,7 @@ pub struct Row {
 #[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
 pub enum Tag {
     #[default]
-    Nil,
+    U64Overflow,
     Add,
     Sub,
     Mul,
