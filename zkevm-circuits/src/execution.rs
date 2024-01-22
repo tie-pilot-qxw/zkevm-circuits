@@ -856,6 +856,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_arithmetic_lookup_another_row(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+    ) -> LookupEntry<F> {
+        assert!(index < 3);
+        const WIDTH: usize = 9;
+        let (hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3, tag) = (
+            meta.query_advice(self.vers[index * WIDTH + 0], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 5], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 6], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 7], Rotation(-3)),
+            meta.query_advice(self.vers[index * WIDTH + 8], Rotation(-3)),
+        );
+        LookupEntry::Arithmetic {
+            tag,
+            values: [hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3],
+        }
+    }
+
     pub(crate) fn get_copy_padding_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (
             src_type,

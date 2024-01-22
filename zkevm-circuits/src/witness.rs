@@ -8,6 +8,7 @@ pub mod fixed;
 pub mod public;
 pub mod state;
 
+use crate::arithmetic_circuit::operation::get_row;
 use crate::arithmetic_circuit::ArithmeticCircuit;
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
@@ -965,34 +966,53 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
+    /// 从calldata的offset位置读取32byte数据至stack of evm.
+    /// overflow_u64: 标识offset的值是否溢出u64，因为调用方使用
+    /// u256标识offset的值
     pub fn get_calldata_load_rows<F: Field>(
-        // TODO: in its caller(calldataload.rs), guarantee that offset < u64::MAX - 32
         &mut self,
-        offset: U256,
+        offset: u64,
+        overflow_u64: bool,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         let call_data = &self.call_data[&self.call_id];
 
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
-        let mut offset_start = offset;
+        // offset 可能溢出u64或者小于u64但offset+32>=len of calldata
+        let mut offset_start = if !overflow_u64 && (offset <= (usize::MAX - 32) as u64) {
+            offset
+        } else {
+            // 因为calldataload 需要从calldata区域加载32byte数据到stack上，
+            // 当存在offset溢出时，将偏移值固定为uszie的最大值-32，以便在下方赋值
+            // 过程中不会再次溢出
+            (usize::MAX - 32) as u64
+        };
 
         // 系数，乘以256标识将一个值左移8bit，
-        // 由于数据是一个个字节读取，acc标识累计读取的数据，所以acc_f*temp_256_f+byte
-        // 标识最新读取的完整字符串内容：即将前面累计读取的内容左移8bit(1个字节)再加上新读取的字节
-        // 示例：完整字符串 0x123456
-        // 读取0x12 --> acc_pre=0x12 --> acc=0x12
-        // 读取0x34 --> acc_f=0x1234 --> acc=0x1234
-        // 读取0x56 --> acc_f=0x123456 --> acc=0x123456
         let temp_256_f = F::from(256);
+        // calldataload 读取32byte数据
         for i in 0..2 {
             let mut acc_pre = U256::from(0);
             let stamp_start = self.state_stamp;
             for j in 0..16 {
                 // we don't need to consider overflow panics, which is guaranteed by its callers.
-                let byte = call_data
-                    .get((offset + i * 16 + j).as_usize())
-                    .cloned()
-                    .unwrap_or_default();
+                // offset 可能溢出u64或者小于u64但offset+32>=len of calldata
+                let byte = if !overflow_u64 && (offset < (usize::MAX - 32) as u64) {
+                    call_data
+                        .get((offset + i * 16 + j) as usize)
+                        .cloned()
+                        .unwrap_or_default()
+                } else {
+                    // 溢出时，返回0值作为读取的数据，与EVM规范保持一致
+                    0
+                };
+
+                // 由于数据是一个个字节读取，acc标识累计读取的数据，所以acc_f*temp_256_f+byte
+                // 标识最新读取的完整字符串内容：即将前面累计读取的内容左移8bit(1个字节)再加上新读取的字节
+                // 示例：完整字符串 0x123456
+                // 读取0x12 --> acc_pre=0x12 --> acc=0x12
+                // 读取0x34 --> acc_f=0x1234 --> acc=0x1234
+                // 读取0x56 --> acc_f=0x123456 --> acc=0x123456
                 let acc: U256 = if j == 0 {
                     byte.into()
                 } else {
@@ -1006,7 +1026,7 @@ impl WitnessExecHelper {
                     byte: byte.into(),
                     src_type: copy::Tag::Calldata,
                     src_id: self.call_id.into(),
-                    src_pointer: offset_start,
+                    src_pointer: offset_start.into(),
                     src_stamp: stamp_start.into(),
                     dst_type: copy::Tag::Null,
                     dst_id: 0.into(),
@@ -1023,12 +1043,13 @@ impl WitnessExecHelper {
                     value_lo: Some(byte.into()),
                     call_id_contract_addr: Some(self.call_id.into()),
                     pointer_hi: None,
-                    pointer_lo: Some(offset_start + j),
+                    pointer_lo: Some((offset_start + j as u64).into()),
                     is_write: Some(0.into()),
                 });
                 self.state_stamp += 1;
             }
-            offset_start += 16.into();
+            // 每次循环读取16byte数据
+            offset_start += 16 as u64;
         }
         (copy_rows, state_rows)
     }
@@ -1754,12 +1775,25 @@ impl core::Row {
     pub fn insert_arithmetic_lookup(&mut self, index: usize, arithmetic: &[arithmetic::Row]) {
         // this lookup must be in the row with this cnt
         const WIDTH: usize = 9;
-        assert_eq!(self.cnt, 2.into());
+        if self.cnt != 2.into() && self.cnt != 3.into() {
+            panic!("insert arithmetic rows cnt = 2|3");
+        }
         assert!(index < 3);
         let len = arithmetic.len();
-        assert!(len >= 2);
         let row_0 = &arithmetic[len - 1];
-        let row_1 = &arithmetic[len - 2];
+        let row_temp;
+        let row_1 = if len < 2 {
+            row_temp = get_row(
+                [U256::zero(); 2],
+                [U256::zero(); 2],
+                vec![0; 8],
+                1,
+                row_0.tag,
+            );
+            &row_temp
+        } else {
+            &arithmetic[len - 2]
+        };
         #[rustfmt::skip]
             let vec = [
                 [&mut self.vers_0,&mut self.vers_1,&mut self.vers_2,&mut self.vers_3,&mut self.vers_4,
