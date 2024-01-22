@@ -1,5 +1,7 @@
 //! Super circuit is a circuit that puts all zkevm circuits together
-use crate::arithmetic_circuit::{ArithmeticCircuitConfig, ArithmeticCircuitConfigArgs};
+use crate::arithmetic_circuit::{
+    ArithmeticCircuit, ArithmeticCircuitConfig, ArithmeticCircuitConfigArgs,
+};
 use crate::bitwise_circuit::{BitwiseCircuit, BitwiseCircuitConfig, BitwiseCircuitConfigArgs};
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
@@ -102,7 +104,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 bitwise_table,
             },
         );
-
         let arithmetic_circuit = ArithmeticCircuitConfig::new(
             meta,
             ArithmeticCircuitConfigArgs {
@@ -138,6 +139,7 @@ pub struct SuperCircuit<
     pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
     pub fixed_circuit: FixedCircuit<F>,
     pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
+    pub arithmetic_circuit: ArithmeticCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -160,6 +162,7 @@ impl<
         let copy_circuit = CopyCircuit::new_from_witness(witness);
         let fixed_circuit = FixedCircuit::new_from_witness(witness);
         let bitwise_circuit = BitwiseCircuit::new_from_witness(witness);
+        let arithmetic_circuit = ArithmeticCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
@@ -168,6 +171,7 @@ impl<
             copy_circuit,
             fixed_circuit,
             bitwise_circuit,
+            arithmetic_circuit,
         }
     }
 
@@ -180,7 +184,7 @@ impl<
         instance.extend(self.copy_circuit.instance());
         instance.extend(self.fixed_circuit.instance());
         instance.extend(self.bitwise_circuit.instance());
-
+        instance.extend(self.arithmetic_circuit.instance());
         instance
     }
 
@@ -199,6 +203,8 @@ impl<
             .synthesize_sub(&config.public_circuit, layouter)?;
         self.copy_circuit
             .synthesize_sub(&config.copy_circuit, layouter)?;
+        self.arithmetic_circuit
+            .synthesize_sub(&config.arithmetic_circuit, layouter)?;
         // when feature `no_fixed_lookup` is on, we don't do synthesize
         #[cfg(not(feature = "no_fixed_lookup"))]
         self.fixed_circuit
@@ -216,6 +222,7 @@ impl<
             PublicCircuit::<F>::unusable_rows(),
             CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             BitwiseCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+            ArithmeticCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -230,6 +237,7 @@ impl<
             PublicCircuit::<F>::num_rows(witness),
             CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+            ArithmeticCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
 
         // when feature `no_fixed_lookup` is on, we don't count the rows in fixed circuit
