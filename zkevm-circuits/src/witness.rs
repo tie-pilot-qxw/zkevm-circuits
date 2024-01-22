@@ -1807,6 +1807,26 @@ impl core::Row {
                     ),
                 ]);
             }
+            arithmetic::Tag::Addmod => {
+                self.comments.extend([
+                    (
+                        format!("vers_{}", index * WIDTH + 4),
+                        format!("arithmetic operand modulus hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 5),
+                        format!("arithmetic operand modulus lo"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 6),
+                        format!("arithmetic remainder hi"),
+                    ),
+                    (
+                        format!("vers_{}", index * WIDTH + 7),
+                        format!("arithmetic remainder lo"),
+                    ),
+                ]);
+            }
             arithmetic::Tag::Sub => {
                 self.comments.extend([
                     (
