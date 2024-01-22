@@ -18,7 +18,7 @@ fn log4_bytecode() {
         PUSH32(topic1)
         PUSH32(size)
         PUSH32(offset)
-        LOG3
+        LOG4
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
