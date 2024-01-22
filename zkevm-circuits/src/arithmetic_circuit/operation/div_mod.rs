@@ -90,6 +90,18 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
             + c_limbs[2].clone() * b_limbs[1].clone()
             + c_limbs[3].clone() * b_limbs[0].clone();
 
+        // Since there is no overflow in the calculations here, t4, t5, and t6 are all 0.
+        let t4 = c_limbs[1].clone() * b_limbs[3].clone()
+            + c_limbs[2].clone() * b_limbs[2].clone()
+            + c_limbs[3].clone() * b_limbs[1].clone();
+        let t5 = c_limbs[2].clone() * b_limbs[3].clone() + c_limbs[3].clone() * b_limbs[2].clone();
+        let t6 = c_limbs[3].clone() * b_limbs[3].clone();
+
+        constraints.push((
+            "t4 + t5 + t6 == 0".to_string(),
+            t4.expr() + t5.expr() + t6.expr(),
+        ));
+
         //get the u16s sum for carry_lo
         let carry_lo_u16s: Vec<_> = (0..5)
             .map(|i| config.get_u16(i, Rotation(-8))(meta))
