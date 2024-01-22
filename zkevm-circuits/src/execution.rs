@@ -53,7 +53,7 @@ pub mod tx_context;
 use std::collections::HashMap;
 
 use crate::table::{
-    extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable,
+    extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, FixedTable,
     LookupEntry, PublicTable, StateTable, ANNOTATE_SEPARATOR,
 };
 use crate::witness::state::CallContextTag;
@@ -163,6 +163,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     pub(crate) copy_table: CopyTable,
     pub(crate) bitwise_table: BitwiseTable,
     pub(crate) public_table: PublicTable,
+    pub(crate) fixed_table: FixedTable,
 }
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
@@ -1684,7 +1685,7 @@ mod test {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
-            use crate::table::{BitwiseTable, BytecodeTable, PublicTable, StateTable, ArithmeticTable, CopyTable};
+            use crate::table::{BitwiseTable, BytecodeTable, FixedTable, PublicTable, StateTable, ArithmeticTable, CopyTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             #[allow(unused_imports)]
@@ -1745,6 +1746,7 @@ mod test {
                     let copy_table = CopyTable::construct(meta, q_enable_copy);
                     let q_enable_bitwise = meta.complex_selector();
                     let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
+                    let fixed_table = FixedTable::construct(meta);
                     let q_first_exec_state = meta.selector();
                     let config = ExecutionConfig {
                         q_first_exec_state,
@@ -1764,6 +1766,7 @@ mod test {
                         copy_table,
                         bitwise_table,
                         public_table,
+                        fixed_table,
                     };
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {
