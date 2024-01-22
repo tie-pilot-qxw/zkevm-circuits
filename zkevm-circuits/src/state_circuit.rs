@@ -270,6 +270,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("STATE_lookup_stack_pointer", |meta| {
+            use crate::table::LookupEntry;
+            use crate::witness::state;
             let mut constraints = vec![];
 
             // 1<= pointer_lo <=1024 in stack
@@ -290,6 +292,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("STATE_lookup_memory_pointer", |meta| {
+            use crate::table::LookupEntry;
+            use crate::witness::state;
             let mut constraints = vec![];
             // 0<= value_lo < 256 in memory
             let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));

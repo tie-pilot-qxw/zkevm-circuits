@@ -14,8 +14,8 @@ rand = "0.8"
 rand_chacha = "0.3"
 sha3 = "0.10"
 log = "0.4.17"
-gadgets = { path = "../gadgets"}
-plotters = { version="0.3.4" , optional = true}
+gadgets = { path = "../gadgets" }
+plotters = { version = "0.3.4", optional = true }
 anyhow = "1.0"
 lazy_static = "1.4"
 trace-parser = { path = "../trace-parser" }
@@ -24,9 +24,9 @@ csv = "1.2"
 strum = "0.24"
 strum_macros = "0.24"
 itertools = "0.10"
-genco = { version="0.17" , optional = true}
-convert_case = { version="0.6" , optional = true}
-proc-macro2 = { optional = true }#version = "=1.0.55",
+genco = { version = "0.17", optional = true }
+convert_case = { version = "0.6", optional = true }
+proc-macro2 = { optional = true }                              #version = "=1.0.55",
 csv2html = { path = "../csv2html" }
 
 [dev-dependencies]
@@ -44,6 +44,11 @@ fast_test = ["k_9", "no_fixed_lookup"]
 [[bench]]
 name = "super_circuit"
 harness = false
+
+[[bench]]
+name = "call_trace"
+harness = false
+
 
 # Definition of benchmarks profile to use.
 [profile.bench]

@@ -223,7 +223,7 @@ impl<
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let num_rows = vec![
+        let mut num_rows = vec![
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),

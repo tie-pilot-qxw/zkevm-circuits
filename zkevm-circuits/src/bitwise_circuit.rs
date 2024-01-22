@@ -310,6 +310,8 @@ impl<F: Field> BitwiseCircuitConfig<F> {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any(name, |meta| {
+            use crate::table::LookupEntry;
+            use halo2_proofs::plonk::Expression;
             let fixed_entry = LookupEntry::Fixed {
                 tag: self.tag.value(Rotation::cur())(meta),
                 values: [
