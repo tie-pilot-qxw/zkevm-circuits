@@ -64,6 +64,12 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (arithmetic_u64, $value:expr) => {
+        match $value {
+            LookupEntry::ArithmeticU64 { values } => (values),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
     (fixed, $value:expr) => {
         todo!()
     };
@@ -669,6 +675,11 @@ pub enum LookupEntry<F> {
         /// Operand 0-3 high and low 128 bits, order: [hi0,lo0,hi1,lo1,...]
         values: [Expression<F>; 8],
     },
+    /// Lookup to arithmetic table. U64 lookup only used 4 values
+    ArithmeticU64 {
+        /// Operands order: [hi0,lo0,hi_192,inv]
+        values: [Expression<F>; 4],
+    },
     /// Conditional lookup enabled by the first element.
     Conditional(Expression<F>, Box<LookupEntry<F>>),
     /// Lookup to exp table
@@ -822,6 +833,11 @@ impl<F: Field> LookupEntry<F> {
             }
             LookupEntry::Arithmetic { tag, values } => {
                 let mut contents = vec![tag.identifier()];
+                contents.extend(values.iter().map(|v| v.identifier()));
+                contents
+            }
+            LookupEntry::ArithmeticU64 { values } => {
+                let mut contents = vec![];
                 contents.extend(values.iter().map(|v| v.identifier()));
                 contents
             }
