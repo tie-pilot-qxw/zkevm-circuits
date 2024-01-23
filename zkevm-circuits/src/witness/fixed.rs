@@ -11,9 +11,13 @@ pub struct Row {
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub enum Tag {
     #[default]
-    And,
-    Or,
-    Xor,
     U16,
+    // Make sure this equals bitwise Row's And
+    And,
+    // Make sure this equals bitwise Row's tag
+    Or,
+    // Make sure this equals bitwise Row's tag
+    Xor,
+    // The tag for (Opcode,PUSH number,PUSH number>15)
     Bytecode,
 }
