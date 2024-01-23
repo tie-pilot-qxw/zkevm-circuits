@@ -6,7 +6,6 @@ use eth_types::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::mem;
 use std::path::Path;
 use std::process::Command;
 use std::{
@@ -270,8 +269,8 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
                         let topic_hash = H256::from_str(topic_splits[1]).unwrap();
                         topics.push(topic_hash);
                     }
-                    // parse log datas
-                    let mut log_datas = vec![];
+                    // parse log data
+                    let mut log_data = vec![];
                     loop {
                         match lines.next() {
                             Some(temp_line) => {
@@ -285,17 +284,16 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
                                     split_prefix[1].split_at(split_postfix_index);
                                 let temp_line_datas = temp_line_data.split_whitespace();
                                 for d in temp_line_datas {
-                                    log_datas.push(u8::from_str_radix(d, 16).unwrap_or_default());
+                                    log_data.push(u8::from_str_radix(d, 16).unwrap_or_default());
                                 }
                             }
                             _ => break,
                         }
                     }
-                    let static_data = unsafe { mem::transmute(log_datas.as_slice()) };
                     receipt_log = ReceiptLog::from_single_log(
                         log_address,
                         topics,
-                        static_data,
+                        log_data,
                         None,
                         Some(block_num),
                         None,

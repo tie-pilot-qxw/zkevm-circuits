@@ -467,7 +467,7 @@ impl ReceiptLog {
     pub fn from_single_log(
         address: Address,
         topics: Vec<H256>,
-        data: &'static [u8],
+        data: Vec<u8>,
         block_hash: Option<H256>,
         block_number: Option<u64>,
         transaction_hash: Option<H256>,
@@ -481,7 +481,7 @@ impl ReceiptLog {
         receipt_log.logs.push(Log {
             address,
             topics,
-            data: Bytes::from_static(data),
+            data: Bytes::from(data), // Bytes::from_static(data),
             block_hash,
             block_number: Some(U64::from(block_number.unwrap_or_default())),
             transaction_hash,
