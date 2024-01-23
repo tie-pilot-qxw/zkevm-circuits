@@ -23,7 +23,7 @@ pub struct Row {
     pub u16_7: U256,
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
+#[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString, PartialEq)]
 pub enum Tag {
     #[default]
     U64Overflow,

@@ -1,10 +1,10 @@
-use crate::arithmetic_circuit::operation::u64overflow::gen_witness;
+use crate::arithmetic_circuit::operation::u64overflow;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, copy, Witness, WitnessExecHelper};
+use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -13,7 +13,7 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_ROW: usize = 4;
+const NUM_ROW: usize = 3;
 /// The number of bytes in one calldataload operation
 const LOAD_SIZE: usize = 32;
 const STATE_STAMP_DELTA: usize = 34;
@@ -31,7 +31,7 @@ pub struct CalldataloadGadget<F: Field> {
 ///
 /// Calldataload Execution State layout is as follows
 /// where STATE means state table lookup,
-/// arith0/1 means whether offset of calldata is overflow,
+/// arith0 means whether offset of calldata is u64overflow,
 /// copy0/1 means the bytes retried from msg.data (calldata),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -39,8 +39,7 @@ pub struct CalldataloadGadget<F: Field> {
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+----------+
-/// | 3 | arith0  | arith1  |              |
-/// | 2 | copy0  | copy1  |                |
+/// | 2 | copy0  | copy1  | arith0 |       |
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -80,17 +79,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-        let (tag, [_, _, overflow, overflow_inv, ..]) = extract_lookup_expression!(
-            arithmetic,
-            config.get_arithmetic_lookup_another_row(meta, 0)
-        );
-        // overflow u64 推出 iszero=0；否则iszero=1
-        let iszero = SimpleIsZero::new(&overflow, &overflow_inv, "u64 is overflow".into());
-        constraints.extend([(
-            "tag is arithmetic".into(),
-            tag - (arithmetic::Tag::U64Overflow as u8).expr(),
-        )]);
-        constraints.extend(iszero.get_constraints());
 
         let mut operands = vec![];
         // 因为32byte拆分为2组16byte记录在state中
@@ -112,6 +100,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
 
+        let [value_hi, value_lo, overflow, overflow_inv] = extract_lookup_expression!(
+            arithmetic_u64,
+            config.get_arithmetic_u64overflow_lookup(meta, 0)
+        );
+        let not_overflow = SimpleIsZero::new(&overflow, &overflow_inv, "u64 overflow".into());
         for i in 0..2 {
             let copy_entry = if i == 0 {
                 config.get_copy_lookup(meta)
@@ -123,10 +116,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.append(&mut config.get_copy_constraints(
                 copy::Tag::Calldata,
                 call_id.clone(),
-                // index of calldata = value_lo + 16*i;
-                operands[0][1].clone() + 16.expr() * i.expr(),
+                // not_overflow index of calldata = value_lo + 16*i;
+                // overflow index of calldata = u64::max+16*i
+                (not_overflow.expr() * operands[0][1].clone()
+                    + (1.expr() - not_overflow.expr()) * (u64::MAX - 32).expr())
+                    + (16 * i).expr(),
                 // +1 ==> because pop index; copy的32byte数据分为2部分，所以16*i;
-                stamp.clone() + 1.expr() + 16.expr() * i.expr(),
+                stamp.clone() + (1 + 16 * i).expr(),
                 copy::Tag::Null,
                 0.expr(),
                 0.expr(),
@@ -149,8 +145,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 pc_next - pc_cur - PC_DELTA.expr(),
             ),
             (
-                "not overflow ==> value_hi=0 in first state entry".into(),
-                iszero.expr() * operands[0][0].clone(),
+                "value_hi=operands[0][0]".into(),
+                value_hi - operands[0][0].clone(),
+            ),
+            (
+                "value_lo=operands[0][1]".into(),
+                value_lo - operands[0][1].clone(),
             ),
         ]);
         constraints
@@ -165,7 +165,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta));
         let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
-        let arithmetic_entry = query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 2));
+        let arithmetic_entry = query_expression(meta, |meta| {
+            config.get_arithmetic_u64overflow_lookup(meta, 0)
+        });
         vec![
             ("stack pop index of call_data ".into(), stack_pop),
             ("stack push value of call_data".into(), stack_push),
@@ -178,15 +180,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::CALLDATALOAD);
 
-        let mut core_row_3 = current_state.get_core_row_without_versatile(trace, 3);
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
 
         // 从栈上弹出一个元素标识从calldata读取数据的索引
-        let (mut stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
+        let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
 
         // 计算index是否u64溢出，并生成对应的arithmetic rows
-        let (arith_rows, arith_values) = gen_witness::<F>(vec![index]);
+        let (arith_rows, arith_values) = u64overflow::gen_witness::<F>(vec![index]);
+        let offset = if arith_values[0] > 0.into() {
+            (u64::MAX - 32).into()
+        } else {
+            index
+        };
         // 生成copy_rows和state_rows，将copy_rows数据写入core_row_2
         // calldataload 读取的32字节数据分为两步进行，每次读取16byte由
         // core::Row的acc标识，所以将索引为15、31的copy row写入core_row_2;
@@ -194,15 +200,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // EVM规范对于u64溢出的情况读取32byte的0值，用arith_values[0]来标识是否
         // 溢出u64, >0标识存在溢出；
         // 将arithmetic_entry写入core电路
-        let (copy_rows, mut state_rows) =
-            current_state.get_calldata_load_rows::<F>(index.low_u64(), arith_values[0] > 0.into());
+        let (copy_rows, mut state_rows) = current_state.get_calldata_load_rows::<F>(offset);
         let copy_row_0 = copy_rows.get(15).unwrap();
         let copy_row_1 = copy_rows.get(31).unwrap();
         core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
-        core_row_3.insert_arithmetic_lookup(0, &arith_rows);
-        if arith_values[0] > 0.into() || index > (usize::MAX - 32).into() {
-            stack_pop_0.value_lo = Some((usize::MAX - 32).into());
-        }
+        core_row_2.insert_arithmetic_u64overflow_lookup(0, &arith_rows);
 
         // 计算push到栈上的数据 value, 并生成state row写入core_row_1
         // copy_row_0为前16byte，copy_row_1为后16byte，将copy_row_0
@@ -220,7 +222,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         state_rows.extend([stack_pop_0, stack_push_0]);
         Witness {
-            core: vec![core_row_3, core_row_2, core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
             copy: copy_rows,
             arithmetic: arith_rows,
@@ -236,6 +238,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+
     use std::collections::HashMap;
 
     use crate::execution::test::{
