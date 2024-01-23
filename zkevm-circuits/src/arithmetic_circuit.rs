@@ -498,12 +498,15 @@ mod test {
             U256::MAX - U256::from(434),
             0.into(),
         ]);
+        let (arithmetic5, _) =
+            operation::mulmod::gen_witness(vec![U256::MAX, U256::MAX, 12.into()]);
 
         let mut arithmetic = Vec::new();
         arithmetic.extend(arithmetic1);
         arithmetic.extend(arithmetic2);
         arithmetic.extend(arithmetic3);
         arithmetic.extend(arithmetic4);
+        arithmetic.extend(arithmetic5);
 
         let witness = Witness {
             arithmetic,

@@ -382,7 +382,7 @@ impl MulModCalculator {
         let k1_split = split_u256_hi_lo(&k1);
         let a_reminder_split = split_u256_hi_lo(&a_remainder);
         let n_u16s = get_u16s_hi_lo(self.n);
-        let k1_carry = [k1_carry_hi_lo[1], k1_carry_hi_lo[0]];
+        let k1_carry = [k1_carry_hi_lo[0], k1_carry_hi_lo[1]];
         let a_rem_lt = [(a_rem_lt[0] as u8).into(), (a_rem_lt[1] as u8).into()];
         let k1_carry_lo_u16s = get_u16s_hi_lo(k1_carry_hi_lo[1]);
 
