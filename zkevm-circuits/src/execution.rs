@@ -42,6 +42,8 @@ pub mod push;
 pub mod return_revert;
 pub mod returndatacopy;
 pub mod returndatasize;
+pub mod sar_1;
+pub mod sar_2;
 pub mod selfbalance;
 pub mod shl_shr;
 pub mod signextend;
@@ -57,12 +59,13 @@ use crate::table::{
     LookupEntry, PublicTable, StateTable, ANNOTATE_SEPARATOR,
 };
 use crate::witness::state::CallContextTag;
-use crate::witness::WitnessExecHelper;
+use crate::witness::{arithmetic, bitwise, WitnessExecHelper};
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_seletor::SimpleSelector;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Expression, Selector, VirtualCells};
@@ -103,6 +106,8 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::keccak::new(),
             crate::execution::pop::new(),
             crate::execution::shl_shr::new(),
+            crate::execution::sar_1::new(),
+            crate::execution::sar_2::new(),
             crate::execution::codecopy::new(),
             crate::execution::extcodecopy::new(),
             crate::execution::swap::new(),
@@ -128,6 +133,7 @@ macro_rules! get_every_execution_gadgets {
         ]
     }};
 }
+use crate::constant;
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
@@ -1124,6 +1130,304 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         constraints
     }
+
+    // get_shl_shr_sar1_sub_arith_constraints usage:
+    // sub_arithmetic_operands[0](sub_arithmetic operand_0 hi) is 0
+    // sub_arithmetic_operands[1](sub_arithmetic operand_0 lo) is 255
+    // sub_arithmetic_operands[2](sub_arithmetic operand_1 hi) is shift hi (stack top 0 hi)
+    // sub_arithmetic_operands[3](sub_arithmetic operand_1 lo) is shift lo (stack top 0 lo)
+    // sub_arithmetic_operands[6] is carry hi
+    // sub_arithmetic_operands[7] is carry lo
+    // if carry = 1 , mul_div_num = 0;
+    // if carry = 1 , mul_div_arithmetic_operands[5] = 0 (product_or_quotient hi = 0)
+    //                mul_div_arithmetic_operands[6] = 0 (product_or_quotient lo = 0)
+    pub(crate) fn get_shl_shr_sar1_sub_arith_constraints(
+        &self,
+        stack_operand: &[Expression<F>; 2],
+        mul_div_arithmetic_operands: &[Expression<F>; 8],
+        sub_arithmetic_operands: &[Expression<F>; 8],
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+
+        constraints.extend([
+            (
+                "sub_arithmetic operand_0 hi = 0".into(),
+                sub_arithmetic_operands[0].clone(),
+            ),
+            (
+                "sub_arithmetic operand_0 lo = 255".into(),
+                sub_arithmetic_operands[1].clone() - 255.expr(),
+            ),
+            (
+                "sub_arithmetic operand_1 hi = shift hi(stack top0 hi)".into(),
+                sub_arithmetic_operands[2].clone() - stack_operand[0].clone(),
+            ),
+            (
+                "sub_arithmetic operand_1 lo= shift lo(stack top0 lo)".into(),
+                sub_arithmetic_operands[3].clone() - stack_operand[1].clone(),
+            ),
+            // if the divisor is 0, the quotient and remainder in Arithmetic-DivMod must be 0
+            (
+                "sub_arithmetic carry=1 => mul_div_num hi = 0".into(),
+                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[2].clone(),
+            ),
+            (
+                "sub_arithmetic carry=1 => mul_div_num lo = 0".into(),
+                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[3].clone(),
+            ),
+        ]);
+        constraints
+    }
+
+    // get_mul_div_arithmetic_constraints usage:
+    // mul_div_arithmetic_operands[0] = stack top 1 hi  (original value)
+    // mul_div_arithmetic_operands[1] = stack top 1 lo (original value)
+    // mul_div_arithmetic_operands[2] = exp_power
+    // mul_div_arithmetic_operands[3] = exp_power
+    // mul_div_arithmetic_operands[4](product_hi) = stack push hi (shift results left or right hi)
+    // mul_div_arithmetic_operands[5](product_lo) = stack push lo (shift results left or right lo)
+    // mul_div_arithmetic_operands[6] is carry
+    // mul_div_arithmetic_operands[7] is carry
+    // product_or_quotient:
+    //       mul_div_arithmetic_operands[5] = stack push hi
+    //       mul_div_arithmetic_operands[6] = stack push lo
+    pub(crate) fn get_shl_shr_sar1_mul_div_arith_constraints(
+        &self,
+        operand: &[Expression<F>; 2],
+        result: &[Expression<F>; 2],
+        mul_div_arithmetic_operands: &[Expression<F>; 8],
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        constraints.extend([
+            (
+                "mul_div_arithmetic operand_0 hi = stack top_1 hi".into(),
+                mul_div_arithmetic_operands[0].clone() - operand[0].clone(),
+            ),
+            (
+                "mul_div_arithmetic operand_0 lo= stack top_1 lo".into(),
+                mul_div_arithmetic_operands[1].clone() - operand[1].clone(),
+            ),
+            (
+                "mul_div_arithmetic product_or_quotient hi = stack push hi".into(),
+                mul_div_arithmetic_operands[4].clone() - result[0].clone(),
+            ),
+            (
+                "mul_div_arithmetic product_or_quotient lo = stack push lo".into(),
+                mul_div_arithmetic_operands[5].clone() - result[1].clone(),
+            ),
+        ]);
+        constraints
+    }
+
+    // get_shl_shr_sar1_exp_constraints usage:
+    // exp_base = 2
+    // exp_index_hi = stack top 0 hi (shift value)
+    // exp_index_lo = stack top 0 lo (shift value)
+    // exp_power_hi = mul_num hi
+    // exp_power_lo = mul_num lo
+    pub(crate) fn get_shl_shr_sar1_exp_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        stack_operand: &[Expression<F>; 2],
+        mul_div_arithmetic_operands: &[Expression<F>; 8],
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        let entry = self.get_exp_lookup(meta);
+        let (exp_base, exp_index, exp_power) = extract_lookup_expression!(exp, entry);
+        constraints.extend([
+            ("exp_base hi".into(), exp_base[0].clone()),
+            ("exp_base lo".into(), exp_base[1].clone() - 2.expr()),
+            (
+                "exp_index hi = stack top_0 hi".into(),
+                exp_index[0].clone() - stack_operand[0].clone(),
+            ),
+            (
+                "exp_index lo = stack top_0 lo".into(),
+                exp_index[1].clone() - stack_operand[1].clone(),
+            ),
+            (
+                "exp_power = mul_div_num hi".into(),
+                exp_power[0].clone() - mul_div_arithmetic_operands[2].clone(),
+            ),
+            (
+                "exp_power = mul_div_num lo".into(),
+                exp_power[1].clone() - mul_div_arithmetic_operands[3].clone(),
+            ),
+        ]);
+        constraints
+    }
+
+    pub(crate) fn get_signextend_bitwise_lookups(
+        &self,
+        meta: &mut VirtualCells<F>,
+        sign_bit_is_zero_inv: Expression<F>,
+    ) -> (Vec<LookupEntry<F>>, SimpleIsZero<F>) {
+        // bitwise lookup constraints
+        // operand_1 & a
+        // operand_1 operator d  constraints
+        let mut bitwise_lookups = vec![];
+        let mut sign_bit_is_zero_v = 0.expr();
+        for i in 0..4 {
+            let entry = self.get_bitwise_lookup(meta, i);
+            let (_, _, sum) = extract_lookup_expression!(bitwise, entry.clone());
+            if i < 2 {
+                sign_bit_is_zero_v = sign_bit_is_zero_v + sum.clone();
+            }
+            bitwise_lookups.push(entry);
+        }
+
+        let sign_bit_is_zero = SimpleIsZero::new(
+            &sign_bit_is_zero_v,
+            &sign_bit_is_zero_inv,
+            String::from("length_lo"),
+        );
+
+        (bitwise_lookups, sign_bit_is_zero)
+    }
+
+    pub(crate) fn get_signextend_bitwise_constraints(
+        &self,
+        bitwise_lookups: Vec<LookupEntry<F>>,
+        signextend_a: [Expression<F>; 2],
+        signextend_operand1: [Expression<F>; 2],
+        signextend_d: [Expression<F>; 2],
+        signextend_expect_result: [Expression<F>; 2],
+        sign_bit_is_zero: Expression<F>,
+        shift_gt_range: Expression<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+        for (i, entry) in bitwise_lookups.iter().enumerate() {
+            let (tag, acc, _) = extract_lookup_expression!(bitwise, entry);
+            // left operand constraints
+            let left_operand_constraint = (
+                format!(
+                    "bitwise[{}] left operand = signextend_operand1[{}]",
+                    i,
+                    i % 2
+                ),
+                acc[0].clone() - signextend_operand1[i % 2].clone(),
+            );
+            // right operand constraints
+            let right_operand_constraints = if i < 2 {
+                (
+                    format!("bitwise[{}] right operand = signextend_a[{}]", i, i % 2),
+                    acc[1].clone() - signextend_a[i % 2].clone(),
+                )
+            } else {
+                (
+                    format!("bitwise[{}] right operand = signextend_d[{}]", i, i % 2),
+                    acc[1].clone() - signextend_d[i % 2].clone(),
+                )
+            };
+            // operator constraints
+            let operator_constraints = if i < 2 {
+                (
+                    format!("bitwise[{}] operator = opAnd ", i),
+                    tag.clone() - (bitwise::Tag::And as u8).expr(),
+                )
+            } else {
+                (
+                    format!("bitwise[{}] operator", i),
+                    sign_bit_is_zero.expr() * (tag.clone() - (bitwise::Tag::And as u8).expr())
+                        + (1.expr() - sign_bit_is_zero.expr()).clone()
+                            * (tag.clone() - (bitwise::Tag::Or as u8).expr()),
+                )
+            };
+            // constraints
+            constraints.extend([
+                left_operand_constraint,
+                right_operand_constraints,
+                operator_constraints,
+            ]);
+            // i > 2: final_result constraints
+            if i >= 2 {
+                constraints.extend([(
+                    format!("signextend_result[{}] = acc[2]", i % 2),
+                    signextend_expect_result[i % 2].clone() - acc[2].clone(),
+                )]);
+
+                // if shift > 255, final_result = operands[1]
+                constraints.extend([(
+                    format!(
+                        "shift > 255 =>  signextend_result[{}] = signextend_operand1[{}]",
+                        i % 2,
+                        i % 2
+                    ),
+                    shift_gt_range.clone()
+                        * (signextend_expect_result[i % 2].clone()
+                            - signextend_operand1[i % 2].clone()),
+                )])
+            }
+        }
+        constraints
+    }
+
+    pub(crate) fn get_signextend_operands(
+        &self,
+        meta: &mut VirtualCells<F>,
+    ) -> (
+        Expression<F>,
+        Expression<F>,
+        Expression<F>,
+        Expression<F>,
+        Expression<F>,
+    ) {
+        const SKIP_WIDTH: usize =
+            constant::NUM_STATE_HI_COL + constant::NUM_STATE_LO_COL + constant::NUM_AUXILIARY;
+        (
+            // [a_hi,a_lo]
+            meta.query_advice(self.vers[SKIP_WIDTH], Rotation::cur()),
+            meta.query_advice(self.vers[SKIP_WIDTH + 1], Rotation::cur()),
+            // [d_hi,d_lo]
+            meta.query_advice(self.vers[SKIP_WIDTH + 2], Rotation::cur()),
+            meta.query_advice(self.vers[SKIP_WIDTH + 3], Rotation::cur()),
+            // not_is_zero
+            meta.query_advice(self.vers[SKIP_WIDTH + 4], Rotation::cur()),
+        )
+    }
+
+    pub(crate) fn get_signextend_sub_arith_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        stack_top0: Vec<Expression<F>>,
+        bit_or_byte_range: Expression<F>,
+    ) -> (Vec<(String, Expression<F>)>, Expression<F>) {
+        let mut constraints = vec![];
+        let (arithmetic_tag, arithmetic_operands) =
+            extract_lookup_expression!(arithmetic, self.get_arithmetic_lookup(meta, 0));
+        // arithmetic_operands[0] is 0
+        // arithmetic_operands[1] is 31 or 255
+        // arithmetic_operands[2] is operand0_hi
+        // arithmetic_operands[3] is operand0_lo
+        // arithmetic_operands[6] is carry
+        // arithmetic_operands[7] is carry
+        constraints.extend([
+            (
+                "arithmetic_operands[0] = 0".into(),
+                arithmetic_operands[0].clone(),
+            ),
+            (
+                "arithmetic_operands[1] = 31(byte) or 255(bit)".into(),
+                arithmetic_operands[1].clone() - bit_or_byte_range,
+            ),
+            (
+                "arithmetic_operands[2] = stack_top_0_hi".into(),
+                arithmetic_operands[2].clone() - stack_top0[0].clone(),
+            ),
+            (
+                "arithmetic_operands[3] = stack_top_0_lo".into(),
+                arithmetic_operands[3].clone() - stack_top0[1].clone(),
+            ),
+        ]);
+
+        // arithmetic tag constraints
+        constraints.push((
+            "arithmetic tag is sub".into(),
+            arithmetic_tag.clone() - (arithmetic::Tag::Sub as u8).expr(),
+        ));
+
+        (constraints, arithmetic_operands[6].clone())
+    }
 }
 
 // ExecStateTransition record state transition
@@ -1424,6 +1728,8 @@ pub enum ExecutionState {
     RETURNDATASIZE,
     RETURN_REVERT,
     SHL_SHR,
+    SAR_1,
+    SAR_2,
     KECCAK,
     CODECOPY,
     EXTCODECOPY,
@@ -1481,7 +1787,7 @@ impl ExecutionState {
             }
             OpcodeId::SHL | OpcodeId::SHR => vec![Self::SHL_SHR],
             OpcodeId::SAR => {
-                todo!()
+                vec![Self::SAR_1, Self::SAR_2]
             }
             OpcodeId::POP => {
                 vec![Self::POP]
