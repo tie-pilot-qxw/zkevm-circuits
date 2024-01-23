@@ -461,6 +461,40 @@ pub struct ReceiptLog {
     #[serde(rename = "logs")]
     pub logs: Vec<Log>,
 }
+
+impl ReceiptLog {
+    /// from_single_log construct log from single log data
+    pub fn from_single_log(
+        address: Address,
+        topics: Vec<H256>,
+        data: Vec<u8>,
+        block_hash: Option<H256>,
+        block_number: Option<u64>,
+        transaction_hash: Option<H256>,
+        transaction_index: Option<u64>,
+        log_index: Option<U256>,
+        transaction_log_index: Option<U256>,
+        log_type: Option<String>,
+        removed: Option<bool>,
+    ) -> Self {
+        let mut receipt_log = ReceiptLog::default();
+        receipt_log.logs.push(Log {
+            address,
+            topics,
+            data: Bytes::from(data), // Bytes::from_static(data),
+            block_hash,
+            block_number: Some(U64::from(block_number.unwrap_or_default())),
+            transaction_hash,
+            transaction_index: Some(U64::from(transaction_index.unwrap_or_default())),
+            log_index,
+            transaction_log_index,
+            log_type,
+            removed,
+        });
+        receipt_log
+    }
+}
+
 /// Log Wrapper in api result
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub struct WrapReceiptLog {

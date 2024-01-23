@@ -8,6 +8,7 @@ use halo2_proofs::plonk::{
     Advice, Any, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells,
 };
 use std::path::Path;
+use std::str::FromStr;
 use trace_parser::{
     read_accounts_from_api_result_file, read_block_from_api_result_file,
     read_log_from_api_result_file, read_trace_from_api_result_file, read_tx_from_api_result_file,
@@ -173,6 +174,8 @@ pub fn geth_data_test(
         tx.input = input.to_vec().into();
         tx.to = Some(to);
     }
+    tx.gas = U256::from_str("0x2540be400").unwrap_or_default();
+    tx.from = Address::from_str("0x000000000000000000000000000073656e646572").unwrap_or_default();
     let account_addr = if is_create {
         create_contract_addr_with_prefix(&tx)
     } else {
@@ -180,8 +183,9 @@ pub fn geth_data_test(
     };
     let eth_block = Block {
         author: Some(Default::default()),
-        number: Some(1.into()),
-        base_fee_per_gas: Some(20000.into()),
+        number: Some(0.into()),
+        base_fee_per_gas: Some(1000000000.into()),
+        gas_limit: U256::from_str("0x2540be400").unwrap_or_default(),
         transactions: vec![tx],
         ..Default::default()
     };
@@ -191,7 +195,7 @@ pub fn geth_data_test(
         ..Default::default()
     };
     GethData {
-        chain_id: 42.into(),
+        chain_id: 1337.into(),
         history_hashes,
         eth_block,
         geth_traces: vec![trace],

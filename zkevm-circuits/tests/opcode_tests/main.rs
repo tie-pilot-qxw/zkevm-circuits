@@ -135,13 +135,13 @@ macro_rules! test_super_circuit_short_bytecode {
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
-        let trace = trace_parser::trace_program(&machine_code, &[]);
+        let (trace, receipt_log) = trace_parser::trace_program_with_log(&machine_code, &[]);
         let witness = Witness::new(&geth_data_test(
             trace,
             &machine_code,
             &[],
             false,
-            Default::default(),
+            receipt_log,
         ));
 
         let k = 9;

@@ -1,8 +1,8 @@
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
 use eth_types::geth_types::Account;
 use eth_types::{
-    Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace, Transaction,
-    WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, U256,
+    Address, Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace,
+    Transaction, WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, H256, U256,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -176,6 +176,141 @@ pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
         }
     }
     unreachable!("function trace_program cannot reach here")
+}
+
+pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrace, ReceiptLog) {
+    let cmd_string = if calldata.is_empty() {
+        format!(
+            "./evm --code {} --debug --json  --nomemory=false run",
+            hex::encode(bytecode)
+        )
+        .to_string()
+    } else {
+        format!(
+            "./evm --code {} --input {} --debug --json  --nomemory=false run",
+            hex::encode(bytecode),
+            hex::encode(calldata)
+        )
+        .to_string()
+    };
+    let res = Command::new("sh")
+        .arg("-c")
+        .arg(cmd_string)
+        .output()
+        .expect("error");
+    if !res.status.success() {
+        panic!("Tracing machine code FAILURE")
+    }
+    let mut geth_exec_trace = GethExecTrace {
+        gas: 0,
+        failed: false,
+        return_value: "".into(),
+        struct_logs: vec![],
+    };
+    let mut receipt_log = ReceiptLog::default();
+    let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
+    let mut struct_logs: Vec<GethExecStep> = vec![];
+    for line in s {
+        let result = serde_json::from_str::<EVMExecStep>(line);
+        if let Ok(step) = result {
+            struct_logs.push(step.into());
+            continue;
+        }
+        let result = serde_json::from_str::<EVMExecResult>(line);
+        if let Ok(result) = result {
+            geth_exec_trace = GethExecTrace {
+                gas: result.gas_used.as_u64(),
+                failed: result.error.is_some(),
+                return_value: result.output.to_string(),
+                struct_logs,
+            };
+            break;
+        } else {
+            unreachable!("function trace_program cannot reach here")
+        }
+    }
+    // parse log from stderr
+    if !res.stderr.is_empty() {
+        let mut lines = std::str::from_utf8(&res.stderr).unwrap().split('\n');
+        //first line is "#### LOGS ####"
+        let header_line = lines.next();
+        if header_line.unwrap_or_default().eq("#### LOGS ####".into()) {
+            match lines.next() {
+                Some(summary) => {
+                    let temp_splits: Vec<&str> = summary.splitn(4, ' ').collect();
+                    if temp_splits.len() != 4 {
+                        return (geth_exec_trace, receipt_log);
+                    }
+                    let log_num: u64 = str::parse(
+                        temp_splits[0]
+                            .strip_prefix("LOG")
+                            .unwrap_or_default()
+                            .strip_suffix(":")
+                            .unwrap_or_default(),
+                    )
+                    .unwrap_or_default();
+                    // let log_address = H160::from_str(temp_splits[1]).unwrap();
+                    // for in fn geth_data_test, has assigned code_addr = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+                    // so not parsed from log result
+                    let log_address =
+                        Address::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+                    let block_num: u64 =
+                        str::parse(temp_splits[2].strip_prefix("bn=").unwrap_or_default())
+                            .unwrap_or_default();
+                    //
+                    let tx_index: u64 =
+                        str::parse(temp_splits[3].strip_prefix("txi=").unwrap_or_default())
+                            .unwrap_or_default();
+                    let mut topics = vec![];
+                    // parse topic hash
+                    for _i in 0..log_num {
+                        let temp_topic_line = lines.next().unwrap();
+                        let topic_splits: Vec<&str> = temp_topic_line.splitn(2, ' ').collect();
+                        let topic_hash = H256::from_str(topic_splits[1]).unwrap();
+                        topics.push(topic_hash);
+                    }
+                    // parse log data
+                    let mut log_data = vec![];
+                    loop {
+                        match lines.next() {
+                            Some(temp_line) => {
+                                let split_prefix: Vec<&str> = temp_line.splitn(2, ' ').collect();
+                                if split_prefix.len() != 2 {
+                                    break;
+                                }
+                                let split_postfix_index =
+                                    split_prefix[1].find('|').unwrap_or_default();
+                                let (temp_line_data, _) =
+                                    split_prefix[1].split_at(split_postfix_index);
+                                let temp_line_datas = temp_line_data.split_whitespace();
+                                for d in temp_line_datas {
+                                    log_data.push(u8::from_str_radix(d, 16).unwrap_or_default());
+                                }
+                            }
+                            _ => break,
+                        }
+                    }
+                    receipt_log = ReceiptLog::from_single_log(
+                        log_address,
+                        topics,
+                        log_data,
+                        None,
+                        Some(block_num),
+                        None,
+                        Some(tx_index),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                }
+                _ => return (geth_exec_trace, receipt_log),
+            }
+        } else {
+            unreachable!("function trace_program_with_log must have LOGS")
+        }
+    }
+    (geth_exec_trace, receipt_log)
 }
 
 pub fn read_trace_from_api_result_file<P: AsRef<Path>>(path: P) -> GethExecTrace {
