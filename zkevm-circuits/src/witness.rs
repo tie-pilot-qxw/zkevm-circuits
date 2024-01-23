@@ -2159,9 +2159,15 @@ impl Witness {
     fn insert_begin_block(
         &mut self,
         current_state: &mut WitnessExecHelper,
-        gadget: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        execution_gadgets_map: &HashMap<
+            ExecutionState,
+            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
     ) {
-        self.append(gadget.gen_witness(
+        let begin_block_gadget = execution_gadgets_map
+            .get(&ExecutionState::BEGIN_BLOCK)
+            .unwrap();
+        self.append(begin_block_gadget.gen_witness(
             &GethExecStep {
                 pc: 0,
                 op: OpcodeId::default(),
@@ -2195,7 +2201,7 @@ impl Witness {
         witness.insert_begin_padding();
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
-        witness.insert_begin_block(&mut current_state);
+        witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
         // initialize txs number in current_state with geth_data
         current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
         for i in 0..geth_data.geth_traces.len() {

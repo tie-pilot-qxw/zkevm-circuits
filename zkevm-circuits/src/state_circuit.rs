@@ -318,13 +318,8 @@ impl<F: Field> StateCircuitConfig<F> {
     /// EndPadding indicates the tag of padding in this column.
     /// If the value of first_different_limb is Stamp0|Stamp1, the first_access
     /// constraint logics is not enabled.
-    fn assign_padding_row(
-        &self,
-        region: &mut Region<'_, F>,
-        offset: usize,
-        highest_stamp: U256,
-    ) -> Result<(), Error> {
-        assign_advice_or_fixed(region, offset, &highest_stamp, self.stamp)?;
+    fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
+        assign_advice_or_fixed(region, offset, &U256::zero(), self.stamp)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.value_hi)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.value_lo)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.pointer_hi)?;
@@ -344,9 +339,7 @@ impl<F: Field> StateCircuitConfig<F> {
         self.sort_keys
             .pointer_lo
             .assign(region, offset, U256::zero())?;
-        self.sort_keys
-            .stamp
-            .assign(region, offset, highest_stamp.as_u32())?;
+        self.sort_keys.stamp.assign(region, offset, 0)?;
         let first_different_limb =
             BinaryNumberChip::construct(self.ordering_config.first_different_limb);
         first_different_limb.assign(region, offset, &LimbIndex::Stamp0)?;
@@ -409,17 +402,9 @@ impl<F: Field> StateCircuitConfig<F> {
         for (offset, row) in witness.state.iter().enumerate() {
             self.assign_row(region, offset, row)?;
         }
-        // get the highest state stamp in state_rows
-        let highest_stamp = itertools::max(
-            witness
-                .state
-                .iter()
-                .map(|row| row.stamp.unwrap_or_default()),
-        )
-        .unwrap();
         // pad the rest rows
         for offset in witness.state.len()..num_row_incl_padding {
-            self.assign_padding_row(region, offset, highest_stamp)?;
+            self.assign_padding_row(region, offset)?;
         }
         // 1. assign ordering with curr and prev state.
         // 2. if and only if the difference with two status not in Stamp*,
