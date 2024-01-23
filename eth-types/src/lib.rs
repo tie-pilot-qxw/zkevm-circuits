@@ -465,7 +465,7 @@ pub struct ReceiptLog {
 impl ReceiptLog {
     /// from_single_log construct log from single log data
     pub fn from_single_log(
-        address: H160,
+        address: Address,
         topics: Vec<H256>,
         data: &'static [u8],
         block_hash: Option<H256>,

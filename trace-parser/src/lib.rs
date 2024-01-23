@@ -1,8 +1,8 @@
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
 use eth_types::geth_types::Account;
 use eth_types::{
-    Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace, Transaction,
-    WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, H160, H256, U256,
+    Address, Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace,
+    Transaction, WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, H256, U256,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -254,7 +254,7 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
                     // for in fn geth_data_test, has assigned code_addr = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
                     // so not parsed from log result
                     let log_address =
-                        H160::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+                        Address::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
                     let block_num: u64 =
                         str::parse(temp_splits[2].strip_prefix("bn=").unwrap_or_default())
                             .unwrap_or_default();
