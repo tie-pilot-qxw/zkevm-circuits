@@ -55,14 +55,15 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         let c = config.get_operand(2)(meta); //push value
         let d = config.get_operand(3)(meta);
         let carry = config.get_operand(4)(meta);
+        let d_arith = config.get_operand(5)(meta);
         let diff = config.get_operand(12)(meta);
         let lt = config.get_operand(13)(meta);
 
         // 1. get the u16s sum for a,b,c,d and diff,carry_lo
         let (u16_sum_for_diff_hi, _, _) = get_u16s(config, meta, Rotation(-6));
         let (u16_sum_for_diff_lo, _, _) = get_u16s(config, meta, Rotation(-7));
-        let (u16_sum_for_d_hi, _, _) = get_u16s(config, meta, Rotation(-4));
-        let (u16_sum_for_d_lo, _, _) = get_u16s(config, meta, Rotation(-5));
+        let (u16_sum_for_d_arith_hi, _, _) = get_u16s(config, meta, Rotation(-4));
+        let (u16_sum_for_d_arith_lo, _, _) = get_u16s(config, meta, Rotation(-5));
         let (u16_sum_for_c_hi, c_hi_1, c_hi_2) = get_u16s(config, meta, Rotation(-2));
         let (u16_sum_for_c_lo, c_lo_1, c_lo_2) = get_u16s(config, meta, Rotation(-3));
         let (u16_sum_for_b_hi, b_hi_1, b_hi_2) = get_u16s(config, meta, Rotation::cur());
@@ -70,7 +71,7 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
 
         let u16_sum_for_b = [u16_sum_for_b_hi, u16_sum_for_b_lo];
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
-        let u16_sum_for_d = [u16_sum_for_d_hi, u16_sum_for_d_lo];
+        let u16_sum_for_d_arith = [u16_sum_for_d_arith_hi, u16_sum_for_d_arith_lo];
         let u16_sum_for_diff = [u16_sum_for_diff_hi, u16_sum_for_diff_lo];
 
         // 2. calculate the t0,t1,t2,t3 for carry_lo and carry_hi
@@ -108,7 +109,7 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
             ));
             constraints.push((
                 format!("d_{} = u16 sum", hi_or_lo),
-                d[i].clone() - u16_sum_for_d[i].clone(),
+                d_arith[i].clone() - u16_sum_for_d_arith[i].clone(),
             ));
             //constrain the diff range
             constraints.push((
@@ -126,25 +127,48 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
         constraints.push(("carry_hi == 0 ".into(), carry[0].clone()));
 
         constraints.push((
-            "(c * b)_lo + d_lo == a_lo + carry_lo * 128".into(),
-            (t0.expr() + (t1.expr() * pow_of_two::<F>(64))) + d[1].clone()
+            format!("(c * b)_lo + d_lo == a_lo + carry_lo * 128"),
+            (t0.expr() + (t1.expr() * pow_of_two::<F>(64))) + d_arith[1].clone()
                 - a[1].clone()
                 - carry[1].clone() * pow_of_two::<F>(128),
         ));
         constraints.push((
-            "(c * b)_hi + d_hi + carry_lo == a_hi ".into(),
-            (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + d[0].clone() + carry[1].clone()
+            format!("(c * b)_hi + d_hi + carry_lo == a_hi "),
+            (t2.expr() + t3.expr() * pow_of_two::<F>(64)) + d_arith[0].clone() + carry[1].clone()
                 - a[0].clone(),
         ));
 
-        let is_lt_lo = SimpleLtGadget::new(&d[1], &b[1], &lt[1], &diff[1]);
-        let is_lt = SimpleLtWordGadget::new(&d[0], &b[0], &lt[0], &diff[0], is_lt_lo);
+        let is_lt_lo = SimpleLtGadget::new(&d_arith[1], &b[1], &lt[1], &diff[1]);
+        let is_lt = SimpleLtWordGadget::new(&d_arith[0], &b[0], &lt[0], &diff[0], is_lt_lo);
 
-        // constraint d < b if b!=0
+        // Constraint d_arith < b if b!=0
         constraints.extend(is_lt.get_constraints());
         constraints.push((
-            "d < b if b!=0 ".into(),
-            (1.expr() - is_lt.expr()) * (b[0].clone() + b[1].clone()),
+            format!("d_arith < b if b!=0 "),
+            (b[0].clone() + b[1].clone()) * (1.expr() - is_lt.expr()),
+        ));
+
+        // NOTE: When b=0, d_arith is greater than or equal to b;
+        //       When b!=0, d_arith is less than b.
+        //       Therefore, the expression is_lt is equivalent to b=0 expression.
+        // Constrain d = 0, when b == 0
+        constraints.push((
+            format!("d_hi = 0, when b == 0"),
+            (1.expr() - is_lt.expr()) * d[0].clone(),
+        ));
+        constraints.push((
+            format!("d_hi = 0, when b == 0"),
+            (1.expr() - is_lt.expr()) * d[1].clone(),
+        ));
+
+        // Constrain d = d_arith, when b != 0
+        constraints.push((
+            format!("d_hi = d_arith_hi, when b != 0"),
+            is_lt.expr() * (u16_sum_for_d_arith[1].clone() - d[1].clone()),
+        ));
+        constraints.push((
+            format!("d_lo = d_arith_lo, when b != 0"),
+            is_lt.expr() * (u16_sum_for_d_arith[0].clone() - d[0].clone()),
         ));
 
         constraints
@@ -153,17 +177,44 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
 
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness
+// witness rows(Tag::Divmod):
+// +----------+----------+------------+------------+-----+------------+
+// | operand0 | operand1 | operand2   | operand3   | cnt | u16s       |
+// +----------+----------+------------+------------+-----+------------+
+// |          |          |            |            | 8   | carry_lo   |
+// |          |          |            |            | 7   | diff_hi    |
+// | diff_hi  | diff_lo  | carry_hi   | carry_lo   | 6   | diff_lo    |
+// |          |          |            |            | 5   | d_arith_hi |
+// |          |          |            |            | 4   | d_arith_lo |
+// |          |          |            |            | 3   | c_lo       |
+// | carry_hi | carry_lo | d_arith_hi | d_arith_lo | 2   | c_hi       |
+// | c_hi     | c_lo     | d_hi       | d_lo       | 1   | b_lo       |
+// | a_hi     | a_lo     | b_hi       | b_lo       | 0   | b_hi       |
+// +----------+----------+------------+------------+-----+------------+
+
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(2, operands.len());
+
     let a = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
 
+    // When the divisor b is 0, the EVM stipulates that both the quotient c and the remainder d are 0.
+    // For the sake of generality of the constraint, we added the remainder d_arith.
+    // When the divisor b is 0, d_arith equals the dividend a.
+    // For example, when calculating 9/0, d = 0 and d_arith = 9.
+    // When calculating 9/2, d = 1 and d_arith = 1.
     let (c, d) = if operands[1] == U256::zero() {
-        (U256::zero(), operands[0].clone())
+        (U256::zero(), U256::zero())
     } else {
         operands[0].div_mod(operands[1])
     };
+    let d_arith = if operands[1] == U256::zero() {
+        operands[0]
+    } else {
+        d.clone()
+    };
 
+    // row 0 and row 1
     let mut b_u16s: Vec<u16> = operands[1]
         .to_le_bytes()
         .chunks(2)
@@ -178,7 +229,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         .collect();
     assert_eq!(16, c_u16s.len());
 
-    let mut d_u16s: Vec<u16> = d
+    let mut d_arith_u16s: Vec<u16> = d_arith
         .to_le_bytes()
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
@@ -192,9 +243,11 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let row_0 = get_row(a, b, b_hi_u16s, 0, Tag::DivMod);
     let row_1 = get_row(c_split, d_split, b_u16s, 1, Tag::DivMod);
 
+    // row 2
     // Calculate the overflow of multiplication. carry_hi and carry_lo
     let c_limbs = split_u256_limb64(&c);
     let b_limbs = split_u256_limb64(&operands[1]);
+    let d_arith_split = split_u256_hi_lo(&d_arith);
 
     let t0 = c_limbs[0] * b_limbs[0];
     let t1 = c_limbs[0] * b_limbs[1] + c_limbs[1] * b_limbs[0];
@@ -204,17 +257,19 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         + c_limbs[2] * b_limbs[1]
         + c_limbs[3] * b_limbs[0];
 
-    let carry_lo = (t0 + (t1 << 64) + d_split[1]).saturating_sub(a[1]) >> 128;
-    let carry_hi = (t2 + (t3 << 64) + d_split[0] + carry_lo).saturating_sub(a[0]) >> 128;
+    let carry_lo = (t0 + (t1 << 64) + d_arith_split[1]).saturating_sub(a[1]) >> 128;
+    let carry_hi = (t2 + (t3 << 64) + d_arith_split[0] + carry_lo).saturating_sub(a[0]) >> 128;
 
     let c_hi_u16s = c_u16s.split_off(8);
     let row_2 = get_row(
         [carry_hi, carry_lo],
-        [U256::zero(), U256::zero()],
+        d_arith_split,
         c_hi_u16s,
         2,
         Tag::DivMod,
     );
+
+    // row 3
     let row_3 = get_row(
         [U256::zero(), U256::zero()],
         [U256::zero(), U256::zero()],
@@ -223,24 +278,29 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         Tag::DivMod,
     );
 
-    let d_hi_u16s = d_u16s.split_off(8);
+    //row 4
+    let d_arith_hi_u16s = d_arith_u16s.split_off(8);
     let row_4 = get_row(
         [U256::zero(), U256::zero()],
         [U256::zero(), U256::zero()],
-        d_hi_u16s,
+        d_arith_hi_u16s,
         4,
         Tag::DivMod,
     );
+
+    // row 5
     let row_5 = get_row(
         [U256::zero(), U256::zero()],
         [U256::zero(), U256::zero()],
-        d_u16s,
+        d_arith_u16s,
         5,
         Tag::DivMod,
     );
 
-    let lt_rows = get_lt_word_rows::<Fr>(vec![d, operands[1]]);
+    // get row 6 and row 7
+    let lt_rows = get_lt_word_rows::<Fr>(vec![d_arith, operands[1]]);
 
+    // row 8
     let mut carry_lo_u16s: Vec<u16> = carry_lo
         .to_le_bytes()
         .chunks(2)
@@ -256,12 +316,6 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         Tag::DivMod,
     );
 
-    let mod_push = if operands[1] == U256::zero() {
-        U256::zero()
-    } else {
-        d
-    }; //set mod_push value
-
     (
         vec![
             row_8,
@@ -274,7 +328,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
             row_1,
             row_0,
         ],
-        vec![mod_push, c],
+        vec![d, c],
     )
 }
 
@@ -282,7 +336,7 @@ pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
     Box::new(DivModGadget(PhantomData))
 }
 
-///get d < b rows
+///get d_arith < b rows
 fn get_lt_word_rows<F: Field>(operands: Vec<U256>) -> Vec<Row> {
     let (carry, diff_split, diff_u16s) = get_lt_word_operations(operands);
     let row_7 = get_row(
@@ -315,7 +369,24 @@ mod test {
     fn test_gen_witness() {
         let a = 3.into();
         let b = u128::MAX.into();
-        let (arithmetic, _result) = gen_witness(vec![a, b]);
+        let (arithmetic, result) = gen_witness(vec![a, b]);
+        assert_eq!(result[0], U256::from(3));
+
+        let witness = Witness {
+            arithmetic,
+            ..Default::default()
+        };
+
+        witness.print_csv();
+    }
+
+    #[test]
+    fn test_gen_witness_1() {
+        let a = 3.into();
+        let b = 0.into();
+        let (arithmetic, result) = gen_witness(vec![a, b]);
+        assert_eq!(result[0], U256::from(0));
+
         let witness = Witness {
             arithmetic,
             ..Default::default()

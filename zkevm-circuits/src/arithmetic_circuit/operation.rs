@@ -1,4 +1,5 @@
 pub(crate) mod add;
+pub(crate) mod addmod;
 pub(crate) mod div_mod;
 pub(crate) mod length;
 pub(crate) mod mul;
