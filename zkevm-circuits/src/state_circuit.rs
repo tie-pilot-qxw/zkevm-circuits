@@ -46,7 +46,7 @@ pub struct StateCircuitConfig<F> {
     /// Indicates whether the location is visited for the first time;
     /// 0 if the difference between the state row is Stamp0|Stamp1, otherwise is 1.
     is_first_access: Column<Advice>,
-    /// cnt records the stamp value, starting from 1, increasing in order.
+    /// cnt records the count of stamp value, starting from 1, increasing in order.
     cnt: Column<Advice>,
     /// Lookup table for some information，such as value of cell U16/U0/U8 range lookup.
     fixed_table: FixedTable,
@@ -241,16 +241,9 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     q_enable.clone() * return_condition * pointer_hi,
                 ),
                 (
-                    "pre_cnt + 1 = cur_cnt not in endpadding",
+                    "pre_cnt + 1 = cur_cnt not in endpadding or pre_cnt = cur_cnt in endpadding",
                     q_enable.clone()
-                        * (1.expr() - endpadding_condition.clone())
-                        * (prev_cnt.clone() + 1.expr() - cur_cnt.clone()),
-                ),
-                (
-                    "pre_cnt = cur_cnt in endpadding",
-                    q_enable.clone()
-                        * endpadding_condition.clone()
-                        * (prev_cnt.clone() - cur_cnt.clone()),
+                        * (prev_cnt.clone() - cur_cnt.clone() + 1.expr() - endpadding_condition),
                 ),
             ];
 
@@ -430,11 +423,9 @@ impl<F: Field> StateCircuitConfig<F> {
         // unusable_rows == 1, cnt == 0,
         // when the tag is EndPadding, it is not included in the cnt
         for (offset, row) in witness.state.iter().enumerate() {
-            cnt = if matches!(row.tag, Some(Tag::EndPadding) | None) {
-                cnt
-            } else {
-                cnt + 1
-            };
+            if !matches!(row.tag, Some(Tag::EndPadding) | None) {
+                cnt = cnt + 1;
+            }
             self.assign_row(region, offset, row, cnt)?;
         }
         // pad the rest rows
