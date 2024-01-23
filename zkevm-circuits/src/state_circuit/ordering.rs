@@ -26,6 +26,19 @@ pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
 ///
 /// Tag is represented by one limb; CallIdOrAddress is represented by 10 limbs.
 /// Pointer_hi/lo is represented by 8 limbs, Stamp is represented by 2 limbs
+///
+/// 排序规则如下：将tag, callid, pointer hi, pointer lo, stamp元组编码为16-bit的limbs，
+/// 假设所有元素总共有L个limbs（即枚举元素的个数），上下两行state row的所有limbs作差，有L个diff。
+/// 第一个非零的diff，index记为first_diff_limb。
+/// 要求diff[first_diff_limb]也是16-bit数即可，因为如果排序的顺序反了，则diff[first_diff_limb]
+/// 是小数减大数，在有限域上得到一个非常大的结果（2^255左右），必然不属于16-bit的数。
+/// 通过first_diff_limb的值，可以得到上下两行state row在那个字段开始不一致，即可得出某个位置是否被
+/// 第一次访问。
+/// 如：state rows都为操作stack上的元素，即Tag相同，且call_id也相同（即这些元素在同一个call调用中），
+/// 如果first_diff_limb的值位于[PointerLo7..PointerLo0]，标识两个row访问的是栈上不同位置，则下一行
+/// 的栈上位置为首次访问，因此约束下一行的操作必须为写操作。
+/// 因为stamp每次操作后都会进行递增，因此可以用它来标识相同位置的操作顺序（如stack的相同位置有两次紧邻的
+/// 读写操作 2个rows，则肯定是写row在读row之前）
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq)]
 pub enum LimbIndex {
     Tag,
@@ -108,7 +121,7 @@ impl Config {
 
         // The difference between the two states is within the range of u16,
         // and the adjacent states must be sorted from small to big.
-
+        // 约束两个state row的首次非0 diff的值必须在u16范围，来保证rows的排序为从小到大
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("limb_difference fits into u16", |meta| {
@@ -136,6 +149,8 @@ impl Config {
             // limb_difference with the diff = cur-prev in current position.
             // when tag is EndPadding on the cur, the value = EndPadding - prev(tag),
             // should not enable constraint in the cur.
+            // 因为padding的所有row tag=EndPadding，且所有其余字段的值相同，所以limb_difference=0，
+            // 因此添加tag非EndPadding时limb_difference不等于0约束（即 1-tag）。
             vec![
                 selector
                     * (1.expr() - limb_difference * limb_difference_inverse)
@@ -143,6 +158,8 @@ impl Config {
             ]
         });
 
+        // 约束first_different_limb之前的上下两行所有的limb的差值为0，因为在first_different_limb
+        // 开始两行row数据的元素开始不同
         meta.create_gate(
             "limb difference before first_different_limb are all 0",
             |meta| {
@@ -159,6 +176,10 @@ impl Config {
                 // TODO: should use true rlc rather than square, see https://git.code.tencent.com/chainmaker-zk/zkevm/issues/44
                 for (i, rlc_expression) in LimbIndex::iter().zip(square_limb_differences(cur, prev))
                 {
+                    // first_different_limb.value_equals(i)标识上下两行limbs之间首个非0 diff的索引，
+                    // 当first_different_limb=i(LimbIndex)时，返回值为1
+                    // rlc_expression为first_different_limb之前所有limbs的累加和，通过约束两值的乘积等于0
+                    // 保证first_different_limb之前所有的元素limb差值为0
                     constraints.push(
                         selector.clone()
                             * first_different_limb.value_equals(i, Rotation::cur())(meta)
@@ -170,6 +191,8 @@ impl Config {
             },
         );
 
+        // 约束limb_difference的值在first_different_limb位置时等于上下两行对应limb的差值
+        // 即：cur_limb - prev_limb = limb_difference
         meta.create_gate("limb_difference equals of limbs at index", |meta| {
             let mut constraints = vec![];
             let selector = meta.query_selector(selector);

@@ -17,6 +17,31 @@ use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
 use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;
 
+// state电路布局：
+// tag | stamp | value_hi | value_lo | call_id_contract_addr | pointer_hi | pointer_lo | is_write
+// stack| 0x8 |   0x0    |    0x1   |         0x1            | None       |    0x1     |   0x1
+// stack| 0xb |   0x0    |    0x1   |         0x1            | None       |    0x1     |   0x1
+// CallContext| 0xd |   0x0    |    0x1   |        0x0       | None       |    0x9     |   0x1
+// 由8列数据组成，标识state 每次操作的内容所处位置以及数据的内容、辅助属性。
+// Tag 标识操作的状态位置，如：Stack标识操作栈上数据，CallData标识操作calldata数据, Memory标识操作内存数据
+// Stamp 历史操作次数的累积，每次操作后，该值+1；如从栈上弹出个数据后stamp+=1，从内存中读取n个byte，stamp+=n
+// value_hi 操作数据的高16byte；一般情况下仅使用低16byte该字段为0；当数据为contract_addr或其它大于16byte的
+// 情况，value_hi为高16byte的值
+// value_lo 操作数据的低16byte
+// pointer 操作的数据所指向的位置；如calldata中读取数据，指向calldata的索引；栈上弹出数据时为该数据在栈上的
+// 索引，通常情况仅使用低16byte（pointer_lo）做索引足够，pointer_hi字段为0。当从Storage读取数据时，由于索引比较大，
+// 会存在使用pointer_hi的情况
+// is_write: 标识当前的操作是写操作还是读操作，写为1，读为0
+//
+// 为了保证读写一致性，我们需要对所有state电路中的操作进行排序，按照如下顺序排序的：先按tag，再按callid,
+// pointer hi, pointer lo, stamp的顺序排序。
+// 因此在witness.rs中通过执行所有区块、交易的trace构造完成完整state rows数据后，需要按照上述规则对生成
+// 的state rows进行排序，然后在将排序后的内容填入 state circuit中。
+// state rows排序使用了ordering.rs和multiple_precision_integer.rs进行实现，因为在电路程序中需要证明
+// state rows如实按照排序规则进行排序，因此需要添加合适的约束程序进行保证，当排序与规则不一致时，约束出错。
+// 使用multiple_precision_integer.rs对要排序元素进行处理，如将元素拆分为一堆16byte的数据
+// 在ordering.rs中，添加排序规则约束，保证state table中所有的元素按照规则进行排列。
+
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
     q_enable: Selector,
@@ -88,7 +113,10 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             is_write,
         } = state_table;
 
-        // new sorted element with Advice that will be sorted
+        // tag | mpi_call_id | mpi_pointer_hi | mpi_pointer_lo | mpi_stamp
+        // new sorted element with Advice that will be sorted by the field in state row;
+        // 示例：call_id_contract_addr有160bit，所以拆分为10个limb，申请了10个Advice，每个Advice填写一个limb
+        // pointer_lo/hi有128bit，拆分为8个limb，申请了8个Advice
         let mpi_call_id = MpiChip::configure(meta, q_enable, call_id_contract_addr, fixed_table);
         let mpi_pointer_hi = MpiChip::configure(meta, q_enable, pointer_hi, fixed_table);
         let mpi_pointer_lo = MpiChip::configure(meta, q_enable, pointer_lo, fixed_table);
@@ -101,6 +129,9 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             stamp: mpi_stamp,
         };
         // Passes the element to be sorted as a parameter to the sorting function
+        // 将字段构建好的limb数据传入ordering.rs，约束state rows间的排序满足预定义规则；
+        // 因为state circuit中填入的rows已经被提前排好了序，所以可以使用排序规则进行约束，
+        // 正确排序的state rows可以通过这些约束。
         let ordering_config = OrderingConfig::new(meta, q_enable, keys, fixed_table);
         let config: StateCircuitConfig<F> = Self {
             q_enable,
@@ -137,6 +168,17 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
 
+            // 因为state circuit由每次操作的数据和它对应的属性组成（操作的数据所处位置，offset等）
+            // 对于不同位置（stack、memory、storage...）state rows中的字段有不同约束，来保证
+            // 满足EVM语义规则。
+            // 如：当Tag=memory（即操作的数据位于memory），该内存的位置第一次被操作且操作为读取数据时，
+            // 约束读取的数据value_lo必须为0，EVM对于读取未被写入的memory位置时默认返回0
+            // 若Tag=stack（即操作的数据位于stack），该位置第一次被操作时，约束操作必须为写操作，因为
+            // EVM的栈必须先被写入数据才可以进行读取。
+            // 若Tag=CallData（即操作的数据位于calldata），该位置第一次被操作且操作为读取数据时，
+            // 约束读取的数据value_lo必须为0，EVM对于读取未被写入的calldata位置时默认返回0
+            // 若Tag=ReturnData（即操作的数据位于ReturnData），该位置第一次被操作时，约束操作必须为写操作
+            // 若Tag=CallContext，该位置第一次被操作时，约束操作必须为写操作
             let mut vec = vec![
                 // is_write = 0/1
                 (
