@@ -79,6 +79,16 @@ impl<F: Field> FixedCircuitConfig<F> {
                 value_2: Some(U256::from((opcode.data_len() > OPCODE_CNT_15) as u8)),
             });
         }
+        // assign invalid opcode
+        // otherwise the bytecode containing invalid opcodes cannot lookup into this circuit
+        for opcode in OpcodeId::invalid_opcodes() {
+            vec.push(fixed::Row {
+                tag: fixed::Tag::Bytecode,
+                // bytecode
+                value_0: Some(U256::from(opcode.as_u8())),
+                ..Default::default()
+            });
+        }
 
         // 生成逻辑运算（And/Or/Xor）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
