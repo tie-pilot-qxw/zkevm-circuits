@@ -13,6 +13,7 @@ use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
+use itertools::Itertools;
 use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
 use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;
@@ -424,7 +425,6 @@ impl<F: Field> StateCircuitConfig<F> {
                 )?;
             }
         }
-
         Ok(())
     }
 
@@ -589,7 +589,6 @@ mod test {
 
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
-        println!("K: {}", k);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
         prover

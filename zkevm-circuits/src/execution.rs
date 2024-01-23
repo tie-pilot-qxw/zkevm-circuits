@@ -78,6 +78,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::add_sub_mul_div_mod::new(),
             crate::execution::push::new(),
             crate::execution::stop::new(),
+            crate::execution::begin_block::new(),
             crate::execution::end_block::new(),
             crate::execution::iszero::new(),
             crate::execution::and_or_xor::new(),
