@@ -1,4 +1,3 @@
-//! benchmark create_proof for super_circuit
 #[macro_use]
 extern crate criterion;
 
@@ -14,43 +13,50 @@ use halo2_proofs::transcript::{
 };
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
-use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{geth_data_test, SubCircuit};
+use zkevm_circuits::util::{get_geth_data, SubCircuit};
 use zkevm_circuits::witness::Witness;
+
+const MAX_CODESIZE_FOR_CALL_TRACE: usize = 4220;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("create proof");
     group.sample_size(10);
 
-    let machine_code = trace_parser::assemble_file("test_data/1.txt");
-    let trace = trace_parser::trace_program(&machine_code, &[]);
-    let witness = Witness::new(&geth_data_test(
-        trace,
-        &machine_code,
-        &[],
-        false,
-        Default::default(),
+    // get witness for bench
+    let witness = Witness::new(&get_geth_data(
+        "test_data/call_test/trace/block_info.json",
+        "test_data/call_test/trace/tx_info.json",
+        "test_data/call_test/trace/tx_debug_trace.json",
+        "test_data/call_test/trace/tx_receipt.json",
+        "test_data/call_test/trace/bytecode.json",
     ));
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
-        SuperCircuit::new_from_witness(&witness);
-    let instance: Vec<Vec<Fr>> = circuit.instance();
+
+    let circuit: SuperCircuit<
+        Fr,
+        MAX_NUM_ROW,
+        MAX_CODESIZE_FOR_CALL_TRACE,
+        NUM_STATE_HI_COL,
+        NUM_STATE_LO_COL,
+    > = SuperCircuit::new_from_witness(&witness);
+    let instance = circuit.instance();
 
     println!("length {} and {}", instance[0].len(), instance[1].len());
     let instance_refs: Vec<&[Fr]> = instance.iter().map(|v| &v[..]).collect();
 
-    let degree = 9;
+    let degree = 14;
     #[cfg(not(feature = "no_fixed_lookup"))]
     let degree = 19;
-    // Bench setup generation
+    // bench setup generation
     let mut rng = ChaChaRng::seed_from_u64(2);
     let general_params = ParamsKZG::<Bn256>::setup(degree, &mut rng);
     let verifier_params: ParamsVerifierKZG<Bn256> = general_params.verifier_params().clone();
+
     // Initialize the proving key
     let vk = keygen_vk(&general_params, &circuit).expect("keygen_vk should not fail");
     let pk = keygen_pk(&general_params, vk, &circuit).expect("keygen_pk should not fail");
 
-    // print proof length
     {
         let circuit = circuit.clone();
         let rng = rng.clone();
@@ -64,7 +70,13 @@ fn criterion_benchmark(c: &mut Criterion) {
             Challenge255<G1Affine>,
             ChaChaRng,
             Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
-            SuperCircuit<_, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<
+                _,
+                MAX_NUM_ROW,
+                MAX_CODESIZE_FOR_CALL_TRACE,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            >,
         >(
             &general_params,
             &pk,
@@ -110,7 +122,13 @@ fn criterion_benchmark(c: &mut Criterion) {
                 Challenge255<G1Affine>,
                 ChaChaRng,
                 Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
-                SuperCircuit<_, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+                SuperCircuit<
+                    _,
+                    MAX_NUM_ROW,
+                    MAX_CODESIZE_FOR_CALL_TRACE,
+                    NUM_STATE_HI_COL,
+                    NUM_STATE_LO_COL,
+                >,
             >(
                 &general_params,
                 &pk,

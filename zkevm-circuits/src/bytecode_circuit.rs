@@ -516,6 +516,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any(name, |meta| {
+            use crate::table::LookupEntry;
+            use halo2_proofs::plonk::Expression;
             let q_enable = meta.query_selector(self.q_enable);
             let cnt_is_zero_prev = self.cnt_is_zero.expr_at(meta, Rotation::prev());
             let is_push_byte = 1.expr() - cnt_is_zero_prev;
@@ -536,10 +538,13 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 
     /// use Lookup to constrain the correctness of Opcode.
     /// src: bytecode circuit, target: fixed circuit table
-    pub fn bytecode_lookup(&self, meta: &mut ConstraintSystem<F>, _name: &str) {
+    pub fn bytecode_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any(name, |meta| {
+            use crate::table::LookupEntry;
+            use crate::witness::fixed;
+            use halo2_proofs::plonk::Expression;
             let q_enable = meta.query_selector(self.q_enable);
             let cnt_is_zero_prev = self.cnt_is_zero.expr_at(meta, Rotation::prev());
             let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());

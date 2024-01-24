@@ -1,7 +1,7 @@
 # How to run test
 
 ## Preparation
-Prepare the official `evm` binary. You can compile it from [Geth source code](https://github.com/ethereum/go-ethereum) and use `make evm`. You can also download it from [official website](https://geth.ethereum.org/downloads) with "Geth & Tools". Put the binary in directory `zkevm-circuits`.
+Prepare the official `evm` binary. You can compile it from [Geth source code](https://github.com/ethereum/go-ethereum) and use `go run build/ci.go install ./cmd/evm`. You can also download it from [official website](https://geth.ethereum.org/downloads) with "Geth & Tools". Put the binary in directory `zkevm-circuits`.
 
 After preparation, you can run all tests.
 

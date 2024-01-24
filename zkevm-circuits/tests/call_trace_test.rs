@@ -16,10 +16,15 @@ fn test_call_trace() {
     ));
     //print witness
     //witness.print_csv();
+    #[cfg(not(feature = "fast_test"))]
+    const MAX_NUM_ROW_FOR_TEST: usize = 262200;
+    #[cfg(feature = "fast_test")]
+    const MAX_NUM_ROW_FOR_TEST: usize = 6000;
 
-    let circuit: SuperCircuit<Fr, 6000, 5000, 10, 10> = SuperCircuit::new_from_witness(&witness);
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, 10, 10> =
+        SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
-    let k = log2_ceil(SuperCircuit::<Fr, 6000, 5000, 10, 10>::num_rows(&witness));
+    let k = log2_ceil(SuperCircuit::<Fr, MAX_NUM_ROW_FOR_TEST, 5000, 10, 10>::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
     prover.assert_satisfied_par();
 }
