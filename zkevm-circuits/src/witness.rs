@@ -966,8 +966,6 @@ impl WitnessExecHelper {
     }
 
     /// 从calldata的offset位置读取32byte数据至stack of evm.
-    /// overflow_u64: 标识offset的值是否溢出u64，因为调用方使用
-    /// u256标识offset的值
     pub fn get_calldata_load_rows<F: Field>(
         &mut self,
         offset: U256,
