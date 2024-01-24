@@ -47,6 +47,8 @@ pub struct StateCircuitConfig<F> {
     /// Indicates whether the location is visited for the first time;
     /// 0 if the difference between the state row is Stamp0|Stamp1, otherwise is 1.
     is_first_access: Column<Advice>,
+    /// cnt records the count of stamp value, starting from 1, increasing in order.
+    cnt: Column<Advice>,
     /// Lookup table for some information，such as value of cell U16/U0/U8 range lookup.
     fixed_table: FixedTable,
     _marker: PhantomData<F>,
@@ -116,6 +118,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             sort_keys: keys,
             ordering_config,
             is_first_access: meta.advice_column(),
+            cnt: meta.advice_column(),
             fixed_table,
             _marker: PhantomData,
         };
@@ -131,12 +134,16 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 config.tag.value_equals(Tag::CallContext, Rotation::cur())(meta);
             let calldata_condition = config.tag.value_equals(Tag::CallData, Rotation::cur())(meta);
             let return_condition = config.tag.value_equals(Tag::ReturnData, Rotation::cur())(meta);
+            let endpadding_condition =
+                config.tag.value_equals(Tag::EndPadding, Rotation::cur())(meta);
             let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
             let prev_value_hi = meta.query_advice(config.value_hi, Rotation::prev());
             let prev_value_lo = meta.query_advice(config.value_lo, Rotation::prev());
             let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
+            let cur_cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let prev_cnt = meta.query_advice(config.cnt, Rotation::prev());
 
             let mut vec = vec![
                 // is_write = 0/1
@@ -234,6 +241,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     "returndata_pointer_hi",
                     q_enable.clone() * return_condition * pointer_hi,
                 ),
+                (
+                    "pre_cnt + 1 = cur_cnt not in endpadding or pre_cnt = cur_cnt in endpadding",
+                    q_enable.clone()
+                        * (prev_cnt.clone() - cur_cnt.clone() + 1.expr() - endpadding_condition),
+                ),
             ];
 
             let mut index_is_stamp_expr = 0.expr();
@@ -318,7 +330,13 @@ impl<F: Field> StateCircuitConfig<F> {
     /// EndPadding indicates the tag of padding in this column.
     /// If the value of first_different_limb is Stamp0|Stamp1, the first_access
     /// constraint logics is not enabled.
-    fn assign_padding_row(&self, region: &mut Region<'_, F>, offset: usize) -> Result<(), Error> {
+    /// cnt is equal to the maximum value of stamp + 1.
+    fn assign_padding_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        cnt: U256,
+    ) -> Result<(), Error> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.stamp)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.value_hi)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.value_lo)?;
@@ -327,6 +345,7 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id_contract_addr)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_first_access)?;
         assign_advice_or_fixed(region, offset, &U256::zero(), self.is_write)?;
+        assign_advice_or_fixed(region, offset, &cnt, self.cnt)?;
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &Tag::EndPadding)?;
 
@@ -365,6 +384,7 @@ impl<F: Field> StateCircuitConfig<F> {
         region: &mut Region<'_, F>,
         offset: usize,
         row: &Row,
+        cnt: U256,
     ) -> Result<(), Error> {
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &row.tag.unwrap_or_default())?;
@@ -375,6 +395,7 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
         assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
         assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+        assign_advice_or_fixed(region, offset, &cnt, self.cnt)?;
         // Assign value to the column of elements to be sorted
         self.sort_keys
             .call_id_or_address
@@ -399,12 +420,18 @@ impl<F: Field> StateCircuitConfig<F> {
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
         // Assign data of the status to circuit row with row offset
+        let mut cnt = U256::zero();
+        // unusable_rows == 1, cnt == 0,
+        // when the tag is EndPadding, it is not included in the cnt
         for (offset, row) in witness.state.iter().enumerate() {
-            self.assign_row(region, offset, row)?;
+            if !matches!(row.tag, Some(Tag::EndPadding) | None) {
+                cnt = cnt + 1;
+            }
+            self.assign_row(region, offset, row, cnt)?;
         }
         // pad the rest rows
         for offset in witness.state.len()..num_row_incl_padding {
-            self.assign_padding_row(region, offset)?;
+            self.assign_padding_row(region, offset, cnt)?;
         }
         // 1. assign ordering with curr and prev state.
         // 2. if and only if the difference with two status not in Stamp*,
@@ -586,7 +613,6 @@ mod test {
             }
         }
     }
-
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
