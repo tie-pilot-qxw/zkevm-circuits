@@ -203,14 +203,14 @@ impl<
             .synthesize_sub(&config.public_circuit, layouter)?;
         self.copy_circuit
             .synthesize_sub(&config.copy_circuit, layouter)?;
-        self.arithmetic_circuit
-            .synthesize_sub(&config.arithmetic_circuit, layouter)?;
         // when feature `no_fixed_lookup` is on, we don't do synthesize
         #[cfg(not(feature = "no_fixed_lookup"))]
         self.fixed_circuit
             .synthesize_sub(&config.fixed_circuit, layouter)?;
         self.bitwise_circuit
             .synthesize_sub(&config.bitwise_circuit, layouter)?;
+        self.arithmetic_circuit
+            .synthesize_sub(&config.arithmetic_circuit, layouter)?;
         Ok(())
     }
 
