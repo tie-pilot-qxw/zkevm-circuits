@@ -360,7 +360,7 @@ impl Row {
                 let topic_num = log.topics.len();
                 // topic arrays length <= 4
                 assert!(topic_num <= 4);
-                let tx_idx = U256::from(log.transaction_index.unwrap_or_default().as_u64());
+                let tx_idx = U256::from(log.transaction_index.unwrap_or_default().as_u64()) + 1;
                 let log_index = log.log_index.unwrap_or_default();
                 // compute log_tag by log.topics.length
                 let log_tag = if topic_num == 0 {

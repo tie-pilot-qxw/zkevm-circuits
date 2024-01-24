@@ -1532,7 +1532,7 @@ impl WitnessExecHelper {
     pub fn get_public_tx_row(&self, tag: public::Tag) -> public::Row {
         let values: [Option<U256>; PUBLIC_NUM_VALUES];
         let value_comments: [String; PUBLIC_NUM_VALUES];
-
+        let mut tx_idx = self.tx_idx as u64;
         match tag {
             public::Tag::TxToCallDataSize => {
                 values = [
@@ -1565,6 +1565,7 @@ impl WitnessExecHelper {
             public::Tag::BlockTxNum => {
                 values = [Some(self.tx_num_in_block.into()), None, None, None];
                 value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
+                tx_idx = 0;
             }
             _ => panic!(),
         };
@@ -1579,7 +1580,7 @@ impl WitnessExecHelper {
 
         let public_row = public::Row {
             tag,
-            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            tx_idx_or_number_diff: Some(U256::from(tx_idx)),
             value_0: values[0],
             value_1: values[1],
             value_2: values[2],

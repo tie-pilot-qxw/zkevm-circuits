@@ -748,7 +748,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_bitwise_constraints(
         &self,
-        meta: &mut VirtualCells<F>,
+        _meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
         tag: Expression<F>,
         acc_0: Expression<F>,
@@ -784,7 +784,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_public_constraints(
         &self,
-        meta: &mut VirtualCells<F>,
+        _meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
         tag: Expression<F>,
         tx_id_or_number_diff: Option<Expression<F>>,
@@ -1321,7 +1321,18 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             HashMap::new();
         for (string, lookup, execution_state) in lookups_to_merge {
             match lookup {
-                LookupEntry::BytecodeFull { .. } | LookupEntry::State { .. } => {
+                LookupEntry::BytecodeFull { .. }
+                | LookupEntry::State { .. }
+                | LookupEntry::Bytecode { .. }
+                | LookupEntry::Public { .. }
+                | LookupEntry::Arithmetic { .. }
+                | LookupEntry::ArithmeticU64 { .. }
+                | LookupEntry::Fixed { .. }
+                | LookupEntry::U8(..)
+                | LookupEntry::U10(..)
+                | LookupEntry::U16(..)
+                | LookupEntry::Bitwise { .. }
+                | LookupEntry::Copy { .. } => {
                     let identifier = lookup.identifier();
                     match lookup_category.get_mut(&identifier) {
                         Some(v) => v.push((string, lookup, execution_state)),
@@ -1331,7 +1342,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                         }
                     };
                 }
-                // config还未添加其它table (public, fixed..)
+                //TODO config还未添加其它table (exp,Conditional)
                 // 等待后续添加后再进行编写
                 _ => (),
             }
@@ -1364,11 +1375,27 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 // 所以只需要lookup 归类集合中的第一个entry即可。
                 let (_, lookup, _) = lookup_vec.into_iter().next().unwrap();
                 let v: Vec<(Expression<F>, Expression<F>)> = match lookup {
-                    LookupEntry::BytecodeFull { .. } => {
+                    LookupEntry::BytecodeFull { .. } | LookupEntry::Bytecode { .. } => {
                         config.bytecode_table.get_lookup_vector(meta, lookup)
                     }
                     LookupEntry::State { .. } => config.state_table.get_lookup_vector(meta, lookup),
-                    // 因为归类时已进行过滤，仅包含BytecodeFull和State，
+                    LookupEntry::Public { .. } => {
+                        config.public_table.get_lookup_vector(meta, lookup)
+                    }
+                    LookupEntry::Bitwise { .. } => {
+                        config.bitwise_table.get_lookup_vector(meta, lookup)
+                    }
+                    LookupEntry::Copy { .. } => config.copy_table.get_lookup_vector(meta, lookup),
+                    LookupEntry::Arithmetic { .. } | LookupEntry::ArithmeticU64 { .. } => {
+                        config.arithmetic_table.get_lookup_vector(meta, lookup)
+                    }
+                    // when feature `no_fixed_lookup` is on, we don't do lookup
+                    #[cfg(not(feature = "no_fixed_lookup"))]
+                    LookupEntry::Fixed { .. }
+                    | LookupEntry::U8(..)
+                    | LookupEntry::U10(..)
+                    | LookupEntry::U16(..) => config.fixed_table.get_lookup_vector(meta, lookup),
+                    //TODO config还未添加其它table (exp,Conditional)
                     // 所以此处如果有其它类型的entry应该panic。
                     _ => unreachable!(),
                 };

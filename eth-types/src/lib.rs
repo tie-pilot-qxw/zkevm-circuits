@@ -493,6 +493,17 @@ impl ReceiptLog {
         });
         receipt_log
     }
+    /// check_data_valid check data from parsed log data
+    pub fn check_data_valid(&self) -> () {
+        for log in &self.logs {
+            assert!(log.block_hash.is_some());
+            assert!(log.block_number.is_some());
+            assert!(log.transaction_hash.is_some());
+            assert!(log.transaction_index.is_some());
+            assert!(log.log_index.is_some());
+            assert!(log.removed.is_some());
+        }
+    }
 }
 
 /// Log Wrapper in api result

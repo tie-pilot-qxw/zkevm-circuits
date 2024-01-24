@@ -324,6 +324,7 @@ pub fn read_log_from_api_result_file<P: AsRef<Path>>(path: P) -> ReceiptLog {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
     let x: WrapReceiptLog = serde_json::from_reader(reader).unwrap();
+    x.result.check_data_valid();
     x.result
 }
 
