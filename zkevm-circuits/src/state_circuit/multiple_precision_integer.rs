@@ -15,16 +15,20 @@ use itertools::Itertools;
 
 /// Compute the little-endian representation of a data structure.
 /// N is the number of u16 required in little endian order.
+/// 将元素拆分为limbs数组进行标识
+/// |limb0 | limb1 | limb2 | limb3 | ....
 pub trait Tolimbs<const N: usize> {
     fn to_limbs(&self) -> [u16; N];
 }
 
+// 将call_id_contract_addr 拆分为10个limb表达
 impl Tolimbs<CALLID_OR_ADDRESS_LIMBS> for U256 {
     fn to_limbs(&self) -> [u16; CALLID_OR_ADDRESS_LIMBS] {
         to_limbs_for_u256(self)
     }
 }
 
+// 将pointer_lo/hi 拆分为8个limb表达
 impl Tolimbs<POINTER_LIMBS> for U256 {
     fn to_limbs(&self) -> [u16; POINTER_LIMBS] {
         to_limbs_for_u256(self)
@@ -38,7 +42,7 @@ fn to_limbs_for_u256<T: ToLittleEndian, const N: usize>(val: &T) -> [u16; N] {
         .unwrap()
 }
 
-// Gets the little-endian of u32
+// 将stamp拆分为2个limb表达
 impl Tolimbs<STAMP_LIMBS> for u32 {
     fn to_limbs(&self) -> [u16; STAMP_LIMBS] {
         le_bytes_to_limbs(&self.to_le_bytes()).try_into().unwrap()
@@ -56,6 +60,9 @@ where
     _marker: PhantomData<T>,
 }
 
+// 将val拆分为limbs，对分配的limbs Advice进行赋值
+// 如 stamp 拆分两个limb，同时申请了两个Advice列
+// 将拆分的两个limb 赋值到两个Advice列中，offset为对应列的行
 fn assign_for_config<T: Tolimbs<N>, F: Field, const N: usize>(
     region: &mut Region<'_, F>,
     config: &Config<T, N>,
@@ -74,6 +81,7 @@ fn assign_for_config<T: Tolimbs<N>, F: Field, const N: usize>(
     Ok(())
 }
 
+// 对limbs Advice进行注释的实现
 fn annotate_columns_in_region<T: Tolimbs<N>, F: Field, const N: usize>(
     region: &mut Region<'_, F>,
     config: &Config<T, N>,
@@ -90,6 +98,7 @@ fn annotate_columns_in_region<T: Tolimbs<N>, F: Field, const N: usize>(
         .for_each(|(col, ann)| region.name_column(|| format!("{prefix}_{ann}"), *col))
 }
 
+// 将pointer_lo/hi赋值给拆分的limbs Advice列，并对limbs Advice列进行注释
 impl Config<U256, POINTER_LIMBS> {
     pub fn assign<F: Field>(
         &self,
@@ -105,6 +114,7 @@ impl Config<U256, POINTER_LIMBS> {
     }
 }
 
+// 将stamp赋值给拆分的limbs Advice列，并对limbs Advice列进行注释
 impl Config<u32, STAMP_LIMBS> {
     pub fn assign<F: Field>(
         &self,
@@ -120,6 +130,7 @@ impl Config<u32, STAMP_LIMBS> {
     }
 }
 
+// 将call_id_contract_addr赋值给拆分的limbs Advice列，并对limbs Advice列进行注释
 impl Config<U256, CALLID_OR_ADDRESS_LIMBS> {
     pub fn assign<F: Field>(
         &self,
@@ -156,6 +167,9 @@ where
         }
     }
 
+    // 生成limbs 对应的Advice列，并为Advice列填充约束
+    // 1. 约束limb Advice的值在u16范围
+    // 2. 约束limbs的值等于被拆分的value
     pub fn configure(
         meta: &mut ConstraintSystem<F>,
         selector: Selector,
@@ -164,8 +178,7 @@ where
     ) -> Config<T, N> {
         let limbs = [0; N].map(|_| meta.advice_column());
 
-        // Constrain all Column's values to be within the u16 range
-
+        // 约束所有limb填充的值必须为16 bit范围
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         for limb in limbs {
@@ -183,6 +196,7 @@ where
             });
         }
         // Constrains the little-endian result represented by limbs to be equal to value<T>
+        // 约束limbs组合的值等于value，标识limbs确实是由value拆分得来。
         meta.create_gate("mpi value matches claimed limbs", |meta| {
             let selector: Expression<F> = meta.query_selector(selector);
             let value: Expression<F> = meta.query_advice(value, Rotation::cur());
