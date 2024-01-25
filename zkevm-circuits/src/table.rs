@@ -370,6 +370,46 @@ impl ArithmeticTable {
         let operands = std::array::from_fn(|_| [meta.advice_column(), meta.advice_column()]);
         Self { tag, cnt, operands }
     }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_tag = self.tag.value(Rotation::cur())(meta);
+        let table_0_hi = meta.query_advice(self.operands[0][0], Rotation::cur());
+        let table_0_lo = meta.query_advice(self.operands[0][1], Rotation::cur());
+        let table_1_hi = meta.query_advice(self.operands[1][0], Rotation::cur());
+        let table_1_lo = meta.query_advice(self.operands[1][1], Rotation::cur());
+        let table_2_hi = meta.query_advice(self.operands[0][0], Rotation::prev());
+        let table_2_lo = meta.query_advice(self.operands[0][1], Rotation::prev());
+        let table_3_hi = meta.query_advice(self.operands[1][0], Rotation::prev());
+        let table_3_lo = meta.query_advice(self.operands[1][1], Rotation::prev());
+        match entry {
+            LookupEntry::Arithmetic { tag, values } => {
+                vec![
+                    (tag.clone(), table_tag),
+                    (values[0].clone(), table_0_hi),
+                    (values[1].clone(), table_0_lo),
+                    (values[2].clone(), table_1_hi),
+                    (values[3].clone(), table_1_lo),
+                    (values[4].clone(), table_2_hi),
+                    (values[5].clone(), table_2_lo),
+                    (values[6].clone(), table_3_hi),
+                    (values[7].clone(), table_3_lo),
+                ]
+            }
+            LookupEntry::ArithmeticU64 { values } => {
+                vec![
+                    ((arithmetic::Tag::U64Overflow as u64).expr(), table_tag),
+                    (values[0].clone(), table_0_hi),
+                    (values[1].clone(), table_0_lo),
+                    (values[2].clone(), table_1_hi),
+                    (values[3].clone(), table_1_lo),
+                ]
+            }
+            _ => panic!("Not arithmetic lookup!"),
+        }
+    }
 }
 
 // The table shared between Core circuit and Copy circuit

@@ -184,7 +184,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
 
         //TODO:confirm whether the following is correct
-        let arithmetic_lookup = query_expression(meta, |meta| {
+        let _arithmetic_lookup = query_expression(meta, |meta| {
             let ret_offset_state_entry = config.get_state_lookup(meta, 0);
             let ret_len_state_entry = config.get_state_lookup(meta, 1);
 
@@ -223,7 +223,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("stack write success".into(), stack_lookup_2),
             ("copy lookup".into(), copy_lookup),
-            ("arithmetic lookup".into(), arithmetic_lookup),
+            // ("arithmetic lookup".into(), arithmetic_lookup),
+            // TODO add arithmetic lookup
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
