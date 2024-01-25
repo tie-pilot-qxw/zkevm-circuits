@@ -8,12 +8,12 @@ pub mod fixed;
 pub mod public;
 pub mod state;
 
-use crate::arithmetic_circuit::ArithmeticCircuit;
+use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
-    DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
-    PUBLIC_NUM_VALUES,
+    BIT_SHIFT_MAX_INDEX, DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL,
+    NUM_STATE_LO_COL, PUBLIC_NUM_VALUES,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -78,6 +78,8 @@ pub struct WitnessExecHelper {
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
     pub topic_left: usize,
+    // used to temporarily store the results of sar1 calculations for use by sar2 (shr result and sign bit)
+    pub sar: Option<(U256, U256)>,
     pub tx_value: U256,
     pub parent_pc: HashMap<u64, u64>,
 }
@@ -112,6 +114,7 @@ impl WitnessExecHelper {
             bytecode: HashMap::new(),
             stack_top: None,
             topic_left: 0,
+            sar: None,
             tx_value: 0.into(),
             parent_pc: HashMap::new(),
         }
@@ -119,6 +122,11 @@ impl WitnessExecHelper {
 
     pub fn update_from_next_step(&mut self, trace: &GethExecStep) {
         self.stack_top = trace.stack.0.last().cloned();
+    }
+
+    /// stack_pointer decrease
+    pub fn stack_pointer_decrease(&mut self) {
+        self.stack_pointer -= 1;
     }
 
     /// Generate witness of one transaction's trace
@@ -505,7 +513,7 @@ impl WitnessExecHelper {
             "error in current_state.get_push_stack_row_value"
         );
         let res = state::Row {
-            tag: Some(state::Tag::Stack),
+            tag: Some(Tag::Stack),
             stamp: Some((self.state_stamp).into()),
             value_hi: Some((value >> 128).as_u128().into()),
             value_lo: Some(value.low_u128().into()),
@@ -1589,6 +1597,210 @@ impl WitnessExecHelper {
 
         public_row
     }
+}
+
+pub fn get_and_insert_shl_shr_rows<F: Field>(
+    shift: U256,
+    value: U256,
+    op: OpcodeId,
+    core_rows1: &mut core::Row,
+    core_rows2: &mut core::Row,
+) -> (Vec<arithmetic::Row>, Vec<exp::Row>) {
+    // 255 - a
+    // the main purpose is to determine whether shift is greater than or equal to 256
+    // that is, whether 2<<shift will overflow
+    let (arithmetic_sub_rows, _) =
+        operation::sub::gen_witness(vec![BIT_SHIFT_MAX_INDEX.into(), shift]);
+
+    // mul_div_num = 2<<stack_shift
+    let mul_div_num = if shift > BIT_SHIFT_MAX_INDEX.into() {
+        0.into()
+    } else {
+        U256::from(1) << shift
+    };
+
+    // if Opcode is SHL, then result is stack_value * mul_div_num
+    // if Opcode is SHR, then result is stack_value / mul_div_num
+    let (arithmetic_mul_div_rows, _) = match op {
+        OpcodeId::SHL => operation::mul::gen_witness(vec![value, mul_div_num]),
+        OpcodeId::SHR => operation::div_mod::gen_witness(vec![value, mul_div_num]),
+        _ => panic!("not shl or shr"),
+    };
+
+    // insert arithmetic-sub in lookup
+    core_rows2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
+    // insert arithmetic-mul_div in lookup
+    core_rows2.insert_arithmetic_lookup(1, &arithmetic_mul_div_rows);
+
+    // insert exp lookup
+    core_rows1.insert_exp_lookup(U256::from(2), shift, mul_div_num);
+    let exp_rows = exp::Row::from_operands(U256::from(2), shift, mul_div_num);
+
+    let mut arithmetic_rows = vec![];
+    arithmetic_rows.extend(arithmetic_sub_rows);
+    arithmetic_rows.extend(arithmetic_mul_div_rows);
+
+    (arithmetic_rows, exp_rows)
+}
+
+pub fn get_and_insert_signextend_rows<F: Field>(
+    signextend_operands: [U256; 2],
+    exp_operands: [U256; 3],
+    arithmetic_operands: [U256; 2],
+    core_rows0: &mut core::Row,
+    core_rows1: &mut core::Row,
+    core_rows2: &mut core::Row,
+) -> (Vec<bitwise::Row>, Vec<exp::Row>, Vec<arithmetic::Row>) {
+    // get arithmetic rows
+    let (arithmetic_sub_rows, _) =
+        operation::sub::gen_witness(vec![arithmetic_operands[0], arithmetic_operands[1]]);
+
+    // get exp_rows
+    let exp_rows = exp::Row::from_operands(
+        exp_operands[0].clone(),
+        exp_operands[1].clone(),
+        exp_operands[2].clone(),
+    );
+
+    // calc signextend by bit
+    let (signextend_result_vec, bitwise_rows_vec) =
+        signextend_by_bit::<F>(signextend_operands[0], signextend_operands[1]);
+
+    // insert bitwise lookup
+    for (i, bitwise_lookup) in bitwise_rows_vec.iter().enumerate() {
+        core_rows2.insert_bitwise_lookups(i, bitwise_lookup.last().unwrap());
+    }
+    // insert arithmetic lookup to core_row_2
+    core_rows2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
+
+    // insert exp lookup
+    core_rows1.insert_exp_lookup(exp_operands[0], exp_operands[1], exp_operands[2]);
+
+    // a_hi set core_row_0.vers_27;
+    // a_lo set core_row_0.vers_28;
+    // d_hi set core_row_0.vers_29
+    // d_lo set core_row_0.vers_30
+    // sign_bit_is_zero_inv set core_row_0.vers_31;
+    for (value, cell) in signextend_result_vec.into_iter().zip([
+        &mut core_rows0.vers_27,
+        &mut core_rows0.vers_28,
+        &mut core_rows0.vers_29,
+        &mut core_rows0.vers_30,
+        &mut core_rows0.vers_31,
+    ]) {
+        assert!(cell.is_none());
+        *cell = Some(value);
+    }
+
+    // Construct Witness object
+    let bitwise_rows = bitwise_rows_vec
+        .into_iter()
+        .flat_map(|inner_vec| inner_vec.into_iter())
+        .collect();
+
+    (bitwise_rows, exp_rows, arithmetic_sub_rows)
+}
+
+/// signextend operations
+/// Specify the `n`th `bit` as the symbol to perform sign bit extension on the `value`. The value range of n is 0~255
+/// a is 2^n
+/// value is the original value to be sign-bit extended
+/// for specific calculation steps, please refer to the code comments.
+pub fn signextend_by_bit<F: Field>(a: U256, value: U256) -> (Vec<U256>, Vec<Vec<bitwise::Row>>) {
+    // calculate whether the `n`th `bit` of `value` is 0 or 1 based on `a` and `value`
+    let a_lo: U256 = a.low_u128().into();
+    let a_hi = a >> 128;
+    let operand_1_hi_128 = value >> 128;
+    let operand_1_lo_128: U256 = value.low_u128().into();
+    let bitwise_rows1 = bitwise::Row::from_operation::<F>(
+        bitwise::Tag::And,
+        operand_1_hi_128.as_u128(),
+        a_hi.as_u128(),
+    );
+
+    let bitwise_rows2 = bitwise::Row::from_operation::<F>(
+        bitwise::Tag::And,
+        operand_1_lo_128.as_u128(),
+        a_lo.as_u128(),
+    );
+
+    // if bitwise sum is 0, it means that the position of shift is 0
+    // if bitwise sum is not 0, it means that the position of shift is 1
+    let sign_bit_is_zero =
+        bitwise_rows1.last().unwrap().sum_2 + bitwise_rows2.last().unwrap().sum_2;
+
+    // bitwise sum is byte+prev_byte, max_vaule is 2^7 * 32(2^12)
+    let sign_bit_is_zero_inv = U256::from_little_endian(
+        F::from_u128(sign_bit_is_zero.low_u128())
+            .invert()
+            .unwrap_or(F::ZERO)
+            .to_repr()
+            .as_ref(),
+    );
+
+    // get b
+    // 1. a_lo = 0, then b_lo = 2^128 -1 ;
+    // 2. a_lo <> 0, then b_lo = 2*a_lo -1 ;
+    let max_u128 = U256::from(2).pow(U256::from(128)) - 1;
+    let b_lo = if a_lo.is_zero() {
+        max_u128.clone()
+    } else {
+        a_lo * 2 - 1
+    };
+    // 1. a_hi <> 0 , then b_hi = 2*a_hi -1
+    // 2. a.hi = 0, a_lo = 0, then b_hi = 2^128 -1;
+    // 3. a_hi = 0, a_lo <> 0, then b_hi = 0;
+    let b_hi = if a_hi.is_zero() {
+        if a_lo.is_zero() {
+            max_u128.clone()
+        } else {
+            0.into()
+        }
+    } else {
+        a_hi * 2 - 1
+    };
+
+    // get c
+    // 1. if a_lo == 0 ,c_lo =0;
+    // 2. if a_lo <> 0, c_lo = 2^128 - 2*a_lo
+    let c_lo = if a_lo.is_zero() {
+        0.into()
+    } else {
+        max_u128 + 1 - a_lo * 2
+    };
+    // get c_hi
+    let c_hi = if a_hi.is_zero() {
+        if a_lo.is_zero() {
+            0.into()
+        } else {
+            max_u128
+        }
+    } else {
+        max_u128 + 1 - a_hi * 2
+    };
+
+    // 1.  if sign_bit_is_zero is not 0 , then d = c, op_result = operand_1 || d
+    // 2. if sign_bit_is_zero is 0, then d = b , op_result = operand_1 & d
+    // get bitwise operator tag
+    let (d_hi, d_lo, op_tag) = if sign_bit_is_zero.is_zero() {
+        (b_hi, b_lo, bitwise::Tag::And)
+    } else {
+        (c_hi, c_lo, bitwise::Tag::Or)
+    };
+
+    // get bitwise rows
+    // bitwise_rows3.acc[2] is result hi
+    // bitwise_rows4.acc[2] is result lo
+    let bitwise_rows3 =
+        bitwise::Row::from_operation::<F>(op_tag, operand_1_hi_128.as_u128(), d_hi.as_u128());
+    let bitwise_rows4 =
+        bitwise::Row::from_operation::<F>(op_tag, operand_1_lo_128.as_u128(), d_lo.low_u128());
+    (
+        // calc result
+        vec![a_hi, a_lo, d_hi, d_lo, sign_bit_is_zero_inv],
+        // bitwise rows
+        vec![bitwise_rows1, bitwise_rows2, bitwise_rows3, bitwise_rows4],
+    )
 }
 
 macro_rules! assign_or_panic {

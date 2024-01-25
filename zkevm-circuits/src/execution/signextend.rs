@@ -1,22 +1,23 @@
-use crate::arithmetic_circuit::operation;
-use crate::constant::{self};
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::bitwise::Tag;
-use crate::witness::{arithmetic, assign_or_panic, bitwise, exp, Witness, WitnessExecHelper};
+use crate::witness::{get_and_insert_signextend_rows, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::ops::Div;
+
 const NUM_ROW: usize = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const STATE_STAMP_DELTA: u64 = 3;
 const BYTE_MAX_INDEX: u8 = 31;
+const EXP_BASE: usize = 256;
+const V_128: u8 = 128;
+
 /// Signextend gadget
 /// algorithm:
 /// let operand_0 , operand_1 on stack top,top-1;
@@ -63,13 +64,13 @@ const BYTE_MAX_INDEX: u8 = 31;
 /// STATE1: operand_1 lookup , 8 columns
 /// STATE2: final_result lookup, 8 columns
 /// EXP: exp lookup , 6 columns
-/// +---+---------+---------+-------------------------------+---------+
-/// |cnt| 8 col   | 8 col   | 8 col  |               8 col            |
-/// +---+---------+---------+-------------------------------+---------+
-/// | 2 | ARITH     |  BW0 |  BW1  |  BW2  |   BW3          |         |
-/// | 1 | STATE0  | STATE1  | STATE2 |                         EXP    |
-/// | 0 |       DYNA_SELECTOR   | AUX   | A_HI | A_LO |D_HI |D_LO |NZ |                         |
-/// +---+---------+---------+-------------------------------+---------+
+/// +---+---------+---------+-------------------------------+-------------+
+/// |cnt| 8 col   | 8 col   | 8 col  |               8 col                |
+/// +---+---------+---------+-------------------------------+-------------+
+/// | 2 | ARITH     |  BW0 |  BW1  |  BW2  |   BW3          |             |
+/// | 1 | STATE0  | STATE1  | STATE2 |                         EXP        |
+/// | 0 |       DYNA_SELECTOR   | AUX   | A_HI | A_LO |D_HI |D_LO |NZ_INV |                         |
+/// +---+---------+---------+-------------------------------+-------------+
 pub struct SignextendGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -93,29 +94,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let (arithmetic_tag, arithmetic_operands) =
-            extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
-        // compute skip width in core row 0
-        const SKIP_WIDTH: usize =
-            constant::NUM_STATE_HI_COL + constant::NUM_STATE_LO_COL + constant::NUM_AUXILIARY;
-        // [a_hi,a_lo]
-        let query_a = vec![
-            meta.query_advice(config.vers[SKIP_WIDTH], Rotation::cur()),
-            meta.query_advice(config.vers[SKIP_WIDTH + 1], Rotation::cur()),
-        ];
-        // [d_hi,d_lo]
-        let query_d = vec![
-            meta.query_advice(config.vers[SKIP_WIDTH + 2], Rotation::cur()),
-            meta.query_advice(config.vers[SKIP_WIDTH + 3], Rotation::cur()),
-        ];
-        // not_is_zero
-        let query_not_is_zero = meta.query_advice(config.vers[SKIP_WIDTH + 4], Rotation::cur());
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
         let auxiliary_delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
+
         // auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
         // core single constraints
@@ -125,13 +111,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
-        // arithmetic tag constraints
-        constraints.push((
-            "arithmetic tag is sub".into(),
-            arithmetic_tag.clone() - (arithmetic::Tag::Sub as u8).expr(),
-        ));
+
         // [operand_0_hi,operand_0_lo,operand_1_hi,operand_1_lo,result_hi,result_lo]
-        let mut operands = vec![];
+        let mut stack_operands = vec![];
         let stack_pointer_delta = vec![0, -1, -1];
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
@@ -145,123 +127,79 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 i == 2,
             ));
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
-            operands.push([value_hi, value_lo]);
+            stack_operands.push([value_hi, value_lo]);
         }
+
+        // get signextend operands
+        let (
+            signextend_a_hi,
+            signextend_a_lo,
+            signextend_d_hi,
+            signextend_d_lo,
+            sign_bit_is_zero_inv,
+        ) = config.get_signextend_operands(meta);
+
+        let (bitwise_lookups, sign_bit_is_zero) =
+            config.get_signextend_bitwise_lookups(meta, sign_bit_is_zero_inv);
+        constraints.extend(sign_bit_is_zero.get_constraints());
+
+        // constrain arithmetic
         // arithmetic_operands[0] is 0
         // arithmetic_operands[1] is 31
-        // arithmetic_operands[2] is operand0_hi
-        // arithmetic_operands[3] is operand0_lo
-        constraints.extend([
-            (
-                "arithmetic_operands[0] = 0".into(),
-                arithmetic_operands[0].clone(),
-            ),
-            (
-                "arithmetic_operands[1] = 31".into(),
-                arithmetic_operands[1].clone() - BYTE_MAX_INDEX.expr(),
-            ),
-            (
-                "arithmetic_operands[2] = operands_0_hi".into(),
-                arithmetic_operands[2].clone() - operands[0][0].clone(),
-            ),
-            (
-                "arithmetic_operands[3] = operands_0_lo".into(),
-                arithmetic_operands[3].clone() - operands[0][1].clone(),
-            ),
-        ]);
+        // arithmetic_operands[2] is stack_top0_hi
+        // arithmetic_operands[3] is stack_top0_lo
+        // arithmetic_tag is Sub
+        let (arithmetic_constraints, byte_idx_is_gt_31) = config
+            .get_signextend_sub_arith_constraints(
+                meta,
+                stack_operands[0].clone().to_vec(),
+                BYTE_MAX_INDEX.expr(),
+            );
+        constraints.extend(arithmetic_constraints);
+
         // exp constraints
         let exp_entry = config.get_exp_lookup(meta);
         let (base, index, pow) = extract_lookup_expression!(exp, exp_entry);
         constraints.extend([
             ("base hi".into(), base[0].clone()),
-            ("base lo".into(), base[1].clone() - 256.expr()),
-            ("index hi".into(), index[0].clone() - operands[0][0].clone()),
-            ("index lo".into(), index[1].clone() - operands[0][1].clone()),
-        ]);
-        // pow[0] * 128 = a_hi
-        // pow[1] * 128 = a_lo
-        // 128 * pow[0/1] no overflow , for pow is 256's index power
-        constraints.extend([
+            ("base lo".into(), base[1].clone() - EXP_BASE.expr()), // sign_extend_by_byte
             (
-                "pow[0] * 128 = a_hi".into(),
-                pow[0].clone() * 128.expr() - query_a[0].clone(),
+                "index hi".into(),
+                index[0].clone() - stack_operands[0][0].clone(),
             ),
             (
-                "pow[1] * 128 = a_lo".into(),
-                pow[1].clone() * 128.expr() - query_a[1].clone(),
+                "index lo".into(),
+                index[1].clone() - stack_operands[0][1].clone(),
+            ),
+            (
+                "pow[0] = a_hi".into(),
+                pow[0].clone() * V_128.expr() - signextend_a_hi.clone(),
+            ),
+            (
+                "pow[1] = a_lo".into(),
+                pow[1].clone() * V_128.expr() - signextend_a_lo.clone(),
             ),
         ]);
+
         // bitwise lookup constraints
-        // operand_1 & a
-        // operand_1 operator d  constraints
-        let mut query_not_zero_sum = 0.expr();
-        for i in 0..4 {
-            let entry = config.get_bitwise_lookup(meta, i);
-            let (tag, acc, sum) = extract_lookup_expression!(bitwise, entry);
-            if i < 2 {
-                query_not_zero_sum = query_not_zero_sum + sum;
-            }
-            // left operand constraints
-            let left_operand_constraint = (
-                format!("bitwise[{}] left operand = operands[1][{}]", i, i % 2),
-                acc[0].clone() - operands[1][i % 2].clone(),
-            );
-            // right operand constraints
-            let right_operand_constraints = if i < 2 {
-                (
-                    format!("bitwise[{}] right operand = query_a[{}]", i, i % 2),
-                    acc[1].clone() - query_a[i % 2].clone(),
-                )
-            } else {
-                (
-                    format!("bitwise[{}] right operand = query_d[{}]", i, i % 2),
-                    acc[1].clone() - query_d[i % 2].clone(),
-                )
-            };
-            // operator constraints
-            let operator_constraints = if i < 2 {
-                (
-                    format!("bitwise[{}] operator = opAnd ", i),
-                    tag.clone() - (Tag::And as u8).expr(),
-                )
-            } else {
-                (
-                    format!("bitwise[{}] operator", i),
-                    (1.expr() - query_not_is_zero.expr()) * (tag.clone() - (Tag::And as u8).expr())
-                        + query_not_is_zero.expr() * (tag.clone() - (Tag::Or as u8).expr()),
-                )
-            };
-            // constraints
-            constraints.extend([
-                left_operand_constraint,
-                right_operand_constraints,
-                operator_constraints,
-            ]);
-            // i > 2: final_result constraints
-            if i > 2 {
-                constraints.extend([(
-                    format!("stack push[2][{}] = acc[2]", i),
-                    acc[2].clone() - operands[2][i % 2].clone(),
-                )]);
-                // if carry_hi =1 , final_result = operands[1]
-                constraints.extend([(
-                    format!(
-                        "arithmetic_sub_carry_hi= 1 =>  operands[2][{}] = operands[1][{}]",
-                        i % 2,
-                        i % 2
-                    ),
-                    arithmetic_operands[6].clone()
-                        * (operands[2][i % 2].clone() - operands[1][i % 2].clone()),
-                )])
-            }
-        }
-        // query_not_zero constraints
+        constraints.extend(config.get_signextend_bitwise_constraints(
+            bitwise_lookups,
+            [signextend_a_hi, signextend_a_lo],
+            stack_operands[1].clone(),
+            [signextend_d_hi, signextend_d_lo],
+            stack_operands[2].clone(),
+            sign_bit_is_zero.expr(),
+            byte_idx_is_gt_31.clone(),
+        ));
+
         constraints.extend([(
-            "query_not_zero * 128 = query_not_zero_sum".into(),
-            query_not_zero_sum.clone() - query_not_is_zero * 128.expr(),
+            "opcode must be SIGNEXTEND".into(),
+            opcode.clone() - OpcodeId::SIGNEXTEND.as_u8().expr(),
         )]);
+
         constraints
     }
+
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
@@ -292,146 +230,62 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // pop two elements from the top of the stack
         let (stack_pop_0, operand_0) = current_state.get_pop_stack_row_value(trace);
-
         let (stack_pop_1, operand_1) = current_state.get_pop_stack_row_value(trace);
 
+        // get state push row
         let result = current_state.stack_top.unwrap_or_default();
-        let byte_index_max = U256::from(BYTE_MAX_INDEX);
-        let (arithmetic_sub_rows, _) = operation::sub::gen_witness(vec![byte_index_max, operand_0]);
         let stack_push_0 = current_state.get_push_stack_row(trace, result);
-        let mut bit_wise_rows = vec![];
-        let mut exp_rows = vec![];
+
         // get a = 128 * 256^operand_0
-        let (temp_a, _) = U256::from(256).overflowing_pow(operand_0);
-        exp_rows.extend(exp::Row::from_operands(
-            U256::from(256),
-            operand_0.clone(),
-            temp_a.clone(),
-        ));
-        let a: U256 = U256::from(128) * temp_a;
-        let a_lo: U256 = a.low_u128().into();
-        let a_hi = a >> 128;
-        let operand_1_hi_128 = operand_1 >> 128;
-        let operand_1_lo_128: U256 = operand_1.low_u128().into();
-        let bitwise_lookup1 =
-            bitwise::Row::from_operation::<F>(Tag::And, operand_1_hi_128.as_u128(), a_hi.as_u128());
+        let exp_base = U256::from(EXP_BASE);
+        let exp_index = operand_0;
+        let (exp_power, _) = exp_base.overflowing_pow(exp_index);
+        let signextend_a: U256 = U256::from(V_128) * exp_power;
 
-        let bitwise_lookup2 =
-            bitwise::Row::from_operation::<F>(Tag::And, operand_1_lo_128.as_u128(), a_lo.as_u128());
-
-        // get not_is_zero = (sum((operand_1 & a).as_bytes))/128
-        let not_is_zero = (bitwise_lookup1.last().unwrap().sum_2
-            + bitwise_lookup2.last().unwrap().sum_2)
-            .div(U256::from(128));
-        assert!(not_is_zero.is_zero() || (not_is_zero - U256::one()).is_zero());
-        let max_u128 = U256::from(2).pow(U256::from(128)) - 1;
-
-        // get b
-        // 1. a_lo = 0, then b_lo = 2^128 -1 ;
-        // 2. a_lo <> 0, then b_lo = 2*a_lo -1 ;
-
-        let b_lo = if a_lo.is_zero() {
-            max_u128.clone()
-        } else {
-            a_lo * 2 - 1
-        };
-        // 1. a_hi <> 0 , then b_hi = 2*a_hi -1
-        // 2. a.hi = 0, a_lo = 0, then b_hi = 2^128 -1;
-        // 3. a_hi = 0, a_lo <> 0, then b_hi = 0;
-        let b_hi = if a_hi.is_zero() {
-            if a_lo.is_zero() {
-                max_u128.clone()
-            } else {
-                0.into()
-            }
-        } else {
-            a_hi * 2 - 1
-        };
-
-        // get c
-        // 1. if a_lo == 0 ,c_lo =0;
-        // 2. if a_lo <> 0, c_lo = 2^128 - 2*a_lo
-        let c_lo = if a_lo.is_zero() {
-            0.into()
-        } else {
-            max_u128 + 1 - a_lo * 2
-        };
-        // get c_hi
-        let c_hi = if a_hi.is_zero() {
-            if a_lo.is_zero() {
-                0.into()
-            } else {
-                max_u128
-            }
-        } else {
-            max_u128 + 1 - a_hi * 2
-        };
-        // 1.  if not_is_zero = 1 , then d = c, op_result = operand_1 || d
-        // 2. if not_is_zero = 0, then d = b , op_result = operand_1 & d
-        let d_hi = not_is_zero * c_hi + (U256::one() - not_is_zero) * b_hi;
-        let d_lo = not_is_zero * c_lo + (U256::one() - not_is_zero) * b_lo;
-        // get bitwise operator tag
-        let op_tag = if not_is_zero.is_zero() {
-            Tag::And
-        } else {
-            Tag::Or
-        };
-        // get bitwise rows
-        let bitwise_lookup3 =
-            bitwise::Row::from_operation::<F>(op_tag, operand_1_hi_128.as_u128(), d_hi.as_u128());
-        let bitwise_lookup4 =
-            bitwise::Row::from_operation::<F>(op_tag, operand_1_lo_128.as_u128(), d_lo.low_u128());
-
+        // Construct core_row_2,core_row_1,core_row_0  object
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
-        core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
-        core_row_2.insert_bitwise_lookups(0, &bitwise_lookup1.last().unwrap());
-        core_row_2.insert_bitwise_lookups(1, &bitwise_lookup2.last().unwrap());
-        core_row_2.insert_bitwise_lookups(2, &bitwise_lookup3.last().unwrap());
-        core_row_2.insert_bitwise_lookups(3, &bitwise_lookup4.last().unwrap());
-
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
-        // insert exp lookup
-        core_row_1.insert_exp_lookup(U256::from(256), operand_0, temp_a);
         let mut core_row_0 = ExecutionState::SIGNEXTEND.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        // a_hi set core_row_0.vers_27;
-        assign_or_panic!(core_row_0.vers_27, a_hi);
-        // a_lo set core_row_0.vers_28;
-        assign_or_panic!(core_row_0.vers_28, a_lo);
-        // d_hi set core_row_0.vers_29
-        assign_or_panic!(core_row_0.vers_29, d_hi);
-        // d_lo set core_row_0.vers_30
-        assign_or_panic!(core_row_0.vers_30, d_lo);
-        // not_is_zero set core_row_0.vers_31;
-        assign_or_panic!(core_row_0.vers_31, not_is_zero);
-        // fill bit_wise_rows
-        bit_wise_rows.extend(bitwise_lookup1);
-        bit_wise_rows.extend(bitwise_lookup2);
-        bit_wise_rows.extend(bitwise_lookup3);
-        bit_wise_rows.extend(bitwise_lookup4);
+
+        // insert state lookup to core_row_1
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+
+        // get signextend related rows
+        let (bitwise_rows, exp_rows, arithmetic_sub_rows) = get_and_insert_signextend_rows::<F>(
+            [signextend_a, operand_1],
+            [exp_base, exp_index, exp_power],
+            [U256::from(BYTE_MAX_INDEX), operand_0],
+            &mut core_row_0,
+            &mut core_row_1,
+            &mut core_row_2,
+        );
+
+        // Construct witness  object
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
             exp: exp_rows,
-            bitwise: bit_wise_rows,
+            bitwise: bitwise_rows,
             arithmetic: arithmetic_sub_rows,
             ..Default::default()
         }
     }
 }
+
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
     Box::new(SignextendGadget {
         _marker: PhantomData,
     })
 }
+
 #[cfg(test)]
 mod test {
 
@@ -473,15 +327,38 @@ mod test {
         witness.print_csv();
         prover.assert_satisfied_par();
     }
+
     #[test]
-    fn assign_params() {
-        let stack_0 = Stack::from_slice(&[0xFF.into(), 0.into()]);
-        let stack_top_0 = U256::MAX;
-        run(stack_0, stack_top_0);
+    fn test_normal() {
         let stack_1 = Stack::from_slice(&[0x7F.into(), 0.into()]);
         let stack_top_1 = U256::from(0x7f);
         run(stack_1, stack_top_1);
+    }
+
+    #[test]
+    fn test_normal2() {
+        let stack_1 = Stack::from_slice(&[0.into(), 31.into()]);
+        let stack_top_1 = U256::from(0);
+        run(stack_1, stack_top_1);
+    }
+
+    #[test]
+    fn test_extend_1() {
+        let stack_0 = Stack::from_slice(&[0xFF.into(), 0.into()]);
+        let stack_top_0 = U256::MAX;
+        run(stack_0, stack_top_0);
+    }
+
+    #[test]
+    fn test_b_gt_31() {
         let stack_2 = Stack::from_slice(&[0xFF.into(), 33.into()]);
+        let stack_top_2 = U256::from(0xff);
+        run(stack_2, stack_top_2);
+    }
+
+    #[test]
+    fn test_b_gt_31_2() {
+        let stack_2 = Stack::from_slice(&[0xFF.into(), U256::MAX]);
         let stack_top_2 = U256::from(0xff);
         run(stack_2, stack_top_2);
     }

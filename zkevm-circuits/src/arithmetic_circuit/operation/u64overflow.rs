@@ -3,7 +3,7 @@ use crate::util::convert_u256_to_64_bytes;
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, Expr};
+use gadgets::util::{pow_of_two, split_u256_hi_lo, Expr};
 use halo2_proofs::halo2curves::ff::{FromUniformBytes, PrimeField};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;

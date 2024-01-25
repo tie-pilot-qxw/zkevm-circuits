@@ -99,6 +99,7 @@ mod push8; //67
 mod push9; //68
 mod return_; //F2
              // mod revert; //FD
+mod sar; // 1D
 mod selfbalance; //47
 mod sload; //54
 mod sstore; //55

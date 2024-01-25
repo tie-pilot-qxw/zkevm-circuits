@@ -4,7 +4,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, exp, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, get_and_insert_shl_shr_rows, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -114,109 +114,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
         let (mul_div_tag, mul_div_arithmetic_operands) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 1));
-        let entry = config.get_exp_lookup(meta);
-        let (exp_base, exp_index, exp_power) = extract_lookup_expression!(exp, entry);
 
         // sub arithmetic constraints
-        // sub_arithmetic_operands[0](sub_arithmetic operand_0 hi) is 0
-        // sub_arithmetic_operands[1](sub_arithmetic operand_0 lo) is 255
-        // sub_arithmetic_operands[2](sub_arithmetic operand_1 hi) is stack top 0 hi
-        // sub_arithmetic_operands[3](sub_arithmetic operand_1 lo) is stack top 0 lo
-        // sub_arithmetic_operands[6] is carry hi
-        // sub_arithmetic_operands[7] is carry lo
-        // if carry = 1 , mul_div_num = 0;
-        // if carry = 1 , mul_div_arithmetic_operands[5] = 0 (product_or_quotient hi = 0)
-        //                mul_div_arithmetic_operands[6] = 0 (product_or_quotient lo = 0)
-        constraints.extend([
-            (
-                "sub_arithmetic operand_0 hi = 0".into(),
-                sub_arithmetic_operands[0].clone(),
-            ),
-            (
-                "sub_arithmetic operand_0 lo = 255".into(),
-                sub_arithmetic_operands[1].clone() - 255.expr(),
-            ),
-            (
-                "sub_arithmetic operand_1 hi = stack top_0 hi".into(),
-                sub_arithmetic_operands[2].clone() - stack_operands[0][0].clone(),
-            ),
-            (
-                "sub_arithmetic operand_1 lo= stack top_0 lo".into(),
-                sub_arithmetic_operands[3].clone() - stack_operands[0][1].clone(),
-            ),
-            (
-                "sub_arithmetic carry=1 => mul_div_num hi = 0".into(),
-                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[2].clone(),
-            ),
-            (
-                "sub_arithmetic carry=1 => mul_div_num lo = 0".into(),
-                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[3].clone(),
-            ),
-            (
-                "sub_arithmetic carry=1 => product_or_quotient hi = 0".into(),
-                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[4].clone(),
-            ),
-            (
-                "sub_arithmetic carry=1 => product_or_quotient lo = 0".into(),
-                sub_arithmetic_operands[6].clone() * mul_div_arithmetic_operands[5].clone(),
-            ),
-        ]);
+        constraints.extend(config.get_shl_shr_sar1_sub_arith_constraints(
+            &stack_operands[0],
+            &mul_div_arithmetic_operands,
+            &sub_arithmetic_operands,
+        ));
+
         // mul_div_arithmetic constraints
-        // mul_div_arithmetic_operands[0] = stack top 1 hi
-        // mul_div_arithmetic_operands[1] = stack top 1 lo
-        // mul_div_arithmetic_operands[2] = exp_power
-        // mul_div_arithmetic_operands[3] = exp_power
-        // mul_div_arithmetic_operands[4](product_hi) = tack push hi
-        // mul_div_arithmetic_operands[5](product_lo) = tack push lo
-        // mul_div_arithmetic_operands[6] is carry
-        // mul_div_arithmetic_operands[7] is carry
-        // product_or_quotient:
-        //       mul_div_arithmetic_operands[5] = stack push hi
-        //       mul_div_arithmetic_operands[6] = stack push lo
-        constraints.extend([
-            (
-                "mul_div_arithmetic operand_0 hi = stack top_1 hi".into(),
-                mul_div_arithmetic_operands[0].clone() - stack_operands[1][0].clone(),
-            ),
-            (
-                "mul_div_arithmetic operand_0 lo= stack top_1 lo".into(),
-                mul_div_arithmetic_operands[1].clone() - stack_operands[1][1].clone(),
-            ),
-            (
-                "mul_div_arithmetic product_or_quotient hi = stack push hi".into(),
-                mul_div_arithmetic_operands[4].clone() - stack_operands[2][0].clone(),
-            ),
-            (
-                "mul_div_arithmetic product_or_quotient lo = stack push lo".into(),
-                mul_div_arithmetic_operands[5].clone() - stack_operands[2][1].clone(),
-            ),
-        ]);
+        constraints.extend(config.get_shl_shr_sar1_mul_div_arith_constraints(
+            &stack_operands[1],
+            &stack_operands[2],
+            &mul_div_arithmetic_operands,
+        ));
+
         // exp constraints
-        // exp_base = 2
-        // exp_index_hi = stack top 0 hi
-        // exp_index_lo = stack top 0 lo
-        // exp_power_hi = mul_num hi
-        // exp_power_lo = mul_num lo
-        constraints.extend([
-            ("exp_base hi".into(), exp_base[0].clone()),
-            ("exp_base lo".into(), exp_base[1].clone() - 2.expr()),
-            (
-                "exp_index hi = stack top_0 hi".into(),
-                exp_index[0].clone() - stack_operands[0][0].clone(),
-            ),
-            (
-                "exp_index lo = stack top_0 lo".into(),
-                exp_index[1].clone() - stack_operands[0][1].clone(),
-            ),
-            (
-                "exp_power = mul_div_num hi".into(),
-                exp_power[0].clone() - mul_div_arithmetic_operands[2].clone(),
-            ),
-            (
-                "exp_power = mul_div_num lo".into(),
-                exp_power[1].clone() - mul_div_arithmetic_operands[3].clone(),
-            ),
-        ]);
+        constraints.extend(config.get_shl_shr_sar1_exp_constraints(
+            meta,
+            &stack_operands[0],
+            &mul_div_arithmetic_operands,
+        ));
 
         // constrain Opcode
         // OpcodeId::Shr - OpcodeId::Shl = 1
@@ -300,47 +218,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get stack push row
         let stack_push_0 = current_state.get_push_stack_row(trace, stack_value_shift_result);
 
-        // 255 - a
-        // the main purpose is to determine whether shift is greater than or equal to 256
-        // that is, whether 2<<shift will overflow
-        let (arithmetic_sub_rows, _) =
-            operation::sub::gen_witness(vec![U256::from(SHIFT_MAX), stack_shift]);
-
-        // mul_div_num = 2<<stack_shift
-        let mul_div_num = if stack_shift > SHIFT_MAX.into() {
-            0.into()
-        } else {
-            U256::from(1) << stack_shift
-        };
-
-        // if Opcode is SHL, then result is stack_value * mul_div_num
-        // if Opcode is SHR, then result is stack_value / mul_div_num
-        let (arithmetic_mul_div_rows, _) = match trace.op {
-            OpcodeId::SHL => operation::mul::gen_witness(vec![stack_value, mul_div_num]),
-            OpcodeId::SHR => operation::div_mod::gen_witness(vec![stack_value, mul_div_num]),
-            _ => panic!("not shl or shr"),
-        };
-
+        // construct core_row_2,core_row_1,core_row_0  object
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        // insert mul in lookup
-        core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
-        // insert mul in lookup
-        core_row_2.insert_arithmetic_lookup(1, &arithmetic_mul_div_rows);
-        let mut arithmetic_rows = vec![];
-        arithmetic_rows.extend(arithmetic_sub_rows);
-        arithmetic_rows.extend(arithmetic_mul_div_rows);
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        // insert state lookup, operand_0,operand_1,final_result
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
-        // insert exp lookup
-        core_row_1.insert_exp_lookup(U256::from(2), stack_shift, mul_div_num);
         let core_row_0 = ExecutionState::SHL_SHR.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        let exp_rows = exp::Row::from_operands(U256::from(2), stack_shift, mul_div_num);
+
+        // insert state lookup, operand_0,operand_1,final_result
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+
+        // get and insert shl or shr rows
+        let (arithmetic_rows, exp_rows) = get_and_insert_shl_shr_rows::<F>(
+            stack_shift,
+            stack_value,
+            trace.op,
+            &mut core_row_1,
+            &mut core_row_2,
+        );
+
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],

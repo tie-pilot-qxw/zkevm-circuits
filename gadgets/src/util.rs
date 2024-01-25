@@ -194,6 +194,12 @@ impl<F: Field> Expr<F> for i32 {
         )
     }
 }
+impl<F: Field> Expr<F> for u128 {
+    #[inline]
+    fn expr(&self) -> Expression<F> {
+        Expression::Constant(F::from_u128(*self))
+    }
+}
 
 /// Given a bytes-representation of an expression, it computes and returns the
 /// single expression.
