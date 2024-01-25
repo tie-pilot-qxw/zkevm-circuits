@@ -244,10 +244,12 @@ impl<
         #[cfg(not(feature = "no_fixed_lookup"))]
         num_rows.push(FixedCircuit::<F>::num_rows(witness));
         let num_rows_max = itertools::max(num_rows).unwrap();
+        let (_num_padding_begin, num_padding_end) = Self::unusable_rows();
         assert!(
-            num_rows_max <= MAX_NUM_ROW,
-            "Witness rows {} > Circuit max rows {}",
+            num_rows_max + num_padding_end <= MAX_NUM_ROW,
+            "Witness rows {} + end padding rows {} > Circuit max rows {}",
             num_rows_max,
+            num_padding_end,
             MAX_NUM_ROW
         );
         let mut cs = ConstraintSystem::<F>::default();
