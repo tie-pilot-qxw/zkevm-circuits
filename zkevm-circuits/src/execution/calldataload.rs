@@ -1,3 +1,4 @@
+use crate::arithmetic_circuit::operation::u64overflow;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -6,6 +7,7 @@ use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -29,6 +31,7 @@ pub struct CalldataloadGadget<F: Field> {
 ///
 /// Calldataload Execution State layout is as follows
 /// where STATE means state table lookup,
+/// arith0 means whether offset of calldata is u64overflow,
 /// copy0/1 means the bytes retried from msg.data (calldata),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -36,7 +39,7 @@ pub struct CalldataloadGadget<F: Field> {
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col  |
 /// +---+-------+-------+-------+----------+
-/// | 2 | copy0  | copy1  |                |
+/// | 2 | copy0  | copy1  | arith0 |       |
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -78,6 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         let mut operands = vec![];
+        // 因为32byte拆分为2组16byte记录在state中
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
@@ -96,6 +100,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
 
+        let [value_hi, value_lo, overflow, overflow_inv] = extract_lookup_expression!(
+            arithmetic_u64,
+            config.get_arithmetic_u64overflow_lookup(meta, 0)
+        );
+        let not_overflow = SimpleIsZero::new(&overflow, &overflow_inv, "u64 overflow".into());
         for i in 0..2 {
             let copy_entry = if i == 0 {
                 config.get_copy_lookup(meta)
@@ -107,8 +116,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.append(&mut config.get_copy_constraints(
                 copy::Tag::Calldata,
                 call_id.clone(),
-                operands[0][1].clone() + 16.expr() * i.expr(), // index of calldata = value_lo + 16*i;
-                stamp.clone() + 1.expr() + 16.expr() * i.expr(), // +1 ==> because pop index; copy的32byte数据分为2部分，所以16*i;
+                // not_overflow index of calldata = value_lo + 16*i;
+                // overflow index of calldata = u64::max+16*i
+                (not_overflow.expr() * operands[0][1].clone()
+                    + (1.expr() - not_overflow.expr()) * (u64::MAX - 32).expr())
+                    + (16 * i).expr(),
+                // +1 ==> because pop index; copy的32byte数据分为2部分，所以16*i;
+                stamp.clone() + (1 + 16 * i).expr(),
                 copy::Tag::Null,
                 0.expr(),
                 0.expr(),
@@ -131,8 +145,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 pc_next - pc_cur - PC_DELTA.expr(),
             ),
             (
-                "value_hi=0 in first state entry".into(),
-                operands[0][0].clone(),
+                "value_hi=operands[0][0]".into(),
+                value_hi - operands[0][0].clone(),
+            ),
+            (
+                "value_lo=operands[0][1]".into(),
+                value_lo - operands[0][1].clone(),
             ),
         ]);
         constraints
@@ -147,12 +165,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta));
         let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
-
+        let arithmetic_entry = query_expression(meta, |meta| {
+            config.get_arithmetic_u64overflow_lookup(meta, 0)
+        });
         vec![
             ("stack pop index of call_data ".into(), stack_pop),
             ("stack push value of call_data".into(), stack_push),
             ("copy lookup 0".into(), copy_lookup_0),
             ("copy lookup 1".into(), copy_lookup_1),
+            ("whether u64 overflow".into(), arithmetic_entry),
         ]
     }
 
@@ -164,26 +185,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 从栈上弹出一个元素标识从calldata读取数据的索引
         let (stack_pop_0, index) = current_state.get_pop_stack_row_value(trace);
-        assert!(
-            index.leading_zeros() >= 128,
-            "not support offset >= 2^128 for CALLDATALOAD"
-        );
 
-        // 因此当index>usize::max-32时，而calldataload指令需读取32字节数据，
-        // get_calldata_load_rows函数内部使用usize类型计算实际获取数据的索引: index+i[0..32),
-        // 如果index>usize::Max-32会导致索引计算溢出，读取到不应获取的数据.
-        assert!(
-            index.as_u128() <= ((usize::MAX - LOAD_SIZE) as u128),
-            "not support offset > usize::MAX-32 for CALLDATALOAD"
-        );
-
+        // 计算index是否u64溢出，并生成对应的arithmetic rows
+        let (arith_rows, arith_values) = u64overflow::gen_witness::<F>(vec![index]);
+        let offset = if arith_values[0] > 0.into() {
+            (u64::MAX - 32).into()
+        } else {
+            index
+        };
         // 生成copy_rows和state_rows，将copy_rows数据写入core_row_2
         // calldataload 读取的32字节数据分为两步进行，每次读取16byte由
-        // core::Row的acc标识，所以将索引为15、31的copy row写入core_row_2
-        let (copy_rows, mut state_rows) = current_state.get_calldata_load_rows::<F>(index);
+        // core::Row的acc标识，所以将索引为15、31的copy row写入core_row_2;
+        // 因为用u256类型来标识calldata上开始读取的index位置，存在u64溢出可能，
+        // EVM规范对于u64溢出的情况读取32byte的0值，用arith_values[0]来标识是否
+        // 溢出u64, >0标识存在溢出；
+        // 将arithmetic_entry写入core电路
+        let (copy_rows, mut state_rows) = current_state.get_calldata_load_rows::<F>(offset);
         let copy_row_0 = copy_rows.get(15).unwrap();
         let copy_row_1 = copy_rows.get(31).unwrap();
         core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
+        core_row_2.insert_arithmetic_u64overflow_lookup(0, &arith_rows);
 
         // 计算push到栈上的数据 value, 并生成state row写入core_row_1
         // copy_row_0为前16byte，copy_row_1为后16byte，将copy_row_0
@@ -204,6 +225,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
             copy: copy_rows,
+            arithmetic: arith_rows,
             ..Default::default()
         }
     }
@@ -216,7 +238,8 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, panic};
+
+    use std::collections::HashMap;
 
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
@@ -266,15 +289,7 @@ mod test {
         let mut index: U256 = usize::MAX.into();
         index = index - 30;
         let stack = Stack::from_slice(&[index]);
-        let result = panic::catch_unwind(|| assign_and_constraint(stack));
-        match result {
-            Ok(_) => panic!("should be panic, due to index > usize::max-32"),
-            Err(err) => {
-                if let Some(msg) = err.downcast_ref::<&str>() {
-                    assert_eq!(*msg, "not support offset > usize::MAX-32 for CALLDATALOAD");
-                }
-            }
-        }
+        assign_and_constraint(stack);
     }
 
     #[test]
@@ -282,15 +297,7 @@ mod test {
         // 设置calldataload的索引位置大于u128
         let index: U256 = U256::MAX - 10;
         let stack = Stack::from_slice(&[index]);
-        let result = panic::catch_unwind(|| assign_and_constraint(stack));
-        match result {
-            Ok(_) => panic!("should be panic, due to index > u128"),
-            Err(err) => {
-                if let Some(msg) = err.downcast_ref::<&str>() {
-                    assert_eq!(*msg, "not support offset >= 2^128 for CALLDATALOAD");
-                }
-            }
-        }
+        assign_and_constraint(stack);
     }
 
     #[test]

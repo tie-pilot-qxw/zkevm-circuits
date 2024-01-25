@@ -965,8 +965,8 @@ impl WitnessExecHelper {
         (copy_rows, state_rows)
     }
 
+    /// 从calldata的offset位置读取32byte数据至stack of evm.
     pub fn get_calldata_load_rows<F: Field>(
-        // TODO: in its caller(calldataload.rs), guarantee that offset < u64::MAX - 32
         &mut self,
         offset: U256,
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
@@ -974,25 +974,33 @@ impl WitnessExecHelper {
 
         let mut copy_rows = vec![];
         let mut state_rows = vec![];
+        // offset 可能溢出u64或者小于u64但offset+32>=len of calldata
         let mut offset_start = offset;
 
         // 系数，乘以256标识将一个值左移8bit，
-        // 由于数据是一个个字节读取，acc标识累计读取的数据，所以acc_f*temp_256_f+byte
-        // 标识最新读取的完整字符串内容：即将前面累计读取的内容左移8bit(1个字节)再加上新读取的字节
-        // 示例：完整字符串 0x123456
-        // 读取0x12 --> acc_pre=0x12 --> acc=0x12
-        // 读取0x34 --> acc_f=0x1234 --> acc=0x1234
-        // 读取0x56 --> acc_f=0x123456 --> acc=0x123456
         let temp_256_f = F::from(256);
+        // calldataload 读取32byte数据
         for i in 0..2 {
             let mut acc_pre = U256::from(0);
             let stamp_start = self.state_stamp;
             for j in 0..16 {
-                // we don't need to consider overflow panics, which is guaranteed by its callers.
-                let byte = call_data
-                    .get((offset + i * 16 + j).as_usize())
-                    .cloned()
-                    .unwrap_or_default();
+                // offset 可能大于u64::max-32，导致offset_start.as_usize()+j>u64::max使程序panic
+                let byte = if offset_start + j <= (u64::MAX - 32).into() {
+                    call_data
+                        .get(offset_start.as_usize() + j as usize)
+                        .cloned()
+                        .unwrap_or_default()
+                } else {
+                    // 溢出时，返回0值作为读取的数据，与EVM规范保持一致
+                    0
+                };
+
+                // 由于数据是一个个字节读取，acc标识累计读取的数据，所以acc_f*temp_256_f+byte
+                // 标识最新读取的完整字符串内容：即将前面累计读取的内容左移8bit(1个字节)再加上新读取的字节
+                // 示例：完整字符串 0x123456
+                // 读取0x12 --> acc_pre=0x12 --> acc=0x12
+                // 读取0x34 --> acc_f=0x1234 --> acc=0x1234
+                // 读取0x56 --> acc_f=0x123456 --> acc=0x123456
                 let acc: U256 = if j == 0 {
                     byte.into()
                 } else {
@@ -1028,7 +1036,8 @@ impl WitnessExecHelper {
                 });
                 self.state_stamp += 1;
             }
-            offset_start += 16.into();
+            // 每次循环读取16byte数据
+            offset_start = offset_start + 16;
         }
         (copy_rows, state_rows)
     }
@@ -1744,6 +1753,36 @@ impl core::Row {
         ]);
     }
 
+    pub fn insert_arithmetic_u64overflow_lookup(
+        &mut self,
+        index: usize,
+        arith_entries: &[arithmetic::Row],
+    ) {
+        const START: usize = 22;
+        const WIDTH: usize = 4;
+        assert_eq!(self.cnt, 2.into());
+        assert_eq!(arith_entries.len(), 1);
+        assert_eq!(index, 0);
+
+        #[rustfmt::skip]
+        let vec = [
+            [&mut self.vers_22, &mut self.vers_23, &mut self.vers_24, &mut self.vers_25,]
+        ];
+
+        assign_or_panic!(*vec[index][0], arith_entries[0].operand_0_hi);
+        assign_or_panic!(*vec[index][1], arith_entries[0].operand_0_lo);
+        assign_or_panic!(*vec[index][2], arith_entries[0].operand_1_hi);
+        assign_or_panic!(*vec[index][3], arith_entries[0].operand_1_lo);
+
+        #[rustfmt::skip]
+        self.comments.extend([
+            (format!("vers_{}", WIDTH), "arithmetic operand 0 hi".into()),
+            (format!("vers_{}", WIDTH + 1), "arithmetic operand 0 lo".into()),
+            (format!("vers_{}", WIDTH + 2), "arithmetic operand 1 hi".into()),
+            (format!("vers_{}", WIDTH + 3), "arithmetic operand 1 lo".into()),
+        ]);
+    }
+
     /// insert arithmetic_lookup insert arithmetic lookup, 9 columns in row prev(-2)
     /// row cnt = 2 can hold at most 3 arithmetic operations, 3 * 9 = 27
     /// +---+-------+-------+-------+-----+
@@ -1754,12 +1793,12 @@ impl core::Row {
     pub fn insert_arithmetic_lookup(&mut self, index: usize, arithmetic: &[arithmetic::Row]) {
         // this lookup must be in the row with this cnt
         const WIDTH: usize = 9;
-        assert_eq!(self.cnt, 2.into());
         assert!(index < 3);
+        assert_eq!(self.cnt, 2.into());
         let len = arithmetic.len();
         assert!(len >= 2);
-        let row_0 = &arithmetic[len - 1];
         let row_1 = &arithmetic[len - 2];
+        let row_0 = &arithmetic[len - 1];
         #[rustfmt::skip]
             let vec = [
                 [&mut self.vers_0,&mut self.vers_1,&mut self.vers_2,&mut self.vers_3,&mut self.vers_4,

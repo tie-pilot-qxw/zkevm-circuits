@@ -859,6 +859,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_arithmetic_u64overflow_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+    ) -> LookupEntry<F> {
+        assert!(index == 0);
+        const WIDTH: usize = 4;
+        const START: usize = 22;
+        let (hi_0, lo_0, hi_1, lo_1) = (
+            meta.query_advice(self.vers[WIDTH * index + START + 0], Rotation(-2)),
+            meta.query_advice(self.vers[WIDTH * index + START + 1], Rotation(-2)),
+            meta.query_advice(self.vers[WIDTH * index + START + 2], Rotation(-2)),
+            meta.query_advice(self.vers[WIDTH * index + START + 3], Rotation(-2)),
+        );
+        LookupEntry::ArithmeticU64 {
+            values: [hi_0, lo_0, hi_1, lo_1],
+        }
+    }
+
     pub(crate) fn get_copy_padding_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (
             src_type,
