@@ -1925,18 +1925,12 @@ impl core::Row {
     pub fn insert_stamp_cnt_lookups(&mut self, cnt: U256) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
+        assign_or_panic!(self[0], U256::from(Tag::EndPadding as u8));
+        assign_or_panic!(self[1], cnt);
 
-        for (cell, value) in [&mut self.vers_0, &mut self.vers_1]
-            .into_iter()
-            .zip([Some(U256::from(Tag::EndPadding as u8)), Some(cnt)])
-        {
-            // before inserting, these columns must be none
-            assert!(cell.is_none());
-            *cell = value;
-        }
         #[rustfmt::skip]
         self.comments.extend([
-            ("vers_0".into(), "tag".into()),
+            ("vers_0".into(), "tag=EndPadding".into()),
             ("vers_1".into(), "cnt".into()),
         ]);
     }
