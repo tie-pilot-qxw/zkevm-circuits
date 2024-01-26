@@ -840,6 +840,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             is_push,
         }
     }
+    pub(crate) fn get_stamp_cnt_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+        let tag = meta.query_advice(self.vers[0], Rotation::prev());
+        let cnt = meta.query_advice(self.vers[1], Rotation::prev());
+        LookupEntry::StampCnt { tag, cnt }
+    }
 
     pub(crate) fn get_arithmetic_lookup(
         &self,

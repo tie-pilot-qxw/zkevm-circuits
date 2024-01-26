@@ -1443,7 +1443,6 @@ impl WitnessExecHelper {
         };
         public_row
     }
-
     pub fn get_public_log_topic_row(
         &self,
         opcode_id: OpcodeId,
@@ -1573,6 +1572,11 @@ impl WitnessExecHelper {
             public::Tag::BlockTxNum => {
                 values = [Some(self.tx_num_in_block.into()), None, None, None];
                 value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
+                tx_idx = 0;
+            }
+            public::Tag::BlockLogNum => {
+                values = [Some(self.log_stamp.into()), None, None, None];
+                value_comments = ["log_num".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
             _ => panic!(),
@@ -1915,6 +1919,20 @@ impl core::Row {
                 (format!("vers_{}", n * 8 + 7), "is_write: read=0, write=1".into()),
             ]);
         }
+    }
+
+    /// insert_stamp_cnt_lookups, include tag and cnt of state, tag always be EndPadding
+    pub fn insert_stamp_cnt_lookups(&mut self, cnt: U256) {
+        // this lookup must be in the row with this cnt
+        assert_eq!(self.cnt, 1.into());
+        assign_or_panic!(self[0], U256::from(Tag::EndPadding as u8));
+        assign_or_panic!(self[1], cnt);
+
+        #[rustfmt::skip]
+        self.comments.extend([
+            ("vers_0".into(), "tag=EndPadding".into()),
+            ("vers_1".into(), "cnt".into()),
+        ]);
     }
 
     /// We can skip the constraint by setting code_addr to 0

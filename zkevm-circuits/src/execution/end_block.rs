@@ -4,14 +4,15 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{state, Witness, WitnessExecHelper};
-use eth_types::{Field, GethExecStep};
+use crate::witness::state::Tag;
+use crate::witness::{public, state, Witness, WitnessExecHelper};
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(super) const NUM_ROW: usize = 2;
+pub(super) const NUM_ROW: usize = 3;
 
 pub struct EndBlockGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -42,25 +43,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
-        let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         // 约束指令当前的stamp与state电路的stamp
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let Auxiliary {
+            state_stamp,
+            log_stamp,
+            ..
+        } = config.get_auxiliary();
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
-        let (state_circuit_tag, state_circuit_stamp, _, _, _, _, _, _) =
-            extract_lookup_expression!(state, config.get_state_lookup(meta, 0)); // after state circuit has sorting, this may change todo
+        let (state_circuit_tag, cnt) =
+            extract_lookup_expression!(cnt, config.get_stamp_cnt_lookup(meta));
+        let last_log_stamp = meta.query_advice(log_stamp, Rotation::cur());
+        let (public_tag, _, [public_log_num_in_block, _, _, _]) =
+            extract_lookup_expression!(public, config.get_public_lookup(meta));
+
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
             (
-                "last stamp in state circuit = current stamp - 1".into(),
-                state_stamp - state_circuit_stamp - 1.expr(),
+                "last stamp in state circuit + 1 = cnt in lookup".into(),
+                state_stamp + 1.expr() - cnt,
             ),
             (
                 "last tag in state circuit = end padding".into(),
-                state_circuit_tag - (state::Tag::EndPadding as u8).expr(),
+                state_circuit_tag - (Tag::EndPadding as u8).expr(),
             ),
         ]);
         // prev state should be end_tx.
@@ -68,7 +75,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             ExecStateTransition::new(vec![ExecutionState::END_TX], NUM_ROW, vec![]),
         ));
-        // todo log stamp constraints
+
+        // log stamp constraint
+        constraints.push((
+            "tag is BlockLogNum".into(),
+            public_tag - (public::Tag::BlockLogNum as u8).expr(),
+        ));
+
+        constraints.push((
+            "last log stamp in state = log num in lookup".into(),
+            last_log_stamp - public_log_num_in_block,
+        ));
         constraints
     }
 
@@ -77,27 +94,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let state_circuit_end_padding =
-            query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        vec![(
-            "state_circuit_end_padding".into(),
-            state_circuit_end_padding,
-        )]
+        let stamp_cnt_lookup = query_expression(meta, |meta| config.get_stamp_cnt_lookup(meta));
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
+        vec![
+            ("stamp_cnt".into(), stamp_cnt_lookup),
+            ("public_log_num_lookup".into(), public_lookup),
+        ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
+        core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockLogNum));
+
+        let cnt = U256::from(current_state.state_stamp + 1);
         let state_circuit_end_padding = state::Row {
-            tag: Some(state::Tag::EndPadding),
-            stamp: Some((current_state.state_stamp - 1).into()),
-            value_hi: None,
-            value_lo: None,
-            call_id_contract_addr: None,
-            pointer_hi: None,
-            pointer_lo: None,
-            is_write: None,
+            tag: Some(Tag::EndPadding),
+            stamp: Some(cnt),
+            ..Default::default()
         };
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&state_circuit_end_padding]);
+        core_row_1.insert_stamp_cnt_lookups(cnt);
+
         let core_row_0 = ExecutionState::END_BLOCK.into_exec_state_core_row(
             trace,
             current_state,
@@ -106,7 +124,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         Witness {
-            core: vec![core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![state_circuit_end_padding],
             ..Default::default()
         }
@@ -133,6 +151,7 @@ mod test {
         let stack = Stack::new();
         let mut current_state = WitnessExecHelper {
             state_stamp: 1,
+            log_stamp: 1,
             ..WitnessExecHelper::new()
         };
         // prepare a trace

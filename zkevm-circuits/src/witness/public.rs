@@ -34,6 +34,8 @@ pub enum Tag {
 
     // txs number in one block
     BlockTxNum,
+    // the total number of logs in a block
+    BlockLogNum,
     TxStatus,
     // combine From and Value together to reduce number of lookups
     TxFromValue,
@@ -354,6 +356,24 @@ impl Row {
                 ..Default::default()
             });
         }
+
+        // The total number of logs in a block
+        let mut log_num: usize = 0;
+        for log_data in &geth_data.logs {
+            log_num = log_num + log_data.logs.len();
+        }
+        result.push(Row {
+            tag: Tag::BlockLogNum,
+            value_0: Some(log_num.into()),
+            comments: [
+                ("tag".into(), "BlockLogNum".into()),
+                ("value_0".into(), "logNum".into()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
+
         // log data inserts
         for log_data in &geth_data.logs {
             for log in log_data.logs.iter() {
