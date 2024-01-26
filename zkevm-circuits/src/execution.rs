@@ -576,6 +576,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
 
+    pub(crate) fn get_lookup_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        lookup: LookupEntry<F>,
+        condition: Expression<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let v: Vec<(Expression<F>, Expression<F>)> = match lookup {
+            LookupEntry::BytecodeFull { .. } | LookupEntry::Bytecode { .. } => {
+                self.bytecode_table.get_lookup_vector(meta, lookup)
+            }
+            LookupEntry::State { .. } => self.state_table.get_lookup_vector(meta, lookup),
+            LookupEntry::Public { .. } => self.public_table.get_lookup_vector(meta, lookup),
+            LookupEntry::Bitwise { .. } => self.bitwise_table.get_lookup_vector(meta, lookup),
+            LookupEntry::Copy { .. } => self.copy_table.get_lookup_vector(meta, lookup),
+            LookupEntry::Arithmetic { .. } | LookupEntry::ArithmeticU64 { .. } => {
+                self.arithmetic_table.get_lookup_vector(meta, lookup)
+            }
+            // when feature `no_fixed_lookup` is on, we don't do lookup
+            LookupEntry::Fixed { .. }
+            | LookupEntry::U8(..)
+            | LookupEntry::U10(..)
+            | LookupEntry::U16(..) => {
+                if cfg!(feature = "no_fixed_lookup") {
+                    // when feature `no_fixed_lookup` is on, we don't do lookup
+                    vec![(0.expr(), 0.expr())]
+                } else {
+                    self.fixed_table.get_lookup_vector(meta, lookup)
+                }
+            }
+            //TODO config还未添加其它table (exp,Conditional)
+            // 所以此处如果有其它类型的entry应该panic。
+            _ => unreachable!(),
+        };
+        v.into_iter()
+            .map(|(left, right)| (condition.clone() * left, right))
+            .collect()
+    }
+
     pub(crate) fn get_storage_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -1601,6 +1639,37 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             lookups_to_merge.append(&mut lookups);
         }
 
+        #[cfg(feature = "no_lookup_merge")]
+        for (string, lookup, execution_state) in lookups_to_merge {
+            match lookup {
+                LookupEntry::BytecodeFull { .. }
+                | LookupEntry::State { .. }
+                | LookupEntry::Bytecode { .. }
+                | LookupEntry::Public { .. }
+                | LookupEntry::Arithmetic { .. }
+                | LookupEntry::ArithmeticU64 { .. }
+                | LookupEntry::Fixed { .. }
+                | LookupEntry::U8(..)
+                | LookupEntry::U10(..)
+                | LookupEntry::U16(..)
+                | LookupEntry::Bitwise { .. }
+                | LookupEntry::Copy { .. } => {
+                    meta.lookup_any(string, |meta| {
+                        let q_enable = meta.query_selector(config.q_enable);
+                        let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+                        let execution_state_selector = config.execution_state_selector.selector(
+                            meta,
+                            execution_state as usize,
+                            Rotation::cur(),
+                        );
+                        let condition = q_enable.clone() * cnt_is_zero * execution_state_selector;
+                        config.get_lookup_constraints(meta, lookup, condition)
+                    });
+                }
+                _ => (),
+            };
+        }
+
         // 对lookup entry依据identifier进行归类. 相同类别的look entry 组成一个vec![]
         // lookup_category, key 为每类lookup entry的标识，每个lookup entry由不同数量
         // 的表达式组成，每个表达式有唯一的标识，key是一系列表达式的集合。
@@ -1626,8 +1695,12 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 如上，不同gadget(ADD, ISZERO) 使用相同变量的列/行，可以将它们归为一类，lookup 时只需要进行一次即可。
         // tag表达式，不同gadget使用的是Advice第32列（column_index）上一行数据（rotation 相对当前位置），
         // query_index 标识符在证明和验证过程中的查询顺序，确保标识符在评估和验证约束时按正确的顺序进行计算。
-        let mut lookup_category: HashMap<String, Vec<(String, LookupEntry<F>, ExecutionState)>> =
-            HashMap::new();
+        #[cfg(not(feature = "no_lookup_merge"))]
+        let mut lookup_category: HashMap<
+            String,
+            Vec<(String, LookupEntry<F>, ExecutionState)>,
+        > = HashMap::new();
+        #[cfg(not(feature = "no_lookup_merge"))]
         for (string, lookup, execution_state) in lookups_to_merge {
             match lookup {
                 LookupEntry::BytecodeFull { .. }
@@ -1658,6 +1731,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         // 对不同归类的内容进行lookup
+        #[cfg(not(feature = "no_lookup_merge"))]
         for (_, lookup_vec) in lookup_category {
             // 将同一类中所有lookup entry的annotate合并作为meta.lookup_any的name标识
             let annotates: Vec<&str> = lookup_vec
@@ -1680,43 +1754,11 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     condition = condition + execution_state_selector;
                 }
 
+                condition = q_enable * condition * cnt_is_zero;
                 // 因为一类lookup entry集合中的所有元素使用的是相同类型列、相同列数的相同行，
                 // 所以只需要lookup 归类集合中的第一个entry即可。
                 let (_, lookup, _) = lookup_vec.into_iter().next().unwrap();
-                let v: Vec<(Expression<F>, Expression<F>)> = match lookup {
-                    LookupEntry::BytecodeFull { .. } | LookupEntry::Bytecode { .. } => {
-                        config.bytecode_table.get_lookup_vector(meta, lookup)
-                    }
-                    LookupEntry::State { .. } => config.state_table.get_lookup_vector(meta, lookup),
-                    LookupEntry::Public { .. } => {
-                        config.public_table.get_lookup_vector(meta, lookup)
-                    }
-                    LookupEntry::Bitwise { .. } => {
-                        config.bitwise_table.get_lookup_vector(meta, lookup)
-                    }
-                    LookupEntry::Copy { .. } => config.copy_table.get_lookup_vector(meta, lookup),
-                    LookupEntry::Arithmetic { .. } | LookupEntry::ArithmeticU64 { .. } => {
-                        config.arithmetic_table.get_lookup_vector(meta, lookup)
-                    }
-                    // when feature `no_fixed_lookup` is on, we don't do lookup
-                    #[cfg(not(feature = "no_fixed_lookup"))]
-                    LookupEntry::Fixed { .. }
-                    | LookupEntry::U8(..)
-                    | LookupEntry::U10(..)
-                    | LookupEntry::U16(..) => config.fixed_table.get_lookup_vector(meta, lookup),
-                    //TODO config还未添加其它table (exp,Conditional)
-                    // 所以此处如果有其它类型的entry应该panic。
-                    _ => unreachable!(),
-                };
-
-                v.into_iter()
-                    .map(|(left, right)| {
-                        (
-                            q_enable.clone() * cnt_is_zero.clone() * condition.clone() * left,
-                            right,
-                        )
-                    })
-                    .collect()
+                config.get_lookup_constraints(meta, lookup, condition)
             });
         }
 

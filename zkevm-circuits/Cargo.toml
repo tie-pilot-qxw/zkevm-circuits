@@ -39,6 +39,7 @@ plot = ["dep:plotters", "halo2_proofs/dev-graph"]
 gen_code = ["dep:genco", "dep:convert_case", "dep:proc-macro2"]
 k_9 = []
 no_fixed_lookup = []
+no_lookup_merge = []
 fast_test = ["k_9", "no_fixed_lookup"]
 
 [[bench]]
