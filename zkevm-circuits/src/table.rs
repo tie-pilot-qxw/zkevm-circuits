@@ -124,6 +124,12 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (cnt, $value: expr) => {
+        match $value {
+            LookupEntry::StampCnt { tag, cnt } => (tag, cnt),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
 }
 pub(crate) use extract_lookup_expression;
 
@@ -138,6 +144,7 @@ pub struct StateTable {
     pub(crate) pointer_hi: Column<Advice>,
     pub(crate) pointer_lo: Column<Advice>,
     pub(crate) is_write: Column<Advice>,
+    pub(crate) cnt: Column<Advice>,
 }
 
 impl StateTable {
@@ -150,6 +157,7 @@ impl StateTable {
         let pointer_lo = meta.advice_column();
         let is_write = meta.advice_column();
         let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        let cnt = meta.advice_column();
         Self {
             tag,
             stamp,
@@ -159,6 +167,7 @@ impl StateTable {
             pointer_hi,
             pointer_lo,
             is_write,
+            cnt,
         }
     }
 
@@ -176,26 +185,37 @@ impl StateTable {
         let table_pointer_hi = meta.query_advice(self.pointer_hi, Rotation::cur());
         let table_pointer_lo = meta.query_advice(self.pointer_lo, Rotation::cur());
         let table_is_write = meta.query_advice(self.is_write, Rotation::cur());
-        let (
-            tag,
-            stamp,
-            value_hi,
-            value_lo,
-            call_id_contract_addr,
-            pointer_hi,
-            pointer_lo,
-            is_write,
-        ) = extract_lookup_expression!(state, entry);
-        vec![
-            (tag, table_tag),
-            (stamp, table_stamp),
-            (value_hi, table_value_hi),
-            (value_lo, table_value_lo),
-            (call_id_contract_addr, table_call_id_contract_addr),
-            (pointer_hi, table_pointer_hi),
-            (pointer_lo, table_pointer_lo),
-            (is_write, table_is_write),
-        ]
+        let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
+
+        match entry {
+            LookupEntry::State {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                pointer_hi,
+                pointer_lo,
+                is_write,
+            } => {
+                vec![
+                    (tag, table_tag),
+                    (stamp, table_stamp),
+                    (value_hi, table_value_hi),
+                    (value_lo, table_value_lo),
+                    (call_id_contract_addr, table_call_id_contract_addr),
+                    (pointer_hi, table_pointer_hi),
+                    (pointer_lo, table_pointer_lo),
+                    (is_write, table_is_write),
+                ]
+            }
+            LookupEntry::StampCnt { tag, cnt } => {
+                vec![(tag, table_tag), (cnt, table_cnt)]
+            }
+            _ => {
+                panic!("Not state lookup!")
+            }
+        }
     }
 }
 
@@ -741,6 +761,13 @@ pub enum LookupEntry<F> {
         tag: Expression<F>,
         tx_idx_or_number_diff: Expression<F>,
         values: [Expression<F>; PUBLIC_NUM_VALUES],
+    },
+    /// Lookup to state table
+    StampCnt {
+        /// Tag is EndPadding
+        tag: Expression<F>,
+        /// cnt == stamp of state + 1
+        cnt: Expression<F>,
     },
 }
 

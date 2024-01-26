@@ -114,6 +114,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_hi,
             pointer_lo,
             is_write,
+            cnt,
         } = state_table;
 
         // tag | mpi_call_id | mpi_pointer_hi | mpi_pointer_lo | mpi_stamp
@@ -149,7 +150,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             sort_keys: keys,
             ordering_config,
             is_first_access: meta.advice_column(),
-            cnt: meta.advice_column(),
+            cnt,
             fixed_table,
             _marker: PhantomData,
         };

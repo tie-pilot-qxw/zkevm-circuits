@@ -46,6 +46,8 @@ pub enum Tag {
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
+    // the total number of logs in a block
+    BlockLogNum,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -354,6 +356,24 @@ impl Row {
                 ..Default::default()
             });
         }
+
+        // The total number of logs in a block
+        let mut log_stamp: usize = 0;
+        for log_data in &geth_data.logs {
+            log_stamp = log_stamp + log_data.logs.len();
+        }
+        result.push(Row {
+            tag: Tag::BlockLogNum,
+            value_0: Some(log_stamp.into()),
+            comments: [
+                ("tag".into(), "BlockLogNum".into()),
+                ("value_0".into(), "logStamp".into()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
+
         // log data inserts
         for log_data in &geth_data.logs {
             for log in log_data.logs.iter() {

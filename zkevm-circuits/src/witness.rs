@@ -1443,7 +1443,6 @@ impl WitnessExecHelper {
         };
         public_row
     }
-
     pub fn get_public_log_topic_row(
         &self,
         opcode_id: OpcodeId,
@@ -1573,6 +1572,11 @@ impl WitnessExecHelper {
             public::Tag::BlockTxNum => {
                 values = [Some(self.tx_num_in_block.into()), None, None, None];
                 value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
+                tx_idx = 0;
+            }
+            public::Tag::BlockLogNum => {
+                values = [Some(self.log_stamp.into()), None, None, None];
+                value_comments = ["log_stamp".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
             _ => panic!(),
