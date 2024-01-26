@@ -1576,7 +1576,7 @@ impl WitnessExecHelper {
             }
             public::Tag::BlockLogNum => {
                 values = [Some(self.log_stamp.into()), None, None, None];
-                value_comments = ["log_stamp".into(), "".into(), "".into(), "".into()];
+                value_comments = ["log_num".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
             _ => panic!(),
@@ -1919,6 +1919,26 @@ impl core::Row {
                 (format!("vers_{}", n * 8 + 7), "is_write: read=0, write=1".into()),
             ]);
         }
+    }
+
+    /// insert_stamp_cnt_lookups, include tag and cnt of state, tag always be EndPadding
+    pub fn insert_stamp_cnt_lookups(&mut self, cnt: U256) {
+        // this lookup must be in the row with this cnt
+        assert_eq!(self.cnt, 1.into());
+
+        for (cell, value) in [&mut self.vers_0, &mut self.vers_1]
+            .into_iter()
+            .zip([Some(U256::from(Tag::EndPadding as u8)), Some(cnt)])
+        {
+            // before inserting, these columns must be none
+            assert!(cell.is_none());
+            *cell = value;
+        }
+        #[rustfmt::skip]
+        self.comments.extend([
+            ("vers_0".into(), "tag".into()),
+            ("vers_1".into(), "cnt".into()),
+        ]);
     }
 
     /// We can skip the constraint by setting code_addr to 0

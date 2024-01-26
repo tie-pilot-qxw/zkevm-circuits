@@ -34,6 +34,8 @@ pub enum Tag {
 
     // txs number in one block
     BlockTxNum,
+    // the total number of logs in a block
+    BlockLogNum,
     TxStatus,
     // combine From and Value together to reduce number of lookups
     TxFromValue,
@@ -46,8 +48,6 @@ pub enum Tag {
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
-    // the total number of logs in a block
-    BlockLogNum,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -358,16 +358,16 @@ impl Row {
         }
 
         // The total number of logs in a block
-        let mut log_stamp: usize = 0;
+        let mut log_num: usize = 0;
         for log_data in &geth_data.logs {
-            log_stamp = log_stamp + log_data.logs.len();
+            log_num = log_num + log_data.logs.len();
         }
         result.push(Row {
             tag: Tag::BlockLogNum,
-            value_0: Some(log_stamp.into()),
+            value_0: Some(log_num.into()),
             comments: [
                 ("tag".into(), "BlockLogNum".into()),
-                ("value_0".into(), "logStamp".into()),
+                ("value_0".into(), "logNum".into()),
             ]
             .into_iter()
             .collect(),

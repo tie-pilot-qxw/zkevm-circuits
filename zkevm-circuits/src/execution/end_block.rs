@@ -6,7 +6,7 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
 use crate::witness::state::Tag;
 use crate::witness::{public, state, Witness, WitnessExecHelper};
-use eth_types::{Field, GethExecStep};
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -55,14 +55,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let (state_circuit_tag, cnt) =
             extract_lookup_expression!(cnt, config.get_stamp_cnt_lookup(meta));
-        let log_stamp = meta.query_advice(log_stamp, Rotation::cur());
-        let (public_tag, _, [public_log_stamp_in_block, _, _, _]) =
+        let last_log_stamp = meta.query_advice(log_stamp, Rotation::cur());
+        let (public_tag, _, [public_log_num_in_block, _, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta));
 
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
             (
-                "last stamp in state circuit = current stamp + 1".into(),
+                "last stamp in state circuit + 1 = cnt in lookup".into(),
                 state_stamp + 1.expr() - cnt,
             ),
             (
@@ -83,8 +83,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         constraints.push((
-            "log stamp = log stamp in lookup".into(),
-            log_stamp - public_log_stamp_in_block,
+            "last log stamp in state = log num in lookup".into(),
+            last_log_stamp - public_log_num_in_block,
         ));
         constraints
     }
@@ -98,7 +98,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
         vec![
             ("stamp_cnt".into(), stamp_cnt_lookup),
-            ("public_log_stamp_lookup".into(), public_lookup),
+            ("public_log_num_lookup".into(), public_lookup),
         ]
     }
 
@@ -106,14 +106,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
         core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockLogNum));
 
+        let cnt = U256::from(current_state.state_stamp + 1);
         let state_circuit_end_padding = state::Row {
             tag: Some(Tag::EndPadding),
-            stamp: Some((current_state.state_stamp + 1).into()),
+            stamp: Some(cnt),
             ..Default::default()
         };
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&state_circuit_end_padding]);
+        core_row_1.insert_stamp_cnt_lookups(cnt);
 
         let core_row_0 = ExecutionState::END_BLOCK.into_exec_state_core_row(
             trace,
@@ -173,7 +174,6 @@ mod test {
         };
         let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        _witness.print_csv();
         prover.assert_satisfied_par();
     }
 }

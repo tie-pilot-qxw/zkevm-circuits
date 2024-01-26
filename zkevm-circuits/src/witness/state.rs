@@ -6,7 +6,7 @@ pub struct Row {
     /// Type of value, one of stack, memory, storage, call context, call data or return data
     pub tag: Option<Tag>,
     /// Stamp that increments for each state operation, unique for each row
-    /// Stamp in End_Block means cnt, cnt == stamp + 1
+    /// Stamp in End_Block means cnt, cnt == last_stamp + 1
     pub stamp: Option<U256>,
     /// High 128-bit value of the row
     pub value_hi: Option<U256>,
