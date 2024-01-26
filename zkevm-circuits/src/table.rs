@@ -12,7 +12,6 @@ use halo2_proofs::plonk::{
 use halo2_proofs::poly::Rotation;
 use strum_macros::{AsRefStr, EnumVariantNames};
 
-pub const U10_TAG: usize = 256;
 pub const SEPARATOR: &str = "-";
 pub const ANNOTATE_SEPARATOR: &str = ",";
 pub const BITWISE_NUM_OPERAND: usize = 3;
@@ -362,7 +361,10 @@ impl FixedTable {
                 ]
             }
             LookupEntry::U10(value) => {
-                vec![(U10_TAG.expr(), table_value_1), (value, table_value_2)]
+                vec![
+                    (fixed::U10_TAG.expr(), table_value_1),
+                    (value, table_value_2),
+                ]
             }
             LookupEntry::U16(value) => {
                 vec![(value, table_value_0)]

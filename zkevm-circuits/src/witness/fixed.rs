@@ -1,5 +1,8 @@
 use eth_types::U256;
 use serde::Serialize;
+
+pub const U10_TAG: usize = 1024;
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
     pub tag: Tag,

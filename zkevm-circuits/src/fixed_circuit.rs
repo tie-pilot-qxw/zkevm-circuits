@@ -1,4 +1,4 @@
-use crate::table::{FixedTable, U10_TAG};
+use crate::table::FixedTable;
 use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
 use crate::witness::{fixed, Witness};
 use eth_types::evm_types::OpcodeId;
@@ -111,7 +111,7 @@ impl<F: Field> FixedCircuitConfig<F> {
                 // 因此在u10赋值过程中，value_0将添加[256..1279]
                 // value_2的值赋值范围是[1..1024],所以为 i+1
                 value_0: Some(U256::from(i + begin)),
-                value_1: Some(U256::from(U10_TAG)),
+                value_1: Some(U256::from(fixed::U10_TAG)),
                 value_2: Some(U256::from(i + 1)),
                 ..Default::default()
             });
