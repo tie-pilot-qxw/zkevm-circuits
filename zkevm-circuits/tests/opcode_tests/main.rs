@@ -100,8 +100,10 @@ mod push9; //68
 mod return_; //F2
              // mod revert; //FD
 mod sar; // 1D
+mod sdiv;
 mod selfbalance; //47
 mod sload; //54
+mod smod;
 mod sstore; //55
 mod swap1; //90
 mod swap10; //99
@@ -213,6 +215,7 @@ macro_rules! test_super_circuit_short_bytecode {
 }
 pub(self) use test_super_circuit_short_bytecode;
 
+/// Generate random hex strings
 pub fn gen_random_hex_str(len: usize) -> String {
     const CHARSET: &[u8] = b"0123456789ABCDEF";
     let mut rng = rand::thread_rng();
@@ -220,6 +223,67 @@ pub fn gen_random_hex_str(len: usize) -> String {
     let rstr: String = iter::repeat_with(one_char).take(len).collect();
     let prefix: String = "0x".into();
     format!("{prefix}{rstr}")
+}
+
+/// Convert trueform negtive integer to two's component representation
+fn trueform_hex_str_to_twoscomponent(str: String) -> String {
+    let mut inv_str: String = String::with_capacity(str.len());
+    // inverse str except the first bit
+    let first_char = u8::from_str_radix(&str.chars().nth(0).unwrap().to_string(), 16).unwrap();
+    let inv_first_char_except_first_bit = 15 - first_char + 8;
+    inv_str.push_str(&format!("{:X}", inv_first_char_except_first_bit));
+    for hex_char in str.chars().skip(1) {
+        let hex_value = u8::from_str_radix(&hex_char.to_string(), 16).unwrap();
+        let inv = 15 - hex_value;
+        let inv_char = format!("{:X}", inv);
+        inv_str.push_str(&inv_char);
+    }
+    // add one to the inversed str
+    let mut result: String = String::with_capacity(str.len());
+    let mut carry = 1;
+    for hex_char in inv_str.chars().rev() {
+        let hex_value = u8::from_str_radix(&hex_char.to_string(), 16).unwrap();
+        let sum = hex_value + carry;
+        carry = sum >> 4;
+        result.push_str(&format!("{:X}", sum & 0xF));
+    }
+    if carry != 0 {
+        result.push_str(&format!("{:X}", carry));
+    }
+    result.chars().rev().collect()
+}
+
+/// Generate two's component representation of random positive integers
+pub fn gen_random_pos_int_hex_str(len: usize) -> String {
+    const FIRST_CHARSET: &[u8] = b"01234567";
+    const CHARSET: &[u8] = b"0123456789ABCDEF";
+    let mut rng = rand::thread_rng();
+
+    let first_char = FIRST_CHARSET[rng.gen_range(0..FIRST_CHARSET.len())] as char;
+
+    let one_char = || CHARSET[rng.gen_range(0..CHARSET.len())] as char;
+    let followed_chars: String = iter::repeat_with(one_char).take(len - 1).collect();
+
+    let prefix: String = "0x".into();
+    format!("{}{}{}", prefix, first_char, followed_chars)
+}
+
+/// Generate two's component representation of random negtive integers
+pub fn gen_random_neg_int_hex_str(len: usize) -> String {
+    const FIRST_CHARSET: &[u8] = b"89ABCDEF";
+    const CHARSET: &[u8] = b"0123456789ABCDEF";
+    let mut rng = rand::thread_rng();
+
+    let first_char = FIRST_CHARSET[rng.gen_range(0..FIRST_CHARSET.len())] as char;
+
+    let one_char = || CHARSET[rng.gen_range(0..CHARSET.len())] as char;
+    let followed_chars: String = iter::repeat_with(one_char).take(len - 1).collect();
+
+    let chars = format!("{first_char}{followed_chars}");
+
+    let prefix: String = "0x".into();
+    let res = trueform_hex_str_to_twoscomponent(chars.clone());
+    format!("{}{}", prefix, res)
 }
 
 #[macro_export]
