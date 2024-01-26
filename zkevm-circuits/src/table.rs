@@ -741,8 +741,6 @@ pub enum LookupEntry<F> {
         /// Operands order: [hi0,lo0,hi_192,inv]
         values: [Expression<F>; 4],
     },
-    /// Conditional lookup enabled by the first element.
-    Conditional(Expression<F>, Box<LookupEntry<F>>),
     /// Lookup to exp table
     Exp {
         base: [Expression<F>; 2],
@@ -771,13 +769,6 @@ pub enum LookupEntry<F> {
         /// cnt == stamp of state + 1
         cnt: Expression<F>,
     },
-}
-
-// todo code copied from scroll
-impl<F: Field> LookupEntry<F> {
-    pub(crate) fn conditional(self, condition: Expression<F>) -> Self {
-        Self::Conditional(condition, self.into())
-    }
 }
 
 impl<F: Field> LookupEntry<F> {

@@ -327,44 +327,37 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         meta.lookup_any("STATE_lookup_stack_pointer", |meta| {
             use crate::table::LookupEntry;
             use crate::witness::state;
-            let mut constraints = vec![];
 
             // 1<= pointer_lo <=1024 in stack
             let entry = LookupEntry::U10(meta.query_advice(config.pointer_lo, Rotation::cur()));
             let stack_condition = config.tag.value_equals(state::Tag::Stack, Rotation::cur())(meta);
-            if let LookupEntry::Conditional(expr, entry) = entry.conditional(stack_condition) {
-                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
-                constraints = lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| {
-                        let q_enable = meta.query_selector(config.q_enable);
-                        (q_enable * left * expr.clone(), right)
-                    })
-                    .collect();
-            }
-            constraints
+            let lookup_vec = config.fixed_table.get_lookup_vector(meta, entry);
+            lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(config.q_enable);
+                    (q_enable * left * stack_condition.clone(), right)
+                })
+                .collect()
         });
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any("STATE_lookup_memory_pointer", |meta| {
             use crate::table::LookupEntry;
             use crate::witness::state;
-            let mut constraints = vec![];
+
             // 0<= value_lo < 256 in memory
             let entry = LookupEntry::U8(meta.query_advice(config.value_lo, Rotation::cur()));
             let memory_condition =
                 config.tag.value_equals(state::Tag::Memory, Rotation::cur())(meta);
-            if let LookupEntry::Conditional(expr, entry) = entry.conditional(memory_condition) {
-                let lookup_vec = config.fixed_table.get_lookup_vector(meta, *entry);
-                constraints = lookup_vec
-                    .into_iter()
-                    .map(|(left, right)| {
-                        let q_enable = meta.query_selector(config.q_enable);
-                        (q_enable * left * expr.clone(), right)
-                    })
-                    .collect();
-            }
-            constraints
+            let lookup_vec = config.fixed_table.get_lookup_vector(meta, entry);
+            lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    let q_enable = meta.query_selector(config.q_enable);
+                    (q_enable * left * memory_condition.clone(), right)
+                })
+                .collect()
         });
 
         config
