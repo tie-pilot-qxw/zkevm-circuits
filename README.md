@@ -16,9 +16,26 @@ cargo test -p zkevm-circuits
 ```
 
 Benchmark
+
+run full super_circuit benchmark
 ```shell
-cargo bench --bench super_circuit
+cargo test --package zkevm-circuits --profile bench --no-default-features --features "benches" --bench benchmark_list -- super_circuit  --nocapture
 ```
+run super_circuit with features fast_test
+```
+cargo test --package zkevm-circuits --profile bench --features "benches" --bench benchmark_list -- super_circuit  --nocapture
+```
+Note:
+
+```--profile bench```: use the [profile.bench]
+
+```--no-default-features```: disable the default features fast_test 
+
+```--features "benches"```: turning on this features will run multiple rounds.
+
+```--bench src -- super_circuit```: run the super_circuit benchmark
+
+
 
 # How to run gen_code
 ```shell
