@@ -12,8 +12,8 @@ use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
-    BIT_SHIFT_MAX_INDEX, DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL,
-    NUM_STATE_LO_COL, PUBLIC_NUM_VALUES,
+    BIT_SHIFT_MAX_INDEX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW,
+    NUM_STATE_HI_COL, NUM_STATE_LO_COL, PUBLIC_NUM_VALUES,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -735,7 +735,7 @@ impl WitnessExecHelper {
     ) -> (Vec<copy::Row>, Vec<state::Row>) {
         // it's guaranteed by caller that it is in range u64
         let src_offset = src.low_u64();
-        let dst_offset = dst.low_u64();
+        let _dst_offset = dst.low_u64();
         let length = len.low_u64();
 
         let mut copy_rows = vec![];
@@ -988,7 +988,7 @@ impl WitnessExecHelper {
         // 系数，乘以256标识将一个值左移8bit，
         let temp_256_f = F::from(256);
         // calldataload 读取32byte数据
-        for i in 0..2 {
+        for _i in 0..2 {
             let mut acc_pre = U256::from(0);
             let stamp_start = self.state_stamp;
             for j in 0..16 {
@@ -1989,7 +1989,7 @@ impl core::Row {
         index: usize,
         arith_entries: &[arithmetic::Row],
     ) {
-        const START: usize = 22;
+        const _START: usize = 22;
         const WIDTH: usize = 4;
         assert_eq!(self.cnt, 2.into());
         assert_eq!(arith_entries.len(), 1);
@@ -2194,85 +2194,75 @@ impl core::Row {
         self.comments.extend(comments);
     }
 
-    pub fn insert_copy_lookup(&mut self, copy: &copy::Row, padding_copy: Option<&copy::Row>) {
-        //
+    pub fn insert_copy_lookup(&mut self, index: usize, copy: &copy::Row) {
+        // in row 2
         assert_eq!(self.cnt, 2.into());
-        let mut cells = vec![
-            // code copy
-            (&mut self.vers_0, (copy.src_type as u8).into()),
-            (&mut self.vers_1, copy.src_id),
-            (&mut self.vers_2, copy.src_pointer),
-            (&mut self.vers_3, copy.src_stamp),
-            (&mut self.vers_4, (copy.dst_type as u8).into()),
-            (&mut self.vers_5, copy.dst_id),
-            (&mut self.vers_6, copy.dst_pointer),
-            (&mut self.vers_7, copy.dst_stamp),
-            (&mut self.vers_8, copy.cnt),
-            (&mut self.vers_9, copy.len),
-            (&mut self.vers_10, copy.acc),
+        // max 2
+        assert!(index < 2);
+        let copy_values = vec![
+            (copy.src_type as u8).into(),
+            copy.src_id,
+            copy.src_pointer,
+            copy.src_stamp,
+            (copy.dst_type as u8).into(),
+            copy.dst_id,
+            copy.dst_pointer,
+            copy.dst_stamp,
+            copy.cnt,
+            copy.len,
+            copy.acc,
         ];
-        let mut comments = vec![
+        for i in 0..COPY_LOOKUP_COLUMN_CNT {
+            assign_or_panic!(self[i + index * COPY_LOOKUP_COLUMN_CNT], copy_values[i]);
+        }
+
+        let comments = vec![
             // copy comment
             (
-                format!("vers_{}", 0),
+                format!("vers_{}", 0 + index * COPY_LOOKUP_COLUMN_CNT),
                 format!("src_type={:?}", copy.src_type),
             ),
-            (format!("vers_{}", 1), "src_id".into()),
-            (format!("vers_{}", 2), "src_pointer".into()),
-            (format!("vers_{}", 3), "src_stamp".into()),
             (
-                format!("vers_{}", 4),
+                format!("vers_{}", 1 + index * COPY_LOOKUP_COLUMN_CNT),
+                "src_id".into(),
+            ),
+            (
+                format!("vers_{}", 2 + index * COPY_LOOKUP_COLUMN_CNT),
+                "src_pointer".into(),
+            ),
+            (
+                format!("vers_{}", 3 + index * COPY_LOOKUP_COLUMN_CNT),
+                "src_stamp".into(),
+            ),
+            (
+                format!("vers_{}", 4 + index * COPY_LOOKUP_COLUMN_CNT),
                 format!("dst_type={:?}", copy.dst_type),
             ),
-            (format!("vers_{}", 5), "dst_id".into()),
-            (format!("vers_{}", 6), "dst_pointer".into()),
-            (format!("vers_{}", 7), "dst_stamp".into()),
-            (format!("vers_{}", 8), "cnt".into()),
-            (format!("vers_{}", 9), "len".into()),
-            (format!("vers_{}", 10), "acc".into()),
+            (
+                format!("vers_{}", 5 + index * COPY_LOOKUP_COLUMN_CNT),
+                "dst_id".into(),
+            ),
+            (
+                format!("vers_{}", 6 + index * COPY_LOOKUP_COLUMN_CNT),
+                "dst_pointer".into(),
+            ),
+            (
+                format!("vers_{}", 7 + index * COPY_LOOKUP_COLUMN_CNT),
+                "dst_stamp".into(),
+            ),
+            (
+                format!("vers_{}", 8 + index * COPY_LOOKUP_COLUMN_CNT),
+                "cnt".into(),
+            ),
+            (
+                format!("vers_{}", 9 + index * COPY_LOOKUP_COLUMN_CNT),
+                "len".into(),
+            ),
+            (
+                format!("vers_{}", 10 + index * COPY_LOOKUP_COLUMN_CNT),
+                "acc".into(),
+            ),
         ];
-        match padding_copy {
-            Some(padding_copy_new) => {
-                cells.extend([
-                    // padding copy
-                    (&mut self.vers_11, (padding_copy_new.src_type as u8).into()),
-                    (&mut self.vers_12, padding_copy_new.src_id),
-                    (&mut self.vers_13, padding_copy_new.src_pointer),
-                    (&mut self.vers_14, padding_copy_new.src_stamp),
-                    (&mut self.vers_15, (padding_copy_new.dst_type as u8).into()),
-                    (&mut self.vers_16, padding_copy_new.dst_id),
-                    (&mut self.vers_17, padding_copy_new.dst_pointer),
-                    (&mut self.vers_18, padding_copy_new.dst_stamp),
-                    (&mut self.vers_19, padding_copy_new.cnt),
-                    (&mut self.vers_20, padding_copy_new.len),
-                    (&mut self.vers_21, padding_copy_new.acc),
-                ]);
-                comments.extend([
-                    // padding copy comment
-                    (
-                        format!("vers_{}", 11),
-                        format!("padding_src_type={:?}", padding_copy_new.src_type),
-                    ),
-                    (format!("vers_{}", 12), "padding_src_id".into()),
-                    (format!("vers_{}", 13), "padding_src_pointer".into()),
-                    (format!("vers_{}", 14), "padding_src_stamp".into()),
-                    (
-                        format!("vers_{}", 15),
-                        format!("padding_dst_type={:?}", padding_copy_new.dst_type),
-                    ),
-                    (format!("vers_{}", 16), "padding_dst_id".into()),
-                    (format!("vers_{}", 17), "padding_dst_pointer".into()),
-                    (format!("vers_{}", 18), "padding_dst_stamp".into()),
-                    (format!("vers_{}", 19), "padding_cnt".into()),
-                    (format!("vers_{}", 20), "padding_len".into()),
-                    (format!("vers_{}", 21), "padding_acc".into()),
-                ]);
-            }
-            None => (),
-        }
-        for (cell, value) in cells {
-            assign_or_panic!(*cell, value);
-        }
         self.comments.extend(comments);
     }
 

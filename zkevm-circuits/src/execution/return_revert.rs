@@ -257,9 +257,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.get_return_revert_rows::<F>(trace, offset, length);
         // insert lookUp: Core ---> Copy
         if length.is_zero() {
-            core_row_2.insert_copy_lookup(&Default::default(), None);
+            core_row_2.insert_copy_lookup(0, &Default::default());
         } else {
-            core_row_2.insert_copy_lookup(&copy_rows[0], None);
+            core_row_2.insert_copy_lookup(0, &copy_rows[0]);
         }
 
         let len_lo = F::from_u128(length.as_u128());

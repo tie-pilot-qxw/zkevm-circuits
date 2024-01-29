@@ -238,7 +238,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         if padding_length > 0 {
             padding_row = &copy_rows[code_copy_length as usize]
         }
-        core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
+        core_row_2.insert_copy_lookup(0, copy_row);
+        core_row_2.insert_copy_lookup(1, padding_row);
         // code copy len
         assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);

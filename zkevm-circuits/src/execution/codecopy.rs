@@ -258,8 +258,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         // insert lookUp, src: Core circuit, target: Copy circuit table
-        core_row_2.insert_copy_lookup(copy_row, Some(padding_row));
-
+        core_row_2.insert_copy_lookup(0, copy_row);
+        core_row_2.insert_copy_lookup(1, padding_row);
         // calculate the multiplicative inverse of normal_length, used to determine whether normal_length is 0
         let code_copy_len_lo = F::from(code_copy_len);
         let code_copy_len_lo_inv = U256::from_little_endian(

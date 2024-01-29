@@ -214,6 +214,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // insert lookup: Core ---> Copy
         if args_len.is_zero() {
             core_row_2.insert_copy_lookup(
+                0,
                 &copy::Row {
                     byte: 0.into(),
                     src_type: copy::Tag::default(),
@@ -228,10 +229,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     len: 0.into(),
                     acc: 0.into(),
                 },
-                None,
             );
         } else {
-            core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap(), None);
+            core_row_2.insert_copy_lookup(0, copy_rows.get(0).unwrap());
         }
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);

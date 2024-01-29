@@ -247,6 +247,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // insert lookup: Core ---> Copy
         if copy_len == 0 {
             core_row_2.insert_copy_lookup(
+                0,
                 &copy::Row {
                     byte: 0.into(),
                     src_type: copy::Tag::default(),
@@ -261,10 +262,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     len: 0.into(),
                     acc: 0.into(),
                 },
-                None,
             );
         } else {
-            core_row_2.insert_copy_lookup(copy_rows.get(0).unwrap(), None);
+            core_row_2.insert_copy_lookup(0, copy_rows.get(0).unwrap());
         }
         //calculate and assign copy_len, copy_len_inv and copy_padding_len
         assign_or_panic!(core_row_2.vers_11, copy_len.into());

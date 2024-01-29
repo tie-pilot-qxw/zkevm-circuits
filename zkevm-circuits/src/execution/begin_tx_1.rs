@@ -251,10 +251,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if calldata_size > 0 {
-            core_row_2.insert_copy_lookup(copy_rows.first().unwrap(), None);
+            core_row_2.insert_copy_lookup(0, copy_rows.first().unwrap());
         } else {
             // no actually copy, but we need to insert same format placeholders to satisfy constraint
             core_row_2.insert_copy_lookup(
+                0,
                 &copy::Row {
                     byte: 0.into(), //not used
                     src_type: copy::Tag::Zero,
@@ -269,7 +270,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     len: 0.into(),
                     acc: 0.into(),
                 },
-                None,
             );
         }
 

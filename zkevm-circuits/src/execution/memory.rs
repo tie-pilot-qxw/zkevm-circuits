@@ -199,8 +199,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let copy_row_0 = copy_rows.get(15).unwrap();
             let copy_row_1 = copy_rows.get(31).unwrap();
             // insert lookUp: Core ---> Copy
-            core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
-
+            core_row_2.insert_copy_lookup(0, copy_row_0);
+            core_row_2.insert_copy_lookup(1, copy_row_1);
             let value = (copy_row_0.acc << 128) + copy_row_1.acc;
             let stack_row_1 = current_state.get_push_stack_row(trace, value);
 
@@ -213,7 +213,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let copy_row_0 = copy_rows.get(15).unwrap();
             let copy_row_1 = copy_rows.get(31).unwrap();
             // insert lookUp: Core ---> Copy
-            core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
+            core_row_2.insert_copy_lookup(0, copy_row_0);
+            core_row_2.insert_copy_lookup(1, copy_row_1);
 
             (stack_row_1, state_rows, copy_rows)
         };

@@ -203,7 +203,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (copy_rows, mut state_rows) = current_state.get_calldata_load_rows::<F>(offset);
         let copy_row_0 = copy_rows.get(15).unwrap();
         let copy_row_1 = copy_rows.get(31).unwrap();
-        core_row_2.insert_copy_lookup(copy_row_0, Some(copy_row_1));
+        core_row_2.insert_copy_lookup(0, copy_row_0);
+        core_row_2.insert_copy_lookup(1, copy_row_1);
         core_row_2.insert_arithmetic_u64overflow_lookup(0, &arith_rows);
 
         // 计算push到栈上的数据 value, 并生成state row写入core_row_1

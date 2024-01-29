@@ -189,6 +189,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // insert lookUp: Core ---> Copy
         if length == 0.into() {
             core_row_2.insert_copy_lookup(
+                0,
                 &copy::Row {
                     byte: 0.into(),
                     src_type: copy::Tag::default(),
@@ -203,10 +204,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     len: 0.into(),
                     acc: 0.into(),
                 },
-                None,
             );
         } else {
-            core_row_2.insert_copy_lookup(&copy_rows[0], None);
+            core_row_2.insert_copy_lookup(0, &copy_rows[0]);
         }
 
         let len_lo = F::from_u128(length.low_u128());
