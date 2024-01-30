@@ -13,7 +13,6 @@ use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
-use itertools::Itertools;
 use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
 use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
 use std::marker::PhantomData;

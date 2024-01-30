@@ -20,6 +20,7 @@ const ADDRESS_ZERO_COUNT: u32 = 12 * 8;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -4;
 const PC_DELTA: u64 = 1;
+const START_OFFSET: usize = 22;
 
 /// Extcodecopy Execution State layout is as follows
 /// where COPY means copy table lookup , 9 cols
@@ -229,7 +230,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get copy length, zero length,and copy_rows,mem_rows
         let (copy_rows, mem_rows, _input_length, padding_length, code_copy_length) =
             current_state.get_code_copy_rows::<F>(address, mem_offset, code_offset, size);
-
+        // start_offset column offset
         let mut copy_row = &Default::default();
         if code_copy_length > 0 {
             copy_row = &copy_rows[0];
@@ -241,7 +242,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_copy_lookup(0, copy_row);
         core_row_2.insert_copy_lookup(1, padding_row);
         // code copy len
-        assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_length));
         let code_copy_len_lo = F::from(code_copy_length);
         // get copy_len_lo_inv
         let code_copy_len_lo_inv = U256::from_little_endian(
@@ -251,9 +251,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_23, code_copy_len_lo_inv);
         // padding copy len
-        assign_or_panic!(core_row_2.vers_24, U256::from(padding_length));
         let padding_copy_len_lo = F::from(padding_length);
         // get padding_copy_len_lo_inv
         let padding_copy_len_lo_inv = U256::from_little_endian(
@@ -263,7 +261,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_25, padding_copy_len_lo_inv);
+        let column_values = [
+            U256::from(code_copy_length),
+            code_copy_len_lo_inv,
+            U256::from(padding_length),
+            padding_copy_len_lo_inv,
+        ];
+        for i in 0..4 {
+            assign_or_panic!(core_row_2[i + START_OFFSET], column_values[i]);
+        }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_pop_3]);
@@ -347,7 +353,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

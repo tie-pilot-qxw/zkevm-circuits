@@ -87,8 +87,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn get_lookups(
         &self,
-        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        meta: &mut ConstraintSystem<F>,
+        _config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        _meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
@@ -148,7 +148,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

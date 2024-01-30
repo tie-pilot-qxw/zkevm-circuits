@@ -563,8 +563,8 @@ mod test {
 
     #[test]
     fn test_u64overflow_witness() {
-        let (arithmetic1, result) = operation::u64overflow::gen_witness::<Fr>(vec![0xfa.into()]);
-        let (arithmetic2, result2) =
+        let (arithmetic1, _result) = operation::u64overflow::gen_witness::<Fr>(vec![0xfa.into()]);
+        let (arithmetic2, _result2) =
             operation::u64overflow::gen_witness::<Fr>(vec![u128::MAX.into()]);
 
         let mut arithmetic = Vec::new();

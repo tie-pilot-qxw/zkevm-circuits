@@ -177,7 +177,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let n_lo = F::from_u128(n.low_u128());
         let n_is_zero_inv =
             U256::from_little_endian((n_lo + n_hi).invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_2.vers_30, n_is_zero_inv);
+        assign_or_panic!(core_row_2[30], n_is_zero_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_pop_n, &stack_push]);
@@ -219,7 +219,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

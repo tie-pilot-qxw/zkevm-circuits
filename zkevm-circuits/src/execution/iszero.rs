@@ -3,7 +3,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -18,6 +18,7 @@ const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 1;
+const START_OFFSET: usize = 16;
 
 /// Iszero read an operand from the stack,
 /// write 1 to the stack if the operand equals to zero,
@@ -147,15 +148,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // calculate and assign values used to comfirm correctness
         let a_hi = F::from_u128((a >> 128).as_u128());
         let hi_inv = U256::from_little_endian(a_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1.vers_16 = Some(hi_inv);
         let a_lo = F::from_u128(a.low_u128());
         let lo_inv = U256::from_little_endian(a_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1.vers_17 = Some(lo_inv);
         let hi_iszero = if a_hi == F::from_u128(0) { 1 } else { 0 };
-        core_row_1.vers_18 = Some(hi_iszero.into());
         let lo_iszero = if a_lo == F::from_u128(0) { 1 } else { 0 };
-        core_row_1.vers_19 = Some(lo_iszero.into());
-
+        let assign_values = [hi_inv, lo_inv, hi_iszero.into(), lo_iszero.into()];
+        for i in 0..4 {
+            assign_or_panic!(core_row_1[i + START_OFFSET], assign_values[i]);
+        }
         let core_row_0 = ExecutionState::ISZERO.into_exec_state_core_row(
             trace,
             current_state,
@@ -200,7 +200,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

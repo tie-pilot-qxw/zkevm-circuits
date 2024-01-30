@@ -26,7 +26,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
     type ConfigArgs = PublicCircuitConfigArgs;
 
     fn new(
-        meta: &mut ConstraintSystem<F>,
+        _meta: &mut ConstraintSystem<F>,
         Self::ConfigArgs { public_table }: Self::ConfigArgs,
     ) -> Self {
         // unwrap public_table

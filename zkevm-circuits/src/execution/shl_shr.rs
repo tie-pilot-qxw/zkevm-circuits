@@ -1,4 +1,3 @@
-use crate::arithmetic_circuit::operation;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -6,8 +5,8 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, get_and_insert_shl_shr_rows, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
+use eth_types::Field;
 use eth_types::GethExecStep;
-use eth_types::{Field, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -278,7 +277,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

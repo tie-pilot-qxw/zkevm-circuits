@@ -16,6 +16,8 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -3;
 const PC_DELTA: u64 = 1;
+const SIZE_SIGN_COLUMN_ID: usize = 12;
+const LEN_LO_INV_COLUMN_ID: usize = 11;
 
 /// ReturnDataCopy Execution State layout is as follows
 /// where STATE means state table lookup(call_context read returndata_call_id, stack pop dst_offset, stack_pop offset, stack_pop length),
@@ -109,7 +111,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             }
         }
 
-        let len_lo_inv = meta.query_advice(config.vers[11], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation(-2));
         let is_zero_len =
             SimpleIsZero::new(&state_values[3], &len_lo_inv, String::from("lengthlo"));
         constraints.append(&mut is_zero_len.get_constraints());
@@ -214,7 +216,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
 
         //lenlo_inv
-        assign_or_panic!(core_row_2[11], len_lo_inv);
+        assign_or_panic!(core_row_2[LEN_LO_INV_COLUMN_ID], len_lo_inv);
 
         // get returndata_size
         let returndata_size = current_state
@@ -223,9 +225,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .map(|v| v.len())
             .unwrap_or_default();
         if (offset + length) > U256::from(returndata_size) {
-            assign_or_panic!(core_row_2.vers_12, U256::from(1));
+            assign_or_panic!(core_row_2[SIZE_SIGN_COLUMN_ID], U256::from(1));
         } else {
-            assign_or_panic!(core_row_2.vers_12, U256::zero());
+            assign_or_panic!(core_row_2[SIZE_SIGN_COLUMN_ID], U256::zero());
         };
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
@@ -301,7 +303,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

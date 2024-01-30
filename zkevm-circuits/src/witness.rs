@@ -13,7 +13,7 @@ use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     BIT_SHIFT_MAX_INDEX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW,
-    NUM_STATE_HI_COL, NUM_STATE_LO_COL, PUBLIC_NUM_VALUES,
+    NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS, PUBLIC_NUM_VALUES,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -1659,7 +1659,7 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // get arithmetic rows
     let (arithmetic_sub_rows, _) =
         operation::sub::gen_witness(vec![arithmetic_operands[0], arithmetic_operands[1]]);
-
+    const START_OFFSET: usize = 27;
     // get exp_rows
     let exp_rows = exp::Row::from_operands(
         exp_operands[0].clone(),
@@ -1686,17 +1686,10 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // d_hi set core_row_0.vers_29
     // d_lo set core_row_0.vers_30
     // sign_bit_is_zero_inv set core_row_0.vers_31;
-    for (value, cell) in signextend_result_vec.into_iter().zip([
-        &mut core_rows0.vers_27,
-        &mut core_rows0.vers_28,
-        &mut core_rows0.vers_29,
-        &mut core_rows0.vers_30,
-        &mut core_rows0.vers_31,
-    ]) {
-        assert!(cell.is_none());
-        *cell = Some(value);
+    for (i, value) in (0..5).zip(signextend_result_vec) {
+        assert!(core_rows0[i + START_OFFSET].is_none());
+        assign_or_panic!(core_rows0[i + START_OFFSET], value);
     }
-
     // Construct Witness object
     let bitwise_rows = bitwise_rows_vec
         .into_iter()
@@ -1824,24 +1817,23 @@ impl core::Row {
         // todo: exp overflow
         let (expect_power, _) = base.overflowing_pow(index);
         assert_eq!(expect_power, power);
-        assign_or_panic!(self.vers_26, base >> 128);
-        assign_or_panic!(self.vers_27, base.low_u128().into());
-        assign_or_panic!(self.vers_28, index >> 128);
-        assign_or_panic!(self.vers_29, index.low_u128().into());
-        assign_or_panic!(self.vers_30, power >> 128);
-        assign_or_panic!(self.vers_31, power.low_u128().into());
+        const START_OFFSET: usize = 26;
+        let colum_values = [
+            base >> 128,
+            base.low_u128().into(),
+            index >> 128,
+            index.low_u128().into(),
+            power >> 128,
+            power.low_u128().into(),
+        ];
+        for i in 0..6 {
+            assign_or_panic!(self[START_OFFSET + i], colum_values[i]);
+        }
     }
 
     pub fn fill_versatile_with_values(&mut self, values: &[U256]) {
-        #[rustfmt::skip]
-            let cells = [
-            &mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7,
-            &mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15,
-            &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23,
-            &mut self.vers_24, &mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29, &mut self.vers_30, &mut self.vers_31
-        ];
-        for (cell, v) in cells.into_iter().zip(values) {
-            assign_or_panic!(*cell, *v);
+        for i in 0..NUM_VERS {
+            assign_or_panic!(self[i], values[i]);
         }
     }
 
@@ -1856,18 +1848,21 @@ impl core::Row {
     pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_row: &bitwise::Row) {
         assert!(index <= 3);
         assert_eq!(self.cnt, 2.into());
-        #[rustfmt::skip]
-            let  vec = [
-            [&mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14,],
-            [&mut self.vers_15, &mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19,],
-            [&mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23, &mut self.vers_24,],
-            [&mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29,],
+        const START_OFFSET: usize = 10;
+        const COLUMN_WIDTH: usize = 5;
+        let column_values = [
+            U256::from(bitwise_row.tag as u8),
+            bitwise_row.acc_0,
+            bitwise_row.acc_1,
+            bitwise_row.acc_2,
+            bitwise_row.sum_2,
         ];
-        assign_or_panic!(*vec[index][0], U256::from(bitwise_row.tag as u8));
-        assign_or_panic!(*vec[index][1], bitwise_row.acc_0);
-        assign_or_panic!(*vec[index][2], bitwise_row.acc_1);
-        assign_or_panic!(*vec[index][3], bitwise_row.acc_2);
-        assign_or_panic!(*vec[index][4], bitwise_row.sum_2);
+        for i in 0..COLUMN_WIDTH {
+            assign_or_panic!(
+                self[START_OFFSET + COLUMN_WIDTH * index + i],
+                column_values[i]
+            );
+        }
         self.comments.extend([
             (
                 format!("vers_{}", index * 5),
@@ -1887,36 +1882,37 @@ impl core::Row {
         assert_eq!(self.cnt, 1.into());
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
-        #[rustfmt::skip]
-            let vec = [
-            [&mut self.vers_0, &mut self.vers_1, &mut self.vers_2, &mut self.vers_3, &mut self.vers_4, &mut self.vers_5, &mut self.vers_6, &mut self.vers_7],
-            [&mut self.vers_8, &mut self.vers_9, &mut self.vers_10, &mut self.vers_11, &mut self.vers_12, &mut self.vers_13, &mut self.vers_14, &mut self.vers_15],
-            [&mut self.vers_16, &mut self.vers_17, &mut self.vers_18, &mut self.vers_19, &mut self.vers_20, &mut self.vers_21, &mut self.vers_22, &mut self.vers_23],
-            [&mut self.vers_24, &mut self.vers_25, &mut self.vers_26, &mut self.vers_27, &mut self.vers_28, &mut self.vers_29, &mut self.vers_30, &mut self.vers_31]
-        ];
-        for (n, (state_row, core_row)) in state_rows.into_iter().zip(vec).enumerate() {
+        const COLUMN_WIDTH: usize = 8;
+        for (j, state_row) in state_rows.into_iter().enumerate() {
             for i in 0..8 {
-                // before inserting, these columns must be none
-                assert!(core_row[i].is_none());
+                assert!(self[i + j * COLUMN_WIDTH].is_none());
             }
-            *core_row[0] = state_row.tag.map(|tag| (tag as u8).into());
-            *core_row[1] = state_row.stamp;
-            *core_row[2] = state_row.value_hi;
-            *core_row[3] = state_row.value_lo;
-            *core_row[4] = state_row.call_id_contract_addr;
-            *core_row[5] = state_row.pointer_hi;
-            *core_row[6] = state_row.pointer_lo;
-            *core_row[7] = state_row.is_write;
-            #[rustfmt::skip]
+            self[0 + j * COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
+            self[1 + j * COLUMN_WIDTH] = state_row.stamp;
+            self[2 + j * COLUMN_WIDTH] = state_row.value_hi;
+            self[3 + j * COLUMN_WIDTH] = state_row.value_lo;
+            self[4 + j * COLUMN_WIDTH] = state_row.call_id_contract_addr;
+            self[5 + j * COLUMN_WIDTH] = state_row.pointer_hi;
+            self[6 + j * COLUMN_WIDTH] = state_row.pointer_lo;
+            self[7 + j * COLUMN_WIDTH] = state_row.is_write;
             self.comments.extend([
-                (format!("vers_{}", n * 8), format!("tag={:?}", state_row.tag)),
-                (format!("vers_{}", n * 8 + 1), "stamp".into()),
-                (format!("vers_{}", n * 8 + 2), "value_hi".into()),
-                (format!("vers_{}", n * 8 + 3), "value_lo".into()),
-                (format!("vers_{}", n * 8 + 4), "call_id".into()),
-                (format!("vers_{}", n * 8 + 5), "not used".into()),
-                (format!("vers_{}", n * 8 + 6), "stack pointer".into()),
-                (format!("vers_{}", n * 8 + 7), "is_write: read=0, write=1".into()),
+                (
+                    format!("vers_{}", j * COLUMN_WIDTH),
+                    format!("tag={:?}", state_row.tag),
+                ),
+                (format!("vers_{}", j * COLUMN_WIDTH + 1), "stamp".into()),
+                (format!("vers_{}", j * COLUMN_WIDTH + 2), "value_hi".into()),
+                (format!("vers_{}", j * COLUMN_WIDTH + 3), "value_lo".into()),
+                (format!("vers_{}", j * COLUMN_WIDTH + 4), "call_id".into()),
+                (format!("vers_{}", j * COLUMN_WIDTH + 5), "not used".into()),
+                (
+                    format!("vers_{}", j * COLUMN_WIDTH + 6),
+                    "stack pointer".into(),
+                ),
+                (
+                    format!("vers_{}", j * COLUMN_WIDTH + 7),
+                    "is_write: read=0, write=1".into(),
+                ),
             ]);
         }
     }
@@ -1945,19 +1941,8 @@ impl core::Row {
     ) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
-
-        for (cell, value) in [
-            &mut self.vers_24,
-            &mut self.vers_25,
-            &mut self.vers_26,
-            &mut self.vers_27,
-            &mut self.vers_28,
-            &mut self.vers_29,
-            &mut self.vers_30,
-            &mut self.vers_31,
-        ]
-        .into_iter()
-        .zip([
+        const START: usize = 24;
+        for (i, value) in (0..8).zip([
             Some(code_addr),
             Some(pc.into()),
             Some(opcode.as_u8().into()),
@@ -1967,9 +1952,8 @@ impl core::Row {
             Some(opcode.data_len().into()),
             Some((opcode.is_push() as u8).into()),
         ]) {
-            // before inserting, these columns must be none
-            assert!(cell.is_none());
-            *cell = value;
+            assert!(self[START + i].is_none());
+            self[START + i] = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -1995,16 +1979,15 @@ impl core::Row {
         assert_eq!(arith_entries.len(), 1);
         assert_eq!(index, 0);
 
-        #[rustfmt::skip]
-        let vec = [
-            [&mut self.vers_22, &mut self.vers_23, &mut self.vers_24, &mut self.vers_25,]
+        let column_values = [
+            arith_entries[0].operand_0_hi,
+            arith_entries[0].operand_0_lo,
+            arith_entries[0].operand_1_hi,
+            arith_entries[0].operand_1_lo,
         ];
-
-        assign_or_panic!(*vec[index][0], arith_entries[0].operand_0_hi);
-        assign_or_panic!(*vec[index][1], arith_entries[0].operand_0_lo);
-        assign_or_panic!(*vec[index][2], arith_entries[0].operand_1_hi);
-        assign_or_panic!(*vec[index][3], arith_entries[0].operand_1_lo);
-
+        for i in 0..4 {
+            assign_or_panic!(self[_START + i], column_values[i]);
+        }
         #[rustfmt::skip]
         self.comments.extend([
             (format!("vers_{}", WIDTH), "arithmetic operand 0 hi".into()),
@@ -2030,24 +2013,21 @@ impl core::Row {
         assert!(len >= 2);
         let row_1 = &arithmetic[len - 2];
         let row_0 = &arithmetic[len - 1];
-        #[rustfmt::skip]
-            let vec = [
-                [&mut self.vers_0,&mut self.vers_1,&mut self.vers_2,&mut self.vers_3,&mut self.vers_4,
-                    &mut self.vers_5,&mut self.vers_6,&mut self.vers_7,&mut self.vers_8],
-                [&mut self.vers_9,&mut self.vers_10,&mut self.vers_11,&mut self.vers_12,&mut self.vers_13,
-                    &mut self.vers_14,&mut self.vers_15,&mut self.vers_16,&mut self.vers_17],
-                [&mut self.vers_18,&mut self.vers_19,&mut self.vers_20,&mut self.vers_21,&mut self.vers_22,
-                    &mut self.vers_23,&mut self.vers_24,&mut self.vers_25,&mut self.vers_26],
-            ];
-        assign_or_panic!(*vec[index][0], row_0.operand_0_hi);
-        assign_or_panic!(*vec[index][1], row_0.operand_0_lo);
-        assign_or_panic!(*vec[index][2], row_0.operand_1_hi);
-        assign_or_panic!(*vec[index][3], row_0.operand_1_lo);
-        assign_or_panic!(*vec[index][4], row_1.operand_0_hi);
-        assign_or_panic!(*vec[index][5], row_1.operand_0_lo);
-        assign_or_panic!(*vec[index][6], row_1.operand_1_hi);
-        assign_or_panic!(*vec[index][7], row_1.operand_1_lo);
-        assign_or_panic!(*vec[index][8], (row_0.tag as u8).into());
+        let column_values = [
+            row_0.operand_0_hi,
+            row_0.operand_0_lo,
+            row_0.operand_1_hi,
+            row_0.operand_1_lo,
+            row_1.operand_0_hi,
+            row_1.operand_0_lo,
+            row_1.operand_1_hi,
+            row_1.operand_1_lo,
+            (row_0.tag as u8).into(),
+        ];
+        let column_offset = index * WIDTH;
+        for i in 0..WIDTH {
+            assign_or_panic!(self[i + column_offset], column_values[i]);
+        }
         #[rustfmt::skip]
         self.comments.extend([
             (format!("vers_{}", index * WIDTH), "arithmetic operand 0 hi".into()),
@@ -2159,29 +2139,18 @@ impl core::Row {
     /// +---+-------+-------+-------+----------+
     pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
         assert_eq!(self.cnt, 2.into());
-        let cells = vec![
-            (&mut self.vers_26, Some((public_row.tag as u8).into())),
-            (&mut self.vers_27, public_row.tx_idx_or_number_diff),
-            (
-                &mut self.vers_28,
-                Some(public_row.value_0.unwrap_or_default()),
-            ),
-            (
-                &mut self.vers_29,
-                Some(public_row.value_1.unwrap_or_default()),
-            ),
-            (
-                &mut self.vers_30,
-                Some(public_row.value_2.unwrap_or_default()),
-            ),
-            (
-                &mut self.vers_31,
-                Some(public_row.value_3.unwrap_or_default()),
-            ),
+        const START_OFFSET: usize = 26;
+        let column_values = [
+            (public_row.tag as u8).into(),
+            public_row.tx_idx_or_number_diff.unwrap_or_default(),
+            public_row.value_0.unwrap_or_default(),
+            public_row.value_1.unwrap_or_default(),
+            public_row.value_2.unwrap_or_default(),
+            public_row.value_3.unwrap_or_default(),
         ];
-        for (cell, value) in cells {
-            assert!(cell.is_none());
-            *cell = value;
+        for i in 0..6 {
+            assert!(self[i + START_OFFSET].is_none());
+            assign_or_panic!(self[i + START_OFFSET], column_values[i]);
         }
         let comments = vec![
             (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
@@ -2626,29 +2595,20 @@ impl ExecutionState {
         let (selector_hi, selector_lo) = get_dynamic_selector_assignments(state, num_hi, num_lo);
         let mut row = current_state.get_core_row_without_versatile(&trace, 0);
         row.exec_state = Some(self);
-        #[rustfmt::skip]
-            let vec = [
-            &mut row.vers_0, &mut row.vers_1, &mut row.vers_2, &mut row.vers_3, &mut row.vers_4,
-            &mut row.vers_5, &mut row.vers_6, &mut row.vers_7, &mut row.vers_8, &mut row.vers_9,
-            &mut row.vers_10, &mut row.vers_11, &mut row.vers_12, &mut row.vers_13, &mut row.vers_14,
-            &mut row.vers_15, &mut row.vers_16, &mut row.vers_17, &mut row.vers_18, &mut row.vers_19,
-            &mut row.vers_20, &mut row.vers_21, &mut row.vers_22, &mut row.vers_23, &mut row.vers_24,
-            &mut row.vers_25, &mut row.vers_26, &mut row.vers_27, &mut row.vers_28, &mut row.vers_29,
-            &mut row.vers_30, &mut row.vers_31,
-        ];
-        for (cell, value) in vec
-            .into_iter()
-            .zip(selector_hi.into_iter().chain(selector_lo).chain([
-                current_state.state_stamp,
-                current_state.stack_pointer as u64,
-                current_state.log_stamp,
-                trace.gas,
-                trace.refund,
-                current_state.memory_chunk,
-                current_state.read_only,
-            ]))
+        for (i, value) in
+            (0..NUM_VERS)
+                .into_iter()
+                .zip(selector_hi.into_iter().chain(selector_lo).chain([
+                    current_state.state_stamp,
+                    current_state.stack_pointer as u64,
+                    current_state.log_stamp,
+                    trace.gas,
+                    trace.refund,
+                    current_state.memory_chunk,
+                    current_state.read_only,
+                ]))
         {
-            *cell = Some(value.into());
+            assign_or_panic!(row[i], value.into());
         }
         for i in 0..num_hi {
             row.comments

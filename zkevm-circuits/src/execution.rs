@@ -2235,50 +2235,9 @@ mod test {
                                     config.opcode,
                                 )?;
                                 assign_advice_or_fixed(&mut region, offset, &row.cnt, config.cnt)?;
-                                for (i, value) in [
-                                    &row.vers_0,
-                                    &row.vers_1,
-                                    &row.vers_2,
-                                    &row.vers_3,
-                                    &row.vers_4,
-                                    &row.vers_5,
-                                    &row.vers_6,
-                                    &row.vers_7,
-                                    &row.vers_8,
-                                    &row.vers_9,
-                                    &row.vers_10,
-                                    &row.vers_11,
-                                    &row.vers_12,
-                                    &row.vers_13,
-                                    &row.vers_14,
-                                    &row.vers_15,
-                                    &row.vers_16,
-                                    &row.vers_17,
-                                    &row.vers_18,
-                                    &row.vers_19,
-                                    &row.vers_20,
-                                    &row.vers_21,
-                                    &row.vers_22,
-                                    &row.vers_23,
-                                    &row.vers_24,
-                                    &row.vers_25,
-                                    &row.vers_26,
-                                    &row.vers_27,
-                                    &row.vers_28,
-                                    &row.vers_29,
-                                    &row.vers_30,
-                                    &row.vers_31,
-                                ]
-                                .into_iter()
-                                .enumerate()
-                                {
-                                    assign_advice_or_fixed(
-                                        &mut region,
-                                        offset,
-                                        &value.unwrap_or_default(),
-                                        config.vers[i],
-                                    )?;
-                                }
+                                for i in 0 .. NUM_VERS {
+                                    assign_advice_or_fixed(&mut region,offset,&row[i].unwrap_or_default(),config.vers[i])?;
+                                };
                                 cnt_is_zero.assign(
                                     &mut region,
                                     offset,

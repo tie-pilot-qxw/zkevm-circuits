@@ -16,7 +16,7 @@ const NUM_ROW: usize = 3;
 const PC_DELTA: usize = 1;
 const STATE_STAMP_DELTA: usize = 3;
 const STACK_POINTER_DELTA: i32 = -3;
-
+const LEN_LO_INV_COLUMN_ID: usize = 24;
 /// CALLDATACOPY copy message data from calldata to memory in EVM.
 ///
 /// CALLDATACOPY Execution State layout is as follows
@@ -96,7 +96,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.extend([(format!("value_high_{} = 0", i), value_hi.expr())])
         }
 
-        let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation::prev());
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
@@ -190,7 +190,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(length.low_u128());
         let lenlo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1.vers_24 = Some(lenlo_inv);
+        core_row_1[LEN_LO_INV_COLUMN_ID] = Some(lenlo_inv);
 
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
             trace,
@@ -276,7 +276,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

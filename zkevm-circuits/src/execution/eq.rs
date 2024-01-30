@@ -1,7 +1,7 @@
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -14,6 +14,7 @@ const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
+const START_OFFSET: usize = 24;
 
 pub struct EqGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -146,17 +147,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let b_hi = F::from_u128((b >> 128).as_u128());
         let hi_inv =
             U256::from_little_endian((a_hi - b_hi).invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1.vers_24 = Some(hi_inv);
         let a_lo = F::from_u128(a.low_u128());
         let b_lo = F::from_u128(b.low_u128());
-
         let lo_inv =
             U256::from_little_endian((a_lo - b_lo).invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1.vers_25 = Some(lo_inv);
         let hi_eq = if a_hi == b_hi { 1 } else { 0 };
-        core_row_1.vers_26 = Some(hi_eq.into());
         let lo_eq = if a_lo == b_lo { 1 } else { 0 };
-        core_row_1.vers_27 = Some(lo_eq.into());
+        let column_values = [hi_inv, lo_inv, hi_eq.into(), lo_eq.into()];
+        for i in 0..4 {
+            assign_or_panic!(core_row_1[i + START_OFFSET], column_values[i]);
+        }
         let core_row_0 = ExecutionState::EQ.into_exec_state_core_row(
             trace,
             current_state,
@@ -199,7 +199,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {
