@@ -402,9 +402,6 @@ mod test {
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
 
-        let mut buf = std::io::BufWriter::new(std::fs::File::create("sar2.html").unwrap());
-        witness.write_html(&mut buf);
-
         witness.print_csv();
         prover.assert_satisfied_par();
     }

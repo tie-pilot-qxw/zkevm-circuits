@@ -1,11 +1,14 @@
 //! benchmark create_proof for call_trace
-use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW};
 use zkevm_circuits::util::get_geth_data;
 
-use crate::run_benchmark;
+use crate::{run_benchmark, DEFAULT_BENCH_ROUND};
 
+#[cfg(feature = "k_9")]
 const MAX_CODESIZE_FOR_CALL_TRACE: usize = 4220;
-const BENCH_ROUND: usize = 3;
+
+#[cfg(not(feature = "k_9"))]
+const MAX_CODESIZE_FOR_CALL_TRACE: usize = MAX_CODESIZE;
 
 #[test]
 fn bench_call_trace() {
@@ -20,14 +23,10 @@ fn bench_call_trace() {
         "test_data/call_test/trace/tx_receipt.json",
         "test_data/call_test/trace/bytecode.json",
     );
-
-    println!("--------start call trace benchmark--------");
-    run_benchmark::<
-        MAX_NUM_ROW,
-        MAX_CODESIZE_FOR_CALL_TRACE,
-        NUM_STATE_HI_COL,
-        NUM_STATE_LO_COL,
-        BENCH_ROUND,
-    >(geth_data, degree);
-    println!("--------call trace benchmark over--------");
+    run_benchmark::<MAX_NUM_ROW, MAX_CODESIZE_FOR_CALL_TRACE>(
+        "call_trace",
+        geth_data,
+        degree,
+        DEFAULT_BENCH_ROUND,
+    );
 }

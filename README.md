@@ -15,16 +15,22 @@ or run all tests
 cargo test -p zkevm-circuits
 ```
 
-Benchmark
+## Benchmark
 
-run full super_circuit benchmark
+run full super_circuit benchmark(no default features)
 ```shell
-cargo test --package zkevm-circuits --profile bench --no-default-features --features "benches" --bench benchmark_list -- super_circuit  --nocapture
+cargo test -p zkevm-circuits --profile bench --no-default-features --features "benches" --bench benchmark_list -- super_circuit  --nocapture
 ```
 run super_circuit with features fast_test
+```shell
+cargo test -p zkevm-circuits --profile bench --features "benches" --bench benchmark_list -- super_circuit  --nocapture
 ```
-cargo test --package zkevm-circuits --profile bench --features "benches" --bench benchmark_list -- super_circuit  --nocapture
+run benchmark with custom round（specify Round through environment variables）
+```shell
+# round is 10
+ROUND=10 cargo test -p zkevm-circuits --profile bench --features "benches" --bench benchmark_list -- super_circuit  --nocapture
 ```
+
 Note:
 
 ```--profile bench```: use the [profile.bench]

@@ -162,11 +162,8 @@ impl WitnessExecHelper {
             bytecode.insert(account.address, Bytecode::from(account.code.to_vec()));
         }
         // add calldata to current_state
-        if tx.to.is_some() {
-            self.call_data.insert(call_id, tx.input.to_vec());
-        }
-        self.call_data_size
-            .insert(call_id, self.call_data[&call_id].len().into());
+        self.call_data.insert(call_id, tx.input.to_vec());
+        self.call_data_size.insert(call_id, tx.input.len().into());
 
         self.value.insert(call_id, tx.value);
         self.tx_value = tx.value;

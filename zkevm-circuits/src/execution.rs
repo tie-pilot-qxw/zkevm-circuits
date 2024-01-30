@@ -14,6 +14,7 @@ pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
 pub mod codecopy;
+pub mod codesize;
 pub mod dup;
 pub mod end_block;
 pub mod end_call;
@@ -132,6 +133,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::log_topic_num_addr::new(),
             crate::execution::log_topic::new(),
             crate::execution::gas::new(),
+            crate::execution::codesize::new(),
         ]
     }};
 }
@@ -1840,6 +1842,7 @@ pub enum ExecutionState {
     END_TX,
     SDIV_SMOD,
     GAS,
+    CODESIZE,
 }
 
 impl ExecutionState {
@@ -1869,9 +1872,7 @@ impl ExecutionState {
             OpcodeId::BYTE => vec![Self::BYTE],
             OpcodeId::CALLDATALOAD => vec![Self::CALLDATALOAD],
             OpcodeId::CALLDATACOPY => vec![Self::CALLDATACOPY],
-            OpcodeId::CODESIZE => {
-                todo!()
-            }
+            OpcodeId::CODESIZE => vec![Self::CODESIZE],
             OpcodeId::CODECOPY => {
                 vec![Self::CODECOPY]
             }
