@@ -6,11 +6,13 @@ use crate::bitwise_circuit::{BitwiseCircuit, BitwiseCircuitConfig, BitwiseCircui
 use crate::bytecode_circuit::{BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs};
 use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs};
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
+use crate::exp_circuit::{ExpCircuit, ExpCircuitConfig, ExpCircuitConfigArgs};
 use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{
-    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, FixedTable, PublicTable, StateTable,
+    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, PublicTable,
+    StateTable,
 };
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
@@ -32,6 +34,7 @@ pub struct SuperCircuitConfig<
     fixed_circuit: FixedCircuitConfig<F>,
     bitwise_circuit: BitwiseCircuitConfig<F>,
     arithmetic_circuit: ArithmeticCircuitConfig<F>,
+    exp_circuit: ExpCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -54,6 +57,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let copy_table = CopyTable::construct(meta, q_enable_copy);
         let q_enable_bitwise = meta.complex_selector();
         let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
+        let exp_table = ExpTable::construct(meta);
+
         let core_circuit = CoreCircuitConfig::new(
             meta,
             CoreCircuitConfigArgs {
@@ -64,6 +69,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 bitwise_table,
                 public_table,
                 fixed_table,
+                exp_table,
             },
         );
         let bytecode_circuit = BytecodeCircuitConfig::new(
@@ -111,6 +117,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 arithmetic_table,
             },
         );
+
+        let exp_circuit = ExpCircuitConfig::new(
+            meta,
+            ExpCircuitConfigArgs {
+                arithmetic_table,
+                exp_table,
+            },
+        );
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
@@ -120,6 +134,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             fixed_circuit,
             bitwise_circuit,
             arithmetic_circuit,
+            exp_circuit,
         }
     }
 }
@@ -140,6 +155,7 @@ pub struct SuperCircuit<
     pub fixed_circuit: FixedCircuit<F>,
     pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
     pub arithmetic_circuit: ArithmeticCircuit<F, MAX_NUM_ROW>,
+    pub exp_circuit: ExpCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -163,6 +179,7 @@ impl<
         let fixed_circuit = FixedCircuit::new_from_witness(witness);
         let bitwise_circuit = BitwiseCircuit::new_from_witness(witness);
         let arithmetic_circuit = ArithmeticCircuit::new_from_witness(witness);
+        let exp_circuit = ExpCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
@@ -172,6 +189,7 @@ impl<
             fixed_circuit,
             bitwise_circuit,
             arithmetic_circuit,
+            exp_circuit,
         }
     }
 
@@ -185,6 +203,7 @@ impl<
         instance.extend(self.fixed_circuit.instance());
         instance.extend(self.bitwise_circuit.instance());
         instance.extend(self.arithmetic_circuit.instance());
+        instance.extend(self.exp_circuit.instance());
         instance
     }
 
@@ -211,6 +230,8 @@ impl<
             .synthesize_sub(&config.bitwise_circuit, layouter)?;
         self.arithmetic_circuit
             .synthesize_sub(&config.arithmetic_circuit, layouter)?;
+        self.exp_circuit
+            .synthesize_sub(&config.exp_circuit, layouter)?;
         Ok(())
     }
 
@@ -223,6 +244,7 @@ impl<
             CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             BitwiseCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+            ExpCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -238,6 +260,7 @@ impl<
             CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+            ExpCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
 
         // when feature `no_fixed_lookup` is on, we don't count the rows in fixed circuit

@@ -3,6 +3,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::exp;
 use crate::witness::{get_and_insert_signextend_rows, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
@@ -241,8 +242,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get a = 128 * 256^operand_0
         let exp_base = U256::from(EXP_BASE);
         let exp_index = operand_0;
-        let (exp_power, _) = exp_base.overflowing_pow(exp_index);
-        let signextend_a: U256 = U256::from(V_128) * exp_power;
+        let (calc_exp_power, exp_rows, exp_arith_mul_rows) =
+            exp::Row::from_operands(exp_base, exp_index);
+        let signextend_a: U256 = U256::from(V_128) * calc_exp_power;
 
         // Construct core_row_2,core_row_1,core_row_0  object
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
@@ -256,11 +258,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // insert state lookup to core_row_1
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
+        // insert exp lookup
+        core_row_1.insert_exp_lookup(exp_base, exp_index, calc_exp_power);
 
         // get signextend related rows
-        let (bitwise_rows, exp_rows, arithmetic_sub_rows) = get_and_insert_signextend_rows::<F>(
+        let (bitwise_rows, arithmetic_sub_rows) = get_and_insert_signextend_rows::<F>(
             [signextend_a, operand_1],
-            [exp_base, exp_index, exp_power],
             [U256::from(BYTE_MAX_INDEX), operand_0],
             &mut core_row_0,
             &mut core_row_1,
@@ -268,12 +271,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // Construct witness  object
+        let mut arithmetic_rows = vec![];
+        arithmetic_rows.extend(arithmetic_sub_rows);
+        arithmetic_rows.extend(exp_arith_mul_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push_0],
             exp: exp_rows,
             bitwise: bitwise_rows,
-            arithmetic: arithmetic_sub_rows,
+            arithmetic: arithmetic_rows,
             ..Default::default()
         }
     }
@@ -322,9 +328,9 @@ mod test {
             row.pc = 1.into();
             row
         };
-        let (witness, prover) =
+        let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
+        //witness.print_csv();
         prover.assert_satisfied_par();
     }
 

@@ -420,6 +420,17 @@ impl ArithmeticTable {
                     (values[7].clone(), table_3_lo),
                 ]
             }
+            LookupEntry::ArithmeticShort { tag, values } => {
+                vec![
+                    (tag.clone(), table_tag),
+                    (values[0].clone(), table_0_hi),
+                    (values[1].clone(), table_0_lo),
+                    (values[2].clone(), table_1_hi),
+                    (values[3].clone(), table_1_lo),
+                    (values[4].clone(), table_2_hi),
+                    (values[5].clone(), table_2_lo),
+                ]
+            }
             LookupEntry::ArithmeticU64 { values } => {
                 vec![
                     ((arithmetic::Tag::U64Overflow as u64).expr(), table_tag),
@@ -638,6 +649,50 @@ impl BitwiseTable {
     }
 }
 
+/// The table shared between Core Circuit and Exp Circuit
+#[derive(Clone, Copy, Debug)]
+pub struct ExpTable {
+    /// base in one row, split to 2 (high and low 128-bit)
+    pub base: [Column<Advice>; 2],
+    /// index in one row, split to 2 (high and low 128-bit)
+    pub index: [Column<Advice>; 2],
+    /// power in one row, split to 2 (high and low 128-bit)
+    pub power: [Column<Advice>; 2],
+}
+impl ExpTable {
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        let base: [Column<Advice>; 2] = std::array::from_fn(|_| meta.advice_column());
+        let index: [Column<Advice>; 2] = std::array::from_fn(|_| meta.advice_column());
+        let power: [Column<Advice>; 2] = std::array::from_fn(|_| meta.advice_column());
+        Self { base, index, power }
+    }
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_base_hi = meta.query_advice(self.base[0], Rotation::cur());
+        let table_base_lo = meta.query_advice(self.base[1], Rotation::cur());
+        let table_index_hi = meta.query_advice(self.index[0], Rotation::cur());
+        let table_index_lo = meta.query_advice(self.index[1], Rotation::cur());
+        let table_power_hi = meta.query_advice(self.power[0], Rotation::cur());
+        let table_power_lo = meta.query_advice(self.power[1], Rotation::cur());
+        match entry {
+            LookupEntry::Exp { base, index, power } => {
+                vec![
+                    (base[0].clone(), table_base_hi),
+                    (base[1].clone(), table_base_lo),
+                    (index[0].clone(), table_index_hi),
+                    (index[1].clone(), table_index_lo),
+                    (power[0].clone(), table_power_hi),
+                    (power[1].clone(), table_power_lo),
+                ]
+            }
+            _ => panic!("Not exp lookup!"),
+        }
+    }
+}
+
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug, EnumVariantNames, AsRefStr)]
 pub enum LookupEntry<F> {
@@ -735,6 +790,14 @@ pub enum LookupEntry<F> {
         tag: Expression<F>,
         /// Operand 0-3 high and low 128 bits, order: [hi0,lo0,hi1,lo1,...]
         values: [Expression<F>; 8],
+    },
+
+    /// Lookup to arithmetic table.
+    ArithmeticShort {
+        /// Which arithmetic operation it is doing
+        tag: Expression<F>,
+        /// Operand 0-2 high and low 128 bits, order: [hi0,lo0,hi1,lo1,...]
+        values: [Expression<F>; 6],
     },
     /// Lookup to arithmetic table. U64 lookup only used 4 values
     ArithmeticU64 {
@@ -906,6 +969,11 @@ impl<F: Field> LookupEntry<F> {
                 contents.push(sum_2.identifier());
                 contents
             }
+            LookupEntry::ArithmeticShort { tag, values } => {
+                let mut contents = vec![tag.identifier()];
+                contents.extend(values.iter().map(|v| v.identifier()));
+                contents
+            }
             LookupEntry::Exp { base, index, power } => {
                 let mut contents = vec![];
                 for v in [base, index, power] {
@@ -929,7 +997,7 @@ impl<F: Field> LookupEntry<F> {
 pub(crate) mod test_util {
     use super::*;
     use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
-    use crate::witness::{bytecode, Witness};
+    use crate::witness::{bytecode, exp, Witness};
     use gadgets::is_zero::IsZeroInstruction;
     use halo2_proofs::circuit::{Region, Value};
     use halo2_proofs::plonk::Error;
@@ -1091,6 +1159,34 @@ pub(crate) mod test_util {
             witness: &Witness,
         ) -> Result<(), Error> {
             for (offset, row) in witness.bitwise.iter().enumerate() {
+                self.assign_row(region, offset, row)?;
+            }
+            Ok(())
+        }
+    }
+    impl ExpTable {
+        /// assign one row of values from witness in a region, used for test
+        fn assign_row<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            offset: usize,
+            row: &exp::Row,
+        ) -> Result<(), Error> {
+            assign_advice_or_fixed(region, offset, &row.base_hi, self.base[0])?;
+            assign_advice_or_fixed(region, offset, &row.base_lo, self.base[1])?;
+            assign_advice_or_fixed(region, offset, &row.index_hi, self.index[0])?;
+            assign_advice_or_fixed(region, offset, &row.index_lo, self.index[1])?;
+            assign_advice_or_fixed(region, offset, &row.power_hi, self.power[0])?;
+            assign_advice_or_fixed(region, offset, &row.power_lo, self.power[1])?;
+            Ok(())
+        }
+        /// assign values from witness in a region, used for test
+        pub fn assign_with_region<F: Field>(
+            &self,
+            region: &mut Region<'_, F>,
+            witness: &Witness,
+        ) -> Result<(), Error> {
+            for (offset, row) in witness.exp.iter().enumerate() {
                 self.assign_row(region, offset, row)?;
             }
             Ok(())

@@ -48,3 +48,6 @@ pub(crate) const CREATE_ADDRESS_PREFIX: [u8; 32] = [
 ];
 /// COPY_LOOKUP_COLUMN_CNT ,one copy lookup column count
 pub(crate) const COPY_LOOKUP_COLUMN_CNT: usize = 11;
+
+/// Number of tags in exp
+pub(crate) const LOG_NUM_EXP_TAG: usize = 3;
