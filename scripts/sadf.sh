@@ -4,8 +4,8 @@
 # 用途：该脚本直接扫描Centos7目录下的/var/log/sa目录下的文件，会收集统计过的所有数据
 
 # sysstat是一个软件包，包含监测系统性能及效率的一组工具，这些工具对于我们收集系统性能数据，比如：CPU 使用率、硬盘和网络吞吐数据
-# ubuntu使用：(https://blog.51cto.com/u_11529070/6508307), centos同理，yum安装
-# 1.安装sysstat
+# ubuntu使用:
+# 1.安装apt-get install sysstat, centos同理，yum安装
 # 2.修改/etc/default/sysstat文件，将ENABLED="false"改为ENABLED="true"
 # 3.sudo systemctl enable --now sysstat.service
 # 4.修改定时任务，可以改为每分钟一次
