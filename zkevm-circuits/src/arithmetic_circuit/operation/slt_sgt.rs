@@ -15,6 +15,14 @@ const SLT_N_BYTES: usize = 2;
 
 pub(crate) struct SltSgtGadget<F>(PhantomData<F>);
 
+/// formula:
+/// `signed(a) < signed (b) or signed(a) > signed(b)`
+/// The basic idea is to use `a-b=c` to determine the size of two numbers.
+/// Constrains:
+/// signed(a) == signed(b):
+///     - a - b = c - carry << 256, when carry < 0, then a < b
+/// signed(a) != signed(b):
+///     - if a_lt == 1, then a > b, carry_hi = 0; otherwise a_lt == 0, carry_hi = 1.
 impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
     fn name(&self) -> &'static str {
         "SLT_SGT"
@@ -45,6 +53,8 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
 
         // step
         // 1. get the u16s sum for a_hi,b_hi,c
+        // The main reason for applying u16s constraint to the input a, b is to determine the sign of their high bits.
+        // By using u16s constraint, we can ensure that the values of a_hi and b_hi come from a rather than other values.
         let (u16_sum_for_a_hi, _, _) = get_u16s(config, meta, Rotation(-3));
         let (u16_sum_for_b_hi, _, _) = get_u16s(config, meta, Rotation(-4));
         let (u16_sum_for_c_hi, _, _) = get_u16s(config, meta, Rotation::cur());
@@ -100,7 +110,7 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
             ));
         }
 
-        //constrain the a_hi and b_hi range
+        // constrain the a_hi and b_hi range
         constraints.push((
             "a_hi = u16 sum".into(),
             a[0].clone() - u16_sum_for_a_hi.clone(),
@@ -109,7 +119,7 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
             "b_hi = u16 sum".into(),
             b[0].clone() - u16_sum_for_b_hi.clone(),
         ));
-
+        // constrains for sign of a, b
         constraints.extend(a_is_lt.get_constraints());
         constraints.extend(b_is_lt.get_constraints());
 
@@ -124,9 +134,20 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
         constraints
     }
 }
+/// SLT_SGT arithmetic witness rows. (Tag::SLT_SGT)
+/// +-----+------+------+------+------+------------------+-------+----------+-----------+
+/// | cnt | o0hi | o0lo | o1hi | o1lo | u16s0            | u16s1 | u16s2    | u16s3     |
+/// +-----+------+------+------+------+------------------+-------+----------+-----------+
+/// | 4   |      |      |      |      | u16_sum_for_b_hi |       |          |           |
+/// | 3   |      |      |      |      | u16_sum_for_a_hi |       |          |           |
+/// | 2   |      |      |      |      | a_lt             | b_lt  | a_lt_diff| b_lt_diff |
+/// | 1   | c    | c    | carry| carry| u16_sum_for_c_lo |       |          |           |
+/// | 0   | a    | a    | b    | b    | u16_sum_for_c_hi |       |          |           |
+/// +-----+------+------+------+------+------------------+-------+----------+-----------+
 
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness
+/// Return c, carry. Determine the magnitude relationship by whether carry is 1.
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(2, operands.len());
     let a = split_u256_hi_lo(&operands[0]);
@@ -137,7 +158,8 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let a_lt = lt_rows[2].u16_0;
     let b_lt = lt_rows[2].u16_1;
 
-    // 2. If a_lt is not equal to b_lt, then c equals 0. And when a_lt equals 1, carry is set to 0; otherwise, carry is set to 1.
+    // 2. If a_lt is not equal to b_lt, then c equals 0.
+    // And when a_lt equals 1, carry is set to 0; otherwise, carry is set to 1.
     let (c, carry) = if a_lt != b_lt {
         let c = U256::zero();
         let carry = if a_lt == 1.into() {
@@ -164,6 +186,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(16, c_u16s.len());
 
     let c_split = split_u256_hi_lo(&c);
+    // little endian sorting
     let c_hi_u16s = c_u16s.split_off(8);
 
     let row_0 = get_row(a, b, c_hi_u16s, 0, Tag::SltSgt);

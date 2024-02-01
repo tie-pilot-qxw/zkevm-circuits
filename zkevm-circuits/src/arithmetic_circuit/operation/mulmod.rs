@@ -303,6 +303,39 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
     }
 }
 
+/// MulMod arithmetic witness rows. (Tag::MulMod)
+/// +---------------------+---------------------+---------------+---------------+-----+----------------------------+
+/// | operand_0_hi        | operand_0_lo        | operand_1_hi  | operand_1_lo  | cnt | u16s                       |
+/// +---------------------+---------------------+---------------+---------------+-----+----------------------------+
+/// |                     |                     |               |               | 26  | k2n_carry_0                |
+/// |                     |                     |               |               | 25  | k2n_carry_1                |
+/// |                     |                     |               |               | 24  | k2n_carry_2                |
+/// |                     |                     |               |               | 23  | r_lo_u16s                  |
+/// |                     |                     |               |               | 22  | r_hi_u16s                  |
+/// |                     |                     |               |               | 21  | k2_lo_u16s                 |
+/// |                     | k2n_carry_2         | k2n_carry_1   | k2n_carry_0   | 20  | k2_hi_u16s                 |
+/// | r_diff_hi           | r_diff_lo           | r_lt_hi       | r_lt_lo       | 19  | r_diff_lo_u16s             |
+/// | k2_hi               | k2_lo               |               |               | 18  | r_diff_hi_u16s             |
+/// |                     |                     |               |               | 17  | arb_carry_0                |
+/// |                     |                     |               |               | 16  | arb_carry_1                |
+/// |                     |                     |               |               | 15  | arb_carry_2                |
+/// |                     |                     |               |               | 14  | d_lo_u16s                  |
+/// |                     |                     |               |               | 13  | d_hi_u16s                  |
+/// |                     |                     |               |               | 12  | e_lo_u16s                  |
+/// |                     |                     |               |               | 11  | e_hi_u16s                  |
+/// |                     | arb_carry_2         | arb_carry_1   | arb_carry_0   | 10  | b_lo_u16s                  |
+/// | e_hi                | e_lo                | d_hi          | d_lo          | 9   | b_hi_u16s                  |
+/// |                     |                     |               |               | 8   | a_remainder_diff_lo_u16s   |
+/// |                     |                     |               |               | 7   | a_remainder_diff_hi_u16s   |
+/// |                     |                     |               |               | 6   | a_rem_carry_lo_u16s        |
+/// |                     |                     |               |               | 5   | a_remainder_lo_u16s        |
+/// | a_remainder_diff_hi | a_remainder_diff_lo | a_rem_lt_hi   | a_rem_lt_lo   | 4   | a_remainder_hi_u16s        |
+/// | k1_carry_hi         | k1_carry_lo         |               |               | 3   | n_lo_u16s                  |
+/// | k1_hi               | k1_lo               | a_remainder_hi| a_remainder_lo| 2   | n_hi_u16s                  |
+/// | n_hi                | n_lo                | r_hi          | r_lo          | 1   | k1_lo_u16s                 |
+/// | a_hi                | a_lo                | b_hi          | b_lo          | 0   | k1_hi_u16s                 |
+/// +---------------------+---------------------+---------------+---------------+-----+----------------------------+
+
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {

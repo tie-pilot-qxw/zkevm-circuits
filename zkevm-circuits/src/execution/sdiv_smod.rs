@@ -24,6 +24,11 @@ const PC_DELTA: u64 = 1;
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
+/// STATE0 is a_lo, a_hi
+/// STATE1 is b_lo, b_hi
+/// STATE2 is c_lo, c_hi
+/// STATE3 is d_lo, d_hi
+/// cnt == 2, vers_31 is b_inv
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | not used |
 /// +---+-------+-------+-------+----------+
@@ -103,24 +108,46 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //d is dividend and c is mod
         constraints.extend([
             (
+                // arithmetic_operands_full:
+                //  - 0 is a_hi;
+                //  - 1 is a_lo;
+                //  - 2 is b_hi;
+                //  - 3 is b_lo;
+                //  - 4 is c_hi; -- quotient_hi
+                //  - 5 is c_lo; -- quotient_lo
+                //  - 6 is d_hi; -- remainder_hi
+                //  - 7 is d_lo; -- remainder_lo
+                // operand:
+                //  - 0 is a_hi;
+                //  - 1 is a_lo;
+                //  - 2 is b_hi;
+                //  - 3 is b_lo;
+                //  - 4 is quotient_hi  (SDIV)
+                //  - 5 is quotient_lo  (SDIV)
+                //  - 4 is remainder_hi (SMOD)
+                //  - 5 is remainder_lo (SMOD)
+
+                // when arithmetic is SDIV, c_hi in lookup = in state
                 format!(
-                    "operand[{}] d_hi in state lookup = operand[{}] d_hi in arithmetic",
+                    "operand[{}] c_hi in state lookup = operand[{}] c_hi in arithmetic",
                     4, 4
                 ),
                 (opcode.clone() - OpcodeId::SMOD.as_u8().expr())
                     * (arithmetic_operands[4].clone() - arithmetic_operands_full[4].clone()),
             ),
             (
+                // when arithmetic is SDIV, c_lo in lookup = in state
                 format!(
-                    "operand[{}] d_lo in state lookup = operand[{}] d_lo in arithmetic",
+                    "operand[{}] c_lo in state lookup = operand[{}] c_lo in arithmetic",
                     5, 5
                 ),
                 (opcode.clone() - OpcodeId::SMOD.as_u8().expr())
                     * (arithmetic_operands[5].clone() - arithmetic_operands_full[5].clone()),
             ),
             (
+                // when arithmetic is SMOD, d_hi in lookup = in state
                 format!(
-                    "operand[{}] c_hi in arithmetic = operand[{}] c_hi in state lookup.when divisor is not zero. ",
+                    "operand[{}] d_hi in arithmetic = operand[{}] d_hi in state lookup.when divisor is not zero. ",
                     4, 6
                 ),
                 (opcode.clone() - OpcodeId::SDIV.as_u8().expr())
@@ -128,18 +155,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     * (1.expr() - divisor_is_zero.clone()),
             ),
             (
+                // when arithmetic is SMOD, d_lo in lookup = in state
                 format!(
-                    "operand[{}] c_lo in arithmetic = operand[{}] c_lo in state lookup.when divisor is not zero.",
+                    "operand[{}] d_lo in arithmetic = operand[{}] d_lo in state lookup.when divisor is not zero.",
                     5, 7
                 ),
                 (opcode.clone() - OpcodeId::SDIV.as_u8().expr())
                     * (arithmetic_operands[5].clone() - arithmetic_operands_full[7].clone())
                 *  (1.expr() - divisor_is_zero.clone()),
             ),
+            // if b == 0, result_lo == 0
             (
                 "if divisor is zero then state operand_hi must is zero.".to_string(),
                 (opcode.clone() - OpcodeId::SDIV.as_u8().expr()) * divisor_is_zero.clone() *  arithmetic_operands[5].clone() ,
             ),
+            // if b == 0, result_hi == 0
             (
                 "if divisor is zero then state operand_lo must is zero.".to_string(),
                 (opcode.clone() - OpcodeId::SDIV.as_u8().expr()) * divisor_is_zero.clone() * arithmetic_operands[4].clone() ,
@@ -200,6 +230,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_arithmetic_lookup(0, &arithmetic);
 
+        // tips: It is not necessary to calculate the multiplicative inverse of operand_lo and operand_hi separately
+        // when seeking the multiplicative inverse of a U256 number.
+        // What we are doing here is calculating the multiplicative inverse of operand_lo + operand_hi,
+        // which saves one cell.
         let b_hi = F::from_u128((b >> 128).as_u128());
         let b_lo = F::from_u128(b.low_u128());
         let b_inv =

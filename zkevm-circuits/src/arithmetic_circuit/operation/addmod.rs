@@ -61,6 +61,8 @@ impl<F: Field> OperationGadget<F> for AddModGadget<F> {
         let a_remainder_plus_b = config.get_operand(15)(meta);
 
         // get the u16s sum
+        // We need the following u16s to constrain some inputs in multiplication
+        // and the computation results of certain algorithms.
         let (u16_sum_for_a_div_n_hi, a_div_n_hi_1, a_div_n_hi_2) =
             get_u16s(config, meta, Rotation::cur());
         let (u16_sum_for_a_div_n_lo, a_div_n_lo_1, a_div_n_lo_2) =
@@ -312,6 +314,7 @@ impl<F: Field> OperationGadget<F> for AddModGadget<F> {
 
 /// Generate the addmod witness and return operation result
 /// It is called during core circuit's gen_witness。
+/// Return the result r, which is the result of `(a+b) mod n = r`
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(3, operands.len());
 
@@ -326,6 +329,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let b = split_u256_hi_lo(&b_arith);
     let n = split_u256_hi_lo(&operands[2]);
 
+    // when n == 0, then the quotient and the remainder should be 0
     let (a_div_n, a_remainder) = if operands[2] == U256::zero() {
         (U256::zero(), U256::zero())
     } else {
@@ -334,11 +338,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
 
     let (a_remainder_plus_b, a_remainder_plus_b_overflow_flag) =
         a_remainder.overflowing_add(b_arith);
-    let a_remainder_plus_b_overflow = if a_remainder_plus_b_overflow_flag {
-        U256::one()
-    } else {
-        U256::zero()
-    };
+    let a_remainder_plus_b_overflow = U256::from(a_remainder_plus_b_overflow_flag as u8);
 
     let (b_div_n, r) = if operands[2] != U256::zero() {
         let (b_div_n_tmp, r_tmp) = (U512::from(a_remainder_plus_b_overflow)
@@ -667,6 +667,7 @@ mod test {
 
     #[test]
     fn test_gen_witness() {
+        // (a + b) mod n = r when n != 0
         let a = 3.into();
         let b = 4.into();
         let n = 2.into();
@@ -682,6 +683,7 @@ mod test {
 
     #[test]
     fn test_gen_witness_1() {
+        // (a + b) mod n = r when n == 0
         let a = 3.into();
         let b = 4.into();
         let n = 0.into();
@@ -697,6 +699,7 @@ mod test {
 
     #[test]
     fn test_gen_witness_2() {
+        // (a + b) mod n = r with overflow
         let a = 3.into();
         let b = U256::MAX;
         let n = 4.into();
@@ -712,6 +715,7 @@ mod test {
 
     #[test]
     fn test_gen_witness_3() {
+        // (a + b) mod n = r when n != 0
         let a = 3.into();
         let b = 4.into();
         let n = 1.into();
@@ -727,6 +731,7 @@ mod test {
 
     #[test]
     fn test_gen_witness_4() {
+        // (a + b) mod n = r when a, b == 0
         let a = 0.into();
         let b = 0.into();
         let n = 1.into();

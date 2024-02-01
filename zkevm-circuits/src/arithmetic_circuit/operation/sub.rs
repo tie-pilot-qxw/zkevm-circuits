@@ -8,6 +8,13 @@ use std::marker::PhantomData;
 
 pub(crate) struct SubGadget<F>(PhantomData<F>);
 
+/// formula:
+/// `a - b = c - carry << 256`
+/// We split the above operation into high 128bit and low 128bit for operation,
+/// which can better constrain the finite field.
+/// Constrains:
+/// `a_lo - b_lo = c_lo - carry_lo << 128`
+/// `a_hi - b_hi - carry_lo = c_hi - carry_hi << 128`
 impl<F: Field> OperationGadget<F> for SubGadget<F> {
     fn name(&self) -> &'static str {
         "SUB"
@@ -47,6 +54,9 @@ impl<F: Field> OperationGadget<F> for SubGadget<F> {
                 .collect();
             expr_from_u16s(&u16s)
         };
+        // For result c, we need to impose range constraints on it.
+        // As for the input, we have already imposed range constraints elsewhere,
+        // so there is no need to build range constraints again.
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
         for i in 0..2 {
             let hi_or_lo = if i == 0 { "hi" } else { "lo" };
@@ -59,6 +69,8 @@ impl<F: Field> OperationGadget<F> for SubGadget<F> {
                 format!("carry_{} is bool", hi_or_lo),
                 carry[i].clone() * (1.expr() - carry[i].clone()),
             ));
+            // last_overflow == carry,
+            // when i == 0, last_overflow == 0
             constraints.push((
                 format!(
                     "sub a_{0} + carry_{0} * 2^128 - last_overflow = b_{0} + c_{0}",
@@ -73,6 +85,17 @@ impl<F: Field> OperationGadget<F> for SubGadget<F> {
         constraints
     }
 }
+
+/// Sub arithmetic witness rows. (Tag::SUB)
+/// +-----+---------+---------+----------+----------+-----------+
+/// | cnt | op_0_hi | op_0_lo | op_1_hi  | op_1_lo  | u16s      |
+/// +-----+---------+---------+----------+----------+-----------+
+/// | 1   | c_hi    | c_lo    | carry_hi | carry_lo | c_lo_u16s |
+/// | 0   | a_hi    | a_lo    | b_hi     | b_lo     | c_hi_u16s |
+/// +-----+---------+---------+----------+----------+-----------+
+
+/// Generate the witness and return operation result
+/// It is called during core circuit's gen_witness
 
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness
@@ -138,6 +161,9 @@ mod test {
     use eth_types::U256;
     #[test]
     fn test_gen_witness_sub() {
+        // test gen_witness and `a-b=c`,
+        // check whether the returned results are as expected,
+        // and print witness to see whether the grid is allocated correctly.
         let a = u128::MAX.into();
         let b = 3.into();
         let (arithmetic, result) = gen_witness(vec![a, b]);
@@ -165,6 +191,9 @@ mod test {
     }
     #[test]
     fn test_gen_witness_lt() {
+        // test gen_witness and `a<b`,
+        // check whether the returned results are as expected,
+        // and print witness to see whether the grid is allocated correctly.
         let a = 3.into();
         let b = u128::MAX.into();
         let (arithmetic, result) = gen_witness(vec![a, b]);
@@ -193,6 +222,9 @@ mod test {
     }
     #[test]
     fn test_gen_witness_gt() {
+        // test gen_witness and `a>b`,
+        // check whether the returned results are as expected,
+        // and print witness to see whether the grid is allocated correctly.
         let a = u128::MAX.into();
         let b = 3.into();
         let (arithmetic, result) = gen_witness(vec![b, a]);
