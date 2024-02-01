@@ -14,6 +14,23 @@ use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
 
+/// BeginBlock 在区块执行结束后运行，记录一些结束状态与其它电路进行约束。
+/// 记录state电路的使用的行数、以及log 的数量
+///
+///
+/// END_BLOCK Execution State layout is as follows.
+/// PUBLIC means lookup log_num from core circuit to public circuit,
+/// TAG is END_PADDING flag to identify endding.
+/// CNT is the num of state row that has been used.
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// +---+-------+-------+-------+----------+
+/// | 2 |       |       ｜       | PUBLIC  ｜
+/// | 1 |TAG|CNT|                  |
+/// | 0 | DYNA_SELECTOR   | AUX            |
 pub struct EndBlockGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -43,6 +60,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_next = meta.query_advice(config.pc, Rotation::next());
+        // 对辅助列进行约束，如stack_pointer、stamp等；
         let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
@@ -52,9 +70,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             log_stamp,
             ..
         } = config.get_auxiliary();
+        // 获取当前stamp值，与core电路中记录的state状态进行约束
         let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
         let (state_circuit_tag, cnt) =
             extract_lookup_expression!(cnt, config.get_stamp_cnt_lookup(meta));
+        // 获取当前log值，与core电路中记录的public状态进行约束
         let last_log_stamp = meta.query_advice(log_stamp, Rotation::cur());
         let (public_tag, _, [public_log_num_in_block, _, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta));
@@ -94,6 +114,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // 从core电路中读取state使用的行和public内容，分别与state电路和public电路进行lookup
         let stamp_cnt_lookup = query_expression(meta, |meta| config.get_stamp_cnt_lookup(meta));
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
         vec![
@@ -103,6 +124,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // core电路中记录区块中log的数量，写入core_row_2行
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
         core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockLogNum));
 
@@ -113,9 +135,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
 
+        // 记录总共使用的状态state状态行数
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_stamp_cnt_lookups(cnt);
 
+        // core电路写入 执行标识
         let core_row_0 = ExecutionState::END_BLOCK.into_exec_state_core_row(
             trace,
             current_state,

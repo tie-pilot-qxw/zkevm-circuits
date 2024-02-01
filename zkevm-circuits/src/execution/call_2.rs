@@ -17,6 +17,12 @@ pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 2;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
 
+/// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
+/// call_2读取value操作数；
+/// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
+///
+///
 /// Call2 is the second step of opcode CALL
 /// Algorithm overview:
 /// 1. read value from stack (temporarily not popped)
@@ -66,19 +72,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
-        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
+            // 读取value，记录call_id对应的value 两次操作，所以stamp delta=2
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            // 未进行出栈操作，约束当前stack pointer与上个gadget相同
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
-
+        // append auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
             if i == 0 {
+                // 约束填入core电路的value 状态值
                 constraints.append(&mut config.get_stack_constraints(
                     meta,
                     entry.clone(),
@@ -102,6 +110,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
         // append constraints for state_lookup's values
+        // 因为两个state 状态记录的都是value操作数，所以两个操作数的高、低位都相同
         constraints.extend([
             (
                 "value equal hi".into(),
@@ -120,9 +129,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stamp_init_for_next_gadget - state_stamp_init,
         )]);
         // append core single purpose constraints
-        let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome {
-            ..Default::default()
-        };
+        let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // prev execution state is CALL_1
@@ -142,6 +149,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // 获取core电路value值，与state电路lookup
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let call_context_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
 
@@ -151,7 +159,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        //generate stack read row
+        // 读取CALL指令的操作数 value（Note：非弹出栈操作）
         let (stack_read_row, value) = current_state.get_peek_stack_row_value(trace, 3);
         //generate stack write row
         let call_context_write_row = current_state.get_call_context_write_row(
@@ -171,7 +179,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        let stamp_init = current_state.call_id_new - 1; // here we use the property that call_id_new == state_stamp + 1, where state_stamp is the stamp just before call operation is executed (instead of before the call_2 gadget).
+        // here we use the property that call_id_new == state_stamp + 1,
+        // where stamp_init is the stamp just before call operation is
+        // executed (instead of before the call_2 gadget).
+        let stamp_init = current_state.call_id_new - 1;
         assign_or_panic!(core_row_0.vers_27, stamp_init.into());
         Witness {
             core: vec![core_row_1, core_row_0],

@@ -16,6 +16,8 @@ use std::marker::PhantomData;
 pub(crate) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
 
+/// 当evm 操作码为 STOP、REVERT、RETURN时，先执行对应的指令的gadget，
+/// 再执行END_CALL gadget，进行父状态的恢复
 /// EndCall recovers the current state from the callee to the caller.
 /// More precisely, it reads parent_call_id, parent_pc, parent_stack_pointer and parent_code_addr
 /// from call_context, and constraint the next state's call_id, pc and code_addr
@@ -74,17 +76,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let mut constraints: Vec<(String, Expression<F>)> = vec![];
-        // append call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
-
+            // 约束写入的4个父状态
             constraints.append(
                 &mut config.get_call_context_constraints(
                     meta,
                     entry.clone(),
                     i,
                     NUM_ROW,
+                    // 4个状态都非写入操作，因此为false
                     false,
                     if i == 0 {
                         state::CallContextTag::ParentCallId as u8
@@ -99,11 +101,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     call_id_cur.expr(),
                 ),
             );
-
+            // 记录每个state row的值
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
+        // 从state row的操作数中提取4个父状态
         let parent_call_id = operands[0][1].clone();
         let parent_pc = operands[1][1].clone();
         let parent_stack_pointer = operands[2][1].clone();
@@ -112,9 +114,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            // stack_pointer will recover to parent_stack_pointer if parent_call_id != 0
             stack_pointer: ExpressionOutcome::Delta(
                 parent_call_id.clone() * (parent_stack_pointer - stack_pointer_prev),
-            ), // stack_pointer will recover to parent_stack_pointer if parent_call_id != 0
+            ),
             ..Default::default()
         };
 
@@ -133,7 +136,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "returndata_size_for_next_gadget is correct".into(),
             returndata_size_for_next_gadget - returndata_size,
         )]);
-        // append core single purpose constraints
+        // 非root call时约束call_id，pc，code_addr 为父状态，因为CALL调用结束后恢复
+        // 这些状态至父状态； tx_id不变，因为此时还处于一个执行过程中；
+        // 如：当call 为root call时，下一个状态为END_TX，否则为CALL_5
         let core_single_delta = CoreSinglePurposeOutcome {
             call_id: ExpressionOutcome::To(parent_call_id.clone()),
             pc: ExpressionOutcome::To(parent_pc),
@@ -169,11 +174,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 vec![ExecutionState::RETURN_REVERT, ExecutionState::STOP],
                 NUM_ROW,
                 vec![
+                    // 当为root call时，约束接下来的状态为END_TX(交易执行结束)
                     (
                         ExecutionState::END_TX,
                         end_tx::NUM_ROW,
                         Some(parent_call_id_is_zero.expr()),
                     ),
+                    // 当为一笔交易的中间合约调用，非root call时，约束下一个状态为CALL_5
+                    // CALL_5处理CALL调用的执行结果以及对应的栈上操作数清理
                     (
                         ExecutionState::CALL_5,
                         call_5::NUM_ROW,
@@ -190,6 +198,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // lookup 当前对应的4个父调用的状态是否一致
+        // src: core circuit;  dst: state circuit
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let call_context_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
@@ -214,8 +224,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]
     }
+
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        //generate call_context read rows
+        // 生成当前CALL对应的parent状态，便于CALL调用结束后恢复
+        // （parent_callid, parent_pc, parent_stack_pointer, parent_contract_addr）
         let call_context_read_row_0 = current_state.get_call_context_read_row_with_arbitrary_tag(
             state::CallContextTag::ParentCallId,
             current_state.parent_call_id[&current_state.call_id].into(),
@@ -237,14 +249,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id,
         );
 
-        //update stack_pointer
+        // 当前CALL非 root call时(即交易中的第一次合约调用)，call调用结束后，
+        // 恢复stack_pointer至它的父状态; root call时整个交易结束，因此不用恢复
         if current_state.parent_call_id[&current_state.call_id] != 0 {
             current_state.stack_pointer =
                 current_state.parent_stack_pointer[&current_state.call_id];
         }
-        //generate core rows
+        // 注意，core_row_1/2 此时辅助列的 stack_pointer为父调用的栈帧
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         // insert lookup: Core ---> State
+        // 将上面生成的当前Call对应的4个父状态写入core_row_1
         core_row_1.insert_state_lookups([
             &call_context_read_row_0,
             &call_context_read_row_1,
@@ -259,9 +273,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         // assign success, parent_call_id_inv and returndata_size
+        // success为当前Call的执行结果
+        // returndata_size为当前Call执行后返回的数据字节
+        // parent_call_id_inv为父调用的CALLID，与parent_call_id结合使用SimpleZero，在约束
+        // 时判断当前的调用是否为root call，为root call时，parent_call_id_inv与parent_call_id=0
         let success = U256::from(1);
         assign_or_panic!(core_row_0.vers_27, success);
-
         let parent_call_id_inv = U256::from_little_endian(
             F::from_u128(current_state.parent_call_id[&current_state.call_id] as u128)
                 .invert()
@@ -270,10 +287,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .as_ref(),
         );
         assign_or_panic!(core_row_0.vers_28, parent_call_id_inv);
-
         assign_or_panic!(core_row_0.vers_29, current_state.returndata_size);
 
-        //update code_addr and call_id
+        // CALL调用结束后，非root call时恢复code_addr，call_id为父调用状态
         if current_state.parent_call_id[&current_state.call_id] != 0 {
             current_state.code_addr = current_state.parent_code_addr[&current_state.call_id];
             current_state.call_id = current_state.parent_call_id[&current_state.call_id];

@@ -51,22 +51,39 @@ pub struct Witness {
 
 pub struct WitnessExecHelper {
     pub stack_pointer: usize,
+    // 存储CALL指令的父环境stack_pointer值，如在CALL调用中，key==即将执行的CALL_ID，value=父环境的stack_pointer值
+    // 每次执行新的CALL，stack_pointer会重置为0.
     pub parent_stack_pointer: HashMap<u64, usize>,
+    // 记录CALL对应的calldata；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应的calldata
     pub call_data: HashMap<u64, Vec<u8>>,
+    // 记录CALL对应的calldata大小；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应操作数args_length，
+    // 也是执行的CALL指令的calldata size
     pub call_data_size: HashMap<u64, U256>,
     pub return_data: HashMap<u64, Vec<u8>>,
+    // 记录CALL对应的eth金额；如在CALL调用中，key=即将执行的CALL_ID，value=该CALL对应的eth amount
     pub value: HashMap<u64, U256>,
+    // 存储调用方地址；如在CALL调用中，key=即将执行的CALL_ID，value=执行该CALL指令的调用方合约地址
     pub sender: HashMap<u64, U256>,
+    // 当前交易在区块的索引，Note：从1开始
     pub tx_idx: usize,
+    // 区块内交易的数量
     pub tx_num_in_block: usize,
+    // 正在执行的call_id
     pub call_id: u64,
+    // 下一个即将执行的call id；如在执行evm CALL指令时，将生成的新call id赋值该字段，
+    // 用于进行上下文数据的存储（call_id，storage_contract_addr），方便调用结束后
+    // 恢复调用方状态
     pub call_id_new: u64,
+    // 存储CALL指令的父环境CALL_ID，如在CALL调用中，key=即将执行的CALL_ID，value=父环境的CALL_ID
     pub parent_call_id: HashMap<u64, u64>,
     pub returndata_call_id: u64,
     pub returndata_size: U256,
     pub return_success: bool,
+    // 正在执行的合约地址
     pub code_addr: U256,
+    // 存储父合约地址；如在CALL调用中，key=即将执行的CALL_ID，value=执行该CALL指令的调用方合约地址
     pub parent_code_addr: HashMap<u64, U256>,
+    // 存储执行的合约地址，与sender字段相反；如在CALL调用中，key=即将执行的CALL_ID，value=CALL指令将执行的合约地址
     pub storage_contract_addr: HashMap<u64, U256>,
     pub state_stamp: u64,
     pub log_stamp: u64,
@@ -81,6 +98,7 @@ pub struct WitnessExecHelper {
     // used to temporarily store the results of sar1 calculations for use by sar2 (shr result and sign bit)
     pub sar: Option<(U256, U256)>,
     pub tx_value: U256,
+    // 存储CALL指令的父环境PC值，如在CALL调用中，key==即将执行的CALL_ID，value=父环境的PC值
     pub parent_pc: HashMap<u64, u64>,
 }
 
@@ -956,7 +974,8 @@ impl WitnessExecHelper {
                 len: args_len.into(),
                 acc,
             });
-            // it's guaranteed by Ethereum that src + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L67
+            // it's guaranteed by Ethereum that src + i doesn't overflow,
+            // reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L67
             state_rows.push(self.get_memory_read_row(trace, src + i));
         }
 

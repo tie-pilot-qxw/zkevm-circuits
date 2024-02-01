@@ -20,17 +20,25 @@ pub struct BeginTx1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
+/// 每个交易初始阶段先执行BeginTx_1/2 gadget，设置一些辅助的状态变量
+/// Begin_tx_1/2 非EVM Opcode指令，是zkEVM电路中内置的工具；
+/// Begin_tx_1 负责设置将执行交易的tx_id和root call的call_id，
+/// 记录交易的to地址或新建合约地址以及交易的calldata size，并设置
+/// 父状态的地址和callid为0，标识为root call
+///
+///  
 /// BeginTx1 Execution State layout is as follows
 /// where STATE means state table lookup for writing call context,
 /// COPY means copy table lookup,
 /// PUBLIC means public table lookup (origin from col 26),
+/// calldatasize_inv inverse of the calldata size in tx.
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
-/// | 2 | COPY   |               | PUBLIC  |
+/// | 2 | COPY   | calldatasize_inv| PUBLIC  |
 /// | 1 | STATE | STATE | STATE | STATE    |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -63,20 +71,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
         let delta = AuxiliaryOutcome {
+            // 记录了4个状态(to地址，calldata size, 父环境的code_addr和call_id)和
+            // 从public calldata区域拷贝copy size大小的数据
             state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
-        let delta = CoreSinglePurposeOutcome {
-            ..Default::default()
-        };
+        // 约束pc, tx_idx, call_id, code_addr为0
+        // todo. 需要讨论，当一个块内包含多笔交易时，此时应该采用ExpressionOutcome::To约束状态为指定的值
+        // 如pc=0因为新交易刚准备执行
+        let delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         // pc constraint
+        // todo. maybe deleted due to previous has constraint
         let pc = meta.query_advice(config.pc, Rotation::cur());
         constraints.extend([("pc == 0".into(), pc)]);
-        // call_id constraint for current
+        // call_id constraint for current = prev_state_stamp+1
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
@@ -115,7 +127,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ],
         ));
 
-        // calldata size constraint
+        // 读取calldata size状态，因为128bit足以标识其大小，所以在get_copy_constraints仅约束value_lo
         let (_, _, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
@@ -137,27 +149,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             copy,
         ));
+        // 约束calldata size记录的高128bit为0
         constraints.push(("calldata size value_hi=0".into(), value_hi));
 
+        // 获取4个state状态的操作数
         let mut operands = vec![];
         for i in 0..4 {
             let (_, _, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, config.get_state_lookup(meta, i));
             operands.push([value_hi, value_lo]);
         }
-        // constraint parent call_id = 0
+        // 因为为root call，所以约束parent call_id = 0
         constraints.extend([
             ("parent call_id hi=0".into(), operands[2][0].clone()),
             ("parent call_id lo=0".into(), operands[2][1].clone()),
         ]);
 
-        // constraint parent code_addr = 0
+        // 因为为root call，所以约束parent code_addr = 0
         constraints.extend([
             ("parent code_addr hi=0".into(), operands[3][0].clone()),
             ("parent code_addr lo=0".into(), operands[3][1].clone()),
         ]);
 
-        //constraint public lookup
+        //约束public entry 与state entry记录的calldata size和code_addr状态一致
         let public_entry = config.get_public_lookup(meta);
         config.get_public_constraints(
             meta,
@@ -165,10 +179,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (public::Tag::TxToCallDataSize as u8).expr(),
             Some(tx_id),
             [
-                Some(operands[0][0].clone()), // constraint storage_contract_addr hi == tx.to hi
-                Some(operands[0][1].clone()), // constraint storage_contract_addr lo == tx.to lo
-                Some(operands[1][0].clone()), // constraint calldata_size hi == 0
-                Some(operands[1][1].clone()), // constraint calldata_size lo == tx.input.len
+                // constraint storage_contract_addr hi == tx.to hi
+                Some(operands[0][0].clone()),
+                // constraint storage_contract_addr lo == tx.to lo
+                Some(operands[0][1].clone()),
+                // constraint calldata_size hi == 0
+                Some(operands[1][0].clone()),
+                // constraint calldata_size lo == tx.input.len
+                Some(operands[1][1].clone()),
             ],
         );
 
@@ -178,6 +196,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(
                 vec![],
                 NUM_ROW,
+                // 约束下一个状态为begin_tx_2
                 vec![(ExecutionState::BEGIN_TX_2, begin_tx_2::NUM_ROW, None)],
             ),
         ));
@@ -189,11 +208,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // 从core电路的 core_row_1行中获取4个state 数据，与state电路进行lookup
         let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
+        // 从core电路的 core_row_2行获取copy数据，core电路与copy电路lookup
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        // 从core电路的 core_row_2行获取public数据，core电路与public电路lookup
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
 
         vec![
@@ -209,15 +231,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let call_id = current_state.state_stamp + 1;
         // update call_id and tx_idx due to will be accessed in get_write_call_context_row
+        // 设置将执行交易的call_id和tx_idx；Note：tx_idx从1开始
         current_state.call_id = call_id;
         current_state.tx_idx += 1;
 
+        // 记录交易的to地址或 创建合约交易新创建的合约地址
         let addr = current_state.code_addr;
         let write_addr_row = current_state.get_write_call_context_row(
             Some((addr >> 128).as_u128().into()),
             Some(addr.low_u128().into()),
             CallContextTag::StorageContractAddr,
         );
+        // 记录交易的calldata size
         let calldata_size = current_state
             .call_data
             .get(&call_id)
@@ -228,27 +253,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some(calldata_size.into()),
             CallContextTag::CallDataSize,
         );
+        // 记录当前的call_id的父调用为0，标识它为root call
         current_state
             .parent_call_id
-            .insert(current_state.call_id, 0); // update current_state's parent_call_id
+            .insert(current_state.call_id, 0);
         let write_parent_call_id_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
             CallContextTag::ParentCallId,
         );
+        // 记录当前的call_id的父合约地址为0，标识它为root call
         current_state
             .parent_code_addr
-            .insert(current_state.call_id, 0.into()); // update current_state's parent_code_addr
+            .insert(current_state.call_id, 0.into());
         let write_parent_code_addr_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
             CallContextTag::ParentCodeContractAddr,
         );
+        // 从交易的calldata区域copy数据至root call的calldata
         let (copy_rows, state_rows_from_copy) = if calldata_size > 0 {
             current_state.get_load_calldata_copy_rows::<F>()
         } else {
             (vec![], vec![])
         };
+        // 生成core_row_2，写入copy的数据
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if calldata_size > 0 {
             core_row_2.insert_copy_lookup(0, copy_rows.first().unwrap());
@@ -273,14 +302,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             );
         }
 
+        // core_row_2写入calldata size的相反数，用于在约束时判断长度为0的情况
         let len_lo = F::from_u128(calldata_size as u128);
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         assign_or_panic!(core_row_2.vers_11, len_lo_inv);
 
+        // core_row_2写入交易的calldata size和to 地址，与public电路lookup
         let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize);
         core_row_2.insert_public_lookup(&public_row);
 
+        // core_row_1写入交易的4个状态（to地址或创建的合约地址，交易的calldata_size，父call_id和code_addr）
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &write_addr_row,

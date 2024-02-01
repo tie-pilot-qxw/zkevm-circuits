@@ -17,6 +17,12 @@ pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
 
+/// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
+/// call_3负责存储call的父调用环境，不读取任何CALL指令操作数；
+/// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
+///
+///
 /// Call3 is the third step of opcode CALL
 /// Algorithm overview:
 ///     1. set call_context's parent_call_id = current call_id
@@ -70,26 +76,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         let stack_pointer_prev = meta.query_advice(
             stack_pointer,
-            Rotation(-1 * NUM_ROW as i32), // call_1 and call_2 don't change the stack_pointer value, so stack_pointer of the last gadget equals to the stack_pointer just before the call operation.
+            // call_1 and call_2 don't change the stack_pointer value, so stack_pointer
+            // of the last gadget equals to the stack_pointer just before the call operation.
+            Rotation(-1 * NUM_ROW as i32),
         );
         let call_id_new = state_stamp_init.clone() + 1.expr();
         let stamp_init_for_next_gadget = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
-        // append auxiliary constraints
         let delta = AuxiliaryOutcome {
+            // 记录父环境的4个状态，所以stamp delta=4
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            // 因为call_3未进行操作数出栈，所以stack pointer delta=0
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
-
+        // append auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // append call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
+            // 约束填入core电路的state 状态值
             let entry = config.get_state_lookup(meta, i);
-
             constraints.append(
                 &mut config.get_call_context_constraints(
                     meta,
@@ -116,24 +125,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         // append constraints for state lookup's values
         constraints.extend([
+            // 父环境的call_id, pc, stack_pointer低128bit足以标识，
+            // 约束高128bit为0
             ("ParentCallId write hi".into(), operands[0][0].clone()),
             (
                 "ParentProgramCounter write hi".into(),
                 operands[1][0].clone(),
             ),
             ("ParentStackPointer write hi".into(), operands[2][0].clone()),
+            // 约束父环境的call_id正确性，此时仍处于父执行环境中，所以等于call_id_cur
             (
                 "ParentCallId write lo".into(),
                 operands[0][1].clone() - call_id_cur,
             ),
+            // 约束父环境的pc正确性，此时仍处于父执行环境中，所以等于pc
             (
                 "ParentProgramCounter write lo".into(),
                 operands[1][1].clone() - pc,
             ),
+            // 约束父环境的stack_pointer正确性，因为未进行出栈操作，所以与上个gadget相等
             (
                 "ParentStackPointer write lo".into(),
                 operands[2][1].clone() - stack_pointer_prev,
             ),
+            // 约束父环境的contract addr正确性，此时仍处于父执行环境中，所以等于code_addr
             (
                 "ParentCodeContractAddr write".into(),
                 operands[3][0].clone() * pow_of_two::<F>(128) + operands[3][1].clone() - code_addr,
@@ -147,9 +162,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stamp_init_for_next_gadget - state_stamp_init,
         )]);
         // append core single purpose constraints
-        let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome {
-            ..Default::default()
-        };
+        let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // prev state is CALL_2, next state is CALL_4
@@ -163,11 +176,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
         constraints
     }
+
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // 获取core电路父环境的值（callid, pc, stack_pointer, contract_addr），
+        // 与state电路lookup
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let call_context_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
@@ -181,22 +197,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        //generate call_context rows
+        // 存储CALL指令父环境的call_id
         let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentCallId,
             current_state.call_id.into(),
             current_state.call_id_new,
         );
+        // 存储CALL指令父环境的pc值
         let call_context_write_row_1 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentProgramCounter,
             trace.pc.into(),
             current_state.call_id_new,
         );
+        // 存储CALL指令父环境的stack_pointer值
         let call_context_write_row_2 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentStackPointer,
             current_state.stack_pointer.into(),
             current_state.call_id_new,
         );
+        // 存储CALL指令父环境的合约地址
         let call_context_write_row_3 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentCodeContractAddr,
             current_state.code_addr.into(),
@@ -204,6 +223,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         //update current_state's parent_call_id, parent_pc, parent_stack_pointer and parent_code_addr
+        // 记录将被执行的CALL对应的父环境状态，便于CALL指令执行完毕后恢复父执行环境
         current_state
             .parent_call_id
             .insert(current_state.call_id_new, current_state.call_id);
@@ -231,7 +251,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        // here we use the property that call_id_new == state_stamp + 1, where state_stamp is the stamp just before call operation is executed (instead of before the call_3 gadget).
+        // here we use the property that call_id_new == state_stamp + 1, where state_stamp is
+        // the stamp just before call operation is executed (instead of before the call_3 gadget).
         let stamp_init = current_state.call_id_new - 1;
         assign_or_panic!(core_row_0.vers_27, stamp_init.into());
         Witness {
