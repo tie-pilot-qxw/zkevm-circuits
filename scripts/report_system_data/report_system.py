@@ -30,8 +30,11 @@ def load_stats(file):
     try:
         with open(file, 'r') as filedata:
             filedatalist = [i for i in filedata.read().splitlines()]
-            header = [i for i in filedatalist if 'LINUX-RESTART' in i][0]
-            cpus = header.split('(')[1].split()[0]
+            headers = [i for i in filedatalist if 'LINUX-RESTART' in i]
+            if len(headers) == 0:
+                cpus = 0
+            else:
+                cpus = headers[0].split('(')[1].split()[0]
             cpudatalist = [i for i in filedatalist if 'LINUX-RESTART' not in i]
             columns = cpudatalist[0].split(';')
             cpudatalist = [i for i in cpudatalist if 'hostname' not in i]

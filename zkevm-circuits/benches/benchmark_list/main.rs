@@ -24,9 +24,20 @@ use zkevm_circuits::witness::Witness;
 
 // environment variables key
 const CMD_ENV_ROUND: &str = "ROUND";
-
 // default bench round
 const DEFAULT_BENCH_ROUND: usize = 3;
+// circuit summary prefix, degree, max_num_row, round
+const CIRCUIT_SUMMARY: &str = "[Circuit summary]";
+// generate witness , gw
+const GENERATE_WITNESS: &str = "[Generate witness]";
+// create circuit ,cc
+const CREATE_CIRCUIT: &str = "[Create circuit]";
+// setup generation ,sg
+const SETUP_GENERATION: &str = "[Setup generation]";
+// create proof ,cp
+const CREATE_PROOF: &str = "[Create_proof]";
+// verify proof , vp
+const VERIFY_PROOF: &str = "[Verify proof]";
 
 pub fn run_benchmark<const MAX_NUM_ROW_FOR_BENCH: usize, const MAX_CODESIZE_FOR_BENCH: usize>(
     id: &str,
@@ -34,33 +45,33 @@ pub fn run_benchmark<const MAX_NUM_ROW_FOR_BENCH: usize, const MAX_CODESIZE_FOR_
     degree: u32,
     default_bench_round: usize,
 ) {
-    println!(
-        "id:{}, max_num_row:{}, max_code_size:{}",
-        id, MAX_NUM_ROW_FOR_BENCH, MAX_CODESIZE_FOR_BENCH
-    );
-
     // get round from environment variables
     let round_val_str = env::var(CMD_ENV_ROUND).unwrap_or_else(|_| "".to_string());
     let bench_round: usize = round_val_str
         .parse()
         .unwrap_or_else(|_| default_bench_round);
-
-    #[cfg(feature = "benches")]
     println!(
-        "--------start {} benchmark, round:{}--------",
-        id, bench_round
+        "{}/id:{}, max_num_row:{}, max_code_size:{}, degree:{}, round:{}",
+        CIRCUIT_SUMMARY, id, MAX_NUM_ROW_FOR_BENCH, MAX_CODESIZE_FOR_BENCH, degree, bench_round
     );
+
     #[cfg(not(feature = "benches"))]
     println!("--------start {} benchmark--------", id);
 
     // get witness for benchmark
-    let witness_msg = format!("{}/Generate witness of one transaction's trace", id);
+    let witness_msg = format!(
+        "{}/{}/Generate witness of one transaction's trace.",
+        GENERATE_WITNESS, id
+    );
     let witness_start = start_timer!(|| witness_msg);
     let witness = Witness::new(&geth_data);
     end_timer!(witness_start);
 
     // Create a circuit
-    let circuit_msg = format!("{}/Create a new SubCircuit from witness", id);
+    let circuit_msg = format!(
+        "{}/{}/Create a new SubCircuit from witness.",
+        CREATE_CIRCUIT, id
+    );
     let circuit_start = start_timer!(|| circuit_msg);
     let circuit: SuperCircuit<
         Fr,
@@ -81,7 +92,10 @@ pub fn run_benchmark<const MAX_NUM_ROW_FOR_BENCH: usize, const MAX_CODESIZE_FOR_
     let instance_refs: Vec<&[Fr]> = instance.iter().map(|v| &v[..]).collect();
 
     // Bench setup generation
-    let setup_msg = format!("{}/Setup with degree = {}", id, degree);
+    let setup_msg = format!(
+        "{}/{}/Setup with degree = {} ",
+        SETUP_GENERATION, id, degree
+    );
     let setup_start = start_timer!(|| setup_msg);
     let mut rng = ChaChaRng::seed_from_u64(2);
     let general_params = ParamsKZG::<Bn256>::setup(degree, &mut rng);
@@ -110,7 +124,7 @@ pub fn run_benchmark<const MAX_NUM_ROW_FOR_BENCH: usize, const MAX_CODESIZE_FOR_
         let pk = pk.clone();
 
         // Create a proof
-        let proof_msg = format!("{}/Create proof", id);
+        let proof_msg = format!("{}/{}/Create proof", CREATE_PROOF, id);
         let proof_start = start_timer!(|| proof_msg);
 
         let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
@@ -142,7 +156,7 @@ pub fn run_benchmark<const MAX_NUM_ROW_FOR_BENCH: usize, const MAX_CODESIZE_FOR_
         println!("{}/Proof length: {}", id, proof.len());
 
         // Verify the proof
-        let verify_msg = format!("{}/Verify proof", id);
+        let verify_msg = format!("{}/{}/Verify proof", VERIFY_PROOF, id);
         let verify_start = start_timer!(|| verify_msg);
         let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
         let strategy = SingleStrategy::new(&general_params);
@@ -165,40 +179,42 @@ pub fn run_benchmark<const MAX_NUM_ROW_FOR_BENCH: usize, const MAX_CODESIZE_FOR_
     }
 
     #[cfg(feature = "benches")]
-    for i in 0..bench_round {
-        let circuit = circuit.clone();
-        let rng = rng.clone();
-        let general_params = general_params.clone();
-        let pk = pk.clone();
+    {
+        for i in 0..bench_round {
+            let circuit = circuit.clone();
+            let rng = rng.clone();
+            let general_params = general_params.clone();
+            let pk = pk.clone();
 
-        // Create a proof
-        let proof_msg = format!("{}/Round {} of {}: Create proof", id, i + 1, bench_round);
-        let proof_start = start_timer!(|| proof_msg);
-        let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
-        create_proof::<
-            KZGCommitmentScheme<Bn256>,
-            ProverSHPLONK<'_, Bn256>,
-            Challenge255<G1Affine>,
-            ChaChaRng,
-            Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
-            SuperCircuit<
-                _,
-                MAX_NUM_ROW_FOR_BENCH,
-                MAX_CODESIZE_FOR_BENCH,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            >,
-        >(
-            &general_params,
-            &pk,
-            &[circuit],
-            &[&instance_refs],
-            rng,
-            &mut transcript,
-        )
-        .expect(format!("{}/proof generation should not fail", id).as_str());
+            // Create a proof
+            let proof_msg = format!("{}/Round {} of {}: Create proof", id, i + 1, bench_round);
+            let proof_start = start_timer!(|| proof_msg);
+            let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
+            create_proof::<
+                KZGCommitmentScheme<Bn256>,
+                ProverSHPLONK<'_, Bn256>,
+                Challenge255<G1Affine>,
+                ChaChaRng,
+                Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
+                SuperCircuit<
+                    _,
+                    MAX_NUM_ROW_FOR_BENCH,
+                    MAX_CODESIZE_FOR_BENCH,
+                    NUM_STATE_HI_COL,
+                    NUM_STATE_LO_COL,
+                >,
+            >(
+                &general_params,
+                &pk,
+                &[circuit],
+                &[&instance_refs],
+                rng,
+                &mut transcript,
+            )
+            .expect(format!("{}/proof generation should not fail", id).as_str());
 
-        end_timer!(proof_start);
+            end_timer!(proof_start);
+        }
     }
 
     println!("--------{} benchmark over --------", id);
