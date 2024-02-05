@@ -28,9 +28,9 @@ genco = { version = "0.17", optional = true }
 convert_case = { version = "0.6", optional = true }
 proc-macro2 = { optional = true }                              #version = "=1.0.55",
 csv2html = { path = "../csv2html" }
+ark-std = { version = "0.3", features = ["print-trace"] }
 
 [dev-dependencies]
-criterion = "0.4.0"
 hex = "0.4.3"
 
 [features]
@@ -41,14 +41,7 @@ k_9 = []
 no_fixed_lookup = []
 no_lookup_merge = []
 fast_test = ["k_9", "no_fixed_lookup"]
-
-[[bench]]
-name = "super_circuit"
-harness = false
-
-[[bench]]
-name = "call_trace"
-harness = false
+benches = []
 
 
 # Definition of benchmarks profile to use.

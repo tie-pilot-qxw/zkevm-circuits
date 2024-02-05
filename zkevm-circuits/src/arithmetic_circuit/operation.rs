@@ -4,6 +4,7 @@ pub(crate) mod div_mod;
 pub(crate) mod length;
 pub(crate) mod mul;
 pub(crate) mod mulmod;
+pub(crate) mod sdiv_smod;
 pub(crate) mod slt_sgt;
 pub(crate) mod sub;
 pub(crate) mod u64overflow;
@@ -14,6 +15,12 @@ use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::util::{expr_from_u16s, split_u256_hi_lo, split_u256_limb64};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
+
+pub(crate) const SLTSGTRHS: u64 = 2 << 14;
+
+///The maximum value of a 16-bit signed positive number
+pub(crate) const S_MAX: u64 = (2 << 14) - 1;
+pub(crate) const SLT_N_BYTES: usize = 2;
 
 /// Get all operation gadgets by using this
 macro_rules! get_every_operation_gadgets {
@@ -27,6 +34,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::length::new(),
             crate::arithmetic_circuit::operation::mulmod::new(),
             crate::arithmetic_circuit::operation::u64overflow::new(),
+            crate::arithmetic_circuit::operation::sdiv_smod::new(),
         ]
     }};
 }

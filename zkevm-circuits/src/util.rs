@@ -152,9 +152,10 @@ pub fn create_contract_addr(tx: &Transaction) -> U256 {
 
 /// Generate the code address for create-contract transaction with prefix 0xff...ff
 pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
-    let prefix: U256 = CREATE_ADDRESS_PREFIX.into();
-    let created_addr = create_contract_addr(tx);
-    prefix + created_addr
+    // let prefix: U256 = CREATE_ADDRESS_PREFIX.into();
+    // let created_addr = create_contract_addr(tx);
+    // prefix + created_addr
+    create_contract_addr(tx)
 }
 
 pub fn geth_data_test(

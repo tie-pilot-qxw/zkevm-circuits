@@ -6,3 +6,4 @@
 .idea
 **/test_data/*.html
 tests/*.html
+zkevm-circuits/*.html

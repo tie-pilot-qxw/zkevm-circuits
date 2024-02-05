@@ -242,16 +242,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_advice_or_fixed(region, offset, &row.pc, self.pc)?;
         assign_advice_or_fixed(region, offset, &row.opcode.as_u8().into(), self.opcode)?;
         assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
-        for (i, value) in [
-            &row.vers_0, &row.vers_1, &row.vers_2, &row.vers_3, &row.vers_4,
-            &row.vers_5, &row.vers_6, &row.vers_7, &row.vers_8, &row.vers_9,
-            &row.vers_10, &row.vers_11, &row.vers_12, &row.vers_13, &row.vers_14,
-            &row.vers_15, &row.vers_16, &row.vers_17, &row.vers_18, &row.vers_19,
-            &row.vers_20, &row.vers_21, &row.vers_22, &row.vers_23, &row.vers_24,
-            &row.vers_25, &row.vers_26, &row.vers_27, &row.vers_28, &row.vers_29,
-            &row.vers_30, &row.vers_31,
-        ].into_iter().enumerate() {
-            assign_advice_or_fixed(region, offset, &value.unwrap_or_default(), self.vers[i])?;
+        for i in 0 .. NUM_VERS {
+            assign_advice_or_fixed(region, offset, &row[i].unwrap_or_default(), self.vers[i])?;
         }
         cnt_is_zero.assign(
             region,
@@ -292,14 +284,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             )?;
         }
         // assign auxiliary, values are kept from the last row
-        for (i, value) in (NUM_STATE_HI_COL + NUM_STATE_LO_COL..NUM_VERS).zip(
-            [&last_row.vers_20, &last_row.vers_21, &last_row.vers_22, &last_row.vers_23, &last_row.vers_24,
-                &last_row.vers_25, &last_row.vers_26, &last_row.vers_27, &last_row.vers_28, &last_row.vers_29,
-                &last_row.vers_30, &last_row.vers_31]) {
+        for i in NUM_STATE_HI_COL + NUM_STATE_LO_COL..NUM_VERS{
             assign_advice_or_fixed(
                 region,
                 offset,
-                &value.unwrap_or_default(),
+                &last_row[i].unwrap_or_default(),
                 self.vers[i],
             )?;
         }

@@ -1,0 +1,35 @@
+deployed to addr: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+accountA balance: 180000
+    ✔ t01_deploy (214ms)
+accountA address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+accountB address: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+transfer finished
+totalSupply 180000
+accountA balance 179800
+accountB balance 200
+accountC allowance balance 0
+    ✔ t02_a_transfer_b_200
+accountA address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+accountC address: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+approve finished
+totalSupply 180000
+accountA balance 179800
+accountB balance 200
+accountC allowance balance 200
+    ✔ t03_a_approve_c_200
+accountA address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+accountB address: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+accountC address: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+transfer finished
+totalSupply 180000
+accountA balance 179600
+accountB balance 400
+accountC allowance balance 0
+    ✔ t04_c_transfer_from_a_b_200
+accountA address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+accountB address: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+accountC address: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+accountA balance 179600
+accountB balance 400
+accountC allowance balance 0
+    ✔ token_balance

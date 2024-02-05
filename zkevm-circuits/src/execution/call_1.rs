@@ -261,14 +261,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // core_row_1 写入3个状态的数据和args_len的相反数
         core_row_1.insert_state_lookups([&stack_read_0, &stack_read_1, &call_context_write_row]);
         // calculate and assign len_inv
-        let len_lo_inv = U256::from_little_endian(
-            F::from_u128(args_len.low_u128())
-                .invert()
-                .unwrap_or(F::ZERO)
-                .to_repr()
-                .as_ref(),
-        );
-        assign_or_panic!(core_row_1.vers_24, len_lo_inv);
+        let len_lo = F::from_u128(args_len.low_u128());
+        let len_lo_inv =
+            U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        assign_or_panic!(core_row_1[24], len_lo_inv);
 
         let mut core_row_0 = ExecutionState::CALL_1.into_exec_state_core_row(
             trace,
@@ -277,7 +273,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         // core_row_0写入stamp_init状态
-        assign_or_panic!(core_row_0.vers_27, stamp_init.into());
+        assign_or_panic!(core_row_0[27], stamp_init.into());
         state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);
         Witness {
             copy: copy_rows,
@@ -334,7 +330,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

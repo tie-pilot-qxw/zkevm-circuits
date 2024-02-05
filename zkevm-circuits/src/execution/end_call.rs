@@ -15,6 +15,7 @@ use std::marker::PhantomData;
 
 pub(crate) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
+const START_OFFSET: usize = 27;
 
 /// 当evm 操作码为 STOP、REVERT、RETURN时，先执行对应的指令的gadget，
 /// 再执行END_CALL gadget，进行父状态的恢复
@@ -278,7 +279,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // parent_call_id_inv为父调用的CALLID，与parent_call_id结合使用SimpleZero，在约束
         // 时判断当前的调用是否为root call，为root call时，parent_call_id_inv与parent_call_id=0
         let success = U256::from(1);
-        assign_or_panic!(core_row_0.vers_27, success);
         let parent_call_id_inv = U256::from_little_endian(
             F::from_u128(current_state.parent_call_id[&current_state.call_id] as u128)
                 .invert()
@@ -286,10 +286,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_0.vers_28, parent_call_id_inv);
-        assign_or_panic!(core_row_0.vers_29, current_state.returndata_size);
 
         // CALL调用结束后，非root call时恢复code_addr，call_id为父调用状态
+        let column_values = [success, parent_call_id_inv, current_state.returndata_size];
+        for i in 0..3 {
+            assign_or_panic!(core_row_0[i + START_OFFSET], column_values[i]);
+        }
+        //update code_addr and call_id
         if current_state.parent_call_id[&current_state.call_id] != 0 {
             current_state.code_addr = current_state.parent_code_addr[&current_state.call_id];
             current_state.call_id = current_state.parent_call_id[&current_state.call_id];
@@ -350,8 +353,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
-            row.vers_27 = Some(4.into()); // let the previous gadgets(return_revert or stop)'s returndata_size cell's value equals to returndata_size
+            row[21] = Some(stack_pointer.into());
+            row[27] = Some(4.into()); // let the previous gadgets(return_revert or stop)'s returndata_size cell's value equals to returndata_size
             row
         };
         let padding_end_row = |current_state| {
@@ -398,7 +401,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

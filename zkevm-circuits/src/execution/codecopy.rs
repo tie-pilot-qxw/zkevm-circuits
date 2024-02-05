@@ -55,6 +55,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -3;
+const START_OFFSET: usize = 22;
 pub struct CodecopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -269,9 +270,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_22, U256::from(code_copy_len));
-        assign_or_panic!(core_row_2.vers_23, code_copy_len_lo_inv);
-
         // calculate the multiplicative inverse of zero_length, used to determine whether zero_length is 0
         let padding_copy_len_lo = F::from(padding_len);
         let padding_copy_len_lo_inv = U256::from_little_endian(
@@ -281,9 +279,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_24, U256::from(padding_len));
-        assign_or_panic!(core_row_2.vers_25, padding_copy_len_lo_inv);
-
+        let column_values = [
+            U256::from(code_copy_len),
+            code_copy_len_lo_inv,
+            U256::from(padding_len),
+            padding_copy_len_lo_inv,
+        ];
+        for i in 0..4 {
+            assign_or_panic!(core_row_2[i + START_OFFSET], column_values[i]);
+        }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State
         core_row_1.insert_state_lookups([
@@ -375,7 +379,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

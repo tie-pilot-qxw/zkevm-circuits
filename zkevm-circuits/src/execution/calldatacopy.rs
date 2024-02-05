@@ -16,7 +16,7 @@ const NUM_ROW: usize = 3;
 const PC_DELTA: usize = 1;
 const STATE_STAMP_DELTA: usize = 3;
 const STACK_POINTER_DELTA: i32 = -3;
-
+const LEN_LO_INV_COLUMN_ID: usize = 24;
 /// CALLDATACOPY copy message data from calldata to memory in EVM.
 ///
 /// CALLDATACOPY Execution State layout is as follows
@@ -58,7 +58,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode_advice = meta.query_advice(config.opcode, Rotation::cur());
-
         // create custom gate constraints
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
@@ -77,7 +76,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 约束pc、tx_id等状态
         let delta = CoreSinglePurposeOutcome {
             // 因为pc向后移动1，该指令下同一笔交易中其它状态不变
-            pc: ExpressionOutcome::Delta(1.expr()),
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
@@ -100,14 +99,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.extend([(format!("value_high_{} = 0", i), value_hi.expr())])
         }
 
-        // 使用辅助工具标识 copy的数据长度是否为0
-        let len_lo_inv = meta.query_advice(config.vers[24], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation::prev());
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut is_zero_len.get_constraints());
-        // 对copy状态进行约束
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Calldata,
             call_id.clone(),
@@ -124,7 +121,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             copy_entry,
         ));
-        // 约束指令
         constraints.extend([(
             "opcode".into(),
             opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
@@ -171,7 +167,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (copy_rows, mut state_rows) =
             current_state.get_calldata_copy_rows::<F>(dst_offset, calldata_offset, length);
 
-        // get three core circuit and fill content to them with copy row
+        // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if length.is_zero() {
             core_row_2.insert_copy_lookup(0, &copy::Row::default());
@@ -186,7 +182,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(length.low_u128());
         let lenlo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1.vers_24 = Some(lenlo_inv);
+        core_row_1[LEN_LO_INV_COLUMN_ID] = Some(lenlo_inv);
 
         // 插入执行指令的flag
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
@@ -273,7 +269,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

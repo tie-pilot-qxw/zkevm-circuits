@@ -159,7 +159,7 @@ mod test {
     fn assign_and_constraint() {
         let stack = Stack::from_slice(&[0.into()]);
         let stack_pointer = stack.0.len();
-        let result = U256::from_big_endian([255; 32].as_ref());
+        let result = U256::MAX;
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(result),
@@ -174,7 +174,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

@@ -183,7 +183,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // where stamp_init is the stamp just before call operation is
         // executed (instead of before the call_2 gadget).
         let stamp_init = current_state.call_id_new - 1;
-        assign_or_panic!(core_row_0.vers_27, stamp_init.into());
+        assign_or_panic!(core_row_0[27], stamp_init.into());
         Witness {
             core: vec![core_row_1, core_row_0],
             state: vec![stack_read_row, call_context_write_row],
@@ -234,8 +234,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
-            row.vers_27 = Some(state_stamp_init.into());
+            row[21] = Some(stack_pointer.into());
+            row[27] = Some(state_stamp_init.into());
             row
         };
         let padding_end_row = |current_state| {

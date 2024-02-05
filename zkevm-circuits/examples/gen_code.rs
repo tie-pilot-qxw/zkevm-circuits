@@ -45,7 +45,8 @@ fn main() {
         // ("Extcodecopy", 3, 4, 0),
         // ("Swap", 2, 2, 1),
         // ("ReturnRevert", 3, 2, 0),
-        ("Exp", 2, 2, 1),
+        // ("Exp", 2, 2, 1),
+        ("SdivSmod", 3, 2, 1),
     ];
 
     let path: std::path::PathBuf = [".", "zkevm-circuits", "src", "execution_bak.txt"]
@@ -161,7 +162,7 @@ fn main() {
                         NUM_STATE_HI_COL,
                         NUM_STATE_LO_COL,
                     );
-                    row.vers_21 = Some(stack_pointer.into());
+                    row[21] = Some(stack_pointer.into());
                     row
                 };
                 let padding_end_row = |current_state| {

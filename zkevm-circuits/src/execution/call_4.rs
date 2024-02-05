@@ -202,7 +202,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // 从栈中读取gas，addr的值，Note: 未将操作数弹出栈
-        let (stack_read_0, gas) = current_state.get_peek_stack_row_value(trace, 1);
+        let (stack_read_0, _gas) = current_state.get_peek_stack_row_value(trace, 1);
         let (stack_read_1, addr) = current_state.get_peek_stack_row_value(trace, 2);
         // 将CALL调用的合约地址生成state row, 写入state电路和core电路
         let call_context_write_row_0 = current_state.get_call_context_write_row(
@@ -301,8 +301,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
-            row.vers_27 = Some(state_stamp_init.into());
+            row[21] = Some(stack_pointer.into());
+            row[27] = Some(state_stamp_init.into());
             row
         };
         let padding_end_row = |current_state| {

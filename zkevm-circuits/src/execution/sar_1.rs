@@ -6,7 +6,7 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{
-    arithmetic, assign_or_panic, exp, get_and_insert_shl_shr_rows, Witness, WitnessExecHelper,
+    arithmetic, assign_or_panic, get_and_insert_shl_shr_rows, Witness, WitnessExecHelper,
 };
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
@@ -15,7 +15,6 @@ use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::ops::Shl;
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 2;
@@ -298,9 +297,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_arithmetic_lookup(2, &arithmetic_sub_rows);
 
         // assign shr result
-        assign_or_panic!(core_row_0.vers_29, sign_bit_is_zero);
-        assign_or_panic!(core_row_0.vers_30, result_hi);
-        assign_or_panic!(core_row_0.vers_31, result_lo);
+        assign_or_panic!(core_row_0[SIGN_BIT_IS_ZERO_CELL_INDEX], sign_bit_is_zero);
+        assign_or_panic!(core_row_0[SHL_RESULT_HI_CELL_INDEX], result_hi);
+        assign_or_panic!(core_row_0[SHL_RESULT_LO_CELL_INDEX], result_lo);
 
         arithmetic_rows.extend(arithmetic_sub_rows);
         Witness {
@@ -339,11 +338,11 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::SAR_2.into_exec_state_core_row(
+            let row = ExecutionState::SAR_2.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

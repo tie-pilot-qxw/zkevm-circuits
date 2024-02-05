@@ -19,6 +19,7 @@ pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = -6;
 const PC_DELTA: u64 = 1;
+const START_OFFSET: usize = 11;
 
 /// 当evm CALL指令调用结束后，正常返回或异常出错时（如：REVERT，STOP）时，调用当前 gadget
 /// Call5 is the last step of opcode CALL, which is
@@ -282,7 +283,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(0, copy_rows.get(0).unwrap());
         }
         //calculate and assign copy_len, copy_len_inv and copy_padding_len
-        assign_or_panic!(core_row_2.vers_11, copy_len.into());
         let copy_len_inv = U256::from_little_endian(
             F::from_u128(copy_len as u128)
                 .invert()
@@ -290,14 +290,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-        assign_or_panic!(core_row_2.vers_12, copy_len_inv);
         let copy_padding_len = if U256::from(copy_len) < ret_length {
             ret_length - U256::from(copy_len)
         } else {
             0.into()
         };
-        assign_or_panic!(core_row_2.vers_13, copy_padding_len);
-
+        let column_values = [copy_len.into(), copy_len_inv, copy_padding_len];
+        for i in 0..3 {
+            assign_or_panic!(core_row_2[i + START_OFFSET], column_values[i]);
+        }
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         // insert lookup: Core ---> State
         core_row_1.insert_state_lookups([
@@ -381,9 +382,9 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_27 = Some(1.into()); // let success == true
-            row.vers_29 = Some(10.into()); // let the previous gadgets(end_call)'s returndata_size cell's value equals to returndata_size
-            row.vers_21 = Some(stack_pointer.into());
+            row[27] = Some(1.into()); // let success == true
+            row[29] = Some(10.into()); // let the previous gadgets(end_call)'s returndata_size cell's value equals to returndata_size
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

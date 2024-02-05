@@ -31,7 +31,7 @@ impl<F: Field> SubCircuitConfig<F> for FixedCircuitConfig<F> {
     type ConfigArgs = FixedCircuitConfigArgs;
 
     fn new(
-        meta: &mut ConstraintSystem<F>,
+        _meta: &mut ConstraintSystem<F>,
         Self::ConfigArgs { fixed_table }: Self::ConfigArgs,
     ) -> Self {
         let FixedTable { tag, values } = fixed_table;
@@ -210,7 +210,7 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
     }
 
     fn num_rows(_witness: &Witness) -> usize {
-        let f = |row: &_, index| -> Result<(), Error> { Ok(()) };
+        let f = |_row: &_, _index| -> Result<(), Error> { Ok(()) };
         FixedCircuitConfig::<F>::assign(f).unwrap()
     }
 }

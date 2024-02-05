@@ -18,6 +18,8 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -2;
 const PC_DELTA: u64 = 1;
+const HI_INV_COLUMN_ID: usize = 30;
+const LO_INV_COLUMN_ID: usize = 31;
 
 pub struct MulmodGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -99,8 +101,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
 
-        let hi_inv = meta.query_advice(config.vers[30], Rotation(-2));
-        let lo_inv = meta.query_advice(config.vers[31], Rotation(-2));
+        let hi_inv = meta.query_advice(config.vers[HI_INV_COLUMN_ID], Rotation(-2));
+        let lo_inv = meta.query_advice(config.vers[LO_INV_COLUMN_ID], Rotation(-2));
 
         let n_is_zero_hi = SimpleIsZero::new(&arithmetic_operands[4], &hi_inv, String::from("hi"));
         let n_is_zero_lo = SimpleIsZero::new(&arithmetic_operands[5], &lo_inv, String::from("lo"));
@@ -184,8 +186,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let n_lo = F::from_u128(n.low_u128());
         let lo_inv = U256::from_little_endian(n_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         let hi_inv = U256::from_little_endian(n_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_2.vers_30, hi_inv);
-        assign_or_panic!(core_row_2.vers_31, lo_inv);
+        assign_or_panic!(core_row_2[HI_INV_COLUMN_ID], hi_inv);
+        assign_or_panic!(core_row_2[LO_INV_COLUMN_ID], lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2, &stack_push_0]);
@@ -227,7 +229,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

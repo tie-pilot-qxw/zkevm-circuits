@@ -1,5 +1,5 @@
 use crate::constant::LOG_NUM_STATE_TAG;
-use crate::table::{BytecodeTable, CopyTable, FixedTable, LookupEntry, PublicTable, StateTable};
+use crate::table::{BytecodeTable, CopyTable, LookupEntry, PublicTable, StateTable};
 
 use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
 use crate::util::{SubCircuit, SubCircuitConfig};
@@ -849,6 +849,7 @@ mod test {
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
+    use crate::table::FixedTable;
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::{bytecode, U256};

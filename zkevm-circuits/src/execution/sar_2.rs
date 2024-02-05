@@ -11,7 +11,6 @@ use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
-use std::ops::Div;
 
 pub(super) const NUM_ROW: usize = 3;
 const STACK_POINTER_DELTA: i32 = -1;
@@ -19,7 +18,6 @@ const PC_POINTER_DELTA: i32 = 1;
 
 const STATE_STAMP_DELTA: u64 = 2;
 const BIT_MAX_INDEX: u8 = 255;
-const BYTE_MAX_INDEX: u8 = 31;
 
 const EXP_BASE: u8 = 2;
 
@@ -363,6 +361,9 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
+    const SIGN_BIT_COLUMN_ID: usize = 29;
+    const SAR1_HI_COLUMN_ID: usize = 30;
+    const SAR1_LO_COLUMN_ID: usize = 31;
 
     fn run(value_sign_bit_is_zero: U256, sar1_result: U256, stack: Stack, stack_top: U256) {
         let stack_pointer = stack.0.len();
@@ -381,10 +382,10 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
-            row.vers_29 = Some(value_sign_bit_is_zero);
-            row.vers_30 = Some(sar1_result >> 128);
-            row.vers_31 = Some(sar1_result.low_u128().into());
+            row[21] = Some(stack_pointer.into());
+            row[SIGN_BIT_COLUMN_ID] = Some(value_sign_bit_is_zero);
+            row[SAR1_HI_COLUMN_ID] = Some(sar1_result >> 128);
+            row[SAR1_LO_COLUMN_ID] = Some(sar1_result.low_u128().into());
             row
         };
 
@@ -400,9 +401,6 @@ mod test {
         };
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-
-        let mut buf = std::io::BufWriter::new(std::fs::File::create("sar2.html").unwrap());
-        witness.write_html(&mut buf);
 
         witness.print_csv();
         prover.assert_satisfied_par();

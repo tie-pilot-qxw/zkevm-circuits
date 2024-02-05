@@ -14,6 +14,7 @@ pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
 pub mod codecopy;
+pub mod codesize;
 pub mod dup;
 pub mod end_block;
 pub mod end_call;
@@ -44,6 +45,7 @@ pub mod returndatacopy;
 pub mod returndatasize;
 pub mod sar_1;
 pub mod sar_2;
+pub mod sdiv_smod;
 pub mod selfbalance;
 pub mod shl_shr;
 pub mod signextend;
@@ -79,6 +81,7 @@ macro_rules! get_every_execution_gadgets {
     () => {{
         vec![
             crate::execution::add_sub_mul_div_mod::new(),
+            crate::execution::sdiv_smod::new(),
             crate::execution::push::new(),
             crate::execution::stop::new(),
             crate::execution::begin_block::new(),
@@ -130,6 +133,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::log_topic_num_addr::new(),
             crate::execution::log_topic::new(),
             crate::execution::gas::new(),
+            crate::execution::codesize::new(),
         ]
     }};
 }
@@ -1836,7 +1840,9 @@ pub enum ExecutionState {
     CALL_5,
     END_CALL,
     END_TX,
+    SDIV_SMOD,
     GAS,
+    CODESIZE,
 }
 
 impl ExecutionState {
@@ -1844,16 +1850,10 @@ impl ExecutionState {
     pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
         match opcode {
             OpcodeId::STOP => vec![Self::STOP, Self::END_CALL],
-            OpcodeId::ADD => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::MUL => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::SUB => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::DIV | OpcodeId::MOD => vec![Self::ADD_SUB_MUL_DIV_MOD],
-            OpcodeId::SDIV => {
-                todo!()
+            OpcodeId::ADD | OpcodeId::MUL | OpcodeId::SUB | OpcodeId::DIV | OpcodeId::MOD => {
+                vec![Self::ADD_SUB_MUL_DIV_MOD]
             }
-            OpcodeId::SMOD => {
-                todo!()
-            }
+            OpcodeId::SDIV | OpcodeId::SMOD => vec![Self::SDIV_SMOD],
             OpcodeId::ADDMOD => vec![Self::ADDMOD],
             OpcodeId::MULMOD => vec![Self::MULMOD],
             OpcodeId::EXP => {
@@ -1872,9 +1872,7 @@ impl ExecutionState {
             OpcodeId::BYTE => vec![Self::BYTE],
             OpcodeId::CALLDATALOAD => vec![Self::CALLDATALOAD],
             OpcodeId::CALLDATACOPY => vec![Self::CALLDATACOPY],
-            OpcodeId::CODESIZE => {
-                todo!()
-            }
+            OpcodeId::CODESIZE => vec![Self::CODESIZE],
             OpcodeId::CODECOPY => {
                 vec![Self::CODECOPY]
             }
@@ -2235,50 +2233,9 @@ mod test {
                                     config.opcode,
                                 )?;
                                 assign_advice_or_fixed(&mut region, offset, &row.cnt, config.cnt)?;
-                                for (i, value) in [
-                                    &row.vers_0,
-                                    &row.vers_1,
-                                    &row.vers_2,
-                                    &row.vers_3,
-                                    &row.vers_4,
-                                    &row.vers_5,
-                                    &row.vers_6,
-                                    &row.vers_7,
-                                    &row.vers_8,
-                                    &row.vers_9,
-                                    &row.vers_10,
-                                    &row.vers_11,
-                                    &row.vers_12,
-                                    &row.vers_13,
-                                    &row.vers_14,
-                                    &row.vers_15,
-                                    &row.vers_16,
-                                    &row.vers_17,
-                                    &row.vers_18,
-                                    &row.vers_19,
-                                    &row.vers_20,
-                                    &row.vers_21,
-                                    &row.vers_22,
-                                    &row.vers_23,
-                                    &row.vers_24,
-                                    &row.vers_25,
-                                    &row.vers_26,
-                                    &row.vers_27,
-                                    &row.vers_28,
-                                    &row.vers_29,
-                                    &row.vers_30,
-                                    &row.vers_31,
-                                ]
-                                .into_iter()
-                                .enumerate()
-                                {
-                                    assign_advice_or_fixed(
-                                        &mut region,
-                                        offset,
-                                        &value.unwrap_or_default(),
-                                        config.vers[i],
-                                    )?;
-                                }
+                                for i in 0 .. NUM_VERS {
+                                    assign_advice_or_fixed(&mut region,offset,&row[i].unwrap_or_default(),config.vers[i])?;
+                                };
                                 cnt_is_zero.assign(
                                     &mut region,
                                     offset,

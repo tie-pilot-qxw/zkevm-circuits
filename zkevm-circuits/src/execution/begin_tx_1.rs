@@ -15,7 +15,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 pub const NUM_ROW: usize = 3;
-
+const LEN_LO_INV_COLUMN_ID: usize = 11;
 pub struct BeginTx1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -131,7 +131,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let len_lo_inv = meta.query_advice(config.vers[11], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
@@ -306,7 +306,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(calldata_size as u128);
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_2.vers_11, len_lo_inv);
+        assign_or_panic!(core_row_2[LEN_LO_INV_COLUMN_ID], len_lo_inv);
 
         // core_row_2写入交易的calldata size和to 地址，与public电路lookup
         let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize);
@@ -388,7 +388,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

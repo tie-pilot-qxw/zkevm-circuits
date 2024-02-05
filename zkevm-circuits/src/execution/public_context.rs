@@ -17,6 +17,7 @@ use crate::execution::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
+const CORE_ROW_1_START_OFFSET: usize = 8;
 
 /// PublicContextGadget deal OpCodeId:{TIMESTAMP,NUMBER,COINBASE,GASLIMIT,CHAINID,BASEFEE}
 /// STATE0 record value
@@ -192,12 +193,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         v[tag] = 1.into();
         // tag selector
         // assign tag selector value, 8-13 columns ,only one column is 1 ,others are 0;
-        assign_or_panic!(core_row_1.vers_8, v[0]);
-        assign_or_panic!(core_row_1.vers_9, v[1]);
-        assign_or_panic!(core_row_1.vers_10, v[2]);
-        assign_or_panic!(core_row_1.vers_11, v[3]);
-        assign_or_panic!(core_row_1.vers_12, v[4]);
-        assign_or_panic!(core_row_1.vers_13, v[5]);
+        for i in 0..6 {
+            assign_or_panic!(core_row_1[i + CORE_ROW_1_START_OFFSET], v[i]);
+        }
         // core row 2
         let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
             trace,
@@ -241,7 +239,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[21] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {
