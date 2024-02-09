@@ -35,9 +35,9 @@ Note:
 
 ```--profile bench```: use the [profile.bench]
 
-```--no-default-features```: disable the default features fast_test 
+```--no-default-features```: disable the default features "fast_test"
 
-```--features "benches"```: turning on this features will run multiple rounds.
+```--features "benches"```: turning on this features will run multiple rounds
 
 ```--bench src -- super_circuit```: run the super_circuit benchmark
 
