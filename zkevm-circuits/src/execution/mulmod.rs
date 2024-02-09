@@ -31,6 +31,12 @@ pub struct MulmodGadget<F: Field> {
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
+/// STATE0 is a_lo, a_hi
+/// STATE1 is b_lo, b_hi
+/// STATE2 is n_lo, n_hi
+/// STATE3 is r_lo, r_hi
+/// cnt == 2, vers_30 is n_hi_inv
+/// cnt == 2, vers_31 is n_lo_inv
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col |  8 col   |
 /// +---+-------+-------+-------+----------+
@@ -101,6 +107,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
 
+        // We add additional constraints for n==0 in the core part.
+        // When n==0, a in the arithmetic part is 0, and a in the state does not need to be 0.
+        // Here we occupy two cells in the state table to determine whether n is 0,
+        // instead of using the method of n_lo + n_hi == 0 for judgment.
+        // This is because we need to use n==0 as a condition to satisfy other constraints.
+        // When `n==0 below, arithmetic==0`.
+        // We need one condition to be 1 when n==0 so that we can accurately construct the constraint.
         let hi_inv = meta.query_advice(config.vers[HI_INV_COLUMN_ID], Rotation(-2));
         let lo_inv = meta.query_advice(config.vers[LO_INV_COLUMN_ID], Rotation(-2));
 
@@ -113,6 +126,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(n_is_zero_hi.get_constraints());
         constraints.extend(n_is_zero_lo.get_constraints());
 
+        // In the following constraints, we still use the form of a_lo, a_hi for constraints instead of a_lo + a_hi,
+        // because (a_lo+a_hi)*condition is a dangerous behavior and can be easily cracked by adversaries.
         constraints.extend((0..2).flat_map(|i| {
             vec![
                 (
@@ -129,6 +144,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ]
         }));
 
+        // For b, n, and r to satisfy the arithmetic a == in state constraint.
         constraints.extend((2..8).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),
@@ -169,19 +185,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::MULMOD);
 
+        // input a, b ,n
         let (stack_pop_0, a) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_1, b) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_2, n) = current_state.get_pop_stack_row_value(&trace);
 
+        // arithmetic witness
         let (arithmetic, result) = operation::mulmod::gen_witness(vec![a, b, n]);
         assert_eq!(result[0], current_state.stack_top.unwrap());
 
+        // result r
         let r = current_state.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(trace, r);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        // insert arithmetic witness
         core_row_2.insert_arithmetic_lookup(0, &arithmetic);
 
+        // Calculate the multiplicative inverse of n,
+        // used to determine whether n is 0
         let n_hi = F::from_u128((n >> 128).as_u128());
         let n_lo = F::from_u128(n.low_u128());
         let lo_inv = U256::from_little_endian(n_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
@@ -250,6 +272,7 @@ mod test {
 
     #[test]
     fn assign_and_constraint() {
+        // test (a*b) mod n = r
         let stack = Stack::from_slice(&[5.into(), 4.into(), 3.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
@@ -262,6 +285,7 @@ mod test {
 
     #[test]
     fn assign_and_constraint_zero() {
+        // test (a*b) mod n = r, when n == 0
         let stack = Stack::from_slice(&[0.into(), 4.into(), 3.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {

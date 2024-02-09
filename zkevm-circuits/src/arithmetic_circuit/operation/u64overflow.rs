@@ -60,6 +60,13 @@ impl<F: Field> OperationGadget<F> for U64OverflowGadget<F> {
     }
 }
 
+/// U64Overflow arithmetic witness rows. (Tag::U64Overflow)
+/// +-----+---------+---------+---------+---------+-----------+
+/// | cnt | op_0_hi | op_0_lo | op_1_hi | op_1_lo | u16s      |
+/// +-----+---------+---------+---------+---------+-----------+
+/// | 0   | a_hi    | a_lo    | w       | w_inv   | a_lo_u16s |
+/// +-----+---------+---------+---------+---------+-----------+
+
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness
 pub(crate) fn gen_witness<F: Field>(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {

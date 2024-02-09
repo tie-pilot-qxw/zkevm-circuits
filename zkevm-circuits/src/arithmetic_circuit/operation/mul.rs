@@ -10,6 +10,20 @@ use std::marker::PhantomData;
 
 /// Construct the MulGadget that checks a * b == c + carry (modulo 2**256),
 /// where a, b, c, carry are 256-bit words.
+/// We execute a multi-limb multiplication as follows:
+/// a and b is divided into 4 64-bit limbs, denoted as a0~a3 and b0~b3
+/// defined t0, t1, t2, t3, we have:
+///     t0 = a0 * b0
+///     t1 = a0 * b1 + a1 * b0
+///     t2 = a0 * b2 + a2 * b0 + a1 * b1
+///     t3 = a0 * b3 + a3 * b0 + a2 * b1 + a1 * b2
+///     t4 = a1 * b3 + a2 * b2 + a3 * b1,
+///     t5 = a2 * b3 + a3 * b2,  
+///     t6 = a3 * b3,
+/// t0 ~ t3 is respectively 0~64 bit, 64~128 bit , 128~192 bit, and 192~256 bit of the product.
+/// In U256 multiplication, result c is U256, we only focus on values within the range of 0~256 bits for the result.
+/// Therefore, t4, t5, and t6 are not actually involved in the calculation.
+
 pub(crate) struct MulGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for MulGadget<F> {
@@ -133,6 +147,19 @@ impl<F: Field> OperationGadget<F> for MulGadget<F> {
         constraints
     }
 }
+/// Mul arithmetic witness rows. (Tag::Mul)
+/// +-----+---------+---------+----------+----------+--------------+
+/// | cnt | op_0_hi | op_0_lo | op_1_hi  | op_1_lo  | u16s         |
+/// +-----+---------+---------+----------+----------+--------------+
+/// | 7   |         |         |          |          | carry_lo_u16s|
+/// | 6   |         |         |          |          | carry_hi_u16s|
+/// | 5   |         |         |          |          | c_lo_u16s    |
+/// | 4   |         |         |          |          | c_hi_u16s    |
+/// | 3   |         |         |          |          | b_lo_u16s    |
+/// | 2   |         |         |          |          | b_hi_u16s    |
+/// | 1   | c_hi    | c_lo    | carry_hi | carry_lo | a_lo_u16s    |
+/// | 0   | a_hi    | a_lo    | b_hi     | b_lo     | a_hi_u16s    |
+/// +-----+---------+---------+----------+----------+--------------+
 
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness

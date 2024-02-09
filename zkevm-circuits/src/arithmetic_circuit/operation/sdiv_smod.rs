@@ -29,11 +29,28 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         (18, 1)
     }
 
+    /// formula:
+    /// `signed(a) / signed(b) = signed(c) (r) signed(d)`
     /// 1.Construct constraints for negative signs of a, b, c, and d.
     /// 2.Construct constraints for the two's complement of a, b, c, and d.
     /// 3.Construct constraints for mul and constrain the remainder to be less than the divisor.
     /// 4.The dividend and remainder have the same sign when the divisor, quotient, and remainder are all non-zero.
     /// 5.When the two's complement of the dividend is greater than 0 and the quotient and divisor are not equal to 0, constrain the existing sign relationship.
+    /// Constrains:
+    /// - `lhs - rhs == diff - (lt * range)`, used to determine the sign of a UINT type number.
+    /// - complement constrains:
+    ///     - `com_lo = lo when operand >= 0`
+    ///     - `com_hi == hi when operand >= 0`
+    ///     - `com_lo + lo = carry_lo << 128 when operands < 0`
+    ///     - `carry_lo is bool`
+    ///     - `com_hi + hi + carry_lo = carry_hi << 128 when operands < 0`
+    ///     - `carry_hi == 1 when operand < 0`
+    /// - div constrains:
+    ///     - `b * c + d = a`
+    ///     - `carry_hi is 0`
+    ///     - `d < b if b != 0`
+    /// - signed constrains, The sign of the dividend and remainder is the same.:
+    ///     - `a_lt = d_lt`
     fn get_constraints(
         &self,
         config: &OperationConfig<F>,
@@ -41,6 +58,9 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
 
+        // get u16s[7]:
+        // only need to judge the positive or negative of the operand based on the high 16 bits,
+        // without taking out the entire U256 operand.
         let a_rhs = config.get_u16(7, Rotation(-12))(meta);
         let b_rhs = config.get_u16(7, Rotation(-13))(meta);
         let c_rhs = config.get_u16(7, Rotation(-14))(meta);
@@ -48,6 +68,8 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         let a_com_rhs = config.get_u16(7, Rotation::cur())(meta);
         let rhs = [a_rhs, b_rhs, c_rhs, d_rhs, a_com_rhs];
 
+        // x_diff from `lhs - rhs = diff - (lt * range)`
+        // necessary parameters required to build constraints, diff is 16bit
         let a_diff = config.get_u16(0, Rotation(-11))(meta);
         let b_diff = config.get_u16(1, Rotation(-11))(meta);
         let c_diff = config.get_u16(2, Rotation(-11))(meta);
@@ -85,6 +107,11 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         let a_com_carry_lt = config.get_operand(28)(meta);
 
         // 1.Construct constraints for negative signs of a, b, c, and d.
+        // get_is_neg_constraints used to determine whether the operand is a negative number
+        // when carry_lt == 1, the operand is negative number.
+        // use `lhs - rhs = diff - lt << 256`, lhs = (2 << 254) - 1, lhs
+        // when lt == 1, lhs < rhs --> rhs > (2 << 254) - 1,
+        // It means that the number of lhs at position 256 is 1, so it is a negative number.
         let is_neg_constraints = get_is_neg_constraints(
             &ab_carry_lt.clone(),
             &cd_carry_lt.clone(),
@@ -116,6 +143,9 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         let b = config.get_operand(1)(meta);
         let c = config.get_operand(2)(meta);
 
+        // When we use a non-zero value as a condition for judgment,
+        // we can directly calculate it using the method similar to a_lo+a_hi.
+        // otherwise, the method of using the multiplicative inverse should be used.
         let quotient_not_is_zero = c[0].clone() + c[1].clone(); //if quotient is zero then quotient_is_zero is 0
         let divisor_not_is_zero = b[0].clone() + b[1].clone(); //if divisor is zero then divisor_is_zero is 0
         let dividend_not_is_zero = a[0].clone() + a[1].clone(); //if dividend is zero then dividend_is_zero is 0
@@ -131,7 +161,9 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         //5.Computes sign relations with sign multiplication
         let a_com_carry_lt = config.get_operand(28)(meta);
 
-        //Computes sign relations with sign multiplication
+        // Computes sign relations with sign multiplication
+        // Satisfying negative multiplied by negative equals positive,
+        // negative multiplied by positive equals negative.
         let mul_signed = c_is_neg.clone() + b_is_neg.clone()
             - a_is_neg.clone()
             - 2.expr() * c_is_neg.clone() * b_is_neg.clone();
@@ -144,8 +176,35 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
     }
 }
 
+/// SDiv_SMod arithmetic witness rows. (Tag::SDiv_SMod)
+/// +-----+----------------+----------------+----------------+----------------+----------------+---------+---------+---------+------------+
+/// | cnt | op_0_hi        | op_0_lo        | op_1_hi        | op_1_lo        | u16s_0         | u16s_1  |         |         |            |
+/// +-----+----------------+----------------+----------------+----------------+----------------+---------+---------+---------+------------+
+/// | 17  |                |                |                |                | d_lo_0         |         |         |         |            |
+/// | 16  |                |                |                |                | d_hi_0         |         |         |         |            |
+/// | 15  |                |                |                |                | c_lo_0         |         |         |         |            |
+/// | 14  | a_com_lt       |                |                |                | c_hi_0         |         |         |         |            |
+/// | 13  | c_sum_carry_hi | c_sum_carry_lo | d_sum_carry_hi | d_sum_carry_lo | b_hi_0         |         |         |         |            |
+/// | 12  | a_sum_carry_hi | a_sum_carry_lo | b_sum_carry_hi | b_sum_carry_lo | a_hi_0         |         |         |         |            |
+/// | 11  | a_lt_carry_hi  | b_lt_carry_hi  | c_lt_carry_hi  | d_lt_carry_hi  | a_diff         | b_diff  | c_diff  | d_diff  | a_com_diff |
+/// | 10  |                |                |                |                | cb_diff_lo_0   |         |         |         |            |  
+/// | 9   | db_diff_hi     | db_diff_lo     | db_carry_hi    | db_carry_lo    | cb_diff_hi_0   |         |         |         |            |
+/// |     | (cb is d < b)  |                |                |                |                |         |         |         |            |
+/// | 8   | mul_carry_hi   | mul_carry_lo   |                |                | mul_carry_lo_0 |         |         |         |            |
+/// | 7   |                |                |                |                | d_com_lo_0     |         |         |         |            |
+/// | 6   |                |                |                |                | d_com_hi_0     |         |         |         |            |
+/// | 5   |                |                |                |                | c_com_lo_0     |         |         |         |            |
+/// | 4   |                |                |                |                | c_com_hi_0     |         |         |         |            |
+/// | 3   | c_com_hi       | c_com_lo       | d_com_hi       | d_com_lo       | b_com_lo_0     |         |         |         |            |
+/// | 2   | a_com_hi       | a_com_lo       | b_com_hi       | b_com_lo       | b_com_hi_0     |         |         |         |            |
+/// | 1   | c_hi           | c_lo           | d_hi           | d_lo           | a_com_lo_0     |         |         |         |            |
+/// | 0   | a_hi           | a_lo           | b_hi           | d_lo           | a_com_hi_0     |         |         |         |            |
+/// +-----+----------------+----------------+----------------+----------------+----------------+---------+---------+---------+------------+
+
 /// Generate the witness and return operation result
 /// It is called during core circuit's gen_witness
+/// Returns the remainder and quotient,
+/// and the external call determines the division and remainder based on the opcode.
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     assert_eq!(2, operands.len());
 
@@ -186,6 +245,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
         args[1][1],
     ];
 
+    // The value to be allocated for obtaining the complement code.
     let com_rows = gen_com_witness(com_operands, sum_carry, Tag::SdivSmod);
 
     let mut result_rows = vec![];
