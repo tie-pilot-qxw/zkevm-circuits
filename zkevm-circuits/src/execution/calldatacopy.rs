@@ -58,23 +58,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode_advice = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
-
         // create custom gate constraints
         let copy_entry = config.get_copy_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(
+                // 因为copy的数据写了2份，所以需要len*2，同时记录了三个state状态
                 STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             ),
+            // 弹出了三个操作数
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
+        // 添加辅助列的约束，约束上下相邻指令的状态
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // 约束pc、tx_id等状态
         let delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(1.expr()),
+            // 因为pc向后移动1，该指令下同一笔交易中其它状态不变
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
@@ -83,6 +85,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // calldatacopy has three operand.
         for i in 0..3 {
             let state_entry = config.get_state_lookup(meta, i);
+            // 对core电路的3个state状态进行约束
             constraints.append(&mut config.get_stack_constraints(
                 meta,
                 state_entry.clone(),
@@ -118,13 +121,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             copy_entry,
         ));
-        constraints.extend([
-            (
-                "opcode".into(),
-                opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
-            ),
-            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
-        ]);
+        constraints.extend([(
+            "opcode".into(),
+            opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
+        )]);
         constraints
     }
 
@@ -133,9 +133,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // 从core电路中读取3个操作数的state 状态，与state 电路进行lookup约束
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        // 从core电路中读取copy 的状态，与copy电路进行lookup约束
         let calldata_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
 
         vec![
@@ -154,44 +156,35 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // get three operand from stack
+        // [dast_offset, calldata_offset, length]
         let (stack_pop_0, dst_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_1, calldata_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_2, length) = current_state.get_pop_stack_row_value(&trace);
 
-        // get copydata and state from calldata
+        // get copydata and state rows from calldata
+        // state rows 对copy的length字节记录两次，第一次为 calldata区域的读取
+        // 第二次为memory区域的写入
         let (copy_rows, mut state_rows) =
             current_state.get_calldata_copy_rows::<F>(dst_offset, calldata_offset, length);
 
         // get three core circuit and fill content to them
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         if length.is_zero() {
-            core_row_2.insert_copy_lookup(
-                0,
-                &copy::Row {
-                    byte: 0.into(),
-                    src_type: copy::Tag::default(),
-                    src_id: 0.into(),
-                    src_pointer: 0.into(),
-                    src_stamp: 0.into(),
-                    dst_type: copy::Tag::default(),
-                    dst_id: 0.into(),
-                    dst_pointer: 0.into(),
-                    dst_stamp: 0.into(),
-                    cnt: 0.into(),
-                    len: 0.into(),
-                    acc: 0.into(),
-                },
-            );
+            core_row_2.insert_copy_lookup(0, &copy::Row::default());
         } else {
             core_row_2.insert_copy_lookup(0, copy_rows.get(0).unwrap());
         }
+
+        // core电路写入三个操作数的state 状态
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2]);
+        // 记录copy数据字节大小的倒数，在约束逻辑区分长度为0和非0情况
         let len_lo = F::from_u128(length.low_u128());
         let lenlo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         core_row_1[LEN_LO_INV_COLUMN_ID] = Some(lenlo_inv);
 
+        // 插入执行指令的flag
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
             trace,
             current_state,

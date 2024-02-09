@@ -18,6 +18,12 @@ pub struct BeginTx2Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
+/// 每个交易初始阶段先执行BeginTx_1/2 gadget，设置一些辅助的状态变量
+/// Begin_tx_1/2 非EVM Opcode指令，是zkEVM电路中内置的工具；
+/// Begin_tx_2 负责设置将执行交易的tx_id和root call的call_id，
+/// 记录交易的sender地址和value金额，并设置父状态的parent stack pointer
+/// 和parent pc为0，标识为root call
+///  
 /// BeginTx2 Execution State layout is as follows
 /// where STATE means state table lookup for writing call context,
 /// PUBLIC means public table lookup (origin from col 26),
@@ -58,6 +64,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         // auxiliary and single purpose constraints
         let delta = AuxiliaryOutcome {
+            // 记录了4个state状态
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             ..Default::default()
         };
@@ -79,6 +86,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ],
         ));
 
+        // 记录4个状态的操作数
         let mut operands = vec![];
         for i in 0..4 {
             let (_, _, value_hi, value_lo, _, _, _, _) =
@@ -127,11 +135,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // 从core电路中读取记录的4个state状态，与state 电路进行lookup
         let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
-
+        // 从core电路中读取public状态，与public电路进行lookup
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
 
         vec![
@@ -147,25 +156,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = current_state.call_id;
         let value = *current_state.value.get(&call_id).unwrap();
         let sender = *current_state.sender.get(&call_id).unwrap();
+        // 记录交易的发送者 from
         let write_sender_row = current_state.get_write_call_context_row(
             Some((sender >> 128).as_u128().into()),
             Some(sender.low_u128().into()),
             CallContextTag::SenderAddr,
         );
+        // 交易的eth金额 value
         let write_value_row = current_state.get_write_call_context_row(
             Some((value >> 128).as_u128().into()),
             Some(value.low_u128().into()),
             CallContextTag::Value,
         );
-        current_state.parent_pc.insert(current_state.call_id, 0); // update current_state's parent_pc
+        // 更新root call的parent pc为0，并记录相关状态
+        current_state.parent_pc.insert(current_state.call_id, 0);
         let write_parent_pc_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
             CallContextTag::ParentProgramCounter,
         );
+        // root call的parent stack pointer为0，并记录相关状态
         current_state
             .parent_stack_pointer
-            .insert(current_state.call_id, 0); // update current_state's parent_stack_pointer
+            .insert(current_state.call_id, 0);
         let write_parent_stack_pointer_row = current_state.get_write_call_context_row(
             None,
             Some(0.into()),
@@ -174,9 +187,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
+        // 记录交易的from、value状态
         let public_row = current_state.get_public_tx_row(public::Tag::TxFromValue);
         core_row_2.insert_public_lookup(&public_row);
 
+        // core_row_1 写入4个state row状态
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &write_sender_row,

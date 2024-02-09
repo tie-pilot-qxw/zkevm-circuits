@@ -12,6 +12,19 @@ use std::marker::PhantomData;
 use std::vec;
 
 const NUM_ROW: usize = 1;
+/// BeginBlock 在区块开始执行前运行，作为一个Flag电路，标识接下来将执行一个新的区块。
+/// 因为为Flag电路，所以witness不用填入其它状态，仅使用一行标识gadget 类型；
+/// 同时约束所有的状态为初始值，因为区块刚开始执行。
+///
+///
+/// BEGIN_BLOCK Execution State layout is as follows.
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// +---+-------+-------+-------+----------+
+/// | 0 | DYNA_SELECTOR   | AUX            |
 pub struct BeginBlockGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -85,6 +98,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // core电路写入 执行标识
         let core_row_0 = ExecutionState::BEGIN_BLOCK.into_exec_state_core_row(
             trace,
             current_state,

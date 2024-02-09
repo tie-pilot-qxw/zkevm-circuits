@@ -20,6 +20,8 @@ const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = -6;
 const PC_DELTA: u64 = 1;
 const START_OFFSET: usize = 11;
+
+/// 当evm CALL指令调用结束后，正常返回或异常出错时（如：REVERT，STOP）时，调用当前 gadget
 /// Call5 is the last step of opcode CALL, which is
 /// located after the callee's all execution states.
 ///
@@ -84,9 +86,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(copy, copy_entry.clone());
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
+            // len*2 因为一份return_data数据记录了两次state rows
+            // first: 记录从return_data copy的len字节的数据
+            // second: 记录将copy 的len字节数据写入memory区域
             state_stamp: ExpressionOutcome::Delta(
                 STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             ),
+            // 弹出7个栈上元素，push 1个栈上元素，所以栈帧相差6
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
@@ -102,7 +108,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     entry.clone(),
                     i,
                     NUM_ROW,
-                    if i == 0 { -5 } else { -6 }.expr(), // the position of ret_offset, ret_len and success are -5, -6 and -6 respectively.
+                    // the position of ret_offset, ret_len and success are -5, -6 and -6 respectively.
+                    if i == 0 { -5 } else { -6 }.expr(),
+                    // i==3的state row为将Call调用的结果入栈，所以write=true
                     i == 3,
                 ));
             } else {
@@ -121,10 +129,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         // append constraints for state lookup's values
         constraints.extend([
+            // evm 执行环境中，u128 bit足以表示 ret_offset，ret_len，returndata_call_id，Call执行结果
+            // 所以对应字段的operands高128bit约束为0
             ("ret_offset hi".into(), operands[0][0].clone()),
             ("ret_len hi".into(), operands[1][0].clone()),
             ("returndata_call_id hi".into(), operands[2][0].clone()),
             ("success write hi".into(), operands[3][0].clone()),
+            // 约束不同Cell的中填写的Call执行结果相同。
             ("success write lo".into(), operands[3][1].clone() - success),
         ]);
 
@@ -176,11 +187,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // ret_offset state row
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        // ret_length state row
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        // returndata_callid state row
         let call_context_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        // return_success(Call 指令的执行结果) state row
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
-
+        // copy return data to memory
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
 
         //TODO:confirm whether the following is correct
@@ -232,7 +247,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_read_0, ret_offset) = current_state.get_peek_stack_row_value(trace, 6);
         let (stack_read_1, ret_length) = current_state.get_peek_stack_row_value(trace, 7);
 
-        //pop all the stack values of call opcode
+        // CALL指令使用了7个操作数，在CALL1..CALL4已读取其它字段，CALL5读取ret_offset, ret_length后
+        // 将数据全部弹出栈
         current_state.stack_pointer -= 7;
         //generate call_context read row
         let call_context_read_row = current_state.get_returndata_call_id_row();

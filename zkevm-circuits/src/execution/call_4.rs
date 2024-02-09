@@ -16,6 +16,12 @@ use std::marker::PhantomData;
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
 
+/// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
+/// call_4负责接下来CALL指令的 gas，addr操作数，将stack_pointer置0执行新的CALL调用
+/// ret_offset, ret_length操作数等CALL执行完成后再进行操作
+/// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
+///
 /// Call4 is the fourth step of opcode CALL.
 /// After Call4, there should be execution states of the callee.
 /// Algorithm overview:
@@ -58,24 +64,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        // 获取CALL指令的调用方地址
         let code_addr_cur = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { stack_pointer, .. } = config.get_auxiliary();
+        // CALL指令开始时 state_stamp值（即在call_1.rs中gadget生成witness之前的值）
         let state_stamp_init = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation(-1 * NUM_ROW as i32),
         );
         let stack_pointer_prev = meta.query_advice(
             stack_pointer,
-            Rotation(-1 * NUM_ROW as i32), // call_1， call_2 and call_3 don't change the stack_pointer value, so stack_pointer of the last gadget equals to the stack_pointer just before the call operation.
+            // call_1， call_2 and call_3 don't change the stack_pointer value, so stack_pointer
+            // of the last gadget equals to the stack_pointer just before the call operation.
+            Rotation(-1 * NUM_ROW as i32),
         );
+
+        // 计算即将执行的call_id
         let call_id_new = state_stamp_init.clone() + 1.expr();
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            stack_pointer: ExpressionOutcome::Delta(-stack_pointer_prev.expr()), // stack pointer will become 0 after call_4
+            // stack pointer will become 0 after call_4
+            stack_pointer: ExpressionOutcome::Delta(-stack_pointer_prev.expr()),
             ..Default::default()
         };
-
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // append stack constraints and call_context constraints
         let mut operands = vec![];
@@ -87,7 +99,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     entry.clone(),
                     i,
                     NUM_ROW,
-                    if i == 0 { 0 } else { -1 }.expr(), // the position of gas and addr are 0 and -1 respectively.
+                    // the position of gas and addr are 0 and -1 respectively.
+                    if i == 0 { 0 } else { -1 }.expr(),
                     false,
                 ));
             } else {
@@ -108,12 +121,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     ),
                 );
             }
+            // 记录每个state row的操作数
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-        // append constraints for state lookup's values
+        // CALL指令需要的addr操作数
         let addr = operands[1].clone();
+        // CALL指令调用的合约地址，与addr相同
         let storage_contract_addr = operands[2].clone();
+        // CALL指令的调用方地址
         let sender_addr = operands[3].clone();
 
         constraints.extend([
@@ -125,6 +141,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "storage_contract_addr == addr lo".into(),
                 storage_contract_addr[1].clone() - addr[1].clone(),
             ),
+            // 约束数据为CALL指令的调用方地址
             (
                 "sender_addr == current code_addr ".into(),
                 sender_addr[0].clone() * pow_of_two::<F>(128) + sender_addr[1].clone()
@@ -133,15 +150,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
         // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
-        // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
+            // call指令开始执行，所以next为0
             pc: ExpressionOutcome::To(0.expr()),
+            // call指令开始执行，所以next为call_id_new
             call_id: ExpressionOutcome::To(call_id_new),
+            // call指令开始执行，所以next为call的操作数addr
             code_addr: ExpressionOutcome::To(
                 addr[0].clone() * pow_of_two::<F>(128) + addr[1].clone(),
             ),
+            // tx_id 不变，因为还在同一笔交易执行中
             ..Default::default()
         };
+        // append core single purpose constraints
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // prev state is CALL_3
@@ -156,11 +177,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
+        // gas 状态
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        // addr 状态
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        // 即将执行的call_id对应的合约地址（即上面的addr）
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        // 即将执行的call_id对应的调用方地址
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
 
+        // 将core 电路中数据在state电路中lookup
         vec![
             ("stack read gas".into(), stack_lookup_0),
             ("stack read addr".into(), stack_lookup_1),
@@ -175,21 +201,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        // generate stack_read rows
+        // 从栈中读取gas，addr的值，Note: 未将操作数弹出栈
         let (stack_read_0, _gas) = current_state.get_peek_stack_row_value(trace, 1);
         let (stack_read_1, addr) = current_state.get_peek_stack_row_value(trace, 2);
-        // generate call_context rows
+        // 将CALL调用的合约地址生成state row, 写入state电路和core电路
         let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::StorageContractAddr,
             addr.into(),
             current_state.call_id_new,
         );
+        // 将CALL指令的调用方地址生成state row，写入state 电路和core电路
         let call_context_write_row_1 = current_state.get_call_context_write_row(
             state::CallContextTag::SenderAddr,
             current_state.code_addr,
             current_state.call_id_new,
         );
-        // update current_state's storage_contract_addr and sender
+        // 记录CALL指令调用所需的的合约addr和调用方地址
         current_state
             .storage_contract_addr
             .insert(current_state.call_id_new, addr);
@@ -197,11 +224,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .sender
             .insert(current_state.call_id_new, current_state.code_addr);
 
-        // update current_state's stack_pointer
+        // 更新stack pointer=0标识开始进行的CALL指令操作；
         current_state.stack_pointer = 0;
-        // generate core rows
+        // 在调用方的环境下生成core_row_1/0; 此时code_addr，call_id还未更新为将执行的CALL
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-        // insert lookup: Core ---> State
+        // insert lookup: Core ---> State； 将读取状态时生成的state rows写入core 电路，
         core_row_1.insert_state_lookups([
             &stack_read_0,
             &stack_read_1,
@@ -215,7 +242,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
-        // update call_id, code_addr
+        // 更新code_id, code_addr为CALL指令的状态，执行CALL指令
         current_state.call_id = current_state.call_id_new;
         current_state.code_addr = addr;
 
