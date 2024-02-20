@@ -5,6 +5,7 @@ pub mod constant;
 pub mod copy_circuit;
 pub mod core_circuit;
 pub mod execution;
+pub mod exp_circuit;
 pub mod fixed_circuit;
 pub mod public_circuit;
 pub mod state_circuit;

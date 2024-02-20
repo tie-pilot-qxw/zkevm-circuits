@@ -5,7 +5,8 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::bitwise::Tag;
-use crate::witness::{arithmetic, bitwise, exp, Witness, WitnessExecHelper};
+use crate::witness::exp;
+use crate::witness::{arithmetic, bitwise, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -310,20 +311,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             result[0]
         };
+
+        // calc exp power
         let base: U256 = U256::from(256);
-        let (power, _) = base.overflowing_pow(index);
-        let value_index_byte_ff_lo = 255 * power.low_u128();
-        let value_index_byte_ff_hi = 255 * (power >> 128).as_u128();
+        let (exp_pow, exp_rows, exp_arith_mul_rows) = exp::Row::from_operands(base, index);
+        let value_index_byte_ff_lo = 255 * exp_pow.low_u128();
+        let value_index_byte_ff_hi = 255 * (exp_pow >> 128).as_u128();
 
         // get bitwise rows
         let bitwise_lo_rows =
             bitwise::Row::from_operation::<F>(Tag::And, value_lo, value_index_byte_ff_lo);
         let bitwise_hi_rows =
             bitwise::Row::from_operation::<F>(Tag::And, value_hi, value_index_byte_ff_hi);
-
-        // get exp_rows
-        let mut exp_rows = vec![];
-        exp_rows.extend(exp::Row::from_operands(base, U256::from(index), power));
 
         // calc stack push value
         // stack pop index: index is big endian index
@@ -353,7 +352,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push]);
-        core_row_1.insert_exp_lookup(base, U256::from(index), power);
+        core_row_1.insert_exp_lookup(base, U256::from(index), exp_pow);
 
         let core_row_0 = ExecutionState::BYTE.into_exec_state_core_row(
             trace,
@@ -362,6 +361,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
+        let mut arithmetic_rows = vec![];
+        arithmetic_rows.extend(arithmetic_sub_rows);
+        arithmetic_rows.extend(exp_arith_mul_rows);
+
         let mut bitwise_rows = vec![];
         bitwise_rows.extend(bitwise_lo_rows);
         bitwise_rows.extend(bitwise_hi_rows);
@@ -369,7 +372,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, stack_push],
             bitwise: bitwise_rows,
-            arithmetic: arithmetic_sub_rows,
+            arithmetic: arithmetic_rows,
             exp: exp_rows,
             ..Default::default()
         }

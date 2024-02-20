@@ -1,4 +1,3 @@
-use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::geth_types::{Account, GethData};
 use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};

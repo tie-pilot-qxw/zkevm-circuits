@@ -127,7 +127,6 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroChip<F> {
             offset,
             || value_invert,
         )?;
-
         Ok(())
     }
 }

@@ -1634,11 +1634,7 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
         operation::sub::gen_witness(vec![BIT_SHIFT_MAX_INDEX.into(), shift]);
 
     // mul_div_num = 2<<stack_shift
-    let mul_div_num = if shift > BIT_SHIFT_MAX_INDEX.into() {
-        0.into()
-    } else {
-        U256::from(1) << shift
-    };
+    let (mul_div_num, exp_rows, exp_arith_mul_rows) = Row::from_operands(U256::from(2), shift);
 
     // if Opcode is SHL, then result is stack_value * mul_div_num
     // if Opcode is SHR, then result is stack_value / mul_div_num
@@ -1655,33 +1651,26 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
 
     // insert exp lookup
     core_rows1.insert_exp_lookup(U256::from(2), shift, mul_div_num);
-    let exp_rows = exp::Row::from_operands(U256::from(2), shift, mul_div_num);
 
     let mut arithmetic_rows = vec![];
     arithmetic_rows.extend(arithmetic_sub_rows);
     arithmetic_rows.extend(arithmetic_mul_div_rows);
+    arithmetic_rows.extend(exp_arith_mul_rows);
 
     (arithmetic_rows, exp_rows)
 }
 
 pub fn get_and_insert_signextend_rows<F: Field>(
     signextend_operands: [U256; 2],
-    exp_operands: [U256; 3],
     arithmetic_operands: [U256; 2],
     core_rows0: &mut core::Row,
-    core_rows1: &mut core::Row,
+    _core_rows1: &mut core::Row,
     core_rows2: &mut core::Row,
-) -> (Vec<bitwise::Row>, Vec<exp::Row>, Vec<arithmetic::Row>) {
+) -> (Vec<bitwise::Row>, Vec<arithmetic::Row>) {
     // get arithmetic rows
     let (arithmetic_sub_rows, _) =
         operation::sub::gen_witness(vec![arithmetic_operands[0], arithmetic_operands[1]]);
     const START_OFFSET: usize = 27;
-    // get exp_rows
-    let exp_rows = exp::Row::from_operands(
-        exp_operands[0].clone(),
-        exp_operands[1].clone(),
-        exp_operands[2].clone(),
-    );
 
     // calc signextend by bit
     let (signextend_result_vec, bitwise_rows_vec) =
@@ -1693,9 +1682,6 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     }
     // insert arithmetic lookup to core_row_2
     core_rows2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
-
-    // insert exp lookup
-    core_rows1.insert_exp_lookup(exp_operands[0], exp_operands[1], exp_operands[2]);
 
     // a_hi set core_row_0.vers_27;
     // a_lo set core_row_0.vers_28;
@@ -1712,7 +1698,7 @@ pub fn get_and_insert_signextend_rows<F: Field>(
         .flat_map(|inner_vec| inner_vec.into_iter())
         .collect();
 
-    (bitwise_rows, exp_rows, arithmetic_sub_rows)
+    (bitwise_rows, arithmetic_sub_rows)
 }
 
 /// signextend operations
@@ -1826,11 +1812,12 @@ macro_rules! assign_or_panic {
     };
 }
 
+use crate::exp_circuit::ExpCircuit;
+use crate::witness::exp::Row;
 pub(crate) use assign_or_panic;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
-        // todo: exp overflow
         let (expect_power, _) = base.overflowing_pow(index);
         assert_eq!(expect_power, power);
         const START_OFFSET: usize = 26;
@@ -2382,6 +2369,8 @@ impl Witness {
             .for_each(|_| self.bitwise.insert(0, Default::default()));
         (0..ArithmeticCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| self.arithmetic.insert(0, Default::default()));
+        (0..ExpCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| self.exp.insert(0, Default::default()));
     }
 
     /// Generate end padding of a witness of one block
@@ -2484,6 +2473,7 @@ impl Witness {
             self.arithmetic.len(),
             self.copy.len(),
             self.bitwise.len(),
+            self.exp.len(),
         ])
         .unwrap();
         for i in 0..max_length {
@@ -2494,8 +2484,11 @@ impl Witness {
             let arithmetic = self.arithmetic.get(i).cloned().unwrap_or_default();
             let copy = self.copy.get(i).cloned().unwrap_or_default();
             let bitwise = self.bitwise.get(i).cloned().unwrap_or_default();
-            wtr.serialize((core, state, bytecode, public, arithmetic, copy, bitwise))
-                .unwrap()
+            let exp = self.exp.get(i).cloned().unwrap_or_default();
+            wtr.serialize((
+                core, state, bytecode, public, arithmetic, copy, bitwise, exp,
+            ))
+            .unwrap()
         }
         wtr.flush().unwrap();
     }

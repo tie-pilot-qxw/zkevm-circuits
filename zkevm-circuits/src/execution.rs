@@ -57,8 +57,8 @@ pub mod tx_context;
 use std::collections::HashMap;
 
 use crate::table::{
-    extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, FixedTable,
-    LookupEntry, PublicTable, StateTable, ANNOTATE_SEPARATOR,
+    extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable,
+    FixedTable, LookupEntry, PublicTable, StateTable, ANNOTATE_SEPARATOR,
 };
 use crate::witness::state::CallContextTag;
 use crate::witness::{arithmetic, bitwise, WitnessExecHelper};
@@ -175,6 +175,7 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     pub(crate) bitwise_table: BitwiseTable,
     pub(crate) public_table: PublicTable,
     pub(crate) fixed_table: FixedTable,
+    pub(crate) exp_table: ExpTable,
 }
 
 // Columns in this struct should be used with Rotation::cur() and condition cnt_is_zero
@@ -594,7 +595,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             LookupEntry::Public { .. } => self.public_table.get_lookup_vector(meta, lookup),
             LookupEntry::Bitwise { .. } => self.bitwise_table.get_lookup_vector(meta, lookup),
             LookupEntry::Copy { .. } => self.copy_table.get_lookup_vector(meta, lookup),
-            LookupEntry::Arithmetic { .. } | LookupEntry::ArithmeticU64 { .. } => {
+            LookupEntry::Arithmetic { .. }
+            | LookupEntry::ArithmeticU64 { .. }
+            | LookupEntry::ArithmeticShort { .. } => {
                 self.arithmetic_table.get_lookup_vector(meta, lookup)
             }
             // when feature `no_fixed_lookup` is on, we don't do lookup
@@ -609,7 +612,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     self.fixed_table.get_lookup_vector(meta, lookup)
                 }
             }
-            //TODO config还未添加其它table (exp,Conditional)
+            LookupEntry::Exp { .. } => self.exp_table.get_lookup_vector(meta, lookup),
+            //TODO config还未添加其它table
             // 所以此处如果有其它类型的entry应该panic。
             _ => unreachable!(),
         };
@@ -1657,7 +1661,9 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 | LookupEntry::U10(..)
                 | LookupEntry::U16(..)
                 | LookupEntry::Bitwise { .. }
-                | LookupEntry::Copy { .. } => {
+                | LookupEntry::Copy { .. }
+                | LookupEntry::ArithmeticResult { .. }
+                | LookupEntry::Exp { .. } => {
                     meta.lookup_any(string, |meta| {
                         let q_enable = meta.query_selector(config.q_enable);
                         let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
@@ -1718,7 +1724,9 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 | LookupEntry::U10(..)
                 | LookupEntry::U16(..)
                 | LookupEntry::Bitwise { .. }
-                | LookupEntry::Copy { .. } => {
+                | LookupEntry::Copy { .. }
+                | LookupEntry::ArithmeticShort { .. }
+                | LookupEntry::Exp { .. } => {
                     let identifier = lookup.identifier();
                     match lookup_category.get_mut(&identifier) {
                         Some(v) => v.push((string, lookup, execution_state)),
@@ -1728,8 +1736,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                         }
                     };
                 }
-                //TODO config还未添加其它table (exp,Conditional)
-                // 等待后续添加后再进行编写
+                //TODO config还未添加其它table
                 _ => (),
             }
         }
@@ -2083,7 +2090,7 @@ mod test {
             use super::*;
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
-            use crate::table::{BitwiseTable, BytecodeTable, FixedTable, PublicTable, StateTable, ArithmeticTable, CopyTable};
+            use crate::table::{BitwiseTable, BytecodeTable, ExpTable, FixedTable, PublicTable, StateTable, ArithmeticTable, CopyTable};
             use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             #[allow(unused_imports)]
@@ -2146,6 +2153,7 @@ mod test {
                     let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
                     let fixed_table = FixedTable::construct(meta);
                     let q_first_exec_state = meta.selector();
+                    let exp_table = ExpTable::construct(meta);
                     let config = ExecutionConfig {
                         q_first_exec_state,
                         q_enable,
@@ -2165,6 +2173,7 @@ mod test {
                         bitwise_table,
                         public_table,
                         fixed_table,
+                        exp_table,
                     };
                     let gadget = new();
                     meta.create_gate("TEST", |meta| {

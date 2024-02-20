@@ -4,6 +4,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
+use crate::witness::exp;
 use crate::witness::{get_and_insert_signextend_rows, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
@@ -296,7 +297,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // if shift <= 255 and sign_bit is 1, then signextend_operand1 is stack top 1 and exp index is 255-shift
         // if shift > 255 and sign_bit is 1, then signextend_operand1 is U256::MAX and exp index is 255, stack_push is U256::max
         // if shift > 255 and sign_bit is 0, then signextend_operand1 is 0 and exp index is 255, stack_push is 0
-        let exp_base = U256::from(EXP_BASE);
         let (signextend_operand1, exp_index) = if shift <= bit_max_index {
             (sra1_result, bit_max_index - shift)
         } else {
@@ -311,7 +311,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             }
         };
 
-        let (exp_power, _) = exp_base.overflowing_pow(exp_index);
+        // get exp_rows
+        let exp_base = U256::from(EXP_BASE);
+        let (calc_exp_power, exp_rows, exp_arith_mul_rows) =
+            exp::Row::from_operands(exp_base, exp_index);
 
         // construct core_row_2,core_row_1,core_row_0  object
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
@@ -325,24 +328,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // insert state lookup to core_row_1
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
+        // insert exp lookup
+        core_row_1.insert_exp_lookup(exp_base, exp_index, calc_exp_power);
 
         // get signextend related rows
-        let (bitwise_rows, exp_rows, arithmetic_sub_rows) = get_and_insert_signextend_rows::<F>(
-            [exp_power, signextend_operand1], // signextend_a, signextend_operand1
-            [exp_base, exp_index, exp_power],
+        let (bitwise_rows, arithmetic_sub_rows) = get_and_insert_signextend_rows::<F>(
+            [calc_exp_power, signextend_operand1], // signextend_a, signextend_operand1
             [bit_max_index, shift],
             &mut core_row_0,
             &mut core_row_1,
             &mut core_row_2,
         );
 
+        let mut arithmetic_rows = vec![];
+        arithmetic_rows.extend(arithmetic_sub_rows);
+        arithmetic_rows.extend(exp_arith_mul_rows);
         // Construct witness  object
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_push_0],
             exp: exp_rows,
             bitwise: bitwise_rows,
-            arithmetic: arithmetic_sub_rows,
+            arithmetic: arithmetic_rows,
             ..Default::default()
         }
     }
