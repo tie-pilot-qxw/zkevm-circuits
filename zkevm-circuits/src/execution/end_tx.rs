@@ -47,7 +47,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let (public_tag, _, [public_tx_num_in_block, _, _, _]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta));
+            extract_lookup_expression!(public, config.get_public_lookup(meta, Rotation(-2)));
 
         let tx_id_diff_inv = meta.query_advice(config.vers[TX_DIFF_COLUMN_ID], Rotation(-2));
         let is_zero = SimpleIsZero::new(
@@ -96,7 +96,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let public_entry = query_expression(meta, |meta| config.get_public_lookup(meta));
+        let public_entry =
+            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
 
         vec![("public entry".into(), public_entry)]
     }

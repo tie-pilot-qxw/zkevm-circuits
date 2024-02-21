@@ -93,7 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
         // public lookup
-        let public_entry = config.get_public_lookup(meta);
+        let public_entry = config.get_public_lookup(meta, Rotation(-2));
         // query public_tag , only one tag is 1,other tag is 0;
         let timestamp_tag = meta.query_advice(config.vers[8], Rotation::prev());
         let number_tag = meta.query_advice(config.vers[9], Rotation::prev());
@@ -151,7 +151,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // state lookup
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         // public lookup
-        let public_context_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
+        let public_context_lookup =
+            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
             ("public context value lookup".into(), public_context_lookup),

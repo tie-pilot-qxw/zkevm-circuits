@@ -48,6 +48,8 @@ pub enum Tag {
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
     TxLog,
     TxLogSize,
+    // bytecode size
+    CodeSize,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -481,6 +483,31 @@ impl Row {
                     });
                 }
             }
+        }
+
+        // code size
+        for account in geth_data.accounts.iter() {
+            let addr_hi = account.address >> 128;
+            let addr_lo = U256::from(account.address.low_u128());
+            let code_size = account.code.len();
+
+            result.push(Row {
+                tag: Tag::CodeSize,
+                value_0: Some(addr_hi),
+                value_1: Some(addr_lo),
+                value_2: Some(U256::zero()),
+                value_3: Some(U256::from(code_size)),
+                comments: [
+                    ("tag".into(), "CodeSize".into()),
+                    ("value_0".into(), "address_hi".into()),
+                    ("value_1".into(), "address_lo".into()),
+                    ("value_2".into(), "code_size hi".into()),
+                    ("value_3".into(), "code_size lo".into()),
+                ]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            });
         }
         Ok(result)
     }

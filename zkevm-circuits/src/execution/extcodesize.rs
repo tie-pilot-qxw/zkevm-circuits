@@ -12,15 +12,15 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 1;
-const STACK_POINTER_DELTA: i32 = 1;
+const STATE_STAMP_DELTA: u64 = 2;
 
 const PC_DELTA: u64 = 1;
 
-/// CODESIZE overview:
-///   get the bytecode size and put it on the top of the stack
+/// EXTCODESIZE overview:
+///   pop a value from the top of the stack: address, get the corresponding codesize according to the address,
+/// and write the codesize to the top of the stack
 ///
-/// CODESIZE Execution State layout is as follows
+/// EXTCODESIZE Execution State layout is as follows
 /// where STATE means state table lookup,
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -29,20 +29,20 @@ const PC_DELTA: u64 = 1;
 /// |cnt| 8 col | 8 col | 8 col |  8 col   |
 /// +---+-------+-------+-------+----------+
 /// | 2 |       |       |       | PUBLIC(6)|
-/// | 1 | STATE |       |       |          |
+/// | 1 | STATE | STATE |       |          |
 /// | 0 | DYNA_SELECTOR   | AUX |          |
 /// +---+-------+-------+-------+----------+
-pub struct CodesizeGadget<F: Field> {
+pub struct ExtcodesizeGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for CodesizeGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for ExtcodesizeGadget<F>
 {
     fn name(&self) -> &'static str {
-        "CODESIZE"
+        "EXTCODESIZE"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::CODESIZE
+        ExecutionState::EXTCODESIZE
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -55,12 +55,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
-
         // auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
@@ -73,17 +70,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         // get stack val
-        let stack_entry = config.get_state_lookup(meta, 0);
-        constraints.append(&mut config.get_stack_constraints(
-            meta,
-            stack_entry.clone(),
-            0,
-            NUM_ROW,
-            1.expr(),
-            true,
-        ));
-        let (_, _, stack_code_size_hi, stack_code_size_lo, _, _, _, _) =
-            extract_lookup_expression!(state, stack_entry);
+        let mut stack_operands = vec![];
+        for i in 0..2 {
+            let entry = config.get_state_lookup(meta, i);
+            constraints.append(&mut config.get_stack_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                0.expr(),
+                i == 1,
+            ));
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            stack_operands.push([value_hi, value_lo]);
+        }
 
         // get public val
         // public_values[0] is code address hi
@@ -99,19 +99,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_tag - (public::Tag::CodeSize as u8).expr(),
             ),
             (
-                "code address = (public_value[0] << 128) + public_values[1]".into(),
-                public_values[0].clone() * pow_of_two::<F>(128) + public_values[1].clone()
-                    - code_addr,
+                "stack_top hi(code address hi) = public_value[0] ".into(),
+                stack_operands[0][0].clone() - public_values[0].clone(),
             ),
             (
-                "stack_top hi(code_size hi) = public_values[2]".into(),
-                stack_code_size_hi.clone() - public_values[2].clone(),
+                "stack_top lo(code address lo) = public_value[1] ".into(),
+                stack_operands[0][1].clone() - public_values[1].clone(),
             ),
             (
-                "stack_top lo(code_size lo) = public_values[2]".into(),
-                stack_code_size_lo - public_values[3].clone(),
+                "stack_push hi(code_size hi) = public_values[2]".into(),
+                stack_operands[1][0].clone() - public_values[2].clone(),
             ),
-            ("code_size hi is zero".into(), stack_code_size_hi),
+            (
+                "stack_push lo(code_size lo) = public_values[2]".into(),
+                stack_operands[1][1].clone() - public_values[3].clone(),
+            ),
+            ("code_size hi is zero".into(), stack_operands[1][0].clone()),
         ]);
 
         constraints
@@ -122,42 +125,47 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_addr = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_lookup_code_size =
+            query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let public_lookup =
             query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
         vec![
-            ("stack lookup".into(), stack_lookup),
+            ("stack addr lookup".into(), stack_lookup_addr),
+            ("stack code size lookup".into(), stack_lookup_code_size),
             ("public lookup(code size)".into(), public_lookup),
         ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert_eq!(trace.op, OpcodeId::CODESIZE);
+        assert_eq!(trace.op, OpcodeId::EXTCODESIZE);
+
+        let (stack_pop_addr, code_address) = current_state.get_pop_stack_row_value(&trace);
 
         //  get the bytecode size and put it on the top of the stack
         let code_size = U256::from(
             current_state
                 .bytecode
-                .get(&current_state.code_addr)
+                .get(&code_address)
                 .unwrap()
                 .code()
                 .len(),
         );
         assert_eq!(current_state.stack_top.unwrap(), code_size);
-        let push_row = current_state.get_push_stack_row(&trace, code_size);
+        let stack_push_row = current_state.get_push_stack_row(&trace, code_size);
 
         // get core row2
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         //  get public row and insert public row lookup
-        let public_row = current_state.get_public_code_size_row(current_state.code_addr, code_size);
+        let public_row = current_state.get_public_code_size_row(code_address, code_size);
         core_row_2.insert_public_lookup(&public_row);
 
         // get core row1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&push_row]);
+        core_row_1.insert_state_lookups([&stack_pop_addr, &stack_push_row]);
 
         // get core row0
-        let core_row_0 = ExecutionState::CODESIZE.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::EXTCODESIZE.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -166,14 +174,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![push_row],
+            state: vec![stack_pop_addr, stack_push_row],
             ..Default::default()
         }
     }
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(CodesizeGadget {
+    Box::new(ExtcodesizeGadget {
         _marker: PhantomData,
     })
 }
@@ -195,7 +203,7 @@ mod test {
             stack_top: Some(stack_top),
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::CODESIZE, stack);
+        let trace = prepare_trace_step!(0, OpcodeId::EXTCODESIZE, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -224,9 +232,9 @@ mod test {
 
     #[test]
     fn test_code_size1() {
-        let stack = Stack::from_slice(&[]);
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
+        let stack = Stack::from_slice(&[code_addr]);
         let mut bytecode = HashMap::new();
         let code = Bytecode::from(Vec::new().to_vec());
         bytecode.insert(code_addr, code);
@@ -240,16 +248,16 @@ mod test {
         // POP
         // CODESIZE
         // result: 0x20
-        let stack = Stack::from_slice(&[]);
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
+        let stack = Stack::from_slice(&[code_addr]);
         let mut bytecode = HashMap::new();
-        // 32 byte
         let code = Bytecode::from(
             hex::decode("7c00000000000000000000000000000000000000000000000000000000005038")
                 .unwrap(),
         );
         bytecode.insert(code_addr, code);
+        // 32 byte
         let stack_top = U256::from(0x20);
         run(stack, code_addr, bytecode, stack_top);
     }

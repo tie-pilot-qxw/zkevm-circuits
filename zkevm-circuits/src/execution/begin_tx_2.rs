@@ -108,7 +108,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         //constraint public lookup
         let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
-        let public_entry = config.get_public_lookup(meta);
+        let public_entry = config.get_public_lookup(meta, Rotation(-2));
         config.get_public_constraints(
             meta,
             public_entry,
@@ -141,7 +141,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         // 从core电路中读取public状态，与public电路进行lookup
-        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
+        let public_lookup =
+            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
 
         vec![
             ("value write".into(), state_lookup_0),

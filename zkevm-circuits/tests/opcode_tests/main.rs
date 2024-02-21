@@ -99,6 +99,7 @@ mod push8; //67
 mod push9; //68
 mod return_; //F2
              // mod revert; //FD
+mod codesize; // 38
 mod sar; // 1D
 mod sdiv;
 mod selfbalance; //47
@@ -121,7 +122,7 @@ mod swap6; //95
 mod swap7; //96
 mod swap8; //97
 mod swap9; //98
-mod timestamp; //42
+mod timestamp;
 
 use rand::Rng;
 use std::iter;

@@ -87,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // value_hi,value_lo constraints
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
-        let public_entry = config.get_public_lookup(meta);
+        let public_entry = config.get_public_lookup(meta, Rotation(-2));
         let origin_tag = meta.query_advice(config.vers[8], Rotation::prev());
         let gasprice_tag = meta.query_advice(config.vers[9], Rotation::prev());
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
@@ -120,7 +120,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
 
-        let public_context_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
+        let public_context_lookup =
+            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
             ("tx context value lookup".into(), public_context_lookup),

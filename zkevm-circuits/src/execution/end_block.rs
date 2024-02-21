@@ -77,7 +77,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 获取当前log值，与core电路中记录的public状态进行约束
         let last_log_stamp = meta.query_advice(log_stamp, Rotation::cur());
         let (public_tag, _, [public_log_num_in_block, _, _, _]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta));
+            extract_lookup_expression!(public, config.get_public_lookup(meta, Rotation(-2)));
 
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
@@ -116,7 +116,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         // 从core电路中读取state使用的行和public内容，分别与state电路和public电路进行lookup
         let stamp_cnt_lookup = query_expression(meta, |meta| config.get_stamp_cnt_lookup(meta));
-        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
+        let public_lookup =
+            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
         vec![
             ("stamp_cnt".into(), stamp_cnt_lookup),
             ("public_log_num_lookup".into(), public_lookup),
