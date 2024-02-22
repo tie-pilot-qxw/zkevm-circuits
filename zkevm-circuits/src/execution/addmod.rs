@@ -17,11 +17,10 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, assign_or_panic, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
+use eth_types::Field;
 use eth_types::GethExecStep;
-use eth_types::{Field, U256};
-use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -133,33 +132,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (tag, arithmetic_operands_full) =
             extract_lookup_expression!(arithmetic, config.get_arithmetic_lookup(meta, 0));
 
-        // Query the n_is_zero_inv advice from the meta cells.
-        let n_is_zero_inv = meta.query_advice(config.vers[30], Rotation(-2));
-
-        // when n == 0, n_is_zero expression should be 1
-        let n_is_zero = SimpleIsZero::new(
-            &(arithmetic_operands[4].clone() + arithmetic_operands[5].clone()),
-            &n_is_zero_inv,
-            String::from("n"),
-        );
-
-        // Constraints for n_is_zero
-        constraints.extend(n_is_zero.get_constraints());
-
-        // Add constraints for arithmetic operands.
-        // If n == 0, we have a,b == 0
-        constraints.extend((0..4).flat_map(|i| {
-            vec![
-                (
-                    format!("if n == 0, then operand[{}] in arithmetic == 0, otherwise should be equal to the value in state", i),
-                    (n_is_zero.expr().clone() * arithmetic_operands_full[i].clone()) + ((1.expr() - n_is_zero.expr().clone())
-                    * (arithmetic_operands_full[i].clone() - arithmetic_operands[i].clone())),
-                ),
-            ]
-        }));
-
-        // Add constraints for n, r.
-        constraints.extend((4..8).map(|i| {
+        // Constraints for a, b, n, r
+        constraints.extend((0..8).map(|i| {
             (
                 format!("operand[{}] in arithmetic = in state lookup", i),
                 arithmetic_operands[i].clone() - arithmetic_operands_full[i].clone(),
@@ -220,18 +194,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         core_row_2.insert_arithmetic_lookup(0, &arithmetic);
 
-        // Extract the high and low parts of n.
-        let n_hi = F::from_u128((n >> 128).as_u128());
-        let n_lo = F::from_u128(n.low_u128());
-
-        // Calculate the inverse of n_is_zero.
-        let n_is_zero_inv =
-            U256::from_little_endian((n_lo + n_hi).invert().unwrap_or(F::ZERO).to_repr().as_ref());
-
-        // Assign the value of n_is_zero_inv to core row 2.
-        assign_or_panic!(core_row_2[30], n_is_zero_inv);
-
-        // Get the core row 1 without the versatile columns.
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_pop_n, &stack_push]);
 
@@ -326,6 +288,18 @@ mod test {
     #[test]
     fn assign_and_constraint_overflow() {
         let stack = Stack::from_slice(&[2.into(), U256::MAX.into(), U256::MAX.into()]);
+        let stack_pointer = stack.0.len();
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(0.into()),
+            ..WitnessExecHelper::new()
+        };
+        test_witness(stack, stack_pointer, &mut current_state)
+    }
+
+    #[test]
+    fn assign_and_constraint_q_overflow() {
+        let stack = Stack::from_slice(&[1.into(), U256::MAX.into(), U256::MAX.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
