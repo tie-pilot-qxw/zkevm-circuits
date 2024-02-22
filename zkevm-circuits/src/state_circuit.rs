@@ -1,17 +1,17 @@
 pub mod multiple_precision_integer;
 pub mod ordering;
 
-use self::ordering::Config as OrderingConfig;
+use self::ordering::{Config as OrderingConfig, LIMB_SIZE};
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{FixedTable, StateTable};
-use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
+use crate::util::{assign_advice_or_fixed, Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{Row, Tag};
 use crate::witness::Witness;
 use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::util::Expr;
-use halo2_proofs::circuit::{Layouter, Region};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector};
 use halo2_proofs::poly::Rotation;
 use multiple_precision_integer::{Chip as MpiChip, Config as MpiConfig};
 use ordering::{LimbIndex, CALLID_OR_ADDRESS_LIMBS, POINTER_LIMBS, STAMP_LIMBS};
@@ -78,10 +78,12 @@ pub struct StateCircuitConfig<F> {
     _marker: PhantomData<F>,
 }
 
-pub struct StateCircuitConfigArgs {
+pub struct StateCircuitConfigArgs<F: Field> {
     pub(crate) q_enable: Selector,
     pub(crate) state_table: StateTable,
     pub(crate) fixed_table: FixedTable,
+    /// Challenges
+    pub challenges: Challenges<Expression<F>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -94,7 +96,7 @@ pub struct SortedElements {
 }
 
 impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
-    type ConfigArgs = StateCircuitConfigArgs;
+    type ConfigArgs = StateCircuitConfigArgs<F>;
 
     fn new(
         meta: &mut ConstraintSystem<F>,
@@ -102,6 +104,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             q_enable,
             state_table,
             fixed_table,
+            challenges,
         }: Self::ConfigArgs,
     ) -> Self {
         let StateTable {
@@ -135,7 +138,11 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         // 将字段构建好的limb数据传入ordering.rs，约束state rows间的排序满足预定义规则；
         // 因为state circuit中填入的rows已经被提前排好了序，所以可以使用排序规则进行约束，
         // 正确排序的state rows可以通过这些约束。
-        let ordering_config = OrderingConfig::new(meta, q_enable, keys, fixed_table);
+        let power_of_randomness: [Expression<F>; LIMB_SIZE - 1] =
+            challenges.rlc_powers_of_randomness();
+
+        let ordering_config =
+            OrderingConfig::new(meta, q_enable, keys, fixed_table, power_of_randomness);
         let config: StateCircuitConfig<F> = Self {
             q_enable,
             tag,
@@ -546,6 +553,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -583,12 +591,14 @@ mod test {
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
-    use halo2_proofs::plonk::Circuit;
+    use halo2_proofs::plonk::{Circuit, SecondPhase};
 
     #[derive(Clone)]
     pub struct StateTestCircuitConfig<F: Field> {
         pub state_circuit: StateCircuitConfig<F>,
         pub fixed_circuit: FixedCircuitConfig<F>,
+        pub challenges: Challenges,
+        pub dummy_column: Column<Advice>,
     }
 
     #[derive(Clone, Default, Debug)]
@@ -603,6 +613,8 @@ mod test {
             let q_enable: Selector = meta.complex_selector(); //todo complex?
             let state_table = StateTable::construct(meta, q_enable);
             let fixed_table = FixedTable::construct(meta);
+            let challenges = Challenges::construct(meta);
+            let challenges_exprs = challenges.exprs(meta);
             StateTestCircuitConfig {
                 state_circuit: StateCircuitConfig::new(
                     meta,
@@ -610,12 +622,15 @@ mod test {
                         q_enable,
                         state_table,
                         fixed_table,
+                        challenges: challenges_exprs,
                     },
                 ),
                 fixed_circuit: FixedCircuitConfig::new(
                     meta,
                     FixedCircuitConfigArgs { fixed_table },
                 ),
+                challenges,
+                dummy_column: meta.advice_column_in(SecondPhase),
             }
         }
     }
@@ -634,8 +649,10 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
+            let challenges = config.challenges.values(&mut layouter);
+            println!("test-state-circuit-challenge {:?}", challenges);
             self.state_circuit
-                .synthesize_sub(&config.state_circuit, &mut layouter)?;
+                .synthesize_sub(&config.state_circuit, &mut layouter, &challenges)?;
             // when feature `no_fixed_lookup` is on, we don't do synthesize
             #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit

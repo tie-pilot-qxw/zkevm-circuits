@@ -1,7 +1,9 @@
 use crate::constant::LOG_NUM_BITWISE_TAG;
 use crate::table::{BitwiseTable, FixedTable};
 
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::util::{
+    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+};
 use crate::witness::bitwise::Row;
 use crate::witness::Witness;
 use eth_types::Field;
@@ -358,6 +360,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -422,6 +425,7 @@ mod test {
         pub acc_1: Column<Advice>,
         pub acc_2: Column<Advice>,
         pub sum_2: Column<Advice>,
+        pub challenges: Challenges,
     }
 
     impl<F: Field> SubCircuitConfig<F> for BitwiseTestCircuitConfig<F> {
@@ -433,6 +437,7 @@ mod test {
             let fixed_table = FixedTable::construct(meta);
             let q_enable_bitwise = meta.complex_selector();
             let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
+            let challenges = Challenges::construct(meta);
             let bitwise_circuit = BitwiseCircuitConfig::new(
                 meta,
                 BitwiseCircuitConfigArgs {
@@ -449,6 +454,7 @@ mod test {
                 acc_1: meta.advice_column(),
                 acc_2: meta.advice_column(),
                 sum_2: meta.advice_column(),
+                challenges,
             }
         }
     }
@@ -534,8 +540,12 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.bitwise_circuit
-                .synthesize_sub(&config.bitwise_circuit, &mut layouter)?;
+            let challenges = config.challenges.values(&mut layouter);
+            self.bitwise_circuit.synthesize_sub(
+                &config.bitwise_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
 
             layouter.assign_region(
                 || "bitwise circuit test",

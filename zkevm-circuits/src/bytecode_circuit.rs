@@ -1,5 +1,7 @@
 use crate::table::{BytecodeTable, FixedTable};
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::util::{
+    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+};
 use crate::witness::bytecode::Row;
 use crate::witness::Witness;
 use eth_types::{Field, U256};
@@ -636,6 +638,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -703,6 +706,7 @@ mod test {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
         // used to verify Lookup(src: Bytecode circuit, target: Fixed circuit table)
         pub fixed_circuit: FixedCircuitConfig<F>,
+        pub challenges: Challenges,
     }
 
     impl<F: Field> SubCircuitConfig<F> for BytecodeTestCircuitConfig<F> {
@@ -715,7 +719,8 @@ mod test {
             let fixed_table = FixedTable::construct(meta);
             let (instance_addr, instance_bytecode) =
                 BytecodeTable::construct_addr_bytecode_instance_column(meta);
-
+            // challenge
+            let challenges = Challenges::construct(meta);
             // construct fixed circuit
             let fixed_circuit =
                 FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
@@ -736,6 +741,7 @@ mod test {
             Self {
                 fixed_circuit,
                 bytecode_circuit,
+                challenges,
             }
         }
     }
@@ -765,8 +771,12 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.bytecode_circuit
-                .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
+            let challenges = config.challenges.values(&mut layouter);
+            self.bytecode_circuit.synthesize_sub(
+                &config.bytecode_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
 
             // when feature `no_fixed_lookup` is on, we don't do synthesize
             #[cfg(not(feature = "no_fixed_lookup"))]

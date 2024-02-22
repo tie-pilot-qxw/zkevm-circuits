@@ -3,7 +3,7 @@ use crate::{state_circuit::SortedElements, table::FixedTable};
 use eth_types::{Field, ToBigEndian};
 use itertools::Itertools;
 use std::iter::once;
-use strum::IntoEnumIterator;
+use strum::{EnumCount, IntoEnumIterator};
 
 use gadgets::{
     binary_number_with_real_selector::{AsBits, BinaryNumberChip, BinaryNumberConfig},
@@ -14,7 +14,7 @@ use halo2_proofs::{
     plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells},
     poly::Rotation,
 };
-use strum_macros::EnumIter;
+use strum_macros::{EnumCount, EnumIter};
 
 pub const POINTER_LIMBS: usize = 8;
 pub const STAMP_LIMBS: usize = 2;
@@ -39,7 +39,7 @@ pub const CALLID_OR_ADDRESS_LIMBS: usize = 10;
 /// 的栈上位置为首次访问，因此约束下一行的操作必须为写操作。
 /// 因为stamp每次操作后都会进行递增，因此可以用它来标识相同位置的操作顺序（如stack的相同位置有两次紧邻的
 /// 读写操作 2个rows，则肯定是写row在读row之前）
-#[derive(Clone, Copy, Debug, EnumIter, PartialEq)]
+#[derive(Clone, Copy, Debug, EnumIter, EnumCount, PartialEq)]
 pub enum LimbIndex {
     Tag,
     CallIdOrAddress9,
@@ -71,7 +71,8 @@ pub enum LimbIndex {
     Stamp1,
     Stamp0,
 }
-
+/// LIMB_SIZE denotes number of enum LimbIndex
+pub(crate) const LIMB_SIZE: usize = LimbIndex::COUNT;
 /// Calculate the bit representation of the LimbIndex enum element;
 /// Because the maximum index of an enum element is 0x1C, 5 bits
 /// are needed to represent all enumeration elements.
@@ -107,6 +108,7 @@ impl Config {
         selector: Selector,
         keys: SortedElements,
         fixed_table: FixedTable,
+        powers_of_randomness: [Expression<F>; LIMB_SIZE - 1],
     ) -> Self {
         let first_different_limb = BinaryNumberChip::configure(meta, selector, None);
         let limb_difference = meta.advice_column();
@@ -175,8 +177,8 @@ impl Config {
                     meta
                 );
                 let mut constraints = vec![];
-                // TODO: should use true rlc rather than square, see https://git.code.tencent.com/chainmaker-zk/zkevm/issues/44
-                for (i, rlc_expression) in LimbIndex::iter().zip(square_limb_differences(cur, prev))
+                for (i, rlc_expression) in
+                    LimbIndex::iter().zip(rlc_limb_difference(cur, prev, powers_of_randomness))
                 {
                     // first_different_limb.value_equals(i)标识上下两行limbs之间首个非0 diff的索引，
                     // 当first_different_limb=i(LimbIndex)时，返回值为1
@@ -313,16 +315,23 @@ impl<F: Field> Queries<F> {
     }
 }
 
-fn square_limb_differences<F: Field>(cur: Queries<F>, prev: Queries<F>) -> Vec<Expression<F>> {
+fn rlc_limb_difference<F: Field>(
+    cur: Queries<F>,
+    prev: Queries<F>,
+    power_of_randomness: [Expression<F>; LIMB_SIZE - 1],
+) -> Vec<Expression<F>> {
     let mut result = vec![];
     let mut partial_sum = 0u64.expr();
-    for (cur_limb, prev_limb) in cur.be_limbs().iter().zip(&prev.be_limbs()) {
+    let power_series = once(1.expr()).chain(power_of_randomness);
+    for ((cur_limb, prev_limb), power_of_random) in cur
+        .be_limbs()
+        .iter()
+        .zip(&prev.be_limbs())
+        .zip(power_series)
+    {
         result.push(partial_sum.clone());
-        // pseudo code：diff = cur_limb - prev_limb
-        // partial_sum += diff
-        // result = Vec[partial_sum...]
-        partial_sum = partial_sum
-            + (cur_limb.clone() - prev_limb.clone()) * (cur_limb.clone() - prev_limb.clone());
+        partial_sum =
+            partial_sum + power_of_random.clone() * (cur_limb.clone() - prev_limb.clone());
     }
     result
 }

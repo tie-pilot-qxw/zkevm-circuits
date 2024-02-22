@@ -1,9 +1,9 @@
 use crate::constant::PUBLIC_NUM_VALUES;
 use crate::table::PublicTable;
-use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::util::{Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
-use halo2_proofs::circuit::Layouter;
+use halo2_proofs::circuit::{Layouter, Value};
 use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Instance};
 use std::marker::PhantomData;
 
@@ -73,6 +73,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
         &self,
         _config: &Self::Config,
         _layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         // all instance column , do nothing
         Ok(())
@@ -109,6 +110,7 @@ mod test {
         pub tag: Column<Advice>,
         pub tx_idx_or_number_diff: Column<Advice>,
         pub values: [Column<Advice>; PUBLIC_NUM_VALUES],
+        pub challenges: Challenges,
     }
 
     impl<F: Field> Circuit<F> for PublicTestCircuit<F> {
@@ -118,7 +120,10 @@ mod test {
             Self::default()
         }
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            // _dummy_cols for challenge
+            let _dummy_cols = meta.advice_column();
             let public_table = PublicTable::construct(meta);
+            let challenges = Challenges::construct(meta);
             let public_circuit_config =
                 PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
             let config = PublicTestCircuitConfig {
@@ -126,6 +131,7 @@ mod test {
                 tag: meta.advice_column(),
                 tx_idx_or_number_diff: meta.advice_column(),
                 values: std::array::from_fn(|_| meta.advice_column()),
+                challenges,
             };
             // lookup constraints
             meta.lookup_any("test lookup", |meta| {
@@ -174,7 +180,8 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.0.synthesize_sub(&config.public_circuit_config, &mut layouter)?;
+            let challenges = config.challenges.values(&mut layouter);
+            self.0.synthesize_sub(&config.public_circuit_config, &mut layouter,&challenges)?;
             // assign values 
             layouter.assign_region(
                 || "TEST",
@@ -198,7 +205,7 @@ mod test {
         }
     }
 
-    fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
+    fn test_public_circuit(witness: Witness) -> MockProver<Fp> {
         // ceiling of log2(MAX_NUM_ROW)
         let k = log2_ceil(MAX_NUM_ROW);
         let circuit = PublicTestCircuit::<Fp>::new(witness);
@@ -210,7 +217,7 @@ mod test {
     }
 
     #[test]
-    fn test_state_parser() {
+    fn test_public_parser() {
         // load instructions
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         // parse trace
@@ -226,7 +233,7 @@ mod test {
         // output witness as csv
         witness.print_csv();
         // witness prove
-        let prover = test_state_circuit(witness);
+        let prover = test_public_circuit(witness);
         // any circuit fail will panic
         prover.assert_satisfied_par();
     }

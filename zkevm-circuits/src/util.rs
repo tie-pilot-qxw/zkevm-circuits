@@ -5,7 +5,8 @@ use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, ToAddress, Tra
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
-    Advice, Any, Column, ConstraintSystem, Error, Expression, Fixed, VirtualCells,
+    Advice, Any, Challenge, Column, ConstraintSystem, Error, Expression, FirstPhase, Fixed,
+    VirtualCells,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -24,6 +25,61 @@ pub(crate) fn query_expression<F: Field, T>(
         Some(0.expr())
     });
     expr.unwrap()
+}
+
+/// Challenges
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Challenges<T = Challenge> {
+    // randomness used for rlc in state circuit
+    rlc: T,
+}
+
+impl Challenges {
+    /// Construct Challenges by allocating challenges in phases.
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        Self {
+            rlc: meta.challenge_usable_after(FirstPhase),
+        }
+    }
+    /// Return expression of challenges from ConstraintSystem
+    pub fn exprs<F: Field>(&self, meta: &mut ConstraintSystem<F>) -> Challenges<Expression<F>> {
+        Challenges {
+            rlc: query_expression(meta, |meta| meta.query_challenge(self.rlc)),
+        }
+    }
+    /// Return value of challenges from layouter
+    pub fn values<F: Field>(&self, layouter: &mut impl Layouter<F>) -> Challenges<Value<F>> {
+        Challenges {
+            rlc: layouter.get_challenge(self.rlc),
+        }
+    }
+}
+impl<T: Clone> Challenges<T> {
+    /// Return challenge of rlc
+    pub fn rlc(&self) -> T {
+        self.rlc.clone()
+    }
+    /// Return the challenges indexed by the challenge index
+    pub fn indexed(&self) -> [&T; 1] {
+        [&self.rlc]
+    }
+}
+
+impl<F: Field> Challenges<Expression<F>> {
+    /// Returns powers of randomness
+    fn powers_of<const S: usize>(base: Expression<F>) -> [Expression<F>; S] {
+        std::iter::successors(base.clone().into(), |power| {
+            (base.clone() * power.clone()).into()
+        })
+        .take(S)
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
+    }
+    /// Return power series
+    pub fn rlc_powers_of_randomness<const S: usize>(&self) -> [Expression<F>; S] {
+        Self::powers_of(self.rlc.clone())
+    }
 }
 
 /// SubCircuit configuration
@@ -63,6 +119,7 @@ pub trait SubCircuit<F: Field> {
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        challenges: &Challenges<Value<F>>,
     ) -> Result<Self::Cells, Error>;
 
     /// Number of rows before and after the actual witness that cannot be used, which decides that
