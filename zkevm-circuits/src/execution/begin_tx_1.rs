@@ -75,6 +75,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // 记录了4个状态(to地址，calldata size, 父环境的code_addr和call_id)和
             // 从public calldata区域拷贝copy size大小的数据
             state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
+            stack_pointer: ExpressionOutcome::To(0.expr()),
+            log_stamp: ExpressionOutcome::To(0.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));

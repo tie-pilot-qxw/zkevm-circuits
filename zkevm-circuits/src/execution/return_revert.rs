@@ -321,7 +321,7 @@ mod test {
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
-        let stack = Stack::from_slice(&[0x04.into(), 0x01.into()]); // len=4, offset=1
+        let stack = Stack::from_slice(&[0x05.into(), 0x00.into()]); // len=5, offset=0
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer,
