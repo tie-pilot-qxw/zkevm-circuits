@@ -1,6 +1,7 @@
+use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::geth_types::{Account, GethData};
-use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
+use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, ToAddress, Transaction, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
@@ -150,11 +151,14 @@ pub fn create_contract_addr(tx: &Transaction) -> U256 {
 }
 
 /// Generate the code address for create-contract transaction with prefix 0xff...ff
+/// Note: There are two types of contract bytecode: original Bytecode, deployed Bytecode,
+///       The Bytecode used by the exchange that creates the contract is the original Bytecode, and the
+///     Bytecode used by the exchange that calls the contract is the deployed Bytecode.
+///       In order to distinguish these two Bytecodes in the circuit, for the Bytecode address used to
+///    create the contract transaction, use the following rules: 0xfffff...(12 f) + transactionIdex
 pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
-    // let prefix: U256 = CREATE_ADDRESS_PREFIX.into();
-    // let created_addr = create_contract_addr(tx);
-    // prefix + created_addr
-    create_contract_addr(tx)
+    let prefix: U256 = CREATE_ADDRESS_PREFIX.into();
+    prefix + tx.transaction_index.unwrap().as_usize()
 }
 
 pub fn geth_data_test(
@@ -216,17 +220,24 @@ pub fn get_geth_data<P: AsRef<Path>>(
     // debug transaction trace
     let trace = read_trace_from_api_result_file(trace_file);
     // transaction receipt for public log
-    let receipt_log = read_log_from_api_result_file(receipt_file);
+    let mut receipt_log = read_log_from_api_result_file(receipt_file);
+
     // make accounts
     let accounts = match tx.to {
-        None => vec![Account {
-            address: create_contract_addr_with_prefix(&tx),
-            code: tx.input,
-            ..Default::default()
-        }],
+        None => {
+            let contract_addr = create_contract_addr_with_prefix(&tx);
+            // modify log.address
+            for log in receipt_log.logs.iter_mut() {
+                log.address = contract_addr.to_address();
+            }
+            vec![Account {
+                address: contract_addr,
+                code: tx.input,
+                ..Default::default()
+            }]
+        }
         Some(_addr) => read_accounts_from_api_result_file(accounts_file),
     };
-
     let chain_id = tx.chain_id.unwrap();
 
     // make fake history hashes

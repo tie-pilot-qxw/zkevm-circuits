@@ -42,9 +42,10 @@ pub(crate) const DESCRIPTION_AUXILIARY: [&'static str; NUM_AUXILIARY] = [
     "read_only",
 ];
 
+// big endian
 pub(crate) const CREATE_ADDRESS_PREFIX: [u8; 32] = [
-    0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 /// COPY_LOOKUP_COLUMN_CNT ,one copy lookup column count
 pub(crate) const COPY_LOOKUP_COLUMN_CNT: usize = 11;

@@ -1668,7 +1668,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 | LookupEntry::U16(..)
                 | LookupEntry::Bitwise { .. }
                 | LookupEntry::Copy { .. }
-                | LookupEntry::ArithmeticResult { .. }
+                | LookupEntry::ArithmeticShort { .. }
                 | LookupEntry::Exp { .. } => {
                     meta.lookup_any(string, |meta| {
                         let q_enable = meta.query_selector(config.q_enable);
