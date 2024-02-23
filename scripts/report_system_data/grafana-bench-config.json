@@ -25,7 +25,7 @@
         {
             "datasource": {
                 "type": "mysql",
-                "uid": "000000003"
+                "uid": "bench_test"
             },
             "description": "",
             "fieldConfig": {
@@ -107,7 +107,7 @@
                     "dataset": "bench_test",
                     "datasource": {
                         "type": "mysql",
-                        "uid": "000000003"
+                        "uid": "bench_test"
                     },
                     "editorMode": "builder",
                     "format": "table",
@@ -177,7 +177,7 @@
         {
             "datasource": {
                 "type": "mysql",
-                "uid": "000000003"
+                "uid": "bench_test"
             },
             "description": "",
             "fieldConfig": {
@@ -259,7 +259,7 @@
                     "dataset": "bench_test",
                     "datasource": {
                         "type": "mysql",
-                        "uid": "000000003"
+                        "uid": "bench_test"
                     },
                     "editorMode": "builder",
                     "format": "table",
@@ -329,7 +329,7 @@
         {
             "datasource": {
                 "type": "mysql",
-                "uid": "000000003"
+                "uid": "bench_test"
             },
             "fieldConfig": {
                 "defaults": {
@@ -393,7 +393,7 @@
                     "dataset": "bench_test",
                     "datasource": {
                         "type": "mysql",
-                        "uid": "000000003"
+                        "uid": "bench_test"
                     },
                     "editorMode": "builder",
                     "format": "table",
