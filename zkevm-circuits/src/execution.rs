@@ -23,6 +23,7 @@ pub mod end_tx;
 pub mod eq;
 pub mod exp;
 pub mod extcodecopy;
+pub mod extcodesize;
 pub mod gas;
 pub mod iszero;
 pub mod jump;
@@ -134,6 +135,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::log_topic::new(),
             crate::execution::gas::new(),
             crate::execution::codesize::new(),
+            crate::execution::extcodesize::new(),
         ]
     }};
 }
@@ -327,20 +329,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    // insert_public_lookup insert public lookup ,6 columns
     /// +---+-------+-------+-------+------+-----------+
     /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
     /// +---+-------+-------+-------+----------+
     /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
     /// +---+-------+-------+-------+----------+
-    pub(crate) fn get_public_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+    pub(crate) fn get_public_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        offset: Rotation,
+    ) -> LookupEntry<F> {
         let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
-            meta.query_advice(self.vers[26], Rotation(-2)),
-            meta.query_advice(self.vers[27], Rotation(-2)),
-            meta.query_advice(self.vers[28], Rotation(-2)),
-            meta.query_advice(self.vers[29], Rotation(-2)),
-            meta.query_advice(self.vers[30], Rotation(-2)),
-            meta.query_advice(self.vers[31], Rotation(-2)),
+            meta.query_advice(self.vers[26], offset),
+            meta.query_advice(self.vers[27], offset),
+            meta.query_advice(self.vers[28], offset),
+            meta.query_advice(self.vers[29], offset),
+            meta.query_advice(self.vers[30], offset),
+            meta.query_advice(self.vers[31], offset),
         );
 
         let values = [value_0, value_1, value_2, value_3];
@@ -1850,6 +1856,7 @@ pub enum ExecutionState {
     SDIV_SMOD,
     GAS,
     CODESIZE,
+    EXTCODESIZE,
 }
 
 impl ExecutionState {
@@ -1988,9 +1995,7 @@ impl ExecutionState {
                 vec![Self::CALL_CONTEXT]
             }
 
-            OpcodeId::EXTCODESIZE => {
-                todo!()
-            }
+            OpcodeId::EXTCODESIZE => vec![Self::EXTCODESIZE],
             OpcodeId::EXTCODECOPY => {
                 vec![Self::EXTCODECOPY]
             }

@@ -172,7 +172,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         //约束public entry 与state entry记录的calldata size和code_addr状态一致
-        let public_entry = config.get_public_lookup(meta);
+        let public_entry = config.get_public_lookup(meta, Rotation(-2));
         config.get_public_constraints(
             meta,
             public_entry,
@@ -216,7 +216,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 从core电路的 core_row_2行获取copy数据，core电路与copy电路lookup
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         // 从core电路的 core_row_2行获取public数据，core电路与public电路lookup
-        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta));
+        let public_lookup =
+            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
 
         vec![
             ("contract addr write".into(), state_lookup_0),

@@ -1459,6 +1459,7 @@ impl WitnessExecHelper {
         };
         public_row
     }
+
     pub fn get_public_log_topic_row(
         &self,
         opcode_id: OpcodeId,
@@ -1614,6 +1615,33 @@ impl WitnessExecHelper {
             value_2: values[2],
             value_3: values[3],
             comments,
+        };
+
+        public_row
+    }
+
+    pub fn get_public_code_size_row(&self, code_addr: U256, code_size: U256) -> public::Row {
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), format!("tag={}", "CodeSize"));
+        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 28), "address_hi".into());
+        comments.insert(format!("vers_{}", 29), "address_lo".into());
+        comments.insert(format!("vers_{}", 30), "codesize_hi".into());
+        comments.insert(format!("vers_{}", 31), "codesize_lo".into());
+
+        let addr_hi = code_addr >> 128;
+        let addr_lo = U256::from(code_addr.low_u128());
+        let code_size_hi = code_size >> 128;
+        let code_size_lo = U256::from(code_size.low_u128());
+
+        let public_row = public::Row {
+            tag: public::Tag::CodeSize,
+            value_0: Some(addr_hi),
+            value_1: Some(addr_lo),
+            value_2: Some(code_size_hi), // topic_hash[..16]
+            value_3: Some(code_size_lo), // topic_hash[16..]
+            comments,
+            ..Default::default()
         };
 
         public_row
@@ -2134,14 +2162,13 @@ impl core::Row {
         };
     }
 
-    // insert_public_lookup insert public lookup ,6 columns in row prev(-2)
+    // insert_public_lookup insert public lookup ,6 columns
     /// +---+-------+-------+-------+------+-----------+
     /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
     /// +---+-------+-------+-------+----------+
     /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
     /// +---+-------+-------+-------+----------+
     pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
-        assert_eq!(self.cnt, 2.into());
         const START_OFFSET: usize = 26;
         let column_values = [
             (public_row.tag as u8).into(),
