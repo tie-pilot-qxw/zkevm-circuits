@@ -1,5 +1,5 @@
-pub const NUM_STATE_HI_COL: usize = 10;
-pub const NUM_STATE_LO_COL: usize = 10;
+pub const NUM_STATE_HI_COL: usize = 9;
+pub const NUM_STATE_LO_COL: usize = 9;
 #[cfg(not(feature = "k_9"))]
 pub const MAX_NUM_ROW: usize = 280000;
 #[cfg(feature = "k_9")]

@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 
 pub(crate) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
-const START_OFFSET: usize = 27;
+const START_OFFSET: usize = 25;
 
 /// 当evm 操作码为 STOP、REVERT、RETURN时，先执行对应的指令的gadget，
 /// 再执行END_CALL gadget，进行父状态的恢复
@@ -353,8 +353,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[21] = Some(stack_pointer.into());
-            row[27] = Some(4.into()); // let the previous gadgets(return_revert or stop)'s returndata_size cell's value equals to returndata_size
+            row[19] = Some(stack_pointer.into());
+            row[25] = Some(4.into()); // let the previous gadgets(return_revert or stop)'s returndata_size cell's value equals to returndata_size
             row
         };
         let padding_end_row = |current_state| {
@@ -401,7 +401,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[21] = Some(stack_pointer.into());
+            row[19] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

@@ -382,9 +382,9 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[27] = Some(1.into()); // let success == true
-            row[29] = Some(10.into()); // let the previous gadgets(end_call)'s returndata_size cell's value equals to returndata_size
-            row[21] = Some(stack_pointer.into());
+            row[25] = Some(1.into()); // let success == true
+            row[27] = Some(10.into()); // let the previous gadgets(end_call)'s returndata_size cell's value equals to returndata_size
+            row[19] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

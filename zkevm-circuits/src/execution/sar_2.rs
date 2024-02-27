@@ -368,9 +368,9 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    const SIGN_BIT_COLUMN_ID: usize = 29;
-    const SAR1_HI_COLUMN_ID: usize = 30;
-    const SAR1_LO_COLUMN_ID: usize = 31;
+    const SIGN_BIT_COLUMN_ID: usize = 27;
+    const SAR1_HI_COLUMN_ID: usize = 28;
+    const SAR1_LO_COLUMN_ID: usize = 29;
 
     fn run(value_sign_bit_is_zero: U256, sar1_result: U256, stack: Stack, stack_top: U256) {
         let stack_pointer = stack.0.len();
@@ -389,7 +389,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[21] = Some(stack_pointer.into());
+            row[19] = Some(stack_pointer.into());
             row[SIGN_BIT_COLUMN_ID] = Some(value_sign_bit_is_zero);
             row[SAR1_HI_COLUMN_ID] = Some(sar1_result >> 128);
             row[SAR1_LO_COLUMN_ID] = Some(sar1_result.low_u128().into());

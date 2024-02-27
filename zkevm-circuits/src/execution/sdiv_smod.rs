@@ -288,7 +288,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[19] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -324,7 +324,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.vers_21 = Some(stack_pointer.into());
+            row[19] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

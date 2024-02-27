@@ -40,7 +40,7 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -2;
 const LEN_LO_INV_COLUMN_ID: usize = 11;
-const RETURN_DATA_SIZE_COLUMN_ID: usize = 27;
+const RETURN_DATA_SIZE_COLUMN_ID: usize = 25;
 
 pub struct ReturnRevertGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -339,7 +339,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[21] = Some(stack_pointer.into());
+            row[19] = Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {
