@@ -4,10 +4,10 @@ use eth_types::Field;
 use halo2_proofs::plonk::Expression;
 
 /// Construct the gadget that checks a * b + c == d * 2**256 + e
-/// where a, b, c, d, e are 256-bit words.
+/// where a, c, d, e are 256-bit words, b is 512-bit.
 ///
 /// We execute a multi-limb multiplication as follows:
-/// a and b is divided into 4 64-bit limbs, denoted as a0~a3 and b0~b3
+/// a is divided into 4 64-bit limbs, b is divided into 8 64-bit limbs, denoted as a0~a3 and b0~b3
 /// defined t0, t1, t2, t3, t4, t5, t6:
 ///   t0 = a0 * b0,  
 ///   t1 = a0 * b1 + a1 * b0,
@@ -26,7 +26,7 @@ use halo2_proofs::plonk::Expression;
 /// t2 + t3 << 64 + c_hi + carry_0 = e_hi + carry_1 << 128
 /// t4 + t5 << 64 + carry_1 = d_lo + carry_2 << 128
 /// t6 + t7 << 64 + carry_2 = d_hi
-/// (t8 + t9 << 64) + (t10) = 0
+/// (t8 + t9 << 64) + (t10 << 128) = 0
 ///
 /// The part of carry_0 that contributes more than 128 bits is 65 bits, (129+64)-128=65bit.
 /// The part of carry_1 that contributes more than 256 bits is 68 bits, (131+64+128+1)-256=68bit, 1 is carry_0.
@@ -140,8 +140,8 @@ impl<F: Field> SimpleMul768Gadget<F> {
                 - self.d[1].clone(),
         ));
         res.push((
-            format!("{}, t8 + t9 << 64 + t10 = 0", self.prefix),
-            t8.clone() + t9.clone() * pow_of_two::<F>(64) + t10.clone(),
+            format!("{}, t8 + t9 << 64 + t10 << 128 = 0", self.prefix),
+            t8.clone() + t9.clone() * pow_of_two::<F>(64) + t10.clone() * pow_of_two::<F>(128),
         ));
         res
     }

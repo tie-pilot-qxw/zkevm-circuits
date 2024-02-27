@@ -80,6 +80,10 @@ impl<F: Field> OperationGadget<F> for MulModGadget<F> {
     }
 }
 
+/// compute `a * b = e + d << 256`, include constraints:
+/// 1. `a * b = e + d << 256` mul 512 constraints
+/// 2. `carry_x in 80 bit range`
+/// 3. Constraints on u16s for this round of operations
 fn get_mul_512_constraints<F: Field>(
     config: &OperationConfig<F>,
     meta: &mut VirtualCells<F>,
@@ -195,6 +199,11 @@ fn get_mul_512_constraints<F: Field>(
     constraints
 }
 
+/// compute `n * q + r = e + d << 256`, include constraints:
+/// 1. `n * q + r = e + d << 256` mul_768 constraints
+/// 2. `carry_x in 80 bit range`
+/// 3. `r < n if n != 0`
+/// 4. Constraints on u16s for this round of operations
 fn get_mul_768_constraints<F: Field>(
     config: &OperationConfig<F>,
     meta: &mut VirtualCells<F>,
