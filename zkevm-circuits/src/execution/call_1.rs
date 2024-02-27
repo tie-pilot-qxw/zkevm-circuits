@@ -273,7 +273,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         // core_row_0写入stamp_init状态
-        assign_or_panic!(core_row_0[27], stamp_init.into());
+        assign_or_panic!(core_row_0[25], stamp_init.into());
         state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);
         Witness {
             copy: copy_rows,

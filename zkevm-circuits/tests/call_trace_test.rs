@@ -1,5 +1,6 @@
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
+use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{get_geth_data, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
@@ -21,10 +22,16 @@ fn test_call_trace() {
     #[cfg(feature = "fast_test")]
     const MAX_NUM_ROW_FOR_TEST: usize = 6000;
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, 10, 10> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
-    let k = log2_ceil(SuperCircuit::<Fr, MAX_NUM_ROW_FOR_TEST, 5000, 10, 10>::num_rows(&witness));
+    let k = log2_ceil(SuperCircuit::<
+        Fr,
+        MAX_NUM_ROW_FOR_TEST,
+        5000,
+        NUM_STATE_HI_COL,
+        NUM_STATE_LO_COL,
+    >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
     prover.assert_satisfied_par();
 }
