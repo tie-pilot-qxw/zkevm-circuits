@@ -3,5 +3,6 @@ members = [
     "zkevm-circuits",
     "eth-types",
     "gadgets",
-    "trace-parser"
+    "trace-parser",
+    "keccak256"
 ]

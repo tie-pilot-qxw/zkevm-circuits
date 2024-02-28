@@ -1,10 +1,13 @@
 use crate::constant::NUM_VERS;
 use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
+use crate::keccak_circuit::keccak_packed_multi::calc_keccak_with_rlc;
 use crate::table::{
     ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, LookupEntry,
     PublicTable, StateTable,
 };
-use crate::util::{assign_advice_or_fixed, Challenges};
+use crate::util::{
+    assign_advice_or_fixed_with_u256, assign_advice_or_fixed_with_value, Challenges,
+};
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::core::Row;
 use crate::witness::Witness;
@@ -14,7 +17,7 @@ use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, SecondPhase, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use strum::EnumCount;
@@ -42,6 +45,9 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     pub vers: [Column<Advice>; NUM_VERS],
     /// IsZero chip for column cnt
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
+    /// keccak input after rlc encoding, keccak output after rlc encoding (Second phase column)
+    pub keccak_input: Column<Advice>,
+    pub keccak_output: Column<Advice>,
     /// Dynamic selector for execution state
     pub execution_state_selector:
         DynamicSelectorConfig<F, { ExecutionState::COUNT }, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
@@ -114,6 +120,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 .unwrap(),
         );
 
+        // keccak input_rlc, keccak output_rlc (second phase)
+        let keccak_input = meta.advice_column_in(SecondPhase);
+        let keccak_output = meta.advice_column_in(SecondPhase);
+
         let execution_config = ExecutionConfig {
             q_first_exec_state,
             q_enable,
@@ -148,6 +158,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             cnt,
             vers,
             cnt_is_zero,
+            keccak_input,
+            keccak_output,
             execution_state_selector,
             execution_gadgets,
             bytecode_table,
@@ -237,18 +249,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn assign_row(
         &self,
         region: &mut Region<'_, F>,
+        challenges: &Challenges<Value<F>>,
         offset: usize,
         row: &Row,
     ) -> Result<(), Error> {
         let cnt_is_zero: IsZeroWithRotationChip<F> = IsZeroWithRotationChip::construct(self.cnt_is_zero);
-        assign_advice_or_fixed(region, offset, &row.tx_idx, self.tx_idx)?;
-        assign_advice_or_fixed(region, offset, &row.call_id, self.call_id)?;
-        assign_advice_or_fixed(region, offset, &row.code_addr, self.code_addr)?;
-        assign_advice_or_fixed(region, offset, &row.pc, self.pc)?;
-        assign_advice_or_fixed(region, offset, &row.opcode.as_u8().into(), self.opcode)?;
-        assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.tx_idx, self.tx_idx)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.call_id, self.call_id)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.code_addr, self.code_addr)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.pc, self.pc)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.opcode.as_u8().into(), self.opcode)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
         for i in 0 .. NUM_VERS {
-            assign_advice_or_fixed(region, offset, &row[i].unwrap_or_default(), self.vers[i])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row[i].unwrap_or_default(), self.vers[i])?;
         }
         cnt_is_zero.assign(
             region,
@@ -257,6 +270,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 &row.cnt,
             ))),
         )?;
+
+        // assign keccak value(second phase)
+        if let Some(keccak_input) = &row.keccak_input {
+            let (_, input_rlc, output_rlc) = calc_keccak_with_rlc(keccak_input.as_slice(), challenges);
+            assign_advice_or_fixed_with_value(region, offset, input_rlc, self.keccak_input)?;
+            assign_advice_or_fixed_with_value(region, offset, output_rlc, self.keccak_input)?;
+        } else {
+            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.keccak_input)?;
+            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.keccak_input)?;
+        }
         Ok(())
     }
 
@@ -271,15 +294,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Result<(), Error> {
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero);
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.tx_idx)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.code_addr)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.pc)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.opcode)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.tx_idx)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.call_id)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.code_addr)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.pc)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.opcode)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.cnt)?;
         // assign execution selector state, the first state
         for i in 0..NUM_STATE_HI_COL + NUM_STATE_LO_COL {
-            assign_advice_or_fixed(
+            assign_advice_or_fixed_with_u256(
                 region,
                 offset,
                 &{
@@ -290,7 +313,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         // assign auxiliary, values are kept from the last row
         for i in NUM_STATE_HI_COL + NUM_STATE_LO_COL..NUM_VERS{
-            assign_advice_or_fixed(
+            assign_advice_or_fixed_with_u256(
                 region,
                 offset,
                 &last_row[i].unwrap_or_default(),
@@ -305,11 +328,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     pub fn assign_with_region(
         &self,
         region: &mut Region<'_, F>,
+        challenges: &Challenges<Value<F>>,
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
         for (offset, row) in witness.core.iter().enumerate() {
-            self.assign_row(region, offset, row)?;
+            self.assign_row(region, challenges, offset, row)?;
         }
         let last_row = witness
             .core
@@ -369,14 +393,14 @@ impl<
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
-        _challenges: &Challenges<Value<F>>,
+        challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
             || "core circuit",
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
-                config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+                config.assign_with_region(&mut region, challenges, &self.witness, MAX_NUM_ROW)?;
                 // because index start from 0
                 config
                     .q_first_exec_state

@@ -1,7 +1,8 @@
 use crate::constant::LOG_NUM_EXP_TAG;
 use crate::table::{ArithmeticTable, ExpTable, LookupEntry};
 use crate::util::{
-    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+    assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges, SubCircuit,
+    SubCircuitConfig,
 };
 use crate::witness::exp::{Row, Tag};
 use crate::witness::{arithmetic, Witness};
@@ -363,13 +364,13 @@ impl<F: Field> ExpCircuitConfig<F> {
         let count_is_128 = IsZeroChip::construct(self.count_is_128.clone());
 
         tag.assign(region, offset, &row.tag)?;
-        assign_advice_or_fixed(region, offset, &row.base_hi, self.base[0])?;
-        assign_advice_or_fixed(region, offset, &row.base_lo, self.base[1])?;
-        assign_advice_or_fixed(region, offset, &row.index_hi, self.index[0])?;
-        assign_advice_or_fixed(region, offset, &row.index_lo, self.index[1])?;
-        assign_advice_or_fixed(region, offset, &row.power_hi, self.power[0])?;
-        assign_advice_or_fixed(region, offset, &row.power_lo, self.power[1])?;
-        assign_advice_or_fixed(region, offset, &row.count, self.count)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.base_hi, self.base[0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.base_lo, self.base[1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.index_hi, self.index[0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.index_lo, self.index[1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.power_hi, self.power[0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.power_lo, self.power[1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.count, self.count)?;
         // assign_advice_or_fixed(region, offset, &row.is_high, self.is_high)?;
 
         count_is_zero.assign(
@@ -631,12 +632,12 @@ mod test {
             offset: usize,
             row: &ExpTestRow,
         ) -> Result<(), Error> {
-            assign_advice_or_fixed(region, offset, &row.base[0], self.base[0])?;
-            assign_advice_or_fixed(region, offset, &row.base[1], self.base[1])?;
-            assign_advice_or_fixed(region, offset, &row.index[0], self.index[0])?;
-            assign_advice_or_fixed(region, offset, &row.index[1], self.index[1])?;
-            assign_advice_or_fixed(region, offset, &row.pow[0], self.pow[0])?;
-            assign_advice_or_fixed(region, offset, &row.pow[1], self.pow[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.base[0], self.base[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.base[1], self.base[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.index[0], self.index[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.index[1], self.index[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.pow[0], self.pow[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.pow[1], self.pow[1])?;
             Ok(())
         }
     }

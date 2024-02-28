@@ -8,11 +8,12 @@ use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs}
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::exp_circuit::{ExpCircuit, ExpCircuitConfig, ExpCircuitConfigArgs};
 use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
+use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{
-    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, PublicTable,
-    StateTable,
+    ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, KeccakTable,
+    PublicTable, StateTable,
 };
 use crate::util::{Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
@@ -36,6 +37,7 @@ pub struct SuperCircuitConfig<
     arithmetic_circuit: ArithmeticCircuitConfig<F>,
     exp_circuit: ExpCircuitConfig<F>,
     challenges: Challenges<halo2_proofs::plonk::Challenge>,
+    keccak_circuit: KeccakCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -59,9 +61,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let q_enable_bitwise = meta.complex_selector();
         let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
         let exp_table = ExpTable::construct(meta);
+        let keccak_table = KeccakTable::construct(meta);
         // construct challenges
         let challenges = Challenges::construct(meta);
-        let challenges_exprs = challenges.exprs(meta);
 
         let core_circuit = CoreCircuitConfig::new(
             meta,
@@ -92,7 +94,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 q_enable: q_enable_state,
                 state_table,
                 fixed_table,
-                challenges: challenges_exprs.clone(),
+                challenges,
             },
         );
         let public_circuit =
@@ -105,7 +107,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 state_table,
                 public_table,
                 copy_table,
-                challenges: challenges_exprs.clone(),
+                challenges,
             },
         );
         let fixed_circuit = FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
@@ -131,6 +133,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 exp_table,
             },
         );
+
+        let keccak_circuit = KeccakCircuitConfig::new(
+            meta,
+            KeccakCircuitConfigArgs {
+                keccak_table,
+                challenges,
+            },
+        );
+
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
@@ -142,6 +153,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             arithmetic_circuit,
             exp_circuit,
             challenges,
+            keccak_circuit,
         }
     }
 }
@@ -163,6 +175,7 @@ pub struct SuperCircuit<
     pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
     pub arithmetic_circuit: ArithmeticCircuit<F, MAX_NUM_ROW>,
     pub exp_circuit: ExpCircuit<F, MAX_NUM_ROW>,
+    pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -187,6 +200,7 @@ impl<
         let bitwise_circuit = BitwiseCircuit::new_from_witness(witness);
         let arithmetic_circuit = ArithmeticCircuit::new_from_witness(witness);
         let exp_circuit = ExpCircuit::new_from_witness(witness);
+        let keccak_circuit = KeccakCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
@@ -197,6 +211,7 @@ impl<
             bitwise_circuit,
             arithmetic_circuit,
             exp_circuit,
+            keccak_circuit,
         }
     }
 
@@ -211,6 +226,7 @@ impl<
         instance.extend(self.bitwise_circuit.instance());
         instance.extend(self.arithmetic_circuit.instance());
         instance.extend(self.exp_circuit.instance());
+        instance.extend(self.keccak_circuit.instance());
         instance
     }
 
@@ -240,6 +256,8 @@ impl<
             .synthesize_sub(&config.arithmetic_circuit, layouter, challenges)?;
         self.exp_circuit
             .synthesize_sub(&config.exp_circuit, layouter, challenges)?;
+        self.keccak_circuit
+            .synthesize_sub(&config.keccak_circuit, layouter, challenges)?;
         Ok(())
     }
 
@@ -253,6 +271,7 @@ impl<
             BitwiseCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             ExpCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+            KeccakCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -269,6 +288,7 @@ impl<
             BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             ExpCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+            KeccakCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
 
         // when feature `no_fixed_lookup` is on, we don't count the rows in fixed circuit

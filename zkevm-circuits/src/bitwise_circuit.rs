@@ -2,7 +2,8 @@ use crate::constant::LOG_NUM_BITWISE_TAG;
 use crate::table::{BitwiseTable, FixedTable};
 
 use crate::util::{
-    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+    assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges, SubCircuit,
+    SubCircuitConfig,
 };
 use crate::witness::bitwise::Row;
 use crate::witness::Witness;
@@ -255,14 +256,14 @@ impl<F: Field> BitwiseCircuitConfig<F> {
             IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
 
         tag.assign(region, offset, &row.tag)?;
-        assign_advice_or_fixed(region, offset, &row.byte_0, self.bytes[0])?;
-        assign_advice_or_fixed(region, offset, &row.byte_1, self.bytes[1])?;
-        assign_advice_or_fixed(region, offset, &row.byte_2, self.bytes[2])?;
-        assign_advice_or_fixed(region, offset, &row.acc_0, self.acc_vec[0])?;
-        assign_advice_or_fixed(region, offset, &row.acc_1, self.acc_vec[1])?;
-        assign_advice_or_fixed(region, offset, &row.acc_2, self.acc_vec[2])?;
-        assign_advice_or_fixed(region, offset, &row.sum_2, self.sum_2)?;
-        assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.byte_0, self.bytes[0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.byte_1, self.bytes[1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.byte_2, self.bytes[2])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.acc_0, self.acc_vec[0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.acc_1, self.acc_vec[1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.acc_2, self.acc_vec[2])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.sum_2, self.sum_2)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
 
         cnt_is_zero.assign(
             region,
@@ -466,11 +467,16 @@ mod test {
             offset: usize,
             row: &BitwiseTestRow,
         ) -> Result<(), Error> {
-            assign_advice_or_fixed(region, offset, &U256::from(row.tag as usize), self.tag)?;
-            assign_advice_or_fixed(region, offset, &row.acc_0, self.acc_0)?;
-            assign_advice_or_fixed(region, offset, &row.acc_1, self.acc_1)?;
-            assign_advice_or_fixed(region, offset, &row.acc_2, self.acc_2)?;
-            assign_advice_or_fixed(region, offset, &row.sum_2, self.sum_2)?;
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &U256::from(row.tag as usize),
+                self.tag,
+            )?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.acc_0, self.acc_0)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.acc_1, self.acc_1)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.acc_2, self.acc_2)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.sum_2, self.sum_2)?;
             Ok(())
         }
     }

@@ -49,6 +49,10 @@ pub struct Witness {
     pub state: Vec<state::Row>,
     pub arithmetic: Vec<arithmetic::Row>,
     pub bitwise: Vec<bitwise::Row>,
+    // keccak inputs, Keccak needs to use challenge to calculate the RLC value, and challenge can
+    // only be used inside the circuit,so all the inputs that need to be calculated hash are saved here,
+    // and then keccak_circuit will calculate rows based on the inputs in the synthesize_sub method inside the circuit.
+    pub keccak: Vec<Vec<u8>>,
     // we omit fixed table rows on purpose due to its large size
 }
 
@@ -2325,6 +2329,7 @@ impl Witness {
         self.state.append(&mut witness.state);
         self.bitwise.append(&mut witness.bitwise);
         self.arithmetic.append(&mut witness.arithmetic);
+        self.keccak.append(&mut witness.keccak);
     }
 
     fn gen_bytecode_witness(addr: U256, machine_code: &[u8]) -> Vec<bytecode::Row> {

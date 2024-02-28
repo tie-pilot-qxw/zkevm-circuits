@@ -1,7 +1,7 @@
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{BytecodeTable, CopyTable, LookupEntry, PublicTable, StateTable};
 
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges};
+use crate::util::{assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::copy::{Row, Tag};
 use crate::witness::{public, state, Witness};
@@ -140,7 +140,7 @@ pub struct CopyCircuitConfigArgs<F> {
     pub public_table: PublicTable,
     pub copy_table: CopyTable,
     /// challenges
-    pub challenges: Challenges<Expression<F>>,
+    pub challenges: Challenges,
 }
 
 impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
@@ -539,16 +539,16 @@ impl<F: Field> CopyCircuitConfig<F> {
             IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
         let len_sub_cnt_one_is_zero = IsZeroChip::construct(self.len_sub_cnt_one_is_zero.clone());
 
-        assign_advice_or_fixed(region, offset, &row.byte, self.byte)?;
-        assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
-        assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
-        assign_advice_or_fixed(region, offset, &row.src_stamp, self.src_stamp)?;
-        assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
-        assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
-        assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
-        assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
-        assign_advice_or_fixed(region, offset, &row.len, self.len)?;
-        assign_advice_or_fixed(region, offset, &row.acc, self.acc)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.byte, self.byte)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.src_id, self.src_id)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.src_pointer, self.src_pointer)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.src_stamp, self.src_stamp)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.dst_id, self.dst_id)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.dst_pointer, self.dst_pointer)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.dst_stamp, self.dst_stamp)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.len, self.len)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.acc, self.acc)?;
 
         len_is_zero.assign(
             region,
@@ -888,7 +888,6 @@ mod test {
             let q_enable_copy = meta.complex_selector();
             let copy_table = CopyTable::construct(meta, q_enable_copy);
             let challenges = Challenges::construct(meta);
-            let challenges_exprs = challenges.exprs(meta);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
                 BytecodeCircuitConfigArgs {
@@ -905,7 +904,7 @@ mod test {
                     q_enable: q_enable_state,
                     state_table,
                     fixed_table,
-                    challenges: challenges_exprs.clone(),
+                    challenges,
                 },
             );
             let public_circuit =
@@ -919,7 +918,7 @@ mod test {
                     state_table,
                     public_table,
                     copy_table,
-                    challenges: challenges_exprs,
+                    challenges,
                 },
             );
             let fixed_circuit =

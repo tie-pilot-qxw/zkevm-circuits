@@ -57,6 +57,8 @@ pub struct Row {
     pub vers_29: Option<U256>,
     pub vers_30: Option<U256>,
     pub vers_31: Option<U256>,
+    // if the row contains keccak rlc values, keccak input is here
+    pub keccak_input: Option<Vec<u8>>,
     /// comments to show in html table that explain the purpose of each cell
     #[serde(skip_serializing)]
     pub comments: HashMap<String, String>,
