@@ -1,5 +1,5 @@
 //! Utility traits, functions used in the crate.
-use eth_types::{evm_types::OpcodeId, Field, U256};
+use eth_types::{evm_types::OpcodeId, Field, U256, U512};
 use halo2_proofs::plonk::Expression;
 
 /// Returns the sum of the passed in cells
@@ -231,6 +231,14 @@ pub fn split_u256_hi_lo(value: &U256) -> [U256; 2] {
     [
         U256([value.0[2], value.0[3], 0, 0]),
         U256([value.0[0], value.0[1], 0, 0]),
+    ]
+}
+
+/// Returns tuple consists of low and high part of U256
+pub fn split_u512_hi_lo(value: &U512) -> [U256; 2] {
+    [
+        U256([value.0[4], value.0[5], value.0[6], value.0[7]]),
+        U256([value.0[0], value.0[1], value.0[2], value.0[3]]),
     ]
 }
 
