@@ -1,6 +1,8 @@
 use crate::constant::LOG_NUM_EXP_TAG;
 use crate::table::{ArithmeticTable, ExpTable, LookupEntry};
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::util::{
+    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+};
 use crate::witness::exp::{Row, Tag};
 use crate::witness::{arithmetic, Witness};
 use eth_types::Field;
@@ -512,6 +514,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ExpCircuit<F, MAX_NUM
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -576,6 +579,8 @@ mod test {
         pub index: [Column<Advice>; EXP_NUM_OPERAND],
         /// power hi, power lo
         pub pow: [Column<Advice>; EXP_NUM_OPERAND],
+        /// challenges
+        pub challenges: Challenges,
     }
 
     impl<F: Field> SubCircuitConfig<F> for ExpTestCircuitConfig<F> {
@@ -587,6 +592,7 @@ mod test {
             let q_enable_arithmetic = meta.complex_selector();
             let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
             let exp_table = ExpTable::construct(meta);
+            let challenges = Challenges::construct(meta);
             let exp_circuit = ExpCircuitConfig::new(
                 meta,
                 ExpCircuitConfigArgs {
@@ -613,6 +619,7 @@ mod test {
                 base,
                 index,
                 pow,
+                challenges,
             }
         }
     }
@@ -699,11 +706,15 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
+            let challenges = config.challenges.values(&mut layouter);
             self.exp_circuit
-                .synthesize_sub(&config.exp_circuit, &mut layouter)?;
+                .synthesize_sub(&config.exp_circuit, &mut layouter, &challenges)?;
 
-            self.arithmetic_circuit
-                .synthesize_sub(&config.arithmetic_circuit, &mut layouter)?;
+            self.arithmetic_circuit.synthesize_sub(
+                &config.arithmetic_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
 
             layouter.assign_region(
                 || "exp circuit test",

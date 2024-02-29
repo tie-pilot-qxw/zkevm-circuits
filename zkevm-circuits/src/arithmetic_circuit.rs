@@ -2,7 +2,9 @@ pub(crate) mod operation;
 
 use crate::arithmetic_circuit::operation::{get_every_operation_gadgets, OperationGadget};
 use crate::table::ArithmeticTable;
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
+use crate::util::{
+    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+};
 use crate::witness::{arithmetic, Witness};
 use arithmetic::{Row, Tag};
 use eth_types::Field;
@@ -253,6 +255,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ArithmeticCircuit<F, 
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -294,11 +297,34 @@ mod test {
 
     const TEST_SIZE: usize = 200;
 
+    #[derive(Clone)]
+    pub struct ArithmeticTestCircuitConfig<F: Field> {
+        pub arithmetic_circuit: ArithmeticCircuitConfig<F>,
+        pub challenges: Challenges,
+    }
+    impl<F: Field> SubCircuitConfig<F> for ArithmeticTestCircuitConfig<F> {
+        type ConfigArgs = ();
+        fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
+            let q_enable = meta.complex_selector();
+            let arithmetic_table = ArithmeticTable::construct(meta, q_enable);
+            let challenges = Challenges::construct(meta);
+            ArithmeticTestCircuitConfig {
+                arithmetic_circuit: ArithmeticCircuitConfig::new(
+                    meta,
+                    ArithmeticCircuitConfigArgs {
+                        q_enable,
+                        arithmetic_table,
+                    },
+                ),
+                challenges,
+            }
+        }
+    }
     #[derive(Clone, Default, Debug)]
     pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
 
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
-        type Config = ArithmeticCircuitConfig<F>;
+        type Config = ArithmeticTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -306,15 +332,7 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-            let q_enable = meta.complex_selector();
-            let arithmetic_table = ArithmeticTable::construct(meta, q_enable);
-            Self::Config::new(
-                meta,
-                ArithmeticCircuitConfigArgs {
-                    q_enable,
-                    arithmetic_table,
-                },
-            )
+            Self::Config::new(meta, ())
         }
 
         fn synthesize(
@@ -322,7 +340,9 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.0.synthesize_sub(&config, &mut layouter)
+            let challenges = config.challenges.values(&mut layouter);
+            self.0
+                .synthesize_sub(&config.arithmetic_circuit, &mut layouter, &challenges)
         }
     }
 
@@ -524,21 +544,21 @@ mod test {
 
     #[test]
     fn test_sdiv_smod_witness() {
-        let (arithmetic1, result) =
+        let (arithmetic1, _result) =
             self::operation::sdiv_smod::gen_witness(vec![u128::MAX.into(), U256::MAX]);
-        let (arithmetic2, result2) = self::operation::sdiv_smod::gen_witness(vec![
+        let (arithmetic2, _result2) = self::operation::sdiv_smod::gen_witness(vec![
             U256::MAX,
             U256::from(u128::MAX) + U256::from(4567890),
         ]);
-        let (arithmetic3, result3) =
+        let (arithmetic3, _result3) =
             self::operation::sdiv_smod::gen_witness(vec![0.into(), u128::MAX.into()]);
-        let (arithmetic4, result4) =
+        let (arithmetic4, _result4) =
             self::operation::sdiv_smod::gen_witness(vec![U256::MAX, 0.into()]);
-        let (arithmetic5, result5) = self::operation::sdiv_smod::gen_witness(vec![
+        let (arithmetic5, _result5) = self::operation::sdiv_smod::gen_witness(vec![
             U256::MAX - U256::from(47890),
             U256::MAX - U256::from(70),
         ]);
-        let (arithmetic6, result6) =
+        let (arithmetic6, _result6) =
             self::operation::sdiv_smod::gen_witness(vec![u128::MAX.into(), 45678990.into()]);
 
         // there is a = 0

@@ -1,7 +1,7 @@
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{BytecodeTable, CopyTable, LookupEntry, PublicTable, StateTable};
 
-use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
+use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges};
 use crate::util::{SubCircuit, SubCircuitConfig};
 use crate::witness::copy::{Row, Tag};
 use crate::witness::{public, state, Witness};
@@ -139,6 +139,8 @@ pub struct CopyCircuitConfigArgs<F> {
     pub state_table: StateTable,
     pub public_table: PublicTable,
     pub copy_table: CopyTable,
+    /// challenges
+    pub challenges: Challenges<Expression<F>>,
 }
 
 impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
@@ -150,6 +152,7 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             state_table,
             public_table,
             copy_table,
+            challenges: _,
         }: Self::ConfigArgs,
     ) -> Self {
         let CopyTable {
@@ -808,6 +811,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -866,6 +870,7 @@ mod test {
         pub copy_circuit: CopyCircuitConfig<F>,
         pub state_circuit: StateCircuitConfig<F>,
         pub fixed_circuit: FixedCircuitConfig<F>,
+        pub challenges: Challenges,
     }
 
     impl<F: Field> SubCircuitConfig<F> for CopyTestCircuitConfig<F> {
@@ -882,6 +887,8 @@ mod test {
             let fixed_table = FixedTable::construct(meta);
             let q_enable_copy = meta.complex_selector();
             let copy_table = CopyTable::construct(meta, q_enable_copy);
+            let challenges = Challenges::construct(meta);
+            let challenges_exprs = challenges.exprs(meta);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
                 BytecodeCircuitConfigArgs {
@@ -898,6 +905,7 @@ mod test {
                     q_enable: q_enable_state,
                     state_table,
                     fixed_table,
+                    challenges: challenges_exprs.clone(),
                 },
             );
             let public_circuit =
@@ -911,6 +919,7 @@ mod test {
                     state_table,
                     public_table,
                     copy_table,
+                    challenges: challenges_exprs,
                 },
             );
             let fixed_circuit =
@@ -921,6 +930,7 @@ mod test {
                 copy_circuit,
                 state_circuit,
                 fixed_circuit,
+                challenges,
             }
         }
     }
@@ -949,14 +959,21 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            self.bytecode_circuit
-                .synthesize_sub(&config.bytecode_circuit, &mut layouter)?;
-            self.public_circuit
-                .synthesize_sub(&config.public_circuit, &mut layouter)?;
+            let challenges = config.challenges.values(&mut layouter);
+            self.bytecode_circuit.synthesize_sub(
+                &config.bytecode_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
+            self.public_circuit.synthesize_sub(
+                &config.public_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
             self.copy_circuit
-                .synthesize_sub(&config.copy_circuit, &mut layouter)?;
+                .synthesize_sub(&config.copy_circuit, &mut layouter, &challenges)?;
             self.state_circuit
-                .synthesize_sub(&config.state_circuit, &mut layouter)?;
+                .synthesize_sub(&config.state_circuit, &mut layouter, &challenges)?;
             // when feature `no_fixed_lookup` is on, we don't do synthesize
             #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit

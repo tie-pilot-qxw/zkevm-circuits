@@ -4,7 +4,7 @@ use crate::table::{
     ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, LookupEntry,
     PublicTable, StateTable,
 };
-use crate::util::assign_advice_or_fixed;
+use crate::util::{assign_advice_or_fixed, Challenges};
 use crate::util::{convert_u256_to_64_bytes, SubCircuit, SubCircuitConfig};
 use crate::witness::core::Row;
 use crate::witness::Witness;
@@ -369,6 +369,7 @@ impl<
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         layouter.assign_region(
@@ -424,6 +425,7 @@ mod test {
         pub public_table: PublicTable,
         pub fixed_table: FixedTable,
         pub exp_table: ExpTable,
+        pub challenges: Challenges,
     }
     #[derive(Clone, Default, Debug)]
     pub struct CoreTestCircuit<F: Field> {
@@ -451,6 +453,7 @@ mod test {
             let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
             let fixed_table = FixedTable::construct(meta);
             let exp_table = ExpTable::construct(meta);
+            let challenges = Challenges::construct(meta);
             let core_circuit = CoreCircuitConfig::new(
                 meta,
                 CoreCircuitConfigArgs {
@@ -474,6 +477,7 @@ mod test {
                 public_table,
                 fixed_table,
                 exp_table,
+                challenges,
             }
 
             // let q_enable_bytecode = meta.complex_selector();
@@ -494,8 +498,9 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
+            let challenges = config.challenges.values(&mut layouter);
             self.core_circuit
-                .synthesize_sub(&config.core_circuit, &mut layouter)?;
+                .synthesize_sub(&config.core_circuit, &mut layouter, &challenges)?;
             // assign bytecode table, but do not enable selector, since we are not testing it here
             layouter.assign_region(
                 || "test, bytecode circuit",

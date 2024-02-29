@@ -14,10 +14,10 @@ use crate::table::{
     ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, PublicTable,
     StateTable,
 };
-use crate::util::{SubCircuit, SubCircuitConfig};
+use crate::util::{Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
 use eth_types::Field;
-use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
+use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
 
 #[derive(Clone)]
@@ -35,6 +35,7 @@ pub struct SuperCircuitConfig<
     bitwise_circuit: BitwiseCircuitConfig<F>,
     arithmetic_circuit: ArithmeticCircuitConfig<F>,
     exp_circuit: ExpCircuitConfig<F>,
+    challenges: Challenges<halo2_proofs::plonk::Challenge>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -58,6 +59,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let q_enable_bitwise = meta.complex_selector();
         let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
         let exp_table = ExpTable::construct(meta);
+        // construct challenges
+        let challenges = Challenges::construct(meta);
+        let challenges_exprs = challenges.exprs(meta);
 
         let core_circuit = CoreCircuitConfig::new(
             meta,
@@ -88,6 +92,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 q_enable: q_enable_state,
                 state_table,
                 fixed_table,
+                challenges: challenges_exprs.clone(),
             },
         );
         let public_circuit =
@@ -100,6 +105,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 state_table,
                 public_table,
                 copy_table,
+                challenges: challenges_exprs.clone(),
             },
         );
         let fixed_circuit = FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
@@ -135,6 +141,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             bitwise_circuit,
             arithmetic_circuit,
             exp_circuit,
+            challenges,
         }
     }
 }
@@ -211,27 +218,28 @@ impl<
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         self.core_circuit
-            .synthesize_sub(&config.core_circuit, layouter)?;
+            .synthesize_sub(&config.core_circuit, layouter, challenges)?;
         self.bytecode_circuit
-            .synthesize_sub(&config.bytecode_circuit, layouter)?;
+            .synthesize_sub(&config.bytecode_circuit, layouter, challenges)?;
         self.state_circuit
-            .synthesize_sub(&config.state_circuit, layouter)?;
+            .synthesize_sub(&config.state_circuit, layouter, challenges)?;
         self.public_circuit
-            .synthesize_sub(&config.public_circuit, layouter)?;
+            .synthesize_sub(&config.public_circuit, layouter, challenges)?;
         self.copy_circuit
-            .synthesize_sub(&config.copy_circuit, layouter)?;
+            .synthesize_sub(&config.copy_circuit, layouter, challenges)?;
         // when feature `no_fixed_lookup` is on, we don't do synthesize
         #[cfg(not(feature = "no_fixed_lookup"))]
         self.fixed_circuit
-            .synthesize_sub(&config.fixed_circuit, layouter)?;
+            .synthesize_sub(&config.fixed_circuit, layouter, challenges)?;
         self.bitwise_circuit
-            .synthesize_sub(&config.bitwise_circuit, layouter)?;
+            .synthesize_sub(&config.bitwise_circuit, layouter, challenges)?;
         self.arithmetic_circuit
-            .synthesize_sub(&config.arithmetic_circuit, layouter)?;
+            .synthesize_sub(&config.arithmetic_circuit, layouter, challenges)?;
         self.exp_circuit
-            .synthesize_sub(&config.exp_circuit, layouter)?;
+            .synthesize_sub(&config.exp_circuit, layouter, challenges)?;
         Ok(())
     }
 
@@ -252,7 +260,7 @@ impl<
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let mut num_rows = vec![
+        let num_rows = vec![
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
@@ -307,7 +315,8 @@ impl<
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        self.synthesize_sub(&config, &mut layouter)?;
+        let challenges = config.challenges.values(&mut layouter);
+        self.synthesize_sub(&config, &mut layouter, &challenges)?;
         Ok(())
     }
 }

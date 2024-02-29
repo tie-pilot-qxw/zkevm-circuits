@@ -1,9 +1,9 @@
 use crate::table::FixedTable;
-use crate::util::{assign_advice_or_fixed, SubCircuit, SubCircuitConfig};
+use crate::util::{assign_advice_or_fixed, Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::{fixed, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, U256};
-use halo2_proofs::circuit::{Layouter, Region};
+use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{Column, ConstraintSystem, Error, Fixed};
 use std::marker::PhantomData;
 
@@ -198,6 +198,7 @@ impl<F: Field> SubCircuit<F> for FixedCircuit<F> {
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
+        _challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         layouter.assign_region(
             || "fixed circuit",
@@ -238,6 +239,7 @@ mod test {
         pub test_u16: Column<Advice>,
         pub test_u10: Column<Advice>,
         pub test_u8: Column<Advice>,
+        pub challenges: Challenges,
     }
 
     impl<F: Field> FixedTestCircuitConfig<F> {
@@ -267,6 +269,7 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let challenges = Challenges::construct(meta);
             let fixed_table = FixedTable::construct(meta);
             let config = FixedTestCircuitConfig {
                 fixed_circuit: FixedCircuitConfig::new(
@@ -278,6 +281,7 @@ mod test {
                 test_u16: meta.advice_column(),
                 test_u10: meta.advice_column(),
                 test_u8: meta.advice_column(),
+                challenges,
             };
             // Add corresponding lookup constraints to verify the correctness
             // of the fixed circuit range query function
@@ -312,8 +316,9 @@ mod test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
+            let challenges = config.challenges.values(&mut layouter);
             self.0
-                .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
+                .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
             layouter.assign_region(
                 || "assign test value",
                 |mut region| config.assign_region(&mut region),
