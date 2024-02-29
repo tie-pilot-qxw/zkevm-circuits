@@ -1,6 +1,7 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
+use crate::constant::INDEX_STACK_POINTER;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
@@ -40,7 +41,6 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -2;
 const LEN_LO_INV_COLUMN_ID: usize = 11;
-const RETURN_DATA_SIZE_COLUMN_ID: usize = 27;
 
 pub struct ReturnRevertGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -286,7 +286,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         assign_or_panic!(
-            core_row_0[RETURN_DATA_SIZE_COLUMN_ID],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             current_state.returndata_size
         );
 
@@ -339,7 +339,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[21] = Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

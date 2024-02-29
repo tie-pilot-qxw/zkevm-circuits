@@ -1,5 +1,5 @@
-pub const NUM_STATE_HI_COL: usize = 10;
-pub const NUM_STATE_LO_COL: usize = 10;
+pub const NUM_STATE_HI_COL: usize = 9;
+pub const NUM_STATE_LO_COL: usize = 9;
 #[cfg(not(feature = "k_9"))]
 pub const MAX_NUM_ROW: usize = 280000;
 #[cfg(feature = "k_9")]
@@ -8,6 +8,9 @@ pub const MAX_NUM_ROW: usize = 480;
 pub const MAX_CODESIZE: usize = 2 * 24576;
 #[cfg(feature = "k_9")]
 pub const MAX_CODESIZE: usize = 470;
+
+/// stack pointer column index
+pub const INDEX_STACK_POINTER: usize = 1;
 
 /// Index of vers[] column in core circuit for state stamp in execution gadgets
 /// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here

@@ -1698,7 +1698,7 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // get arithmetic rows
     let (arithmetic_sub_rows, _) =
         operation::sub::gen_witness(vec![arithmetic_operands[0], arithmetic_operands[1]]);
-    const START_OFFSET: usize = 27;
+    const START_OFFSET: usize = 25;
 
     // calc signextend by bit
     let (signextend_result_vec, bitwise_rows_vec) =
@@ -1711,11 +1711,11 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // insert arithmetic lookup to core_row_2
     core_rows2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
 
-    // a_hi set core_row_0.vers_27;
-    // a_lo set core_row_0.vers_28;
-    // d_hi set core_row_0.vers_29
-    // d_lo set core_row_0.vers_30
-    // sign_bit_is_zero_inv set core_row_0.vers_31;
+    // a_hi set core_row_0.vers_25;
+    // a_lo set core_row_0.vers_26;
+    // d_hi set core_row_0.vers_27
+    // d_lo set core_row_0.vers_28
+    // sign_bit_is_zero_inv set core_row_0.vers_29;
     for (i, value) in (0..5).zip(signextend_result_vec) {
         assert!(core_rows0[i + START_OFFSET].is_none());
         assign_or_panic!(core_rows0[i + START_OFFSET], value);
