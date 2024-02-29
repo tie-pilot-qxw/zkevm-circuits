@@ -1,3 +1,4 @@
+use crate::constant::INDEX_STACK_POINTER;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     call_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
@@ -273,7 +274,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         // core_row_0写入stamp_init状态
-        assign_or_panic!(core_row_0[25], stamp_init.into());
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            stamp_init.into()
+        );
         state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);
         Witness {
             copy: copy_rows,
@@ -330,7 +334,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

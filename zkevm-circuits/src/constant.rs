@@ -9,6 +9,9 @@ pub const MAX_CODESIZE: usize = 2 * 24576;
 #[cfg(feature = "k_9")]
 pub const MAX_CODESIZE: usize = 470;
 
+/// stack pointer column index
+pub const INDEX_STACK_POINTER: usize = 1;
+
 /// Index of vers[] column in core circuit for state stamp in execution gadgets
 /// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here
 pub const INDEX_STATE_STAMP: usize = 0;

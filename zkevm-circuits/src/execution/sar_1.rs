@@ -1,4 +1,5 @@
 use crate::arithmetic_circuit::operation;
+use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     sar_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -22,9 +23,9 @@ const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 0;
 const SHIFT_MAX: u8 = 255;
 
-pub(crate) const SIGN_BIT_IS_ZERO_CELL_INDEX: usize = 27;
-pub(crate) const SHL_RESULT_HI_CELL_INDEX: usize = 28;
-pub(crate) const SHL_RESULT_LO_CELL_INDEX: usize = 29;
+pub(crate) const SIGN_BIT_IS_ZERO_CELL_INDEX: usize = 29;
+pub(crate) const SHL_RESULT_HI_CELL_INDEX: usize = 30;
+pub(crate) const SHL_RESULT_LO_CELL_INDEX: usize = 31;
 pub(crate) const V_2: u8 = 2;
 
 /// Algorithm overview:
@@ -338,7 +339,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

@@ -1,3 +1,4 @@
+use crate::arithmetic_circuit::operation;
 /// This module contains the implementation of the `AddmodGadget` struct, which is an execution gadget for the ADDMOD opcode in the EVM.
 /// The `AddmodGadget` struct implements the `ExecutionGadget` trait and provides methods for generating constraints and witnesses for the ADDMOD opcode.
 /// It also includes test cases for the `AddmodGadget` struct.
@@ -11,7 +12,7 @@
 /// It also uses auxiliary outcomes to update the state stamp and stack pointer.
 /// The `AddmodGadget` struct generates constraints and witnesses based on the given execution trace and current state.
 ///
-use crate::arithmetic_circuit::operation;
+use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -239,7 +240,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

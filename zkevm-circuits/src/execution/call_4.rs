@@ -1,3 +1,4 @@
+use crate::constant::INDEX_STACK_POINTER;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
@@ -301,8 +302,10 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
-            row[25] = Some(state_stamp_init.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY] =
+                Some(state_stamp_init.into());
             row
         };
         let padding_end_row = |current_state| {

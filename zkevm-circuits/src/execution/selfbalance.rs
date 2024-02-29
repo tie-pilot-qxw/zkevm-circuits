@@ -1,5 +1,6 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
+use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::util::{query_expression, ExpressionOutcome};
@@ -141,7 +142,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

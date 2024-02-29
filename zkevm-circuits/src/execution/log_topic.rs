@@ -1,3 +1,4 @@
+use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
     ExecutionState,
@@ -226,6 +227,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_LOG_STAMP;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -260,8 +262,9 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -272,7 +275,8 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 1.into();
-            row[20] = Some((log_stamp + 1).into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] =
+                Some((log_stamp + 1).into());
             row
         };
         let (witness, prover) =
@@ -313,8 +317,9 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -325,7 +330,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let (witness, prover) =
@@ -368,8 +373,9 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -380,7 +386,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let (witness, prover) =
@@ -428,8 +434,9 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[19] = Some(stack_pointer.into());
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+                Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let padding_end_row = |current_state| {
@@ -440,7 +447,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 0.into();
-            row[20] = Some(log_stamp.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_LOG_STAMP] = Some(log_stamp.into());
             row
         };
         let (witness, prover) =

@@ -187,7 +187,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        assign_or_panic!(core_row_0[27], 0.into()); // let returndata_size_store = 0
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            0.into()
+        ); // let returndata_size_store = 0
 
         Witness {
             core: vec![core_row_1, core_row_0],
