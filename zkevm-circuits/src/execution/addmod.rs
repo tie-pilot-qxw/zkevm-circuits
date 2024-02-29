@@ -12,7 +12,6 @@ use crate::arithmetic_circuit::operation;
 /// It also uses auxiliary outcomes to update the state stamp and stack pointer.
 /// The `AddmodGadget` struct generates constraints and witnesses based on the given execution trace and current state.
 ///
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -226,6 +225,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

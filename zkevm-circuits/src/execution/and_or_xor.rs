@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -16,6 +15,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
+const CORE_ROW_1_START_OFFSET: usize = 24;
 /// AndOrXorGadget deal OpCodeId:{AND,OR,XOR}
 /// STATE0 record operand_0
 /// STATE1 record operand_1
@@ -89,11 +89,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // tag selector at row cnt = 1
         let selector = SimpleSelector::new(&[
             // AND: vers[24] at row cnt = 1
-            meta.query_advice(config.vers[24], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET], Rotation::prev()),
             // OR: vers[25] at row cnt = 1
-            meta.query_advice(config.vers[25], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 1], Rotation::prev()),
             // XOR: vers[26] at row cnt = 1
-            meta.query_advice(config.vers[26], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 2], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
         // bitwise constraints
@@ -201,14 +201,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_push_0]);
         simple_selector_assign(
+            &mut core_row_1,
             [
-                &mut core_row_1.vers_24,
-                &mut core_row_1.vers_25,
-                &mut core_row_1.vers_26,
+                CORE_ROW_1_START_OFFSET,
+                CORE_ROW_1_START_OFFSET + 1,
+                CORE_ROW_1_START_OFFSET + 2,
             ],
             index,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
+
         let core_row_0 = ExecutionState::AND_OR_XOR.into_exec_state_core_row(
             trace,
             current_state,
@@ -231,6 +233,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

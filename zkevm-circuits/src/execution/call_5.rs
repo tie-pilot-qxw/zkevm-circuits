@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::INDEX_STACK_POINTER;
+
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
@@ -143,8 +143,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let ret_offset = operands[0][1].clone();
         let returndata_call_id = operands[2][1].clone();
         //append copy constraints
-        let copy_len_lo = meta.query_advice(config.vers[11], Rotation(-2));
-        let len_lo_inv = meta.query_advice(config.vers[12], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[START_OFFSET], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&copy_len_lo, &len_lo_inv, String::from("copy_len_lo"));
 
         constraints.append(&mut is_zero_len.get_constraints());
@@ -212,8 +212,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
                 Rotation(-1 * NUM_ROW as i32),
             );
-            let copy_len = meta.query_advice(config.vers[11], Rotation(-2));
-            let copy_padding_len = meta.query_advice(config.vers[13], Rotation(-2));
+            let copy_len = meta.query_advice(config.vers[START_OFFSET], Rotation(-2));
+            let copy_padding_len = meta.query_advice(config.vers[START_OFFSET + 2], Rotation(-2));
 
             LookupEntry::Arithmetic {
                 tag: (arithmetic::Tag::Length as u8).expr(),
@@ -346,6 +346,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

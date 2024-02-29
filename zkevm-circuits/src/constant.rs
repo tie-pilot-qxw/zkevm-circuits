@@ -55,3 +55,41 @@ pub(crate) const COPY_LOOKUP_COLUMN_CNT: usize = 11;
 
 /// Number of tags in exp
 pub(crate) const LOG_NUM_EXP_TAG: usize = 3;
+
+/// log selector column start
+pub(crate) const LOG_SELECTOR_COLUMN_START_INDEX: usize = 8;
+
+/// exp lookup column start
+pub(crate) const EXP_COLUMN_START_INDEX: usize = 26;
+
+/// bitwise lookup column start
+pub(crate) const BITWISE_COLUMN_START_INDEX: usize = 10;
+
+/// bitwise lookup column width
+pub(crate) const BITWISE_COLUMN_WIDTH: usize = 5;
+
+/// state column width
+pub(crate) const STATE_COLUMN_WIDTH: usize = 8;
+
+/// bytecode lookup column start
+pub(crate) const BYTECODE_COLUMN_START_INDEX: usize = 24;
+
+/// arithmetic u64 overflow lookup column start
+pub(crate) const U64_OVERFLOW_START_INDEX: usize = 22;
+/// arithmetic u64 overflow lookup column width
+pub(crate) const U64_OVERFLOW_COLUMN_WIDTH: usize = 4;
+
+/// arithmetic lookup column width
+pub(crate) const ARITHMETIC_COLUMN_WIDTH: usize = 9;
+
+/// public lookup column start
+pub(crate) const PUBLIC_COLUMN_START_INDEX: usize = 26;
+
+/// copy lookup column start
+pub(crate) const COPY_COLUMN_START_INDEX: usize = 0;
+
+/// stamp cnt lookup column start
+pub(crate) const STAMP_CNT_COLUMN_START_INDEX: usize = 0;
+
+/// copy padding lookup column start
+pub(crate) const COPY_PADDING_COLUMN_START_INDEX: usize = 11;

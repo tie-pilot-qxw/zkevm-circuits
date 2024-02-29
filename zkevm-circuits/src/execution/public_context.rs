@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -96,12 +95,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // public lookup
         let public_entry = config.get_public_lookup(meta, Rotation(-2));
         // query public_tag , only one tag is 1,other tag is 0;
-        let timestamp_tag = meta.query_advice(config.vers[8], Rotation::prev());
-        let number_tag = meta.query_advice(config.vers[9], Rotation::prev());
-        let coinbase_tag = meta.query_advice(config.vers[10], Rotation::prev());
-        let gaslimit_tag = meta.query_advice(config.vers[11], Rotation::prev());
-        let chainid_tag = meta.query_advice(config.vers[12], Rotation::prev());
-        let basefee_tag = meta.query_advice(config.vers[13], Rotation::prev());
+        let timestamp_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET], Rotation::prev());
+        let number_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 1], Rotation::prev());
+        let coinbase_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 2], Rotation::prev());
+        let gaslimit_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 3], Rotation::prev());
+        let chainid_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 4], Rotation::prev());
+        let basefee_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 5], Rotation::prev());
         // Create a simple selector with input of array of expressions,which is 0.expr() or 1.expr();
         let selector = SimpleSelector::new(&[
             timestamp_tag.clone(),
@@ -220,6 +225,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

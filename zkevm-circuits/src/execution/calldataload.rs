@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::operation::u64overflow;
-use crate::constant::INDEX_STACK_POINTER;
+
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -240,7 +240,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-
+    use crate::constant::INDEX_STACK_POINTER;
     use std::collections::HashMap;
 
     use crate::execution::test::{

@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -18,6 +17,8 @@ use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
+const ORIGIN_TAG_COLUMN_INDEX: usize = 8;
+const GAS_PRICE_TAG_COLUMN_INDEX: usize = 9;
 
 /// TxContextGadget deal OpCodeId:{ORIGIN,GASPRICE}
 /// STATE0 record value
@@ -89,8 +90,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
         let public_entry = config.get_public_lookup(meta, Rotation(-2));
-        let origin_tag = meta.query_advice(config.vers[8], Rotation::prev());
-        let gasprice_tag = meta.query_advice(config.vers[9], Rotation::prev());
+        let origin_tag = meta.query_advice(config.vers[ORIGIN_TAG_COLUMN_INDEX], Rotation::prev());
+        let gasprice_tag =
+            meta.query_advice(config.vers[GAS_PRICE_TAG_COLUMN_INDEX], Rotation::prev());
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
         // pubic lookup constraints
         constraints.extend(config.get_public_constraints(
@@ -157,9 +159,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push_0]);
 
-        // tag selector
         simple_selector_assign(
-            [&mut core_row_1.vers_8, &mut core_row_1.vers_9],
+            &mut core_row_1,
+            [ORIGIN_TAG_COLUMN_INDEX, GAS_PRICE_TAG_COLUMN_INDEX],
             tag,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
@@ -185,11 +187,11 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
+    use std::collections::HashMap;
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_opcode_run() {

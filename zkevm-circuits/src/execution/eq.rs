@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -81,10 +80,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let a = operands[0].clone();
         let b = operands[1].clone();
         let c = operands[2].clone();
-        let hi_inv = meta.query_advice(config.vers[24], Rotation::prev());
-        let lo_inv = meta.query_advice(config.vers[25], Rotation::prev());
-        let hi_eq = meta.query_advice(config.vers[26], Rotation::prev());
-        let lo_eq = meta.query_advice(config.vers[27], Rotation::prev());
+        let hi_inv = meta.query_advice(config.vers[START_OFFSET], Rotation::prev());
+        let lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation::prev());
+        let hi_eq = meta.query_advice(config.vers[START_OFFSET + 2], Rotation::prev());
+        let lo_eq = meta.query_advice(config.vers[START_OFFSET + 3], Rotation::prev());
         constraints.extend([
             (
                 "hi_inv".into(),
@@ -179,6 +178,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

@@ -1,7 +1,6 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -135,8 +134,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         //  add normal_length copy constraints
-        let copy_len_lo = meta.query_advice(config.vers[22], Rotation(-2));
-        let copy_len_lo_inv = meta.query_advice(config.vers[23], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[START_OFFSET], Rotation(-2));
+        let copy_len_lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation(-2));
         let copy_len_is_zero =
             SimpleIsZero::new(&copy_len_lo, &copy_len_lo_inv, String::from("copy_len_lo"));
         constraints.extend(copy_len_is_zero.get_constraints());
@@ -158,8 +157,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         // add zero_padding length copy constraints
-        let copy_padding_len_lo = meta.query_advice(config.vers[24], Rotation(-2));
-        let copy_padding_len_lo_inv = meta.query_advice(config.vers[25], Rotation(-2));
+        let copy_padding_len_lo = meta.query_advice(config.vers[START_OFFSET + 2], Rotation(-2));
+        let copy_padding_len_lo_inv =
+            meta.query_advice(config.vers[START_OFFSET + 3], Rotation(-2));
         let copy_padding_len_is_zero = SimpleIsZero::new(
             &copy_padding_len_lo,
             &copy_padding_len_lo_inv,
@@ -328,6 +328,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use eth_types::Word;
     use std::vec;
 

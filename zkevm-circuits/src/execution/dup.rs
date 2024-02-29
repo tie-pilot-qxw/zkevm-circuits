@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -183,13 +182,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // opcode bits
         simple_binary_number_assign(
-            (trace.op.as_u64() - OpcodeId::DUP1.as_u64()) as usize,
+            &mut core_row_0,
             [
-                &mut core_row_0.vers_27,
-                &mut core_row_0.vers_28,
-                &mut core_row_0.vers_29,
-                &mut core_row_0.vers_30,
+                OPCODE_BITS_START_COL_IDX,
+                OPCODE_BITS_START_COL_IDX + 1,
+                OPCODE_BITS_START_COL_IDX + 2,
+                OPCODE_BITS_START_COL_IDX + 3,
             ],
+            (trace.op.as_u64() - OpcodeId::DUP1.as_u64()) as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
 
@@ -211,6 +211,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

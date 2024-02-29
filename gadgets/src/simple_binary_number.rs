@@ -1,5 +1,7 @@
 //! Simple binary number used to split the value into binary
 
+use std::ops::IndexMut;
+
 use crate::binary_number::AsBits;
 use crate::util::{and, not, Expr};
 use eth_types::Field;
@@ -19,7 +21,7 @@ impl<F: Field, const N: usize> SimpleBinaryNumber<F, N> {
 
     /// Get the constraints
     pub fn get_constraints(&self) -> Vec<(String, Expression<F>)> {
-        let mut res: Vec<(String, Expression<F>)> = self
+        let res: Vec<(String, Expression<F>)> = self
             .bits
             .iter()
             .enumerate()
@@ -60,15 +62,15 @@ impl<F: Field, const N: usize> SimpleBinaryNumber<F, N> {
 }
 
 /// split the value into binary and assign the value
-pub fn simple_binary_number_assign<T, const N: usize>(
+pub fn simple_binary_number_assign<A, T: IndexMut<usize, Output = A>, const N: usize>(
+    target: &mut T,
+    positions: [usize; N],
     value: usize,
-    targets: [T; N],
-    assign_or_panic: impl Fn(T, u8),
+    assign_or_panic: impl Fn(&mut A, u8),
 ) {
     let bits: [bool; N] = value.as_bits();
-    println!("{:?}", bits);
-    for (i, target) in targets.into_iter().enumerate() {
-        let value = if bits[i] { 1 } else { 0 };
-        assign_or_panic(target, value);
+    for (index, pos) in positions.into_iter().enumerate() {
+        let value: u8 = if bits[index] { 1 } else { 0 };
+        assign_or_panic(&mut target[pos], value);
     }
 }

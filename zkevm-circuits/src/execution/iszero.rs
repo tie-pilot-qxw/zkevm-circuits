@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -88,10 +87,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let a = operands[0].clone();
         let b = operands[1].clone();
-        let hi_inv = meta.query_advice(config.vers[16], Rotation::prev());
-        let lo_inv = meta.query_advice(config.vers[17], Rotation::prev());
-        let hi_iszero = meta.query_advice(config.vers[18], Rotation::prev());
-        let lo_iszero = meta.query_advice(config.vers[19], Rotation::prev());
+        let hi_inv = meta.query_advice(config.vers[START_OFFSET], Rotation::prev());
+        let lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation::prev());
+        let hi_iszero = meta.query_advice(config.vers[START_OFFSET + 2], Rotation::prev());
+        let lo_iszero = meta.query_advice(config.vers[START_OFFSET + 3], Rotation::prev());
 
         let iszero_gadget_hi = SimpleIsZero::new(&a[0], &hi_inv, String::from("hi"));
         let iszero_gadget_lo = SimpleIsZero::new(&a[1], &lo_inv, String::from("lo"));
@@ -178,6 +177,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

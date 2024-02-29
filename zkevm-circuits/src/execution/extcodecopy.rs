@@ -1,7 +1,6 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -116,8 +115,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // copy constraints
-        let copy_len_lo_inv = meta.query_advice(config.vers[23], Rotation(-2));
-        let copy_len_lo = meta.query_advice(config.vers[22], Rotation(-2));
+        let copy_len_lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[START_OFFSET], Rotation(-2));
         let is_copy_zero_len = SimpleIsZero::new(
             &copy_len_lo,
             &copy_len_lo_inv,
@@ -142,8 +141,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         // padding constraints
-        let padding_len_lo = meta.query_advice(config.vers[24], Rotation(-2));
-        let padding_len_lo_inv = meta.query_advice(config.vers[25], Rotation(-2));
+        let padding_len_lo = meta.query_advice(config.vers[START_OFFSET + 2], Rotation(-2));
+        let padding_len_lo_inv = meta.query_advice(config.vers[START_OFFSET + 3], Rotation(-2));
         let is_padding_zero_len = SimpleIsZero::new(
             &padding_len_lo,
             &padding_len_lo_inv,
@@ -301,6 +300,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };

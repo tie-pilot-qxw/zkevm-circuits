@@ -1,7 +1,6 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
-use crate::constant::INDEX_STACK_POINTER;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
@@ -315,6 +314,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::INDEX_STACK_POINTER;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
