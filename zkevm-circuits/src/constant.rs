@@ -9,13 +9,15 @@ pub const MAX_CODESIZE: usize = 2 * 24576;
 #[cfg(feature = "k_9")]
 pub const MAX_CODESIZE: usize = 470;
 
-/// stack pointer column index
-pub const INDEX_STACK_POINTER: usize = 1;
-
 /// Index of vers[] column in core circuit for state stamp in execution gadgets
 /// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here
-pub const INDEX_STATE_STAMP: usize = 0;
-pub const INDEX_LOG_STAMP: usize = 2;
+pub const STATE_STAMP_IDX: usize = 0;
+/// Index of vers[] column in core circuit for stack pointer in execution gadgets
+/// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here
+pub const STACK_POINTER_IDX: usize = 1;
+/// Index of vers[] column in core circuit for log stamp in execution gadgets
+/// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here
+pub const LOG_STAMP_IDX: usize = 2;
 
 /// Number of versatile columns in core circuit
 pub const NUM_VERS: usize = 32;
@@ -25,7 +27,7 @@ pub(crate) const LOG_NUM_STATE_TAG: usize = 4;
 /// Number of tags in bitwise
 pub(crate) const LOG_NUM_BITWISE_TAG: usize = 2;
 
-pub(crate) const BIT_SHIFT_MAX_INDEX: u8 = 255;
+pub(crate) const BIT_SHIFT_MAX_IDX: u8 = 255;
 
 /// The number of columns used by auxiliary
 /// this+NUM_STATE_HI_COL+NUM_STATE_LO_COL should be no greater than 32
@@ -57,13 +59,13 @@ pub(crate) const COPY_LOOKUP_COLUMN_CNT: usize = 11;
 pub(crate) const LOG_NUM_EXP_TAG: usize = 3;
 
 /// log selector column start
-pub(crate) const LOG_SELECTOR_COLUMN_START_INDEX: usize = 8;
+pub(crate) const LOG_SELECTOR_COLUMN_START_IDX: usize = 8;
 
 /// exp lookup column start
-pub(crate) const EXP_COLUMN_START_INDEX: usize = 26;
+pub(crate) const EXP_COLUMN_START_IDX: usize = 26;
 
 /// bitwise lookup column start
-pub(crate) const BITWISE_COLUMN_START_INDEX: usize = 10;
+pub(crate) const BITWISE_COLUMN_START_IDX: usize = 10;
 
 /// bitwise lookup column width
 pub(crate) const BITWISE_COLUMN_WIDTH: usize = 5;
@@ -72,10 +74,10 @@ pub(crate) const BITWISE_COLUMN_WIDTH: usize = 5;
 pub(crate) const STATE_COLUMN_WIDTH: usize = 8;
 
 /// bytecode lookup column start
-pub(crate) const BYTECODE_COLUMN_START_INDEX: usize = 24;
+pub(crate) const BYTECODE_COLUMN_START_IDX: usize = 24;
 
 /// arithmetic u64 overflow lookup column start
-pub(crate) const U64_OVERFLOW_START_INDEX: usize = 22;
+pub(crate) const U64_OVERFLOW_START_IDX: usize = 22;
 /// arithmetic u64 overflow lookup column width
 pub(crate) const U64_OVERFLOW_COLUMN_WIDTH: usize = 4;
 
@@ -83,13 +85,13 @@ pub(crate) const U64_OVERFLOW_COLUMN_WIDTH: usize = 4;
 pub(crate) const ARITHMETIC_COLUMN_WIDTH: usize = 9;
 
 /// public lookup column start
-pub(crate) const PUBLIC_COLUMN_START_INDEX: usize = 26;
+pub(crate) const PUBLIC_COLUMN_START_IDX: usize = 26;
 
 /// copy lookup column start
-pub(crate) const COPY_COLUMN_START_INDEX: usize = 0;
+pub(crate) const COPY_COLUMN_START_IDX: usize = 0;
 
 /// stamp cnt lookup column start
-pub(crate) const STAMP_CNT_COLUMN_START_INDEX: usize = 0;
+pub(crate) const STAMP_CNT_COLUMN_START_IDX: usize = 0;
 
 /// copy padding lookup column start
-pub(crate) const COPY_PADDING_COLUMN_START_INDEX: usize = 11;
+pub(crate) const COPY_PADDING_COLUMN_START_IDX: usize = 11;

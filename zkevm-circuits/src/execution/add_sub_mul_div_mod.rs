@@ -17,7 +17,7 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
-const CORE_ROW_1_START_OFFSET: usize = 27;
+const CORE_ROW_1_START_COL_IDX: usize = 27;
 
 /// +---+-------+-------+-------+-----------------------+
 /// |cnt| 8 col | 8 col | 8 col | 8col                  |
@@ -90,11 +90,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // if opcode is DIV, then vers[30] is 1 and vers[27]、vers[28]、vers[29]、vers[31] is 0
         // if opcode is MOD, then vers[31] is 1 and vers[27]、vers[28]、vers[29]、vers[30] is 0
         let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 1], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 2], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 3], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 4], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
 
@@ -243,11 +243,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         simple_selector_assign(
             &mut core_row_1,
             [
-                CORE_ROW_1_START_OFFSET,
-                CORE_ROW_1_START_OFFSET + 1,
-                CORE_ROW_1_START_OFFSET + 2,
-                CORE_ROW_1_START_OFFSET + 3,
-                CORE_ROW_1_START_OFFSET + 4,
+                CORE_ROW_1_START_COL_IDX,
+                CORE_ROW_1_START_COL_IDX + 1,
+                CORE_ROW_1_START_COL_IDX + 2,
+                CORE_ROW_1_START_COL_IDX + 3,
+                CORE_ROW_1_START_COL_IDX + 4,
             ],
             tag_selector_index as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
@@ -278,7 +278,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -300,7 +300,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

@@ -17,8 +17,8 @@ use super::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
-const ORIGIN_TAG_COLUMN_INDEX: usize = 8;
-const GAS_PRICE_TAG_COLUMN_INDEX: usize = 9;
+const ORIGIN_TAG_COL_IDX: usize = 8;
+const GAS_PRICE_TAG_COL_IDX: usize = 9;
 
 /// TxContextGadget deal OpCodeId:{ORIGIN,GASPRICE}
 /// STATE0 record value
@@ -90,9 +90,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
         let public_entry = config.get_public_lookup(meta, Rotation(-2));
-        let origin_tag = meta.query_advice(config.vers[ORIGIN_TAG_COLUMN_INDEX], Rotation::prev());
-        let gasprice_tag =
-            meta.query_advice(config.vers[GAS_PRICE_TAG_COLUMN_INDEX], Rotation::prev());
+        let origin_tag = meta.query_advice(config.vers[ORIGIN_TAG_COL_IDX], Rotation::prev());
+        let gasprice_tag = meta.query_advice(config.vers[GAS_PRICE_TAG_COL_IDX], Rotation::prev());
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
         // pubic lookup constraints
         constraints.extend(config.get_public_constraints(
@@ -161,7 +160,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         simple_selector_assign(
             &mut core_row_1,
-            [ORIGIN_TAG_COLUMN_INDEX, GAS_PRICE_TAG_COLUMN_INDEX],
+            [ORIGIN_TAG_COL_IDX, GAS_PRICE_TAG_COL_IDX],
             tag,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
@@ -187,7 +186,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -218,7 +217,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

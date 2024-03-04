@@ -19,8 +19,8 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
-const BYTE_MAX_INDEX: u8 = 31;
-const EXP_OVERFLOW_INDEX_BOUNDARY: u8 = 32;
+const BYTE_MAX_IDX: u8 = 31;
+const EXP_OVERFLOW_IDX_BOUNDARY: u8 = 32;
 
 ///
 /// BYTE gadget:
@@ -191,7 +191,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "arithmetic_sub_operand1_lo = 31".into(),
-                arithmetic_operands[1].clone() - BYTE_MAX_INDEX.expr(),
+                arithmetic_operands[1].clone() - BYTE_MAX_IDX.expr(),
             ),
             // arithmetic_sub_operand1 is stack_top0(byte_index_hi)
             (
@@ -254,7 +254,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "arithmetic_sub_carry_hi=1 ==>  exp_index_low=32".into(),
                 arithmetic_operands[6].clone()
-                    * (exp_lookup_index[1].clone() - EXP_OVERFLOW_INDEX_BOUNDARY.expr()),
+                    * (exp_lookup_index[1].clone() - EXP_OVERFLOW_IDX_BOUNDARY.expr()),
             ),
         ]);
         constraints
@@ -299,7 +299,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // result[0]:  value
         // result[1]: carry value
         // note: if byte_index > 31, then 31-byte_index will definitely overflow, and result[0] will be a very large value
-        let byte_index_max = U256::from(BYTE_MAX_INDEX);
+        let byte_index_max = U256::from(BYTE_MAX_IDX);
         let (arithmetic_sub_rows, result) =
             operation::sub::gen_witness(vec![byte_index_max, byte_index]);
 
@@ -308,7 +308,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // if byte_index > 31, result[0] will be a very large value, 256.pow(result[0]) will definitely overflow, and The result is 0,
         // so when result[0] is a large value, 32 is forced to be used for overflow operation
         let index = if byte_index > byte_index_max {
-            U256::from(EXP_OVERFLOW_INDEX_BOUNDARY)
+            U256::from(EXP_OVERFLOW_IDX_BOUNDARY)
         } else {
             result[0]
         };
@@ -387,7 +387,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -410,7 +410,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

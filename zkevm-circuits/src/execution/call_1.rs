@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 3;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
-const LEN_LO_INV_COLUMN_INDEX: usize = 24;
+const LEN_LO_INV_COL_IDX: usize = 24;
 
 /// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
@@ -146,7 +146,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
         //append copy constraints
-        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_INDEX], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation::prev());
         let is_zero_len = SimpleIsZero::new(&args_len[1], &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
 
@@ -265,7 +265,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(args_len.low_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_1[LEN_LO_INV_COLUMN_INDEX], len_lo_inv);
+        assign_or_panic!(core_row_1[LEN_LO_INV_COL_IDX], len_lo_inv);
 
         let mut core_row_0 = ExecutionState::CALL_1.into_exec_state_core_row(
             trace,
@@ -296,7 +296,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -335,7 +335,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

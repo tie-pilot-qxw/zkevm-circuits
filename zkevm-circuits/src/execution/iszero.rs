@@ -18,7 +18,7 @@ const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 1;
-const START_OFFSET: usize = 16;
+const START_COL_IDX: usize = 16;
 
 /// Iszero read an operand from the stack,
 /// write 1 to the stack if the operand equals to zero,
@@ -87,10 +87,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let a = operands[0].clone();
         let b = operands[1].clone();
-        let hi_inv = meta.query_advice(config.vers[START_OFFSET], Rotation::prev());
-        let lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation::prev());
-        let hi_iszero = meta.query_advice(config.vers[START_OFFSET + 2], Rotation::prev());
-        let lo_iszero = meta.query_advice(config.vers[START_OFFSET + 3], Rotation::prev());
+        let hi_inv = meta.query_advice(config.vers[START_COL_IDX], Rotation::prev());
+        let lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation::prev());
+        let hi_iszero = meta.query_advice(config.vers[START_COL_IDX + 2], Rotation::prev());
+        let lo_iszero = meta.query_advice(config.vers[START_COL_IDX + 3], Rotation::prev());
 
         let iszero_gadget_hi = SimpleIsZero::new(&a[0], &hi_inv, String::from("hi"));
         let iszero_gadget_lo = SimpleIsZero::new(&a[1], &lo_inv, String::from("lo"));
@@ -154,7 +154,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let lo_iszero = if a_lo == F::from_u128(0) { 1 } else { 0 };
         let assign_values = [hi_inv, lo_inv, hi_iszero.into(), lo_iszero.into()];
         for i in 0..4 {
-            assign_or_panic!(core_row_1[i + START_OFFSET], assign_values[i]);
+            assign_or_panic!(core_row_1[i + START_COL_IDX], assign_values[i]);
         }
         let core_row_0 = ExecutionState::ISZERO.into_exec_state_core_row(
             trace,
@@ -177,7 +177,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -201,7 +201,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

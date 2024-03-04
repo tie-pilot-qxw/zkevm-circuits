@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
-const CORE_ROW_1_START_OFFSET: usize = 24;
+const CORE_ROW_1_START_COL_IDX: usize = 24;
 /// AndOrXorGadget deal OpCodeId:{AND,OR,XOR}
 /// STATE0 record operand_0
 /// STATE1 record operand_1
@@ -89,11 +89,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // tag selector at row cnt = 1
         let selector = SimpleSelector::new(&[
             // AND: vers[24] at row cnt = 1
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev()),
             // OR: vers[25] at row cnt = 1
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 1], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
             // XOR: vers[26] at row cnt = 1
-            meta.query_advice(config.vers[CORE_ROW_1_START_OFFSET + 2], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
         // bitwise constraints
@@ -203,9 +203,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         simple_selector_assign(
             &mut core_row_1,
             [
-                CORE_ROW_1_START_OFFSET,
-                CORE_ROW_1_START_OFFSET + 1,
-                CORE_ROW_1_START_OFFSET + 2,
+                CORE_ROW_1_START_COL_IDX,
+                CORE_ROW_1_START_COL_IDX + 1,
+                CORE_ROW_1_START_COL_IDX + 2,
             ],
             index,
             |cell, value| assign_or_panic!(*cell, value.into()),
@@ -233,7 +233,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -254,7 +254,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

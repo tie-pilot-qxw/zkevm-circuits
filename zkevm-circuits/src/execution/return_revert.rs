@@ -39,7 +39,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -2;
-const LEN_LO_INV_COLUMN_ID: usize = 11;
+const LEN_LO_INV_COL_IDX: usize = 11;
 
 pub struct ReturnRevertGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -152,7 +152,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         // append return&revert constraints
-        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
         let is_zero_len =
             SimpleIsZero::new(&operands[1][1], &len_lo_inv, String::from("length_lo"));
 
@@ -266,7 +266,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(length.as_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_2[LEN_LO_INV_COLUMN_ID], len_lo_inv);
+        assign_or_panic!(core_row_2[LEN_LO_INV_COL_IDX], len_lo_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
@@ -314,7 +314,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -339,7 +339,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

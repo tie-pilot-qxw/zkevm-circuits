@@ -18,8 +18,8 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
-const SUB_TAG_COLUMN_INDEX: usize = 30;
-const SLT_SGT_TAG_COLUMN_INDEX: usize = 31;
+const SUB_TAG_COL_IDX: usize = 30;
+const SLT_SGT_TAG_COL_IDX: usize = 31;
 
 /// +---+-------+-------+-------+-----------------------+
 /// |cnt| 8 col | 8 col | 8 col | 8col                  |
@@ -147,8 +147,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // if arithmetic_tag is Sub, then vers[30] is 1 and vers[31] is 0
         // if arithmetic_tag is SltSgt, then vers[31] is 1 and vers[30] is 0
         let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[SUB_TAG_COLUMN_INDEX], Rotation::prev()),
-            meta.query_advice(config.vers[SLT_SGT_TAG_COLUMN_INDEX], Rotation::prev()),
+            meta.query_advice(config.vers[SUB_TAG_COL_IDX], Rotation::prev()),
+            meta.query_advice(config.vers[SLT_SGT_TAG_COL_IDX], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
 
@@ -225,7 +225,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // tag selector
         simple_selector_assign(
             &mut core_row_1,
-            [SUB_TAG_COLUMN_INDEX, SLT_SGT_TAG_COLUMN_INDEX],
+            [SUB_TAG_COL_IDX, SLT_SGT_TAG_COL_IDX],
             !is_lt_gt as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
@@ -252,7 +252,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -272,7 +272,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

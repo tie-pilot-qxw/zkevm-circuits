@@ -12,12 +12,11 @@ use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
-    ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_INDEX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_INDEX,
-    BYTECODE_COLUMN_START_INDEX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY,
-    EXP_COLUMN_START_INDEX, LOG_SELECTOR_COLUMN_START_INDEX, MAX_CODESIZE, MAX_NUM_ROW,
-    NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS, PUBLIC_COLUMN_START_INDEX, PUBLIC_NUM_VALUES,
-    STAMP_CNT_COLUMN_START_INDEX, STATE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH,
-    U64_OVERFLOW_START_INDEX,
+    ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX,
+    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
+    LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
+    STATE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -1663,7 +1662,7 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
     // the main purpose is to determine whether shift is greater than or equal to 256
     // that is, whether 2<<shift will overflow
     let (arithmetic_sub_rows, _) =
-        operation::sub::gen_witness(vec![BIT_SHIFT_MAX_INDEX.into(), shift]);
+        operation::sub::gen_witness(vec![BIT_SHIFT_MAX_IDX.into(), shift]);
 
     // mul_div_num = 2<<stack_shift
     let (mul_div_num, exp_rows, exp_arith_mul_rows) = Row::from_operands(U256::from(2), shift);
@@ -1702,7 +1701,7 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // get arithmetic rows
     let (arithmetic_sub_rows, _) =
         operation::sub::gen_witness(vec![arithmetic_operands[0], arithmetic_operands[1]]);
-    const START_OFFSET: usize = 25;
+    const START_COL_IDX: usize = 25;
 
     // calc signextend by bit
     let (signextend_result_vec, bitwise_rows_vec) =
@@ -1721,8 +1720,8 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // d_lo set core_row_0.vers_28
     // sign_bit_is_zero_inv set core_row_0.vers_29;
     for (i, value) in (0..5).zip(signextend_result_vec) {
-        assert!(core_rows0[i + START_OFFSET].is_none());
-        assign_or_panic!(core_rows0[i + START_OFFSET], value);
+        assert!(core_rows0[i + START_COL_IDX].is_none());
+        assign_or_panic!(core_rows0[i + START_COL_IDX], value);
     }
     // Construct Witness object
     let bitwise_rows = bitwise_rows_vec
@@ -1861,7 +1860,7 @@ impl core::Row {
             power.low_u128().into(),
         ];
         for i in 0..6 {
-            assign_or_panic!(self[EXP_COLUMN_START_INDEX + i], colum_values[i]);
+            assign_or_panic!(self[EXP_COLUMN_START_IDX + i], colum_values[i]);
         }
     }
 
@@ -1891,7 +1890,7 @@ impl core::Row {
         ];
         for i in 0..BITWISE_COLUMN_WIDTH {
             assign_or_panic!(
-                self[BITWISE_COLUMN_START_INDEX + BITWISE_COLUMN_WIDTH * index + i],
+                self[BITWISE_COLUMN_START_IDX + BITWISE_COLUMN_WIDTH * index + i],
                 column_values[i]
             );
         }
@@ -1968,10 +1967,10 @@ impl core::Row {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
         assign_or_panic!(
-            self[STAMP_CNT_COLUMN_START_INDEX],
+            self[STAMP_CNT_COLUMN_START_IDX],
             U256::from(Tag::EndPadding as u8)
         );
-        assign_or_panic!(self[STAMP_CNT_COLUMN_START_INDEX + 1], cnt);
+        assign_or_panic!(self[STAMP_CNT_COLUMN_START_IDX + 1], cnt);
 
         #[rustfmt::skip]
         self.comments.extend([
@@ -2000,8 +1999,8 @@ impl core::Row {
             Some(opcode.data_len().into()),
             Some((opcode.is_push() as u8).into()),
         ]) {
-            assert!(self[BYTECODE_COLUMN_START_INDEX + i].is_none());
-            self[BYTECODE_COLUMN_START_INDEX + i] = value;
+            assert!(self[BYTECODE_COLUMN_START_IDX + i].is_none());
+            self[BYTECODE_COLUMN_START_IDX + i] = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -2032,7 +2031,7 @@ impl core::Row {
             arith_entries[0].operand_1_lo,
         ];
         for i in 0..4 {
-            assign_or_panic!(self[U64_OVERFLOW_START_INDEX + i], column_values[i]);
+            assign_or_panic!(self[U64_OVERFLOW_START_IDX + i], column_values[i]);
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -2192,8 +2191,8 @@ impl core::Row {
             public_row.value_3.unwrap_or_default(),
         ];
         for i in 0..6 {
-            assert!(self[i + PUBLIC_COLUMN_START_INDEX].is_none());
-            assign_or_panic!(self[i + PUBLIC_COLUMN_START_INDEX], column_values[i]);
+            assert!(self[i + PUBLIC_COLUMN_START_IDX].is_none());
+            assign_or_panic!(self[i + PUBLIC_COLUMN_START_IDX], column_values[i]);
         }
         let comments = vec![
             (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
@@ -2283,11 +2282,11 @@ impl core::Row {
         simple_selector_assign(
             self,
             [
-                LOG_SELECTOR_COLUMN_START_INDEX + 4,
-                LOG_SELECTOR_COLUMN_START_INDEX + 3,
-                LOG_SELECTOR_COLUMN_START_INDEX + 2,
-                LOG_SELECTOR_COLUMN_START_INDEX + 1,
-                LOG_SELECTOR_COLUMN_START_INDEX,
+                LOG_SELECTOR_COLUMN_START_IDX + 4,
+                LOG_SELECTOR_COLUMN_START_IDX + 3,
+                LOG_SELECTOR_COLUMN_START_IDX + 2,
+                LOG_SELECTOR_COLUMN_START_IDX + 1,
+                LOG_SELECTOR_COLUMN_START_IDX,
             ],
             log_left,
             |cell, value| assign_or_panic!(*cell, value.into()),

@@ -20,7 +20,7 @@ const ADDRESS_ZERO_COUNT: u32 = 12 * 8;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -4;
 const PC_DELTA: u64 = 1;
-const START_OFFSET: usize = 22;
+const START_COL_IDX: usize = 22;
 
 /// Extcodecopy Execution State layout is as follows
 /// where COPY means copy table lookup , 9 cols
@@ -115,8 +115,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
         // copy constraints
-        let copy_len_lo_inv = meta.query_advice(config.vers[START_OFFSET + 1], Rotation(-2));
-        let copy_len_lo = meta.query_advice(config.vers[START_OFFSET], Rotation(-2));
+        let copy_len_lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[START_COL_IDX], Rotation(-2));
         let is_copy_zero_len = SimpleIsZero::new(
             &copy_len_lo,
             &copy_len_lo_inv,
@@ -141,8 +141,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         // padding constraints
-        let padding_len_lo = meta.query_advice(config.vers[START_OFFSET + 2], Rotation(-2));
-        let padding_len_lo_inv = meta.query_advice(config.vers[START_OFFSET + 3], Rotation(-2));
+        let padding_len_lo = meta.query_advice(config.vers[START_COL_IDX + 2], Rotation(-2));
+        let padding_len_lo_inv = meta.query_advice(config.vers[START_COL_IDX + 3], Rotation(-2));
         let is_padding_zero_len = SimpleIsZero::new(
             &padding_len_lo,
             &padding_len_lo_inv,
@@ -268,7 +268,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             padding_copy_len_lo_inv,
         ];
         for i in 0..4 {
-            assign_or_panic!(core_row_2[i + START_OFFSET], column_values[i]);
+            assign_or_panic!(core_row_2[i + START_COL_IDX], column_values[i]);
         }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
@@ -300,7 +300,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -354,7 +354,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

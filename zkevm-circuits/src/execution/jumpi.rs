@@ -14,11 +14,11 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = -2;
-const HI_INV_COLUMN_ID: usize = 16;
-const LO_INV_COLUMN_ID: usize = 17;
-const HI_ZERO_COLUMN_ID: usize = 18;
-const LO_ZERO_COLUMN_ID: usize = 19;
-const HI_LO_ZERO_COLUMN_ID: usize = 20;
+const HI_INV_COL_IDX: usize = 16;
+const LO_INV_COL_IDX: usize = 17;
+const HI_ZERO_COL_IDX: usize = 18;
+const LO_ZERO_COL_IDX: usize = 19;
+const HI_LO_ZERO_COL_IDX: usize = 20;
 pub struct JumpiGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -100,11 +100,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             _,
         ) = extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
-        let hi_inv = meta.query_advice(config.vers[HI_INV_COLUMN_ID], Rotation::prev());
-        let lo_inv = meta.query_advice(config.vers[LO_INV_COLUMN_ID], Rotation::prev());
-        let hi_is_zero = meta.query_advice(config.vers[HI_ZERO_COLUMN_ID], Rotation::prev());
-        let lo_is_zero = meta.query_advice(config.vers[LO_ZERO_COLUMN_ID], Rotation::prev());
-        let is_zero = meta.query_advice(config.vers[HI_LO_ZERO_COLUMN_ID], Rotation::prev());
+        let hi_inv = meta.query_advice(config.vers[HI_INV_COL_IDX], Rotation::prev());
+        let lo_inv = meta.query_advice(config.vers[LO_INV_COL_IDX], Rotation::prev());
+        let hi_is_zero = meta.query_advice(config.vers[HI_ZERO_COL_IDX], Rotation::prev());
+        let lo_is_zero = meta.query_advice(config.vers[LO_ZERO_COL_IDX], Rotation::prev());
+        let is_zero = meta.query_advice(config.vers[HI_LO_ZERO_COL_IDX], Rotation::prev());
 
         let iszero_gadget_hi = SimpleIsZero::new(&operands[2], &hi_inv, String::from("hi"));
         let iszero_gadget_lo = SimpleIsZero::new(&operands[3], &lo_inv, String::from("lo"));
@@ -188,9 +188,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let lo_inv = U256::from_little_endian(b_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         let hi_inv = U256::from_little_endian(b_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         //hi_inv
-        assign_or_panic!(core_row_1[HI_INV_COLUMN_ID], hi_inv);
+        assign_or_panic!(core_row_1[HI_INV_COL_IDX], hi_inv);
         //lo_inv
-        assign_or_panic!(core_row_1[LO_INV_COLUMN_ID], lo_inv);
+        assign_or_panic!(core_row_1[LO_INV_COL_IDX], lo_inv);
 
         //hi_inv
         let hi_is_zero = if b_hi == F::ZERO {
@@ -198,18 +198,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             U256::zero()
         };
-        assign_or_panic!(core_row_1[HI_ZERO_COLUMN_ID], hi_is_zero);
+        assign_or_panic!(core_row_1[HI_ZERO_COL_IDX], hi_is_zero);
         //lo_inv
         let lo_is_zero = if b_lo == F::ZERO {
             U256::one()
         } else {
             U256::zero()
         };
-        assign_or_panic!(core_row_1[LO_ZERO_COLUMN_ID], lo_is_zero);
+        assign_or_panic!(core_row_1[LO_ZERO_COL_IDX], lo_is_zero);
 
         //is_zero
         let is_zero = hi_is_zero * lo_is_zero;
-        assign_or_panic!(core_row_1[HI_LO_ZERO_COLUMN_ID], is_zero);
+        assign_or_panic!(core_row_1[HI_LO_ZERO_COL_IDX], is_zero);
 
         let mut code_addr = core_row_1.code_addr;
 
@@ -247,7 +247,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::INDEX_STACK_POINTER;
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -269,7 +269,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
@@ -305,7 +305,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
