@@ -1,7 +1,8 @@
 use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::geth_types::{Account, GethData};
-use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, ToAddress, Transaction, U256};
+use eth_types::ToAddress;
+use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
@@ -315,12 +316,74 @@ pub fn get_geth_data<P: AsRef<Path>>(
     }
 }
 
+pub fn get_multi_trace_geth_data<P: AsRef<Path>>(
+    block_info_file: P,
+    tx_info_files: Vec<&str>,
+    trace_files: Vec<&str>,
+    receipt_files: Vec<&str>,
+    accounts_file: P,
+) -> GethData {
+    let eth_block = read_block_from_api_result_file(block_info_file);
+
+    // debug transaction trace
+    let mut geth_traces: Vec<GethExecTrace> = vec![];
+    for trace_file in trace_files.iter() {
+        let trace = read_trace_from_api_result_file(trace_file);
+        geth_traces.push(trace)
+    }
+
+    // transaction receipt for public log
+    let mut logs: Vec<ReceiptLog> = vec![];
+    for receipt_file in receipt_files.iter() {
+        let receipt_log = read_log_from_api_result_file(receipt_file);
+        logs.push(receipt_log)
+    }
+
+    // make accounts
+    let mut accounts: Vec<Account> = vec![];
+    let mut chain_id: U256 = U256::zero();
+    accounts.append(&mut read_accounts_from_api_result_file(accounts_file));
+
+    for tx_info_file in tx_info_files.iter() {
+        let tx = read_tx_from_api_result_file(tx_info_file);
+        if chain_id == U256::zero() {
+            chain_id = tx.chain_id.unwrap();
+        }
+        if tx.to == None {
+            let account = Account {
+                address: create_contract_addr_with_prefix(&tx),
+                code: tx.input,
+                ..Default::default()
+            };
+            accounts.push(account)
+        }
+    }
+
+    // make fake history hashes
+    // TODO read hashes from file
+    let mut history_hashes = vec![];
+    for i in 0..256 {
+        history_hashes.push(i.into())
+    }
+
+    // build and return geth_data
+    GethData {
+        chain_id: chain_id.into(),
+        history_hashes,
+        eth_block,
+        accounts,
+        geth_traces,
+        logs,
+    }
+}
+
 /// A place to hold one of two outcomes:
 /// Delta: current cell increases from previous cell by this expression
 /// To: current cell becomes this expression
 pub enum ExpressionOutcome<F> {
     Delta(Expression<F>),
     To(Expression<F>),
+    Any,
 }
 
 impl<F: Field> ExpressionOutcome<F> {
@@ -332,6 +395,7 @@ impl<F: Field> ExpressionOutcome<F> {
         match self {
             ExpressionOutcome::Delta(delta) => minuend - subtrahend - delta,
             ExpressionOutcome::To(to) => minuend - to,
+            ExpressionOutcome::Any => 0.expr(),
         }
     }
 }

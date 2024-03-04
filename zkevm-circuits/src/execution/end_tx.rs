@@ -2,7 +2,7 @@ use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{begin_tx_1, end_block, CoreSinglePurposeOutcome, ExecStateTransition};
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::query_expression;
+use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -42,8 +42,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        // 约束txid、pc等状态不变
-        let delta = CoreSinglePurposeOutcome::default();
+
+        // 约束txid、pc的状态为
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Any,
+            tx_idx: ExpressionOutcome::Any,
+            call_id: ExpressionOutcome::Any,
+            code_addr: ExpressionOutcome::Any,
+            ..Default::default()
+        };
         constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
 
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());

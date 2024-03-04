@@ -147,6 +147,14 @@ impl WitnessExecHelper {
         self.stack_pointer -= 1;
     }
 
+    pub fn reset_state_end_tx(&mut self) {
+        self.stack_pointer = 0;
+        self.returndata_call_id = 0;
+        self.returndata_size = 0.into();
+        self.return_success = false;
+        self.log_stamp = 0;
+    }
+
     /// Generate witness of one transaction's trace
     fn generate_trace_witness(
         &mut self,
@@ -244,6 +252,11 @@ impl WitnessExecHelper {
                 .unwrap()
                 .gen_witness(last_step, self),
         );
+        // 非区块中最后一笔交易，需清除上笔交易的状态，否则会将其它交易的状态写入下一笔
+        // 交易的witness导致约束失败。
+        if tx_idx != geth_data.geth_traces.len() - 1 {
+            self.reset_state_end_tx()
+        }
         res
     }
 
