@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 
 pub const NUM_ROW: usize = 3;
 const LEN_LO_INV_COL_IDX: usize = 11;
+const TX_IDX_DELTA: i32 = 1;
 pub struct BeginTx1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -79,42 +80,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
-
-        // 约束pc, tx_idx, call_id, code_addr为0
-        // todo. 需要讨论，当一个块内包含多笔交易时，此时应该采用ExpressionOutcome::To约束状态为指定的值
-        // 如pc=0因为新交易刚准备执行
-        let delta = CoreSinglePurposeOutcome::default();
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-
-        // pc constraint
-        // todo. maybe deleted due to previous has constraint
-        let pc = meta.query_advice(config.pc, Rotation::cur());
-        constraints.extend([("pc == 0".into(), pc)]);
-        // call_id constraint for current = prev_state_stamp+1
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let Auxiliary { state_stamp, .. } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        constraints.push((
-            "call_id in curr=prev_stamp+1".into(),
-            state_stamp_prev.clone() + 1.expr() - call_id.clone(),
-        ));
-        // code_addr constraint for current
         let (_, _, storage_contract_addr_hi, storage_contract_addr_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
-        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
-        constraints.push((
-            "code_addr = storage_contract_addr ".into(),
-            code_addr
-                - (storage_contract_addr_hi * pow_of_two::<F>(128) + storage_contract_addr_lo),
-        ));
-
-        // tx_id constraint for current
-        let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
-        let tx_id_prev = meta.query_advice(config.tx_idx, Rotation(-1 * NUM_ROW as i32));
-        constraints.push((
-            "tx_id = tx_id_prev + 1".into(),
-            tx_id.clone() - tx_id_prev - 1.expr(),
-        ));
+        // 约束pc, tx_idx, call_id, code_addr为0
+        let delta = CoreSinglePurposeOutcome {
+            tx_idx: ExpressionOutcome::Delta(TX_IDX_DELTA.expr()),
+            pc: ExpressionOutcome::To(0.expr()),
+            call_id: ExpressionOutcome::To(state_stamp_prev.clone() + 1.expr()),
+            code_addr: ExpressionOutcome::To(
+                storage_contract_addr_hi * pow_of_two::<F>(128) + storage_contract_addr_lo,
+            ),
+        };
+        constraints.append(&mut config.get_cur_single_purpose_constraints(meta, NUM_ROW, delta));
+        constraints.append(
+            &mut config
+                .get_next_single_purpose_constraints(meta, CoreSinglePurposeOutcome::default()),
+        );
 
         // begin_tx constraint
         constraints.append(&mut config.get_begin_tx_constrains(
@@ -138,7 +122,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::PublicCalldata,
-            tx_idx,
+            tx_idx.clone(),
             0.expr(),
             0.expr(), // stamp is None for PublicCalldata
             copy::Tag::Calldata,
@@ -179,7 +163,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             public_entry,
             (public::Tag::TxToCallDataSize as u8).expr(),
-            Some(tx_id),
+            Some(tx_idx),
             [
                 // constraint storage_contract_addr hi == tx.to hi
                 Some(operands[0][0].clone()),

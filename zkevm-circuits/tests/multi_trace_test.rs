@@ -31,7 +31,6 @@ fn test_multi_trace() {
     );
 
     let witness = Witness::new(&geth_data);
-
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();

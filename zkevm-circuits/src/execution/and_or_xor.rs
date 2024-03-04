@@ -67,7 +67,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // stack_operands [operand_0 hi, operand_0 lo , operand_1 hi, operand_1 lo,result hi,result lo]
         let mut stack_operands = vec![];
         let stack_pointer_delta = vec![0, -1, -1];

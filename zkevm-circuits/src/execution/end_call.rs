@@ -153,7 +153,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         // append core single purpose constraints
         let core_single_purpose_constraints_raw =
-            config.get_core_single_purpose_constraints(meta, core_single_delta);
+            config.get_next_single_purpose_constraints(meta, core_single_delta);
         // enable the single purpose constraints when parent_call_id != 0
         constraints.append(
             &mut core_single_purpose_constraints_raw

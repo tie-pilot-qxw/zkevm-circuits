@@ -1101,74 +1101,131 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             memory_chunk,
             read_only,
         } = self.get_auxiliary();
-        vec![
-            (
-                "state stamp cur - prev - delta".into(),
-                delta.state_stamp.into_constraint(
+        let mut constraints: Vec<(String, Expression<F>)> = vec![];
+        // state stamp constraint
+        constraints.extend(
+            delta
+                .state_stamp
+                .into_constraint(
                     meta.query_advice(state_stamp, Rotation::cur()),
                     meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32)),
-                ),
-            ),
-            (
-                "stack pointer cur - prev - delta".into(),
-                delta.stack_pointer.into_constraint(
+                )
+                .map(|expr| ("state stamp cur - prev - delta".into(), expr)),
+        );
+        // stack pointer constraint
+        constraints.extend(
+            delta
+                .stack_pointer
+                .into_constraint(
                     meta.query_advice(stack_pointer, Rotation::cur()),
                     meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32)),
-                ),
-            ),
-            (
-                "log stamp cur - prev - delta".into(),
-                delta.log_stamp.into_constraint(
+                )
+                .map(|expr| ("stack pointer cur - prev - delta".into(), expr)),
+        );
+        // log stamp constraint
+        constraints.extend(
+            delta
+                .log_stamp
+                .into_constraint(
                     meta.query_advice(log_stamp, Rotation::cur()),
                     meta.query_advice(log_stamp, Rotation(-1 * prev_exec_state_row as i32)),
-                ),
-            ),
-            (
-                "read only cur - prev - delta".into(),
-                delta.read_only.into_constraint(
+                )
+                .map(|expr| ("log stamp cur - prev - delta".into(), expr)),
+        );
+        // read only constraint
+        constraints.extend(
+            delta
+                .read_only
+                .into_constraint(
                     meta.query_advice(read_only, Rotation::cur()),
                     meta.query_advice(read_only, Rotation(-1 * prev_exec_state_row as i32)),
-                ),
-            ),
-            //todo other auxiliary
-        ]
+                )
+                .map(|expr| ("read only cur - prev - delta".into(), expr)),
+        );
+        //todo other auxiliary
+        constraints
     }
 
-    pub(crate) fn get_core_single_purpose_constraints(
+    /// get_cur_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
+    /// between rotation::cur() and rotation(-1 * prev_exec_state_row)
+    pub(crate) fn get_cur_single_purpose_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        prev_exec_state_row: usize,
+        delta: CoreSinglePurposeOutcome<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        self.get_core_single_purpose_constraints(meta, prev_exec_state_row, delta, "prev")
+    }
+
+    /// get_next_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
+    /// between rotation::cur() and rotation::next()
+    pub(crate) fn get_next_single_purpose_constraints(
         &self,
         meta: &mut VirtualCells<F>,
         delta: CoreSinglePurposeOutcome<F>,
     ) -> Vec<(String, Expression<F>)> {
-        vec![
-            (
-                "pc next".into(),
-                delta.pc.into_constraint(
-                    meta.query_advice(self.pc, Rotation::next()),
-                    meta.query_advice(self.pc, Rotation::cur()),
-                ),
-            ),
-            (
-                "tx_idx next".into(),
-                delta.tx_idx.into_constraint(
-                    meta.query_advice(self.tx_idx, Rotation::next()),
-                    meta.query_advice(self.tx_idx, Rotation::cur()),
-                ),
-            ),
-            (
-                "call_id next".into(),
-                delta.call_id.into_constraint(
-                    meta.query_advice(self.call_id, Rotation::next()),
-                    meta.query_advice(self.call_id, Rotation::cur()),
-                ),
-            ),
-            (
-                "code_addr next".into(),
-                delta.code_addr.into_constraint(
-                    meta.query_advice(self.code_addr, Rotation::next()),
-                    meta.query_advice(self.code_addr, Rotation::cur()),
-                ),
-            ),
-        ]
+        self.get_core_single_purpose_constraints(meta, 0, delta, "next")
+    }
+
+    /// get_core_single_purpose_constraints compute pc,tx_idx,call_id,code_addr constraints
+    /// if prev_exec_state_row > 0, constraints used in rotation::cur() and rotation(-1*prev_exec_state_row);
+    /// elif prev_exec_state_row == 0, constraints used in rotation::cur and rotation::next()
+    fn get_core_single_purpose_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        prev_exec_state_row: usize,
+        delta: CoreSinglePurposeOutcome<F>,
+        comment_postfix: &str,
+    ) -> Vec<(String, Expression<F>)> {
+        let mut constraints: Vec<(String, Expression<F>)> = vec![];
+        let mut rotation_1 = Rotation::cur();
+        let mut rotation_2 = Rotation::next();
+        if prev_exec_state_row > 0 {
+            rotation_2 = Rotation(-1 * prev_exec_state_row as i32);
+        } else {
+            rotation_1 = Rotation::next();
+            rotation_2 = Rotation::cur();
+        };
+        // pc constraint
+        constraints.extend(
+            delta
+                .pc
+                .into_constraint(
+                    meta.query_advice(self.pc, rotation_1.clone()),
+                    meta.query_advice(self.pc, rotation_2.clone()),
+                )
+                .map(|expr| (format!("pc {}", comment_postfix), expr)),
+        );
+        // tx_idx next constraint
+        constraints.extend(
+            delta
+                .tx_idx
+                .into_constraint(
+                    meta.query_advice(self.tx_idx, rotation_1.clone()),
+                    meta.query_advice(self.tx_idx, rotation_2.clone()),
+                )
+                .map(|expr| (format!("tx_idx {}", comment_postfix), expr)),
+        );
+        // call_id next constraint
+        constraints.extend(
+            delta
+                .call_id
+                .into_constraint(
+                    meta.query_advice(self.call_id, rotation_1.clone()),
+                    meta.query_advice(self.call_id, rotation_2.clone()),
+                )
+                .map(|expr| (format!("call_id {}", comment_postfix), expr)),
+        );
+        constraints.extend(
+            delta
+                .code_addr
+                .into_constraint(
+                    meta.query_advice(self.code_addr, rotation_1.clone()),
+                    meta.query_advice(self.code_addr, rotation_2.clone()),
+                )
+                .map(|expr| (format!("code_addr {}", comment_postfix), expr)),
+        );
+        constraints
     }
 
     pub(crate) fn get_log_left_selector(&self, meta: &mut VirtualCells<F>) -> SimpleSelector<F, 5> {

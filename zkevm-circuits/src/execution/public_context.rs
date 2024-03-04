@@ -78,7 +78,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // stack constraints
         let entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(

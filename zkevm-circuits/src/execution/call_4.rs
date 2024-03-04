@@ -164,7 +164,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         // append core single purpose constraints
         constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // prev state is CALL_3
         constraints.extend(config.get_exec_state_constraints(
             meta,

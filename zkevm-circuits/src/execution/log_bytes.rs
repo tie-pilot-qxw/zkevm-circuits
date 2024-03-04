@@ -112,7 +112,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
             ..Default::default()
         };
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
         // append log_bytes constraints
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation::prev());
