@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -199,13 +198,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // opcode bits
         simple_binary_number_assign(
-            (trace.op.as_u64() - OpcodeId::SWAP1.as_u64()) as usize,
+            &mut core_row_0,
             [
-                &mut core_row_0.vers_27,
-                &mut core_row_0.vers_28,
-                &mut core_row_0.vers_29,
-                &mut core_row_0.vers_30,
+                OPCODE_BITS_START_COL_IDX,
+                OPCODE_BITS_START_COL_IDX + 1,
+                OPCODE_BITS_START_COL_IDX + 2,
+                OPCODE_BITS_START_COL_IDX + 3,
             ],
+            (trace.op.as_u64() - OpcodeId::SWAP1.as_u64()) as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
 
@@ -224,6 +224,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -245,7 +246,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
@@ -259,7 +260,7 @@ mod test {
             row.pc = 1.into();
             row
         };
-        let (witness, prover) =
+        let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
     }

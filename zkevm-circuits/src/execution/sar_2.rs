@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     sar_1, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -19,7 +18,7 @@ const STACK_POINTER_DELTA: i32 = -1;
 const PC_POINTER_DELTA: i32 = 1;
 
 const STATE_STAMP_DELTA: u64 = 2;
-const BIT_MAX_INDEX: u8 = 255;
+const BIT_MAX_IDX: u8 = 255;
 
 const EXP_BASE: u8 = 2;
 
@@ -92,15 +91,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         let sar1_sign_bit_is_zero = meta.query_advice(
-            config.vers[sar_1::SIGN_BIT_IS_ZERO_CELL_INDEX],
+            config.vers[sar_1::SIGN_BIT_IS_ZERO_CELL_IDX],
             Rotation(-1 * (NUM_ROW as i32)),
         );
         let sar1_result_hi = meta.query_advice(
-            config.vers[sar_1::SHL_RESULT_HI_CELL_INDEX],
+            config.vers[sar_1::SHL_RESULT_HI_CELL_IDX],
             Rotation(-1 * (NUM_ROW as i32)),
         );
         let sar1_result_lo = meta.query_advice(
-            config.vers[sar_1::SHL_RESULT_LO_CELL_INDEX],
+            config.vers[sar_1::SHL_RESULT_LO_CELL_IDX],
             Rotation(-1 * (NUM_ROW as i32)),
         );
 
@@ -131,7 +130,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (arithmetic_constraints, shift_gt_255) = config.get_signextend_sub_arith_constraints(
             meta,
             stack_operands[0].clone().to_vec(),
-            BIT_MAX_INDEX.expr(),
+            BIT_MAX_IDX.expr(),
         );
         constraints.extend(arithmetic_constraints);
 
@@ -153,11 +152,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "shift <= 255 => index_lo = 255-stack_top0 lo(shift)".into(),
                 (1.expr() - shift_gt_255.clone())
-                    * (index[1].clone() - (BIT_MAX_INDEX.expr() - stack_operands[0][1].clone())),
+                    * (index[1].clone() - (BIT_MAX_IDX.expr() - stack_operands[0][1].clone())),
             ),
             (
                 "shift > 255 => index_lo=255".into(),
-                shift_gt_255.clone() * (index[1].clone() - BIT_MAX_INDEX.expr()),
+                shift_gt_255.clone() * (index[1].clone() - BIT_MAX_IDX.expr()),
             ),
         ]);
 
@@ -293,7 +292,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push_0 = current_state.get_push_stack_row(trace, result);
 
         // used to determine whether bit_idx is greater than bit_idx_max
-        let bit_max_index = U256::from(BIT_MAX_INDEX);
+        let bit_max_index = U256::from(BIT_MAX_IDX);
 
         // if shift <= 255 and sign_bit is 1, then signextend_operand1 is stack top 1 and exp index is 255-shift
         // if shift > 255 and sign_bit is 1, then signextend_operand1 is U256::MAX and exp index is 255, stack_push is U256::max
@@ -365,13 +364,14 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    const SIGN_BIT_COLUMN_ID: usize = 29;
-    const SAR1_HI_COLUMN_ID: usize = 30;
-    const SAR1_LO_COLUMN_ID: usize = 31;
+    const SIGN_BIT_COL_IDX: usize = 29;
+    const SAR1_HI_COL_IDX: usize = 30;
+    const SAR1_LO_COL_IDX: usize = 31;
 
     fn run(value_sign_bit_is_zero: U256, sar1_result: U256, stack: Stack, stack_top: U256) {
         let stack_pointer = stack.0.len();
@@ -390,11 +390,11 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
-            row[SIGN_BIT_COLUMN_ID] = Some(value_sign_bit_is_zero);
-            row[SAR1_HI_COLUMN_ID] = Some(sar1_result >> 128);
-            row[SAR1_LO_COLUMN_ID] = Some(sar1_result.low_u128().into());
+            row[SIGN_BIT_COL_IDX] = Some(value_sign_bit_is_zero);
+            row[SAR1_HI_COL_IDX] = Some(sar1_result >> 128);
+            row[SAR1_LO_COL_IDX] = Some(sar1_result.low_u128().into());
             row
         };
 

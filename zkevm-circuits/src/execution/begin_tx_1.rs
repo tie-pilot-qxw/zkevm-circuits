@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     begin_tx_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -16,7 +15,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 pub const NUM_ROW: usize = 3;
-const LEN_LO_INV_COLUMN_ID: usize = 11;
+const LEN_LO_INV_COL_IDX: usize = 11;
 pub struct BeginTx1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -134,7 +133,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
@@ -310,7 +309,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(calldata_size as u128);
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_2[LEN_LO_INV_COLUMN_ID], len_lo_inv);
+        assign_or_panic!(core_row_2[LEN_LO_INV_COL_IDX], len_lo_inv);
 
         // core_row_2写入交易的calldata size和to 地址，与public电路lookup
         let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize);
@@ -356,6 +355,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -392,7 +392,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

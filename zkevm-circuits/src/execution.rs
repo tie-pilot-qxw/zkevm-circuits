@@ -139,7 +139,13 @@ macro_rules! get_every_execution_gadgets {
         ]
     }};
 }
-use crate::constant;
+use crate::constant::{
+    self, ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH,
+    BYTECODE_COLUMN_START_IDX, COPY_COLUMN_START_IDX, COPY_PADDING_COLUMN_START_IDX,
+    EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, PUBLIC_COLUMN_START_IDX,
+    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH,
+    U64_OVERFLOW_START_IDX,
+};
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
@@ -256,16 +262,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     pub(crate) fn get_exp_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (base, index, power) = (
             [
-                meta.query_advice(self.vers[26], Rotation::prev()),
-                meta.query_advice(self.vers[27], Rotation::prev()),
+                meta.query_advice(self.vers[EXP_COLUMN_START_IDX], Rotation::prev()),
+                meta.query_advice(self.vers[EXP_COLUMN_START_IDX + 1], Rotation::prev()),
             ],
             [
-                meta.query_advice(self.vers[28], Rotation::prev()),
-                meta.query_advice(self.vers[29], Rotation::prev()),
+                meta.query_advice(self.vers[EXP_COLUMN_START_IDX + 2], Rotation::prev()),
+                meta.query_advice(self.vers[EXP_COLUMN_START_IDX + 3], Rotation::prev()),
             ],
             [
-                meta.query_advice(self.vers[30], Rotation::prev()),
-                meta.query_advice(self.vers[31], Rotation::prev()),
+                meta.query_advice(self.vers[EXP_COLUMN_START_IDX + 4], Rotation::prev()),
+                meta.query_advice(self.vers[EXP_COLUMN_START_IDX + 5], Rotation::prev()),
             ],
         );
         LookupEntry::Exp { base, index, power }
@@ -278,16 +284,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
     ) -> LookupEntry<F> {
         assert!(index <= 3);
-        const WIDTH: usize = 5;
-        const SKIP_WIDTH: usize = 10;
         LookupEntry::Bitwise {
-            tag: meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH], Rotation(-2)),
+            tag: meta.query_advice(
+                self.vers[BITWISE_COLUMN_START_IDX + index * BITWISE_COLUMN_WIDTH],
+                Rotation(-2),
+            ),
             acc: [
-                meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 1], Rotation(-2)),
-                meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 2], Rotation(-2)),
-                meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 3], Rotation(-2)),
+                meta.query_advice(
+                    self.vers[BITWISE_COLUMN_START_IDX + index * BITWISE_COLUMN_WIDTH + 1],
+                    Rotation(-2),
+                ),
+                meta.query_advice(
+                    self.vers[BITWISE_COLUMN_START_IDX + index * BITWISE_COLUMN_WIDTH + 2],
+                    Rotation(-2),
+                ),
+                meta.query_advice(
+                    self.vers[BITWISE_COLUMN_START_IDX + index * BITWISE_COLUMN_WIDTH + 3],
+                    Rotation(-2),
+                ),
             ],
-            sum_2: meta.query_advice(self.vers[SKIP_WIDTH + index * WIDTH + 4], Rotation(-2)),
+            sum_2: meta.query_advice(
+                self.vers[BITWISE_COLUMN_START_IDX + index * BITWISE_COLUMN_WIDTH + 4],
+                Rotation(-2),
+            ),
         }
     }
 
@@ -297,7 +316,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         num: usize,
     ) -> LookupEntry<F> {
         assert!(num < 4);
-        const WIDTH: usize = 8;
         let (
             tag,
             stamp,
@@ -308,14 +326,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_lo,
             is_write,
         ) = (
-            meta.query_advice(self.vers[num * WIDTH + 0], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 1], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 2], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 3], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 4], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 5], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 6], Rotation::prev()),
-            meta.query_advice(self.vers[num * WIDTH + 7], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 0], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 1], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 2], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 3], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 4], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 5], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 6], Rotation::prev()),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 7], Rotation::prev()),
         );
         LookupEntry::State {
             tag,
@@ -341,12 +359,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         offset: Rotation,
     ) -> LookupEntry<F> {
         let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
-            meta.query_advice(self.vers[26], offset),
-            meta.query_advice(self.vers[27], offset),
-            meta.query_advice(self.vers[28], offset),
-            meta.query_advice(self.vers[29], offset),
-            meta.query_advice(self.vers[30], offset),
-            meta.query_advice(self.vers[31], offset),
+            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX], offset),
+            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 1], offset),
+            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 2], offset),
+            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 3], offset),
+            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 4], offset),
+            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 5], offset),
         );
 
         let values = [value_0, value_1, value_2, value_3];
@@ -872,14 +890,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_bytecode_full_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
         let (addr, pc, opcode, not_code, value_hi, value_lo, cnt, is_push) = (
-            meta.query_advice(self.vers[24], Rotation::prev()),
-            meta.query_advice(self.vers[25], Rotation::prev()),
-            meta.query_advice(self.vers[26], Rotation::prev()),
-            meta.query_advice(self.vers[27], Rotation::prev()),
-            meta.query_advice(self.vers[28], Rotation::prev()),
-            meta.query_advice(self.vers[29], Rotation::prev()),
-            meta.query_advice(self.vers[30], Rotation::prev()),
-            meta.query_advice(self.vers[31], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 1], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 2], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 3], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 4], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 5], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 6], Rotation::prev()),
+            meta.query_advice(self.vers[BYTECODE_COLUMN_START_IDX + 7], Rotation::prev()),
         );
         LookupEntry::BytecodeFull {
             addr,
@@ -893,8 +911,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
     pub(crate) fn get_stamp_cnt_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        let tag = meta.query_advice(self.vers[0], Rotation::prev());
-        let cnt = meta.query_advice(self.vers[1], Rotation::prev());
+        let tag = meta.query_advice(self.vers[STAMP_CNT_COLUMN_START_IDX], Rotation::prev());
+        let cnt = meta.query_advice(self.vers[STAMP_CNT_COLUMN_START_IDX + 1], Rotation::prev());
         LookupEntry::StampCnt { tag, cnt }
     }
 
@@ -904,17 +922,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
     ) -> LookupEntry<F> {
         assert!(index < 3);
-        const WIDTH: usize = 9;
         let (hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3, tag) = (
-            meta.query_advice(self.vers[index * WIDTH + 0], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 1], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 2], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 3], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 4], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 5], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 6], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 7], Rotation(-2)),
-            meta.query_advice(self.vers[index * WIDTH + 8], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 0], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 1], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 2], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 3], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 4], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 5], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 6], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 7], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 8], Rotation(-2)),
         );
         LookupEntry::Arithmetic {
             tag,
@@ -928,13 +945,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
     ) -> LookupEntry<F> {
         assert!(index == 0);
-        const WIDTH: usize = 4;
-        const START: usize = 22;
         let (hi_0, lo_0, hi_1, lo_1) = (
-            meta.query_advice(self.vers[WIDTH * index + START + 0], Rotation(-2)),
-            meta.query_advice(self.vers[WIDTH * index + START + 1], Rotation(-2)),
-            meta.query_advice(self.vers[WIDTH * index + START + 2], Rotation(-2)),
-            meta.query_advice(self.vers[WIDTH * index + START + 3], Rotation(-2)),
+            meta.query_advice(
+                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 0],
+                Rotation(-2),
+            ),
+            meta.query_advice(
+                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 1],
+                Rotation(-2),
+            ),
+            meta.query_advice(
+                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 2],
+                Rotation(-2),
+            ),
+            meta.query_advice(
+                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 3],
+                Rotation(-2),
+            ),
         );
         LookupEntry::ArithmeticU64 {
             values: [hi_0, lo_0, hi_1, lo_1],
@@ -955,17 +982,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             len,
             acc,
         ) = (
-            meta.query_advice(self.vers[11], Rotation(-2)),
-            meta.query_advice(self.vers[12], Rotation(-2)),
-            meta.query_advice(self.vers[13], Rotation(-2)),
-            meta.query_advice(self.vers[14], Rotation(-2)),
-            meta.query_advice(self.vers[15], Rotation(-2)),
-            meta.query_advice(self.vers[16], Rotation(-2)),
-            meta.query_advice(self.vers[17], Rotation(-2)),
-            meta.query_advice(self.vers[18], Rotation(-2)),
-            meta.query_advice(self.vers[19], Rotation(-2)),
-            meta.query_advice(self.vers[20], Rotation(-2)),
-            meta.query_advice(self.vers[21], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 1], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 2], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 3], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 4], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 5], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 6], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 7], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 8], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 9], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 10], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,
@@ -996,17 +1023,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             len,
             acc,
         ) = (
-            meta.query_advice(self.vers[0], Rotation(-2)),
-            meta.query_advice(self.vers[1], Rotation(-2)),
-            meta.query_advice(self.vers[2], Rotation(-2)),
-            meta.query_advice(self.vers[3], Rotation(-2)),
-            meta.query_advice(self.vers[4], Rotation(-2)),
-            meta.query_advice(self.vers[5], Rotation(-2)),
-            meta.query_advice(self.vers[6], Rotation(-2)),
-            meta.query_advice(self.vers[7], Rotation(-2)),
-            meta.query_advice(self.vers[8], Rotation(-2)),
-            meta.query_advice(self.vers[9], Rotation(-2)),
-            meta.query_advice(self.vers[10], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 1], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 2], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 3], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 4], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 5], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 6], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 7], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 8], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 9], Rotation(-2)),
+            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 10], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,
@@ -1146,11 +1173,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     pub(crate) fn get_log_left_selector(&self, meta: &mut VirtualCells<F>) -> SimpleSelector<F, 5> {
         let selector = SimpleSelector::new(&[
-            meta.query_advice(self.vers[8], Rotation::prev()), // LOG_LEFT_4
-            meta.query_advice(self.vers[9], Rotation::prev()), // LOG_LEFT_3
-            meta.query_advice(self.vers[10], Rotation::prev()), // LOG_LEFT_2
-            meta.query_advice(self.vers[11], Rotation::prev()), // LOG_LEFT_1
-            meta.query_advice(self.vers[12], Rotation::prev()), // LOG_LEFT_0
+            meta.query_advice(self.vers[LOG_SELECTOR_COLUMN_START_IDX], Rotation::prev()), // LOG_LEFT_4
+            meta.query_advice(
+                self.vers[LOG_SELECTOR_COLUMN_START_IDX + 1],
+                Rotation::prev(),
+            ), // LOG_LEFT_3
+            meta.query_advice(
+                self.vers[LOG_SELECTOR_COLUMN_START_IDX + 2],
+                Rotation::prev(),
+            ), // LOG_LEFT_2
+            meta.query_advice(
+                self.vers[LOG_SELECTOR_COLUMN_START_IDX + 3],
+                Rotation::prev(),
+            ), // LOG_LEFT_1
+            meta.query_advice(
+                self.vers[LOG_SELECTOR_COLUMN_START_IDX + 4],
+                Rotation::prev(),
+            ), // LOG_LEFT_0
         ]);
         selector
     }

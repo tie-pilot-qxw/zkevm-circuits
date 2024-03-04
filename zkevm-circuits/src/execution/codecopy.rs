@@ -1,7 +1,6 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -56,7 +55,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -3;
-const START_OFFSET: usize = 22;
+const START_COL_IDX: usize = 22;
 pub struct CodecopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -135,8 +134,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         //  add normal_length copy constraints
-        let copy_len_lo = meta.query_advice(config.vers[22], Rotation(-2));
-        let copy_len_lo_inv = meta.query_advice(config.vers[23], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[START_COL_IDX], Rotation(-2));
+        let copy_len_lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation(-2));
         let copy_len_is_zero =
             SimpleIsZero::new(&copy_len_lo, &copy_len_lo_inv, String::from("copy_len_lo"));
         constraints.extend(copy_len_is_zero.get_constraints());
@@ -158,8 +157,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         // add zero_padding length copy constraints
-        let copy_padding_len_lo = meta.query_advice(config.vers[24], Rotation(-2));
-        let copy_padding_len_lo_inv = meta.query_advice(config.vers[25], Rotation(-2));
+        let copy_padding_len_lo = meta.query_advice(config.vers[START_COL_IDX + 2], Rotation(-2));
+        let copy_padding_len_lo_inv =
+            meta.query_advice(config.vers[START_COL_IDX + 3], Rotation(-2));
         let copy_padding_len_is_zero = SimpleIsZero::new(
             &copy_padding_len_lo,
             &copy_padding_len_lo_inv,
@@ -287,7 +287,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             padding_copy_len_lo_inv,
         ];
         for i in 0..4 {
-            assign_or_panic!(core_row_2[i + START_OFFSET], column_values[i]);
+            assign_or_panic!(core_row_2[i + START_COL_IDX], column_values[i]);
         }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State
@@ -328,6 +328,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use eth_types::Word;
     use std::vec;
 
@@ -380,7 +381,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

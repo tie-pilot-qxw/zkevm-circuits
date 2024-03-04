@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -15,6 +14,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 1;
+const CORE_ROW_1_START_COL_IDX: usize = 29;
 
 /// CallContextGadget deal OpCodeId:{CALLDATASIZE, CALLER, CALLVALUE}
 /// STATE0 read value from call_context
@@ -60,9 +60,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        let calldatasize_tag = meta.query_advice(config.vers[29], Rotation::prev());
-        let caller_tag = meta.query_advice(config.vers[30], Rotation::prev());
-        let callvalue_tag = meta.query_advice(config.vers[31], Rotation::prev());
+        let calldatasize_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev());
+        let caller_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev());
+        let callvalue_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev());
         // create a simple selector representing:
         // - CALLDATASIZE,
         // - CALLER,
@@ -163,10 +166,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
         // tag selector
         simple_selector_assign(
+            &mut core_row_1,
             [
-                &mut core_row_1.vers_29,
-                &mut core_row_1.vers_30,
-                &mut core_row_1.vers_31,
+                CORE_ROW_1_START_COL_IDX,
+                CORE_ROW_1_START_COL_IDX + 1,
+                CORE_ROW_1_START_COL_IDX + 2,
             ],
             tag,
             |cell, value| assign_or_panic!(*cell, value.into()),
@@ -194,6 +198,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -219,7 +224,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
@@ -259,7 +264,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
@@ -299,7 +304,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

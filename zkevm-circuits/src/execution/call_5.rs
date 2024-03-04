@@ -1,8 +1,8 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::INDEX_STACK_POINTER;
+
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -20,7 +20,7 @@ pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = -6;
 const PC_DELTA: u64 = 1;
-const START_OFFSET: usize = 11;
+const START_COL_IDX: usize = 11;
 
 /// 当evm CALL指令调用结束后，正常返回或异常出错时（如：REVERT，STOP）时，调用当前 gadget
 /// Call5 is the last step of opcode CALL, which is
@@ -143,8 +143,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let ret_offset = operands[0][1].clone();
         let returndata_call_id = operands[2][1].clone();
         //append copy constraints
-        let copy_len_lo = meta.query_advice(config.vers[11], Rotation(-2));
-        let len_lo_inv = meta.query_advice(config.vers[12], Rotation(-2));
+        let copy_len_lo = meta.query_advice(config.vers[START_COL_IDX], Rotation(-2));
+        let len_lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&copy_len_lo, &len_lo_inv, String::from("copy_len_lo"));
 
         constraints.append(&mut is_zero_len.get_constraints());
@@ -209,11 +209,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, _, ret_len, _, _, _, _) =
                 extract_lookup_expression!(state, ret_len_state_entry);
             let returndata_size = meta.query_advice(
-                config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+                config.vers[NUM_STATE_HI_COL
+                    + NUM_STATE_LO_COL
+                    + NUM_AUXILIARY
+                    + end_call::RETURNDATA_SIZE_COL_IDX],
                 Rotation(-1 * NUM_ROW as i32),
             );
-            let copy_len = meta.query_advice(config.vers[11], Rotation(-2));
-            let copy_padding_len = meta.query_advice(config.vers[13], Rotation(-2));
+            let copy_len = meta.query_advice(config.vers[START_COL_IDX], Rotation(-2));
+            let copy_padding_len = meta.query_advice(config.vers[START_COL_IDX + 2], Rotation(-2));
 
             LookupEntry::Arithmetic {
                 tag: (arithmetic::Tag::Length as u8).expr(),
@@ -298,7 +301,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let column_values = [copy_len.into(), copy_len_inv, copy_padding_len];
         for i in 0..3 {
-            assign_or_panic!(core_row_2[i + START_OFFSET], column_values[i]);
+            assign_or_panic!(core_row_2[i + START_COL_IDX], column_values[i]);
         }
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         // insert lookup: Core ---> State
@@ -346,6 +349,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -385,7 +389,7 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY] = Some(1.into()); // let success == true
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2] = Some(10.into()); // let the previous gadgets(end_call)'s returndata_size cell's value equals to returndata_size
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

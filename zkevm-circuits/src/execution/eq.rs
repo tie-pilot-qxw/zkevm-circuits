@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -15,7 +14,7 @@ const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
-const START_OFFSET: usize = 24;
+const START_COL_IDX: usize = 24;
 
 pub struct EqGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -81,10 +80,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let a = operands[0].clone();
         let b = operands[1].clone();
         let c = operands[2].clone();
-        let hi_inv = meta.query_advice(config.vers[24], Rotation::prev());
-        let lo_inv = meta.query_advice(config.vers[25], Rotation::prev());
-        let hi_eq = meta.query_advice(config.vers[26], Rotation::prev());
-        let lo_eq = meta.query_advice(config.vers[27], Rotation::prev());
+        let hi_inv = meta.query_advice(config.vers[START_COL_IDX], Rotation::prev());
+        let lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation::prev());
+        let hi_eq = meta.query_advice(config.vers[START_COL_IDX + 2], Rotation::prev());
+        let lo_eq = meta.query_advice(config.vers[START_COL_IDX + 3], Rotation::prev());
         constraints.extend([
             (
                 "hi_inv".into(),
@@ -156,7 +155,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let lo_eq = if a_lo == b_lo { 1 } else { 0 };
         let column_values = [hi_inv, lo_inv, hi_eq.into(), lo_eq.into()];
         for i in 0..4 {
-            assign_or_panic!(core_row_1[i + START_OFFSET], column_values[i]);
+            assign_or_panic!(core_row_1[i + START_COL_IDX], column_values[i]);
         }
         let core_row_0 = ExecutionState::EQ.into_exec_state_core_row(
             trace,
@@ -179,6 +178,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -200,7 +200,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

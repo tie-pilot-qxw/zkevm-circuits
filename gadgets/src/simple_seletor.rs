@@ -2,7 +2,7 @@
 
 use eth_types::Field;
 use halo2_proofs::plonk::Expression;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::IndexMut};
 
 use crate::util::Expr;
 
@@ -50,15 +50,16 @@ impl<F: Field, const N: usize> SimpleSelector<F, N> {
     }
 }
 
-/// This function assign the target value 1 at index and value 0 at others among N values
-pub fn simple_selector_assign<T, const N: usize>(
-    targets: [T; N],
+///  This function assign the target value 1 at index and value 0 at others among N values
+pub fn simple_selector_assign<A, T: IndexMut<usize, Output = A>, const N: usize>(
+    target: &mut T,
+    positions: [usize; N],
     index: usize,
-    assign_or_panic: impl Fn(T, u8),
+    assign_or_panic: impl Fn(&mut A, u8),
 ) {
     assert!(index < N, "assign input index {} out of range {}", index, N);
-    for (i, target) in targets.into_iter().enumerate() {
-        let value = if i == index { 1 } else { 0 };
-        assign_or_panic(target, value);
+    for (loc, pos) in positions.into_iter().enumerate() {
+        let value: u8 = if loc == index { 1 } else { 0 };
+        assign_or_panic(&mut target[pos], value);
     }
 }

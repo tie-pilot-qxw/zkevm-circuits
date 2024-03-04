@@ -12,8 +12,11 @@ use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
-    BIT_SHIFT_MAX_INDEX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, MAX_CODESIZE, MAX_NUM_ROW,
-    NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS, PUBLIC_NUM_VALUES,
+    ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX,
+    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
+    LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
+    STATE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -1672,7 +1675,7 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
     // the main purpose is to determine whether shift is greater than or equal to 256
     // that is, whether 2<<shift will overflow
     let (arithmetic_sub_rows, _) =
-        operation::sub::gen_witness(vec![BIT_SHIFT_MAX_INDEX.into(), shift]);
+        operation::sub::gen_witness(vec![BIT_SHIFT_MAX_IDX.into(), shift]);
 
     // mul_div_num = 2<<stack_shift
     let (mul_div_num, exp_rows, exp_arith_mul_rows) = Row::from_operands(U256::from(2), shift);
@@ -1711,7 +1714,7 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // get arithmetic rows
     let (arithmetic_sub_rows, _) =
         operation::sub::gen_witness(vec![arithmetic_operands[0], arithmetic_operands[1]]);
-    const START_OFFSET: usize = 25;
+    const START_COL_IDX: usize = 25;
 
     // calc signextend by bit
     let (signextend_result_vec, bitwise_rows_vec) =
@@ -1730,8 +1733,8 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // d_lo set core_row_0.vers_28
     // sign_bit_is_zero_inv set core_row_0.vers_29;
     for (i, value) in (0..5).zip(signextend_result_vec) {
-        assert!(core_rows0[i + START_OFFSET].is_none());
-        assign_or_panic!(core_rows0[i + START_OFFSET], value);
+        assert!(core_rows0[i + START_COL_IDX].is_none());
+        assign_or_panic!(core_rows0[i + START_COL_IDX], value);
     }
     // Construct Witness object
     let bitwise_rows = bitwise_rows_vec
@@ -1861,7 +1864,6 @@ impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
         let (expect_power, _) = base.overflowing_pow(index);
         assert_eq!(expect_power, power);
-        const START_OFFSET: usize = 26;
         let colum_values = [
             base >> 128,
             base.low_u128().into(),
@@ -1871,7 +1873,7 @@ impl core::Row {
             power.low_u128().into(),
         ];
         for i in 0..6 {
-            assign_or_panic!(self[START_OFFSET + i], colum_values[i]);
+            assign_or_panic!(self[EXP_COLUMN_START_IDX + i], colum_values[i]);
         }
     }
 
@@ -1892,8 +1894,6 @@ impl core::Row {
     pub fn insert_bitwise_lookups(&mut self, index: usize, bitwise_row: &bitwise::Row) {
         assert!(index <= 3);
         assert_eq!(self.cnt, 2.into());
-        const START_OFFSET: usize = 10;
-        const COLUMN_WIDTH: usize = 5;
         let column_values = [
             U256::from(bitwise_row.tag as u8),
             bitwise_row.acc_0,
@@ -1901,9 +1901,9 @@ impl core::Row {
             bitwise_row.acc_2,
             bitwise_row.sum_2,
         ];
-        for i in 0..COLUMN_WIDTH {
+        for i in 0..BITWISE_COLUMN_WIDTH {
             assign_or_panic!(
-                self[START_OFFSET + COLUMN_WIDTH * index + i],
+                self[BITWISE_COLUMN_START_IDX + BITWISE_COLUMN_WIDTH * index + i],
                 column_values[i]
             );
         }
@@ -1926,35 +1926,49 @@ impl core::Row {
         assert_eq!(self.cnt, 1.into());
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
-        const COLUMN_WIDTH: usize = 8;
         for (j, state_row) in state_rows.into_iter().enumerate() {
             for i in 0..8 {
-                assert!(self[i + j * COLUMN_WIDTH].is_none());
+                assert!(self[i + j * STATE_COLUMN_WIDTH].is_none());
             }
-            self[0 + j * COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
-            self[1 + j * COLUMN_WIDTH] = state_row.stamp;
-            self[2 + j * COLUMN_WIDTH] = state_row.value_hi;
-            self[3 + j * COLUMN_WIDTH] = state_row.value_lo;
-            self[4 + j * COLUMN_WIDTH] = state_row.call_id_contract_addr;
-            self[5 + j * COLUMN_WIDTH] = state_row.pointer_hi;
-            self[6 + j * COLUMN_WIDTH] = state_row.pointer_lo;
-            self[7 + j * COLUMN_WIDTH] = state_row.is_write;
+            self[0 + j * STATE_COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
+            self[1 + j * STATE_COLUMN_WIDTH] = state_row.stamp;
+            self[2 + j * STATE_COLUMN_WIDTH] = state_row.value_hi;
+            self[3 + j * STATE_COLUMN_WIDTH] = state_row.value_lo;
+            self[4 + j * STATE_COLUMN_WIDTH] = state_row.call_id_contract_addr;
+            self[5 + j * STATE_COLUMN_WIDTH] = state_row.pointer_hi;
+            self[6 + j * STATE_COLUMN_WIDTH] = state_row.pointer_lo;
+            self[7 + j * STATE_COLUMN_WIDTH] = state_row.is_write;
             self.comments.extend([
                 (
-                    format!("vers_{}", j * COLUMN_WIDTH),
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH),
                     format!("tag={:?}", state_row.tag),
                 ),
-                (format!("vers_{}", j * COLUMN_WIDTH + 1), "stamp".into()),
-                (format!("vers_{}", j * COLUMN_WIDTH + 2), "value_hi".into()),
-                (format!("vers_{}", j * COLUMN_WIDTH + 3), "value_lo".into()),
-                (format!("vers_{}", j * COLUMN_WIDTH + 4), "call_id".into()),
-                (format!("vers_{}", j * COLUMN_WIDTH + 5), "not used".into()),
                 (
-                    format!("vers_{}", j * COLUMN_WIDTH + 6),
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 1),
+                    "stamp".into(),
+                ),
+                (
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 2),
+                    "value_hi".into(),
+                ),
+                (
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 3),
+                    "value_lo".into(),
+                ),
+                (
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 4),
+                    "call_id".into(),
+                ),
+                (
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 5),
+                    "not used".into(),
+                ),
+                (
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 6),
                     "stack pointer".into(),
                 ),
                 (
-                    format!("vers_{}", j * COLUMN_WIDTH + 7),
+                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 7),
                     "is_write: read=0, write=1".into(),
                 ),
             ]);
@@ -1965,8 +1979,11 @@ impl core::Row {
     pub fn insert_stamp_cnt_lookups(&mut self, cnt: U256) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
-        assign_or_panic!(self[0], U256::from(Tag::EndPadding as u8));
-        assign_or_panic!(self[1], cnt);
+        assign_or_panic!(
+            self[STAMP_CNT_COLUMN_START_IDX],
+            U256::from(Tag::EndPadding as u8)
+        );
+        assign_or_panic!(self[STAMP_CNT_COLUMN_START_IDX + 1], cnt);
 
         #[rustfmt::skip]
         self.comments.extend([
@@ -1985,7 +2002,6 @@ impl core::Row {
     ) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
-        const START: usize = 24;
         for (i, value) in (0..8).zip([
             Some(code_addr),
             Some(pc.into()),
@@ -1996,8 +2012,8 @@ impl core::Row {
             Some(opcode.data_len().into()),
             Some((opcode.is_push() as u8).into()),
         ]) {
-            assert!(self[START + i].is_none());
-            self[START + i] = value;
+            assert!(self[BYTECODE_COLUMN_START_IDX + i].is_none());
+            self[BYTECODE_COLUMN_START_IDX + i] = value;
         }
         #[rustfmt::skip]
         self.comments.extend([
@@ -2017,8 +2033,6 @@ impl core::Row {
         index: usize,
         arith_entries: &[arithmetic::Row],
     ) {
-        const _START: usize = 22;
-        const WIDTH: usize = 4;
         assert_eq!(self.cnt, 2.into());
         assert_eq!(arith_entries.len(), 1);
         assert_eq!(index, 0);
@@ -2030,14 +2044,14 @@ impl core::Row {
             arith_entries[0].operand_1_lo,
         ];
         for i in 0..4 {
-            assign_or_panic!(self[_START + i], column_values[i]);
+            assign_or_panic!(self[U64_OVERFLOW_START_IDX + i], column_values[i]);
         }
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", WIDTH), "arithmetic operand 0 hi".into()),
-            (format!("vers_{}", WIDTH + 1), "arithmetic operand 0 lo".into()),
-            (format!("vers_{}", WIDTH + 2), "arithmetic operand 1 hi".into()),
-            (format!("vers_{}", WIDTH + 3), "arithmetic operand 1 lo".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
         ]);
     }
 
@@ -2050,7 +2064,6 @@ impl core::Row {
     /// +---+-------+-------+-------+-----+
     pub fn insert_arithmetic_lookup(&mut self, index: usize, arithmetic: &[arithmetic::Row]) {
         // this lookup must be in the row with this cnt
-        const WIDTH: usize = 9;
         assert!(index < 3);
         assert_eq!(self.cnt, 2.into());
         let len = arithmetic.len();
@@ -2068,35 +2081,35 @@ impl core::Row {
             row_1.operand_1_lo,
             (row_0.tag as u8).into(),
         ];
-        let column_offset = index * WIDTH;
-        for i in 0..WIDTH {
+        let column_offset = index * ARITHMETIC_COLUMN_WIDTH;
+        for i in 0..ARITHMETIC_COLUMN_WIDTH {
             assign_or_panic!(self[i + column_offset], column_values[i]);
         }
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", index * WIDTH), "arithmetic operand 0 hi".into()),
-            (format!("vers_{}", index * WIDTH + 1), "arithmetic operand 0 lo".into()),
-            (format!("vers_{}", index * WIDTH + 2), "arithmetic operand 1 hi".into()),
-            (format!("vers_{}", index * WIDTH + 3), "arithmetic operand 1 lo".into()),
-            (format!("vers_{}", index * WIDTH + 8), format!("arithmetic tag={:?}", row_0.tag)),
+            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
+            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
+            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
+            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
+            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 8), format!("arithmetic tag={:?}", row_0.tag)),
         ]);
         match row_0.tag {
             arithmetic::Tag::Add => {
                 self.comments.extend([
                     (
-                        format!("vers_{}", index * WIDTH + 4),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 4),
                         "arithmetic sum hi".into(),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 5),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 5),
                         "arithmetic sum lo".into(),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 6),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 6),
                         "arithmetic carry hi".into(),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 7),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
                         "arithmetic carry lo".into(),
                     ),
                 ]);
@@ -2104,19 +2117,19 @@ impl core::Row {
             arithmetic::Tag::Addmod => {
                 self.comments.extend([
                     (
-                        format!("vers_{}", index * WIDTH + 4),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 4),
                         format!("arithmetic operand modulus hi"),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 5),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 5),
                         format!("arithmetic operand modulus lo"),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 6),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 6),
                         format!("arithmetic remainder hi"),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 7),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
                         format!("arithmetic remainder lo"),
                     ),
                 ]);
@@ -2124,19 +2137,19 @@ impl core::Row {
             arithmetic::Tag::Sub => {
                 self.comments.extend([
                     (
-                        format!("vers_{}", index * WIDTH + 4),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 4),
                         "arithmetic difference hi".into(),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 5),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 5),
                         "arithmetic difference lo".into(),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 6),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 6),
                         "arithmetic carry hi".into(),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 7),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
                         "arithmetic carry lo".into(),
                     ),
                 ]);
@@ -2144,30 +2157,30 @@ impl core::Row {
             arithmetic::Tag::Mulmod => {
                 self.comments.extend([
                     (
-                        format!("vers_{}", index * WIDTH + 6),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 6),
                         format!("arithmetic r hi"),
                     ),
                     (
-                        format!("vers_{}", index * WIDTH + 7),
+                        format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
                         format!("arithmetic r lo"),
                     ),
                 ]);
             }
             arithmetic::Tag::DivMod | arithmetic::Tag::SdivSmod => self.comments.extend([
                 (
-                    format!("vers_{}", index * WIDTH + 4),
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 4),
                     "arithmetic quotient hi".into(),
                 ),
                 (
-                    format!("vers_{}", index * WIDTH + 5),
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 5),
                     "arithmetic quotient lo".into(),
                 ),
                 (
-                    format!("vers_{}", index * WIDTH + 6),
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 6),
                     "arithmetic remainder hi".into(),
                 ),
                 (
-                    format!("vers_{}", index * WIDTH + 7),
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
                     "arithmetic remainder lo".into(),
                 ),
             ]),
@@ -2182,7 +2195,6 @@ impl core::Row {
     /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
     /// +---+-------+-------+-------+----------+
     pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
-        const START_OFFSET: usize = 26;
         let column_values = [
             (public_row.tag as u8).into(),
             public_row.tx_idx_or_number_diff.unwrap_or_default(),
@@ -2192,8 +2204,8 @@ impl core::Row {
             public_row.value_3.unwrap_or_default(),
         ];
         for i in 0..6 {
-            assert!(self[i + START_OFFSET].is_none());
-            assign_or_panic!(self[i + START_OFFSET], column_values[i]);
+            assert!(self[i + PUBLIC_COLUMN_START_IDX].is_none());
+            assign_or_panic!(self[i + PUBLIC_COLUMN_START_IDX], column_values[i]);
         }
         let comments = vec![
             (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
@@ -2281,16 +2293,18 @@ impl core::Row {
     pub fn insert_log_left_selector(&mut self, log_left: usize) {
         assert_eq!(self.cnt, 1.into());
         simple_selector_assign(
+            self,
             [
-                &mut self.vers_12, // LOG_LEFT_0
-                &mut self.vers_11, // LOG_LEFT_1
-                &mut self.vers_10, // LOG_LEFT_2
-                &mut self.vers_9,  // LOG_LEFT_3
-                &mut self.vers_8,  // LOG_LEFT_4
+                LOG_SELECTOR_COLUMN_START_IDX + 4,
+                LOG_SELECTOR_COLUMN_START_IDX + 3,
+                LOG_SELECTOR_COLUMN_START_IDX + 2,
+                LOG_SELECTOR_COLUMN_START_IDX + 1,
+                LOG_SELECTOR_COLUMN_START_IDX,
             ],
-            log_left, // if log_left is X, then the location for LOG_LEFT_X is assigned by 1
+            log_left,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
+
         self.comments.extend([
             ("vers_8".into(), "LOG_LEFT_4 Selector (0/1)".into()),
             ("vers_9".into(), "LOG_LEFT_3 Selector (0/1)".into()),

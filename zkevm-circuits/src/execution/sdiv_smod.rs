@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::INDEX_STACK_POINTER;
+
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -18,6 +18,7 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const PC_DELTA: u64 = 1;
+const B_INV_COL_IDX: usize = 31;
 
 /// SdivSmod Execution State layout is as follows
 /// where STATE means state table lookup,
@@ -99,7 +100,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             )
         }));
 
-        let b_inv = meta.query_advice(config.vers[31], Rotation(-2));
+        let b_inv = meta.query_advice(config.vers[B_INV_COL_IDX], Rotation(-2));
 
         let b = arithmetic_operands[2].clone() + arithmetic_operands[3].clone();
         let iszero_gadget = SimpleIsZero::new(&b, &b_inv, String::from("b"));
@@ -241,7 +242,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             U256::from_little_endian((b_lo + b_hi).invert().unwrap_or(F::ZERO).to_repr().as_ref());
 
         //b_lo_inv
-        assign_or_panic!(core_row_2.vers_31, b_inv);
+        assign_or_panic!(core_row_2[B_INV_COL_IDX], b_inv);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_a, &stack_pop_b, &stack_push]);
@@ -268,6 +269,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -289,7 +291,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
@@ -326,7 +328,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

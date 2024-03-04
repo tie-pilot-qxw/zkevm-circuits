@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -18,7 +17,7 @@ use crate::execution::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
-const CORE_ROW_1_START_OFFSET: usize = 8;
+const CORE_ROW_1_START_COL_IDX: usize = 8;
 
 /// PublicContextGadget deal OpCodeId:{TIMESTAMP,NUMBER,COINBASE,GASLIMIT,CHAINID,BASEFEE}
 /// STATE0 record value
@@ -96,12 +95,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // public lookup
         let public_entry = config.get_public_lookup(meta, Rotation(-2));
         // query public_tag , only one tag is 1,other tag is 0;
-        let timestamp_tag = meta.query_advice(config.vers[8], Rotation::prev());
-        let number_tag = meta.query_advice(config.vers[9], Rotation::prev());
-        let coinbase_tag = meta.query_advice(config.vers[10], Rotation::prev());
-        let gaslimit_tag = meta.query_advice(config.vers[11], Rotation::prev());
-        let chainid_tag = meta.query_advice(config.vers[12], Rotation::prev());
-        let basefee_tag = meta.query_advice(config.vers[13], Rotation::prev());
+        let timestamp_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev());
+        let number_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev());
+        let coinbase_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev());
+        let gaslimit_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev());
+        let chainid_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev());
+        let basefee_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 5], Rotation::prev());
         // Create a simple selector with input of array of expressions,which is 0.expr() or 1.expr();
         let selector = SimpleSelector::new(&[
             timestamp_tag.clone(),
@@ -196,7 +201,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // tag selector
         // assign tag selector value, 8-13 columns ,only one column is 1 ,others are 0;
         for i in 0..6 {
-            assign_or_panic!(core_row_1[i + CORE_ROW_1_START_OFFSET], v[i]);
+            assign_or_panic!(core_row_1[i + CORE_ROW_1_START_COL_IDX], v[i]);
         }
         // core row 2
         let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
@@ -220,6 +225,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -241,7 +247,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

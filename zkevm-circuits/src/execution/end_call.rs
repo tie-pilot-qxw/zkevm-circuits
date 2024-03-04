@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
     call_5, end_tx, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
@@ -16,6 +15,12 @@ use std::marker::PhantomData;
 
 pub(crate) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
+/// The index of column to store parent_call_id_inv in row_0
+/// (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)
+pub(crate) const PARENT_CALL_ID_INV_COL_IDX: usize = 1;
+/// The index of column to store returndatasize in row_0
+/// (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)
+pub(crate) const RETURNDATA_SIZE_COL_IDX: usize = 2;
 /// 当evm 操作码为 STOP、REVERT、RETURN时，先执行对应的指令的gadget，
 /// 再执行END_CALL gadget，进行父状态的恢复
 /// EndCall recovers the current state from the callee to the caller.
@@ -71,7 +76,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation(-1 * NUM_ROW as i32),
         );
         let returndata_size_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
             Rotation::cur(),
         );
 
@@ -157,7 +163,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let parent_call_id_inv = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + PARENT_CALL_ID_INV_COL_IDX],
             Rotation::cur(),
         );
         let parent_call_id_is_zero = SimpleIsZero::new(
@@ -285,15 +292,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
-
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            success
+        );
+        assign_or_panic!(
+            core_row_0
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + PARENT_CALL_ID_INV_COL_IDX],
+            parent_call_id_inv
+        );
+        assign_or_panic!(
+            core_row_0
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
+            current_state.returndata_size
+        );
         // CALL调用结束后，非root call时恢复code_addr，call_id为父调用状态
-        let column_values = [success, parent_call_id_inv, current_state.returndata_size];
-        for i in 0..3 {
-            assign_or_panic!(
-                core_row_0[i + NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-                column_values[i]
-            );
-        }
         //update code_addr and call_id
         if current_state.parent_call_id[&current_state.call_id] != 0 {
             current_state.code_addr = current_state.parent_code_addr[&current_state.call_id];
@@ -320,6 +333,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -355,7 +369,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY] = Some(4.into()); // let the previous gadgets(return_revert or stop)'s returndata_size cell's value equals to returndata_size
             row
@@ -404,7 +418,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

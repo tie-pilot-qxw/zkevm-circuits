@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::INDEX_STACK_POINTER;
+
 use crate::execution::{
     sar_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -23,9 +23,9 @@ const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 0;
 const SHIFT_MAX: u8 = 255;
 
-pub(crate) const SIGN_BIT_IS_ZERO_CELL_INDEX: usize = 29;
-pub(crate) const SHL_RESULT_HI_CELL_INDEX: usize = 30;
-pub(crate) const SHL_RESULT_LO_CELL_INDEX: usize = 31;
+pub(crate) const SIGN_BIT_IS_ZERO_CELL_IDX: usize = 29;
+pub(crate) const SHL_RESULT_HI_CELL_IDX: usize = 30;
+pub(crate) const SHL_RESULT_LO_CELL_IDX: usize = 31;
 pub(crate) const V_2: u8 = 2;
 
 /// Algorithm overview:
@@ -120,9 +120,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // get sign_bit_is_zero ans result
         let sign_bit_is_zero =
-            meta.query_advice(config.vers[SIGN_BIT_IS_ZERO_CELL_INDEX], Rotation::cur());
-        let result_hi = meta.query_advice(config.vers[SHL_RESULT_HI_CELL_INDEX], Rotation::cur());
-        let result_lo = meta.query_advice(config.vers[SHL_RESULT_LO_CELL_INDEX], Rotation::cur());
+            meta.query_advice(config.vers[SIGN_BIT_IS_ZERO_CELL_IDX], Rotation::cur());
+        let result_hi = meta.query_advice(config.vers[SHL_RESULT_HI_CELL_IDX], Rotation::cur());
+        let result_lo = meta.query_advice(config.vers[SHL_RESULT_LO_CELL_IDX], Rotation::cur());
 
         stack_operands.push([result_hi, result_lo]);
 
@@ -298,9 +298,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_arithmetic_lookup(2, &arithmetic_sub_rows);
 
         // assign shr result
-        assign_or_panic!(core_row_0[SIGN_BIT_IS_ZERO_CELL_INDEX], sign_bit_is_zero);
-        assign_or_panic!(core_row_0[SHL_RESULT_HI_CELL_INDEX], result_hi);
-        assign_or_panic!(core_row_0[SHL_RESULT_LO_CELL_INDEX], result_lo);
+        assign_or_panic!(core_row_0[SIGN_BIT_IS_ZERO_CELL_IDX], sign_bit_is_zero);
+        assign_or_panic!(core_row_0[SHL_RESULT_HI_CELL_IDX], result_hi);
+        assign_or_panic!(core_row_0[SHL_RESULT_LO_CELL_IDX], result_lo);
 
         arithmetic_rows.extend(arithmetic_sub_rows);
         Witness {
@@ -320,6 +320,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -339,7 +340,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

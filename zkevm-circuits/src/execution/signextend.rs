@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -16,7 +15,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 3;
 const STACK_POINTER_DELTA: i32 = -1;
 const STATE_STAMP_DELTA: u64 = 3;
-const BYTE_MAX_INDEX: u8 = 31;
+const BYTE_MAX_IDX: u8 = 31;
 const EXP_BASE: usize = 256;
 const V_128: u8 = 128;
 
@@ -155,7 +154,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .get_signextend_sub_arith_constraints(
                 meta,
                 stack_operands[0].clone().to_vec(),
-                BYTE_MAX_INDEX.expr(),
+                BYTE_MAX_IDX.expr(),
             );
         constraints.extend(arithmetic_constraints);
 
@@ -265,7 +264,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get signextend related rows
         let (bitwise_rows, arithmetic_sub_rows) = get_and_insert_signextend_rows::<F>(
             [signextend_a, operand_1],
-            [U256::from(BYTE_MAX_INDEX), operand_0],
+            [U256::from(BYTE_MAX_IDX), operand_0],
             &mut core_row_0,
             &mut core_row_1,
             &mut core_row_2,
@@ -295,7 +294,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -316,7 +315,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

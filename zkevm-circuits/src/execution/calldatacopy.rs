@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -17,7 +16,7 @@ const NUM_ROW: usize = 3;
 const PC_DELTA: usize = 1;
 const STATE_STAMP_DELTA: usize = 3;
 const STACK_POINTER_DELTA: i32 = -3;
-const LEN_LO_INV_COLUMN_ID: usize = 24;
+const LEN_LO_INV_COL_IDX: usize = 24;
 /// CALLDATACOPY copy message data from calldata to memory in EVM.
 ///
 /// CALLDATACOPY Execution State layout is as follows
@@ -100,7 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.extend([(format!("value_high_{} = 0", i), value_hi.expr())])
         }
 
-        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COLUMN_ID], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation::prev());
         let is_zero_len =
             SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
@@ -183,7 +182,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(length.low_u128());
         let lenlo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1[LEN_LO_INV_COLUMN_ID] = Some(lenlo_inv);
+        core_row_1[LEN_LO_INV_COL_IDX] = Some(lenlo_inv);
 
         // 插入执行指令的flag
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
@@ -211,7 +210,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -270,7 +269,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };

@@ -1,4 +1,3 @@
-use crate::constant::INDEX_STACK_POINTER;
 use crate::execution::{begin_tx_1, end_block, CoreSinglePurposeOutcome, ExecStateTransition};
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -12,7 +11,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 pub(crate) const NUM_ROW: usize = 3;
-const TX_DIFF_COLUMN_ID: usize = 23;
+const TX_DIFF_COL_IDX: usize = 23;
 pub struct EndTxGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -57,7 +56,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (public_tag, _, [public_tx_num_in_block, _, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta, Rotation(-2)));
 
-        let tx_id_diff_inv = meta.query_advice(config.vers[TX_DIFF_COLUMN_ID], Rotation(-2));
+        let tx_id_diff_inv = meta.query_advice(config.vers[TX_DIFF_COL_IDX], Rotation(-2));
         let is_zero = SimpleIsZero::new(
             &(public_tx_num_in_block.clone() - tx_idx.clone()),
             &tx_id_diff_inv,
@@ -129,7 +128,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .as_ref(),
         );
         // 将差值的相反数填入core_row_2的23列
-        assign_or_panic!(core_row_2[TX_DIFF_COLUMN_ID], tx_num_diff_inv);
+        assign_or_panic!(core_row_2[TX_DIFF_COL_IDX], tx_num_diff_inv);
 
         // core_row_2添加public entry记录总的交易数，
         core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockTxNum));
@@ -148,6 +147,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
+    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -170,7 +170,7 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + INDEX_STACK_POINTER] =
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
         };
