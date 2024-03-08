@@ -89,7 +89,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // value_hi,value_lo constraints
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
-        let public_entry = config.get_public_lookup(meta, Rotation(-2));
+        let public_entry = config.get_public_lookup(meta, 0);
         let origin_tag = meta.query_advice(config.vers[ORIGIN_TAG_COL_IDX], Rotation::prev());
         let gasprice_tag = meta.query_advice(config.vers[GAS_PRICE_TAG_COL_IDX], Rotation::prev());
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
@@ -123,7 +123,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
 
         let public_context_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+            query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
             ("tx context value lookup".into(), public_context_lookup),
@@ -146,15 +146,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             _ => panic!("not ORIGIN or GASPRICE"),
         };
         // core_row_2
-        core_row_2.insert_public_lookup(&public::Row {
-            tag: public_tag,
-            tx_idx_or_number_diff: Some(U256::from(current_state.tx_idx)),
-            value_0: Some(U256::from(value_hi)),
-            value_1: Some(U256::from(value_lo)),
-            value_2: Some(value_public_2),
-            value_3: Some(value_public_3),
-            ..Default::default()
-        });
+        core_row_2.insert_public_lookup(
+            0,
+            &public::Row {
+                tag: public_tag,
+                tx_idx_or_number_diff: Some(U256::from(current_state.tx_idx)),
+                value_0: Some(U256::from(value_hi)),
+                value_1: Some(U256::from(value_lo)),
+                value_2: Some(value_public_2),
+                value_3: Some(value_public_3),
+                ..Default::default()
+            },
+        );
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push_0]);
 

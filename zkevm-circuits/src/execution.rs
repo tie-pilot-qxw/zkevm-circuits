@@ -145,11 +145,12 @@ use crate::constant::{
     self, ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH,
     BYTECODE_COLUMN_START_IDX, COPY_COLUMN_START_IDX, COPY_PADDING_COLUMN_START_IDX,
     EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, PUBLIC_COLUMN_START_IDX,
-    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH,
-    U64_OVERFLOW_START_IDX,
+    PUBLIC_COLUMN_WIDTH, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
+use crate::witness::public::Tag::TxGasLimit;
 pub(crate) use get_every_execution_gadgets;
 
 #[allow(unused)]
@@ -208,6 +209,7 @@ pub(crate) struct Auxiliary {
 }
 
 /// Outcome for `Auxiliary`. That is, we have constraint of `X_cur - X_prev - delta = 0` or `X_cur - to = 0`
+#[derive(Clone)]
 pub(crate) struct AuxiliaryOutcome<F> {
     /// Outcome of state stamp (counter) at the end of the execution state and the previous state
     pub(crate) state_stamp: ExpressionOutcome<F>,
@@ -384,6 +386,56 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_storage_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        num: usize,
+        at: Rotation,
+    ) -> LookupEntry<F> {
+        assert!(num < 2);
+        let (
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            key_hi,
+            key_lo,
+            is_write,
+            value_pre_hi,
+            value_pre_lo,
+            committed_value_hi,
+            committed_value_lo,
+        ) = (
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 0], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 1], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 2], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 3], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 4], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 5], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 6], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 7], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 8], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 9], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 10], at),
+            meta.query_advice(self.vers[num * STORAGE_COLUMN_WIDTH + 11], at),
+        );
+        LookupEntry::Storage {
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            key_hi,
+            key_lo,
+            is_write,
+            value_pre_hi,
+            value_pre_lo,
+            committed_value_hi,
+            committed_value_lo,
+        }
+    }
+
     // insert_public_lookup insert public lookup ,6 columns
     /// +---+-------+-------+-------+------+-----------+
     /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
@@ -393,15 +445,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     pub(crate) fn get_public_lookup(
         &self,
         meta: &mut VirtualCells<F>,
-        offset: Rotation,
+        index: usize,
     ) -> LookupEntry<F> {
+        let start_idx = PUBLIC_COLUMN_START_IDX - index * PUBLIC_COLUMN_WIDTH;
         let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
-            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX], offset),
-            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 1], offset),
-            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 2], offset),
-            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 3], offset),
-            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 4], offset),
-            meta.query_advice(self.vers[PUBLIC_COLUMN_START_IDX + 5], offset),
+            meta.query_advice(self.vers[start_idx], Rotation(-2)),
+            meta.query_advice(self.vers[start_idx + 1], Rotation(-2)),
+            meta.query_advice(self.vers[start_idx + 2], Rotation(-2)),
+            meta.query_advice(self.vers[start_idx + 3], Rotation(-2)),
+            meta.query_advice(self.vers[start_idx + 4], Rotation(-2)),
+            meta.query_advice(self.vers[start_idx + 5], Rotation(-2)),
         );
 
         let values = [value_0, value_1, value_2, value_3];
@@ -563,7 +616,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         stack_pointer_delta: Expression<F>, // compare to that of previous state
         write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
             extract_lookup_expression!(state, entry);
         let Auxiliary {
             state_stamp,
@@ -608,7 +661,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         memory_pointer_lo: Expression<F>,
         write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
             extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
         vec![
@@ -651,7 +704,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             LookupEntry::BytecodeFull { .. } | LookupEntry::Bytecode { .. } => {
                 self.bytecode_table.get_lookup_vector(meta, lookup)
             }
-            LookupEntry::State { .. } => self.state_table.get_lookup_vector(meta, lookup),
+            LookupEntry::State { .. } | LookupEntry::Storage { .. } => {
+                self.state_table.get_lookup_vector(meta, lookup)
+            }
             LookupEntry::Public { .. } => self.public_table.get_lookup_vector(meta, lookup),
             LookupEntry::Bitwise { .. } => self.bitwise_table.get_lookup_vector(meta, lookup),
             LookupEntry::Copy { .. } => self.copy_table.get_lookup_vector(meta, lookup),
@@ -1179,6 +1234,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 )
                 .map(|expr| ("read only cur - prev - delta".into(), expr)),
         );
+        // todo 全部gas和refund实现完成后再取消注释
+        // (
+        //     "gas left prev - cur - delta".into(),
+        //     delta.gas_left.into_constraint(
+        //         meta.query_advice(gas_left, Rotation(-1 * prev_exec_state_row as i32)),
+        //         meta.query_advice(gas_left, Rotation::cur()),
+        //     ),
+        // ),
+        // (
+        //     "refund cur - prev - delta".into(),
+        //     delta.refund.into_constraint(
+        //         meta.query_advice(refund, Rotation::cur()),
+        //         meta.query_advice(refund, Rotation(-1 * prev_exec_state_row as i32)),
+        //     ),
+        // ),
         //todo other auxiliary
         constraints
     }
@@ -1192,6 +1262,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         delta: CoreSinglePurposeOutcome<F>,
     ) -> Vec<(String, Expression<F>)> {
         self.get_core_single_purpose_constraints(meta, prev_exec_state_row, delta, "prev")
+    }
+
+    // 已经实现了gas的可以先临时使用这个函数
+    pub(crate) fn get_auxiliary_gas_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        prev_exec_state_row: usize,
+        delta: AuxiliaryOutcome<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        let Auxiliary {
+            gas_left, refund, ..
+        } = self.get_auxiliary();
+        let mut constraints: Vec<(String, Expression<F>)> = vec![];
+        // gas_left constraint
+        constraints.extend(
+            delta
+                .gas_left
+                .into_constraint(
+                    meta.query_advice(gas_left, Rotation(-1 * prev_exec_state_row as i32)),
+                    meta.query_advice(gas_left, Rotation::cur()),
+                )
+                .map(|expr| ("gas left prev - cur - delta".into(), expr)),
+        );
+        // todo 需要预处理
+        // constraints.extend(
+        //     delta
+        //         .refund
+        //         .into_constraint(
+        //             meta.query_advice(gas_left, Rotation::cur()),
+        //             meta.query_advice(gas_left, Rotation(-1 * prev_exec_state_row as i32)),
+        //         )
+        //         .map(|expr| ("refund cur - prev - delta".into(), expr)),
+        // );
+
+        constraints
     }
 
     /// get_next_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
@@ -1825,6 +1930,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             match lookup {
                 LookupEntry::BytecodeFull { .. }
                 | LookupEntry::State { .. }
+                | LookupEntry::Storage { .. }
                 | LookupEntry::Bytecode { .. }
                 | LookupEntry::Public { .. }
                 | LookupEntry::Arithmetic { .. }

@@ -73,6 +73,14 @@ pub struct StateCircuitConfig<F> {
     is_first_access: Column<Advice>,
     /// cnt records the count of stamp value, starting from 1, increasing in order.
     cnt: Column<Advice>,
+    /// High 128-bit previous value of the row
+    value_pre_hi: Column<Advice>,
+    /// Low 128-bit previous value of the row
+    value_pre_lo: Column<Advice>,
+    ///High 128-bit previous committed value  of the row
+    committed_value_hi: Column<Advice>,
+    ///Low 128-bit previous committed value  of the row
+    committed_value_lo: Column<Advice>,
     /// Lookup table for some information，such as value of cell U16/U0/U8 range lookup.
     fixed_table: FixedTable,
     _marker: PhantomData<F>,
@@ -117,6 +125,10 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             pointer_lo,
             is_write,
             cnt,
+            value_pre_hi,
+            value_pre_lo,
+            committed_value_hi,
+            committed_value_lo,
         } = state_table;
 
         let challenges_expr = challenges.exprs(meta);
@@ -160,6 +172,10 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             is_first_access: meta.advice_column(),
             cnt,
             fixed_table,
+            value_pre_hi,
+            value_pre_lo,
+            committed_value_hi,
+            committed_value_lo,
             _marker: PhantomData,
         };
 
@@ -184,6 +200,13 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             let is_write = meta.query_advice(config.is_write, Rotation::cur());
             let cur_cnt = meta.query_advice(config.cnt, Rotation::cur());
             let prev_cnt = meta.query_advice(config.cnt, Rotation::prev());
+            let value_prev_hi_in_cur = meta.query_advice(config.value_pre_hi, Rotation::cur());
+            let value_prev_lo_in_cur = meta.query_advice(config.value_pre_lo,Rotation::cur());
+            let access_list_storage_condition = config
+                .tag
+                .value_equals(Tag::SlotInAccessListStorage, Rotation::cur())(
+                meta
+            );
 
             // 因为state circuit由每次操作的数据和它对应的属性组成（操作的数据所处位置，offset等）
             // 对于不同位置（stack、memory、storage...）state rows中的字段有不同约束，来保证
@@ -313,20 +336,68 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                 q_enable.clone()
                     * (index_is_stamp_expr.clone() + is_first_access.clone() - 1.expr()),
             ));
+            // access list storage 不适用这个规则
             vec.push((
-                "is_first_access=0 & is_write=0 ==> prev_value_lo=cur_value_lo",
+                "is_first_access=0 & is_write=0 & not access_list_tag ==> prev_value_lo = cur_value_lo",
                 q_enable.clone()
                     * (1.expr() - is_first_access.clone())
-                    * (prev_value_lo - value_lo)
+                    * (1.expr() - access_list_storage_condition.clone())
+                    * (prev_value_lo.clone() - value_lo.clone())
                     * (1.expr() - is_write.clone()),
             ));
             vec.push((
-                "is_first_access=0 & is_write=0 ==> prev_value_hi=cur_value_hi",
+                "is_first_access=0 & is_write=0 & not access_list_tag ==> prev_value_hi = cur_value_hi",
                 q_enable.clone()
                     * (1.expr() - is_first_access.clone())
-                    * (prev_value_hi - value_hi)
+                    * (1.expr() - access_list_storage_condition.clone())
+                    * (prev_value_hi.clone() - value_hi.clone())
                     * (1.expr() - is_write.clone()),
             ));
+
+            // tag is access_list_storage_condition
+            vec.push((
+                "is_first_access=0 & access_list_tag => value_pre_hi in cur = value_hi in prev",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * access_list_storage_condition.clone()
+                    * (value_prev_hi_in_cur.clone() - prev_value_hi.clone())
+            ));
+
+            // todo 要先修复多交易的tx_id
+            // vec.push((
+            //     "is_first_access=0 & access_list_tag => value_pre_lo in cur = value_lo in prev",
+            //     q_enable.clone()
+            //         * (1.expr() - is_first_access.clone())
+            //         * access_list_storage_condition.clone()
+            //         * (value_prev_lo_in_cur.clone() - prev_value_lo.clone())
+            // ));
+
+            // todo 要先修复多交易的tx_id
+            // vec.push((
+            //     "is_first_access=0 & access_list_tag => value_pre_lo in cur = value_lo in prev",
+            //     q_enable.clone()
+            //         * (1.expr() - is_first_access.clone())
+            //         * access_list_storage_condition.clone()
+            //         * (value_prev_lo_in_cur.clone() - prev_value_lo.clone())
+            // ));
+
+            vec.push((
+                "access_list_tag => value_hi = 0",
+                q_enable.clone()
+                    * access_list_storage_condition.clone()
+                    * value_hi.clone()
+            ));
+
+            vec.push((
+                "access_list_tag => value_lo is bool",
+                q_enable.clone()
+                    * access_list_storage_condition.clone()
+                    * (value_lo.clone() - 1.expr())
+                    * value_lo.clone()
+            ));
+
+            // todo committed_value、value_pre_in_cur 目前还没加
+
             vec
         });
 
@@ -399,6 +470,10 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.is_first_access)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.is_write)?;
         assign_advice_or_fixed_with_u256(region, offset, &cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.value_pre_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.value_pre_lo)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.committed_value_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.committed_value_lo)?;
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &Tag::EndPadding)?;
 
@@ -448,6 +523,10 @@ impl<F: Field> StateCircuitConfig<F> {
         assign_advice_or_fixed_with_u256(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.value_pre_hi.unwrap_or_default(), self.value_pre_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.value_pre_lo.unwrap_or_default(), self.value_pre_lo)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.committed_value_hi.unwrap_or_default(), self.committed_value_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.committed_value_lo.unwrap_or_default(), self.committed_value_lo)?;
         assign_advice_or_fixed_with_u256(region, offset, &cnt, self.cnt)?;
         // Assign value to the column of elements to be sorted
         self.sort_keys

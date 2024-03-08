@@ -1,5 +1,6 @@
 use crate::arithmetic_circuit::operation::u64overflow;
 
+use crate::constant::U64_OVERFLOW_START_IDX;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };

@@ -93,7 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             public_tag,
             public_tx_idx,
             public_values, // public_log_stamp, public_log_tag, public_log_addr_hi, public_log_addr_lo
-        ) = extract_lookup_expression!(public, config.get_public_lookup(meta, Rotation(-2)));
+        ) = extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
         constraints.extend([
             (
@@ -177,8 +177,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let public_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
 
         vec![
             ("state lookup for topic".into(), stack_lookup),
@@ -209,7 +208,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_row = current_state.get_public_log_topic_num_addr_row(trace.op);
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        core_row_2.insert_public_lookup(&public_row);
+        core_row_2.insert_public_lookup(0, &public_row);
 
         // increase log_stamp when topic_left == 0
         if current_state.topic_left == 0 {

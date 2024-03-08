@@ -20,6 +20,16 @@ pub struct Row {
     pub pointer_lo: Option<U256>,
     /// Whether it is write or read, binary value
     pub is_write: Option<U256>,
+    /// High 128-bit value_pre of the row
+    /// The value of the last call to a similar command.
+    pub value_pre_hi: Option<U256>,
+    /// Low 128-bit value_pre of the row
+    pub value_pre_lo: Option<U256>,
+    /// High 128-bit committed_value of the row
+    /// The value deposited in the previous transaction or the value of the previous block.
+    pub committed_value_hi: Option<U256>,
+    /// Low 128-bit committed_value of the row
+    pub committed_value_lo: Option<U256>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
@@ -31,6 +41,10 @@ pub enum Tag {
     Storage,
     CallContext,
     CallData,
+    // 对应EVM里的AddressInAccessList， key是address
+    AddrInAccessListStorage,
+    // 对应EVM里的SlotInAccessList， key是(address, slot)
+    SlotInAccessListStorage,
     ReturnData,
     EndPadding,
 }

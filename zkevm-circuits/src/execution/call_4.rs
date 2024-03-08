@@ -122,7 +122,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 );
             }
             // 记录每个state row的操作数
-            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
+            let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
         // CALL指令需要的addr操作数

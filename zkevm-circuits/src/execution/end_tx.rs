@@ -45,7 +45,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // END_TX不需要做single_purpose_constraints
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let (public_tag, _, [public_tx_num_in_block, _, _, _]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta, Rotation(-2)));
+            extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
         let tx_id_diff_inv = meta.query_advice(config.vers[TX_DIFF_COL_IDX], Rotation(-2));
         let is_zero = SimpleIsZero::new(
@@ -102,8 +102,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let public_entry =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+        let public_entry = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
 
         vec![("public entry".into(), public_entry)]
     }
@@ -130,7 +129,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_2[TX_DIFF_COL_IDX], tx_num_diff_inv);
 
         // core_row_2添加public entry记录总的交易数，
-        core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockTxNum));
+        core_row_2.insert_public_lookup(
+            0,
+            &current_state.get_public_tx_row(public::Tag::BlockTxNum, 0),
+        );
+
         // 根据next exec state 填充core row0 的 下一个状态是begin_tx_1(列25) 还是 end_block(列26),分别在对应的列置为1
         match current_state.next_exec_state {
             Some(ExecutionState::BEGIN_TX_1) => {

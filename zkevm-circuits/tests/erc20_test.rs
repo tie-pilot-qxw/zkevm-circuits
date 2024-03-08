@@ -13,7 +13,7 @@ fn test_erc20_t01_a_deploy() {
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_info.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_debug_trace.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t01_a_deploy_erc20/bytecode.json",
     ));
     //print witness
     //witness.print_csv();
@@ -45,7 +45,7 @@ fn test_erc20_t02_a_transfer_b_200() {
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_info.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_debug_trace.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t02_a_transfer_b_200/bytecode.json",
     ));
     //print witness
     //witness.print_csv();
@@ -70,7 +70,7 @@ fn test_erc20_t03_a_approve_c_200() {
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_info.json",
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_debug_trace.json",
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t03_a_approve_c_200/bytecode.json",
     ));
     //print witness
     //witness.print_csv();
@@ -101,7 +101,7 @@ fn test_erc20_t04_c_transfer_from_a_b_200() {
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_info.json",
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_debug_trace.json",
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/bytecode.json",
     ));
     //print witness
     //witness.print_csv();

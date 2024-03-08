@@ -7,6 +7,7 @@ pub mod exp;
 pub mod fixed;
 pub mod public;
 pub mod state;
+mod util;
 
 use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
@@ -15,8 +16,9 @@ use crate::constant::{
     ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX,
     BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
     LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
-    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
-    STATE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
+    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES,
+    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -29,14 +31,15 @@ use crate::util::{
 };
 use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
+use crate::witness::util::{extract_address_from_tx, handle_sload, handle_sstore};
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::geth_types::GethData;
-use eth_types::{Bytecode, Field, GethExecStep, U256};
+use eth_types::geth_types::{Account, GethData};
+use eth_types::{Bytecode, Field, GethExecStep, GethExecTrace, StateDB, Word, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 #[derive(Debug, Default, Clone)]
@@ -107,6 +110,7 @@ pub struct WitnessExecHelper {
     pub tx_value: U256,
     // 存储CALL指令的父环境PC值，如在CALL调用中，key==即将执行的CALL_ID，value=父环境的PC值
     pub parent_pc: HashMap<u64, u64>,
+    pub state_db: StateDB,
     // 存储下一个指令的第一个状态
     pub next_exec_state: Option<ExecutionState>,
 }
@@ -145,6 +149,7 @@ impl WitnessExecHelper {
             tx_value: 0.into(),
             parent_pc: HashMap::new(),
             next_exec_state: None,
+            state_db: StateDB::new(),
         }
     }
 
@@ -152,11 +157,41 @@ impl WitnessExecHelper {
         self.stack_top = trace.stack.0.last().cloned();
         // 更新一下下一个指令的第一个状态
         self.next_exec_state = ExecutionState::from_opcode(trace.op).first().copied();
+        self.gas_left = trace.gas;
     }
 
     /// stack_pointer decrease
     pub fn stack_pointer_decrease(&mut self) {
         self.stack_pointer -= 1;
+    }
+
+    /// 主要分为两部，第一步是为了找到上一个区块的对应的key/value，填充original_storage;
+    /// 第二步是获取每一笔交易的最后一次sstore的值，填充pending_storage;
+    pub fn preprocess_transaction(&mut self, geth_data: &GethData) {
+        self.handle_committed_value(geth_data);
+        self.handle_last_sstore(geth_data);
+    }
+
+    /// 直接获取每个account中的storage值
+    fn handle_committed_value(&mut self, geth_data: &GethData) {
+        for account in geth_data.accounts.iter() {
+            account.storage.iter().for_each(|(key, value)| {
+                self.state_db
+                    .insert_original_storage(account.address, *key, *value)
+            });
+        }
+    }
+
+    /// 倒序遍历，交易从0..n-1，每笔交易最后一次sstore的值，会存放到pending_sstore中
+    fn handle_last_sstore(&mut self, geth_data: &GethData) {
+        for (i, trace) in geth_data.geth_traces.iter().enumerate() {
+            for step in trace.struct_logs.iter().rev() {
+                if step.op == OpcodeId::SSTORE {
+                    let to = extract_address_from_tx(geth_data, i);
+                    handle_sstore(to, step, &mut self.state_db, i);
+                }
+            }
+        }
     }
 
     pub fn reset_state_end_tx(&mut self) {
@@ -165,6 +200,7 @@ impl WitnessExecHelper {
         self.returndata_size = 0.into();
         self.return_success = false;
         self.log_stamp = 0;
+        self.state_db.reset_tx();
     }
 
     /// Generate witness of one transaction's trace
@@ -210,6 +246,7 @@ impl WitnessExecHelper {
         self.storage_contract_addr.insert(call_id, to);
         self.bytecode = bytecode;
 
+        self.gas_left = tx.gas.as_u64();
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
         let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
@@ -362,6 +399,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(self.stack_pointer.into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         self.stack_pointer -= 1;
@@ -387,6 +425,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((self.stack_pointer + 1 - index_start_at_1).into()), // stack pointer start at 1, hence +1
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, *value)
@@ -409,6 +448,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -424,6 +464,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -447,6 +488,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, value)
@@ -462,6 +504,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -475,7 +518,7 @@ impl WitnessExecHelper {
     ) -> (state::Row, U256) {
         let value = trace_step.storage.0.get(&key).cloned().unwrap_or_default();
         let res = state::Row {
-            tag: Some(state::Tag::Storage),
+            tag: Some(Tag::Storage),
             stamp: Some(self.state_stamp.into()),
             value_hi: Some(value >> 128),
             value_lo: Some(value.low_u128().into()),
@@ -483,6 +526,7 @@ impl WitnessExecHelper {
             pointer_hi: Some(key >> 128),
             pointer_lo: Some(key.low_u128().into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, value)
@@ -521,6 +565,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((tag as usize).into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, value)
@@ -541,6 +586,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((tag as usize).into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -561,6 +607,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((tag as usize).into()),
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -581,6 +628,87 @@ impl WitnessExecHelper {
             pointer_hi: Some(key >> 128),
             pointer_lo: Some(key.low_u128().into()),
             is_write: Some(1.into()),
+            ..Default::default()
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_slot_access_list_read_row(
+        &mut self,
+        contract_addr: U256,
+        storage_key: U256,
+    ) -> (state::Row, bool) {
+        let is_warm = self
+            .state_db
+            .slot_in_access_list(&self.code_addr, &storage_key);
+
+        let res = state::Row {
+            tag: Some(Tag::SlotInAccessListStorage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some((is_warm.clone() as u8).into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(storage_key >> 128),
+            pointer_lo: Some(storage_key.low_u128().into()),
+            is_write: Some(0.into()),
+            ..Default::default()
+        };
+        self.state_stamp += 1;
+
+        (res, is_warm)
+    }
+
+    pub fn get_slot_access_list_write_row(
+        &mut self,
+        contract_addr: U256,
+        storage_key: U256,
+        value: bool,
+        value_pre: bool,
+    ) -> state::Row {
+        // 在read完以后这个值实际上已经变为了true
+        self.state_db
+            .insert_slot_access_list(self.code_addr, storage_key);
+
+        let res = state::Row {
+            tag: Some(Tag::SlotInAccessListStorage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some((value as u8).into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(storage_key >> 128),
+            pointer_lo: Some(storage_key.low_u128().into()),
+            is_write: Some(1.into()),
+            value_pre_hi: None,
+            value_pre_lo: Some((value_pre as u8).into()),
+            committed_value_hi: None,
+            committed_value_lo: None,
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_value_prev_storage_write_row(
+        &mut self,
+        key: U256,
+        value: U256,
+        contract_addr: U256,
+        value_pre: U256,
+        committed_value: U256,
+    ) -> state::Row {
+        let res = state::Row {
+            tag: Some(Tag::Storage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some(value >> 128),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(key >> 128),
+            pointer_lo: Some(key.low_u128().into()),
+            is_write: Some(1.into()),
+            value_pre_hi: Some(value_pre >> 128),
+            value_pre_lo: Some(value_pre.low_u128().into()),
+            committed_value_hi: Some(committed_value >> 128),
+            committed_value_lo: Some(committed_value.low_u128().into()),
         };
         self.state_stamp += 1;
         res
@@ -600,6 +728,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((self.stack_pointer + 1).into()),
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         self.stack_pointer += 1;
@@ -621,6 +750,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((self.stack_pointer - index_start_at_1 + 1).into()), // stack pointer start at 1, hence +1
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -898,6 +1028,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (state_row, val)
@@ -918,6 +1049,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         state_row
@@ -1121,6 +1253,7 @@ impl WitnessExecHelper {
                     pointer_hi: None,
                     pointer_lo: Some(offset_start + j),
                     is_write: Some(0.into()),
+                    ..Default::default()
                 });
                 self.state_stamp += 1;
             }
@@ -1176,6 +1309,7 @@ impl WitnessExecHelper {
                 pointer_hi: None,
                 pointer_lo: Some(i.into()),
                 is_write: Some(1.into()),
+                ..Default::default()
             });
             self.state_stamp += 1;
         }
@@ -1242,6 +1376,7 @@ impl WitnessExecHelper {
                     // it's guaranteed by Ethereum that offset_start + j doesn't overflow.
                     pointer_lo: Some(offset_start + j),
                     is_write: Some(0.into()),
+                    ..Default::default()
                 });
                 self.state_stamp += 1;
             }
@@ -1305,6 +1440,7 @@ impl WitnessExecHelper {
                     // it's guaranteed by Ethereum that offset_start + j doesn't overflow, reference : https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L47
                     pointer_lo: Some(offset_start + j),
                     is_write: Some(1.into()),
+                    ..Default::default()
                 });
                 self.state_stamp += 1;
             }
@@ -1335,6 +1471,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((context_tag as u8).into()),
             is_write: Some(1.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -1416,6 +1553,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((state::CallContextTag::ReturnDataCallId as u8).into()),
             is_write: Some((is_write as u8).into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         res
@@ -1430,6 +1568,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((CallContextTag::ReturnDataSize as u8).into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, self.returndata_size.into())
@@ -1450,6 +1589,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((CallContextTag::ReturnDataSize as u8).into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, returndata_size)
@@ -1465,6 +1605,7 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some((CallContextTag::StorageContractAddr as u8).into()),
             is_write: Some(0.into()),
+            ..Default::default()
         };
         self.state_stamp += 1;
         (res, value.clone())
@@ -1641,7 +1782,8 @@ impl WitnessExecHelper {
         public_row
     }
 
-    pub fn get_public_tx_row(&self, tag: public::Tag) -> public::Row {
+    pub fn get_public_tx_row(&self, tag: public::Tag, index: usize) -> public::Row {
+        let start_idx = PUBLIC_COLUMN_START_IDX - index * PUBLIC_COLUMN_WIDTH;
         let values: [Option<U256>; PUBLIC_NUM_VALUES];
         let value_comments: [String; PUBLIC_NUM_VALUES];
         let mut tx_idx = self.tx_idx as u64;
@@ -1684,16 +1826,20 @@ impl WitnessExecHelper {
                 value_comments = ["log_num".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
+            public::Tag::TxGasLimit => {
+                values = [None, Some(self.gas_left.into()), None, None];
+                value_comments = ["".into(), "gas_left".into(), "".into(), "".into()];
+            }
             _ => panic!(),
         };
 
         let mut comments = HashMap::new();
-        comments.insert(format!("vers_{}", 26), "tag".into());
-        comments.insert(format!("vers_{}", 27), "tx_idx".into());
-        comments.insert(format!("vers_{}", 28), value_comments[0].clone());
-        comments.insert(format!("vers_{}", 29), value_comments[1].clone());
-        comments.insert(format!("vers_{}", 30), value_comments[2].clone());
-        comments.insert(format!("vers_{}", 31), value_comments[3].clone());
+        comments.insert(format!("vers_{}", start_idx), "tag".into());
+        comments.insert(format!("vers_{}", start_idx + 1), "tx_idx".into());
+        comments.insert(format!("vers_{}", start_idx + 2), value_comments[0].clone());
+        comments.insert(format!("vers_{}", start_idx + 3), value_comments[1].clone());
+        comments.insert(format!("vers_{}", start_idx + 4), value_comments[2].clone());
+        comments.insert(format!("vers_{}", start_idx + 5), value_comments[3].clone());
 
         let public_row = public::Row {
             tag,
@@ -1733,6 +1879,32 @@ impl WitnessExecHelper {
         };
 
         public_row
+    }
+    pub fn get_committed_value(&self, address: &Word, key: &Word, tx_idx: usize) -> (bool, U256) {
+        if tx_idx == 0 {
+            return match self.state_db.get_original_storage(address, key) {
+                Some(value) => (true, value),
+                None => (false, U256::zero()),
+            };
+        }
+
+        match self.state_db.get_pending_storage(address, key, tx_idx) {
+            Some(value) => (true, value),
+            None => match self.state_db.get_original_storage(address, key) {
+                Some(value) => (true, value),
+                None => (false, U256::zero()),
+            },
+        }
+    }
+    pub fn get_dirty_value(&self, address: &Word, key: &Word, tx_idx: usize) -> (bool, U256) {
+        match self.state_db.get_dirty_storage(address, key) {
+            Some(value) => (true, value),
+            None => self.get_committed_value(address, key, tx_idx),
+        }
+    }
+
+    pub fn insert_dirty_storage(&mut self, address: Word, key: U256, value: U256) {
+        self.state_db.insert_dirty_storage(address, key, value);
     }
 }
 
@@ -1929,6 +2101,7 @@ macro_rules! assign_or_panic {
 }
 
 use crate::exp_circuit::ExpCircuit;
+use crate::keccak_circuit::keccak_packed_multi::decode::value;
 use crate::witness::exp::Row;
 pub(crate) use assign_or_panic;
 
@@ -2070,6 +2243,81 @@ impl core::Row {
             (format!("vers_{}", 6), "stack pointer".into()),
             (format!("vers_{}", 7), "is_write: read=0, write=1".into()),
         ]);
+    }
+
+    pub fn insert_storage_lookups<const NUM_LOOKUP: usize>(
+        &mut self,
+        state_rows: [&state::Row; NUM_LOOKUP],
+    ) {
+        assert!(NUM_LOOKUP < 3);
+        assert!(NUM_LOOKUP > 0);
+        for (j, state_row) in state_rows.into_iter().enumerate() {
+            for i in 0..11 {
+                assert!(self[i + j * STORAGE_COLUMN_WIDTH].is_none());
+            }
+            self[0 + j * STORAGE_COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
+            self[1 + j * STORAGE_COLUMN_WIDTH] = state_row.stamp;
+            self[2 + j * STORAGE_COLUMN_WIDTH] = state_row.value_hi;
+            self[3 + j * STORAGE_COLUMN_WIDTH] = state_row.value_lo;
+            self[4 + j * STORAGE_COLUMN_WIDTH] = state_row.call_id_contract_addr;
+            self[5 + j * STORAGE_COLUMN_WIDTH] = state_row.pointer_hi;
+            self[6 + j * STORAGE_COLUMN_WIDTH] = state_row.pointer_lo;
+            self[7 + j * STORAGE_COLUMN_WIDTH] = state_row.is_write;
+            self[8 + j * STORAGE_COLUMN_WIDTH] = state_row.value_pre_hi;
+            self[9 + j * STORAGE_COLUMN_WIDTH] = state_row.value_pre_lo;
+            self[10 + j * STORAGE_COLUMN_WIDTH] = state_row.committed_value_hi;
+            self[11 + j * STORAGE_COLUMN_WIDTH] = state_row.committed_value_lo;
+            self.comments.extend([
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH),
+                    format!("tag={:?}", state_row.tag),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 1),
+                    "stamp".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 2),
+                    "value_hi".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 3),
+                    "value_lo".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 4),
+                    "call_id".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 5),
+                    "key_hi".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 6),
+                    "key_lo".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 7),
+                    "is_write: read=0, write=1".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 8),
+                    "value_pre_hi".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 9),
+                    "value_pre_lo".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 10),
+                    "committed_value_hi".into(),
+                ),
+                (
+                    format!("vers_{}", j * STORAGE_COLUMN_WIDTH + 11),
+                    "committed_value_lo".into(),
+                ),
+            ]);
+        }
     }
     /// insert_stamp_cnt_lookups, include tag and cnt of state, tag always be EndPadding
     pub fn insert_stamp_cnt_lookups(&mut self, cnt: U256) {
@@ -2293,7 +2541,7 @@ impl core::Row {
     /// +---+-------+-------+-------+----------+
     /// | 2 | | | | | TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
     /// +---+-------+-------+-------+----------+
-    pub fn insert_public_lookup(&mut self, public_row: &public::Row) {
+    pub fn insert_public_lookup(&mut self, index: usize, public_row: &public::Row) {
         let column_values = [
             (public_row.tag as u8).into(),
             public_row.tx_idx_or_number_diff.unwrap_or_default(),
@@ -2302,17 +2550,23 @@ impl core::Row {
             public_row.value_2.unwrap_or_default(),
             public_row.value_3.unwrap_or_default(),
         ];
-        for i in 0..6 {
-            assert!(self[i + PUBLIC_COLUMN_START_IDX].is_none());
-            assign_or_panic!(self[i + PUBLIC_COLUMN_START_IDX], column_values[i]);
+        let start_idx = PUBLIC_COLUMN_START_IDX - index * PUBLIC_COLUMN_WIDTH;
+        for i in 0..PUBLIC_COLUMN_WIDTH {
+            assign_or_panic!(self[start_idx + i], column_values[i]);
         }
         let comments = vec![
-            (format!("vers_{}", 26), format!("tag={:?}", public_row.tag)),
-            (format!("vers_{}", 27), "tx_idx_or_number_diff".into()),
-            (format!("vers_{}", 28), "value_0".into()),
-            (format!("vers_{}", 29), "value_1".into()),
-            (format!("vers_{}", 30), "value_2".into()),
-            (format!("vers_{}", 31), "value_3".into()),
+            (
+                format!("vers_{}", start_idx),
+                format!("tag={:?}", public_row.tag),
+            ),
+            (
+                format!("vers_{}", start_idx + 1),
+                "tx_idx_or_number_diff".into(),
+            ),
+            (format!("vers_{}", start_idx + 2), "value_0".into()),
+            (format!("vers_{}", start_idx + 3), "value_1".into()),
+            (format!("vers_{}", start_idx + 4), "value_2".into()),
+            (format!("vers_{}", start_idx + 5), "value_3".into()),
         ];
         self.comments.extend(comments);
     }
@@ -2592,6 +2846,7 @@ impl Witness {
         witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
         // initialize txs number in current_state with geth_data
         current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
+        current_state.preprocess_transaction(geth_data);
         for i in 0..geth_data.geth_traces.len() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
@@ -2765,7 +3020,7 @@ impl ExecutionState {
                     current_state.state_stamp,
                     current_state.stack_pointer as u64,
                     current_state.log_stamp,
-                    trace.gas,
+                    current_state.gas_left,
                     trace.refund,
                     current_state.memory_chunk,
                     current_state.read_only,
