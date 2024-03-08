@@ -2,7 +2,7 @@ use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, Execu
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
+use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::util::Expr;
@@ -58,9 +58,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(OpcodeId::EQ.constant_gas_cost().expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+
         let mut operands = vec![];
         let stack_pointer_delta = vec![0, -1, -1];
         for i in 0..3 {
@@ -178,7 +182,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -190,9 +194,12 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0.into()),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::EQ, stack);
+        let gas_left_before_exec = current_state.gas_left + OpcodeId::EQ.constant_gas_cost();
+        let mut trace = prepare_trace_step!(0, OpcodeId::EQ, stack);
+        trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -202,6 +209,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row
         };
         let padding_end_row = |current_state| {

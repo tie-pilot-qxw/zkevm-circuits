@@ -161,7 +161,6 @@ impl WitnessExecHelper {
         self.stack_top = trace.stack.0.last().cloned();
         // 更新一下下一个指令的第一个状态
         self.next_exec_state = ExecutionState::from_opcode(trace.op).first().copied();
-        self.gas_left = trace.gas;
     }
 
     /// stack_pointer decrease
@@ -251,11 +250,11 @@ impl WitnessExecHelper {
         self.storage_contract_addr.insert(call_id, to);
         self.bytecode = bytecode;
 
-        self.gas_left = tx.gas.as_u64();
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
         let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
-        self.next_exec_state = Some(ExecutionState::BEGIN_TX_2);
+                                               // todo 这个不能直接赋值为first_step gas，要赋值tx.gas然后再计算
+        self.gas_left = first_step.gas;
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -315,6 +314,8 @@ impl WitnessExecHelper {
             if prev_is_return_revert_or_stop {
                 // append CALL5 when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append CALL5 at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
+                // 如果调用到CALL5,说明在CALL的流程并准备结束，此时CALL5的gas应该与CALL opcode时的gas保持一致，也即step.gas
+                self.gas_left = step.gas;
                 res.append(
                     execution_gadgets_map
                         .get(&ExecutionState::CALL_5)
@@ -323,6 +324,8 @@ impl WitnessExecHelper {
                 );
                 prev_is_return_revert_or_stop = false;
             }
+            // 执行状态后的gas计算下移，不放在update_from_next中，因为在CALL5中会改变这个值
+            self.gas_left = step.gas - step.gas_cost;
             res.append(self.generate_execution_witness(step, &execution_gadgets_map));
 
             match step.op {

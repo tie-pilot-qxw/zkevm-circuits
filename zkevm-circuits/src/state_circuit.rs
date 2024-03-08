@@ -382,6 +382,23 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             // ));
 
             vec.push((
+                "is_first_access=0 & access_list_tag => value_pre_hi in cur = value_hi in prev",
+                q_enable.clone()
+                    * (1.expr() - is_first_access.clone())
+                    * access_list_storage_condition.clone()
+                    * (value_prev_hi_in_cur.clone() - prev_value_hi.clone())
+            ));
+
+            // todo 要先修复多交易的tx_id
+            // vec.push((
+            //     "is_first_access=0 & access_list_tag => value_pre_lo in cur = value_lo in prev",
+            //     q_enable.clone()
+            //         * (1.expr() - is_first_access.clone())
+            //         * access_list_storage_condition.clone()
+            //         * (value_prev_lo_in_cur.clone() - prev_value_lo.clone())
+            // ));
+
+            vec.push((
                 "access_list_tag => value_hi = 0",
                 q_enable.clone()
                     * access_list_storage_condition.clone()

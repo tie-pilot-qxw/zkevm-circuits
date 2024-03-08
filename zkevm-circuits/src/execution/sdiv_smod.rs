@@ -6,7 +6,7 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, assign_or_panic, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
+use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
@@ -67,9 +67,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(OpcodeId::SDIV.constant_gas_cost().expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+
         // core single constraints
         let delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
@@ -240,7 +244,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let b_lo = F::from_u128(b.low_u128());
         let b_inv =
             U256::from_little_endian((b_lo + b_hi).invert().unwrap_or(F::ZERO).to_repr().as_ref());
-
         //b_lo_inv
         assign_or_panic!(core_row_2[B_INV_COL_IDX], b_inv);
 
@@ -269,7 +272,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -281,9 +284,12 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer,
             stack_top: Some(0.into()),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::SMOD, stack);
+        let gas_left_before_exec = current_state.gas_left + OpcodeId::SDIV.constant_gas_cost();
+        let mut trace = prepare_trace_step!(0, OpcodeId::SMOD, stack);
+        trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -293,6 +299,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row
         };
         let padding_end_row = |current_state| {
@@ -318,9 +326,12 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer,
             stack_top: Some(100.into()),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::SDIV, stack);
+        let gas_left_before_exec = current_state.gas_left + GasCost::FAST;
+        let mut trace = prepare_trace_step!(0, OpcodeId::SDIV, stack);
+        trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -330,6 +341,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row
         };
         let padding_end_row = |current_state| {

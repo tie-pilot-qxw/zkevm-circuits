@@ -5,7 +5,7 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, assign_or_panic, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
+use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep};
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
@@ -55,13 +55,46 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let mut constraints = vec![];
+
+        // construct the selector and constrain it
+        // if opcode is ADD, then vers[27] is 1 and vers[28]、vers[29]、vers[30]、vers[31] is 0
+        // if opcode is SUB, then vers[28] is 1 and vers[27]、vers[29]、vers[30]、vers[31] is 0
+        // if opcode is MUL, then vers[29] is 1 and vers[27]、vers[28]、vers[30]、vers[31] is 0
+        // if opcode is DIV, then vers[30] is 1 and vers[27]、vers[28]、vers[29]、vers[31] is 0
+        // if opcode is MOD, then vers[31] is 1 and vers[27]、vers[28]、vers[29]、vers[30] is 0
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev()),
+        ]);
+        constraints.extend(selector.get_constraints());
+
         // auxiliary constraints
+        // if opcode is ADD, gas is FASTEST == 3
+        // if opcode is SUB, gas is FASTEST == 3
+        // if opcode is MUL, gas is FAST == 5
+        // if opcode is DIV, gas is FAST == 5
+        // if opcode is MOD, gas is FAST == 5
+        let gas_cost = selector.select(&[
+            OpcodeId::ADD.constant_gas_cost().expr(),
+            OpcodeId::SUB.constant_gas_cost().expr(),
+            OpcodeId::MUL.constant_gas_cost().expr(),
+            OpcodeId::DIV.constant_gas_cost().expr(),
+            OpcodeId::MOD.constant_gas_cost().expr(),
+        ]);
+
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(gas_cost),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
         // core single constraints
         let delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
@@ -82,21 +115,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             stack_operands.extend([value_hi, value_lo]);
         }
-
-        // construct the selector and constrain it
-        // if opcode is ADD, then vers[27] is 1 and vers[28]、vers[29]、vers[30]、vers[31] is 0
-        // if opcode is SUB, then vers[28] is 1 and vers[27]、vers[29]、vers[30]、vers[31] is 0
-        // if opcode is MUL, then vers[29] is 1 and vers[27]、vers[28]、vers[30]、vers[31] is 0
-        // if opcode is DIV, then vers[30] is 1 and vers[27]、vers[28]、vers[29]、vers[31] is 0
-        // if opcode is MOD, then vers[31] is 1 and vers[27]、vers[28]、vers[29]、vers[30] is 0
-        let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev()),
-            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev()),
-        ]);
-        constraints.extend(selector.get_constraints());
 
         // make sure the Opcode must be one of ADD, SUB, MUL, DIV or MOD
         // if vers[27] is 1, then selector is 1*(opcode.clone() - OpcodeId::ADD)
@@ -278,7 +296,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -290,9 +308,18 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(stack_top),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, opcode, stack);
+        let gas_cost = if opcode == OpcodeId::ADD || opcode == OpcodeId::SUB {
+            GasCost::FASTEST
+        } else {
+            GasCost::FAST
+        };
+        let gas_left_before_exec = current_state.gas_left + gas_cost;
+        let mut trace = prepare_trace_step!(0, opcode, stack);
+        trace.gas = gas_left_before_exec;
+
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -302,6 +329,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row
         };
         let padding_end_row = |current_state| {
