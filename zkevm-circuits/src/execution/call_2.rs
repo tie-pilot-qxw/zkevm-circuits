@@ -131,7 +131,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // append core single purpose constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
         constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // prev execution state is CALL_1
         // next execution state is CALL_3
         constraints.extend(config.get_exec_state_constraints(

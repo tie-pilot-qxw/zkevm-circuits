@@ -113,7 +113,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // copy constraints
         let copy_len_lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation(-2));
         let copy_len_lo = meta.query_advice(config.vers[START_COL_IDX], Rotation(-2));

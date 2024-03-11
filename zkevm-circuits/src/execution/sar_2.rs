@@ -70,7 +70,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints
-            .append(&mut config.get_core_single_purpose_constraints(meta, core_single_delta));
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
 
         // [shift_hi,shift_lo,result_hi,result_lo]
         let mut stack_operands = vec![];

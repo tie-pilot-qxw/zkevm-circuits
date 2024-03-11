@@ -70,8 +70,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         let delta = Default::default();
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
-
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
         // begin_tx constraints
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut config.get_begin_tx_constrains(

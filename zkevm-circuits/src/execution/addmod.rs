@@ -96,7 +96,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
 
         // Get the core single-purpose constraints.
-        constraints.append(&mut config.get_core_single_purpose_constraints(meta, delta));
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
         let mut arithmetic_operands = vec![];
         for i in 0..4 {

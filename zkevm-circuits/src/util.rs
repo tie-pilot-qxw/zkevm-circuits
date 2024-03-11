@@ -391,11 +391,11 @@ impl<F: Field> ExpressionOutcome<F> {
         self,
         minuend: Expression<F>,
         subtrahend: Expression<F>,
-    ) -> Expression<F> {
+    ) -> Option<Expression<F>> {
         match self {
-            ExpressionOutcome::Delta(delta) => minuend - subtrahend - delta,
-            ExpressionOutcome::To(to) => minuend - to,
-            ExpressionOutcome::Any => 0.expr(),
+            ExpressionOutcome::Delta(delta) => Some(minuend - subtrahend - delta),
+            ExpressionOutcome::To(to) => Some(minuend - to),
+            ExpressionOutcome::Any => None,
         }
     }
 }
