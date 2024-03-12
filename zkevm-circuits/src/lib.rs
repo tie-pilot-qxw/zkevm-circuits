@@ -7,6 +7,7 @@ pub mod core_circuit;
 pub mod execution;
 pub mod exp_circuit;
 pub mod fixed_circuit;
+pub mod keccak_circuit;
 pub mod public_circuit;
 pub mod state_circuit;
 pub mod super_circuit;

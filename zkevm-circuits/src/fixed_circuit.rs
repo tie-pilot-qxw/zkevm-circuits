@@ -1,5 +1,5 @@
 use crate::table::FixedTable;
-use crate::util::{assign_advice_or_fixed, Challenges, SubCircuit, SubCircuitConfig};
+use crate::util::{assign_advice_or_fixed_with_u256, Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::{fixed, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, U256};
@@ -49,10 +49,10 @@ impl<F: Field> FixedCircuitConfig<F> {
         // 构造闭包操作，将生成的row数据赋值到表格中指定列的指定位置
         #[rustfmt::skip]
         let assign_row = |row: &fixed::Row, index| -> Result<(), Error> {
-            assign_advice_or_fixed(region, index, &U256::from(row.tag as u32), self.tag)?;
-            assign_advice_or_fixed(region, index, &row.value_0.unwrap_or_default(), self.values[0])?;
-            assign_advice_or_fixed(region, index, &row.value_1.unwrap_or_default(), self.values[1])?;
-            assign_advice_or_fixed(region, index, &row.value_2.unwrap_or_default(), self.values[2])?;
+            assign_advice_or_fixed_with_u256(region, index, &U256::from(row.tag as u32), self.tag)?;
+            assign_advice_or_fixed_with_u256(region, index, &row.value_0.unwrap_or_default(), self.values[0])?;
+            assign_advice_or_fixed_with_u256(region, index, &row.value_1.unwrap_or_default(), self.values[1])?;
+            assign_advice_or_fixed_with_u256(region, index, &row.value_2.unwrap_or_default(), self.values[2])?;
             Ok(())
         };
         // 1. 构造表格需要的row数据
@@ -245,14 +245,14 @@ mod test {
     impl<F: Field> FixedTestCircuitConfig<F> {
         // Assign values to different fields to verify the lookup range query function
         fn assign_region(&self, region: &mut Region<'_, F>) -> Result<(), Error> {
-            assign_advice_or_fixed(region, 1, &U256::from((1 << 16) - 1), self.test_u16)?; //65535
-            assign_advice_or_fixed(region, 10, &U256::from(1 << 13), self.test_u16)?; //8192
+            assign_advice_or_fixed_with_u256(region, 1, &U256::from((1 << 16) - 1), self.test_u16)?; //65535
+            assign_advice_or_fixed_with_u256(region, 10, &U256::from(1 << 13), self.test_u16)?; //8192
             self.selector.enable(region, 1)?;
             self.selector.enable(region, 9)?;
-            assign_advice_or_fixed(region, 1, &U256::from(1 << 10), self.test_u10)?; //1024
-            assign_advice_or_fixed(region, 9, &U256::from(1 << 9), self.test_u10)?; //512
-            assign_advice_or_fixed(region, 1, &U256::from((1 << 8) - 1), self.test_u8)?; //255
-            assign_advice_or_fixed(region, 3, &U256::from(1 << 5), self.test_u8)?; //32
+            assign_advice_or_fixed_with_u256(region, 1, &U256::from(1 << 10), self.test_u10)?; //1024
+            assign_advice_or_fixed_with_u256(region, 9, &U256::from(1 << 9), self.test_u10)?; //512
+            assign_advice_or_fixed_with_u256(region, 1, &U256::from((1 << 8) - 1), self.test_u8)?; //255
+            assign_advice_or_fixed_with_u256(region, 3, &U256::from(1 << 5), self.test_u8)?; //32
             Ok(())
         }
     }

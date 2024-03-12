@@ -135,7 +135,7 @@ macro_rules! test_super_circuit_short_bytecode {
             MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
         };
         use zkevm_circuits::super_circuit::SuperCircuit;
-        use zkevm_circuits::util::{geth_data_test, SubCircuit};
+        use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
@@ -148,7 +148,7 @@ macro_rules! test_super_circuit_short_bytecode {
             receipt_log,
         ));
 
-        let k = 9;
+        let k = log2_ceil(MAX_NUM_ROW);
         // let circuit = SuperCircuit::<Fr, 490, 480, 10, 10>::new_from_witness(&witness);
         let circuit: SuperCircuit<
             Fr,
@@ -191,7 +191,7 @@ macro_rules! test_super_circuit_short_bytecode {
             Default::default(),
         ));
 
-        let k = log2_ceil(501);
+        let k = log2_ceil(MAX_NUM_ROW);
         // let circuit = SuperCircuit::<Fr, 490, 480, 10, 10>::new_from_witness(&witness);
         let circuit: SuperCircuit<
             Fr,

@@ -94,7 +94,7 @@ mod test {
 
     use super::*;
     use crate::constant::MAX_NUM_ROW;
-    use crate::util::{assign_advice_or_fixed, geth_data_test, log2_ceil};
+    use crate::util::{assign_advice_or_fixed_with_u256, geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -187,12 +187,12 @@ mod test {
                 || "TEST",
                 |mut region| {
                     for (offset, row) in self.0.witness.public.iter().enumerate() {
-                        assign_advice_or_fixed(&mut region, offset, &(row.tag as u8).into(), config.tag)?;
-                        assign_advice_or_fixed(&mut region, offset, &row.tx_idx_or_number_diff.unwrap_or_default(), config.tx_idx_or_number_diff)?;
-                        assign_advice_or_fixed(&mut region, offset, &row.value_0.unwrap_or_default(), config.values[0])?;
-                        assign_advice_or_fixed(&mut region, offset, &row.value_1.unwrap_or_default(), config.values[1])?;
-                        assign_advice_or_fixed(&mut region, offset, &row.value_2.unwrap_or_default(), config.values[2])?;
-                        assign_advice_or_fixed(&mut region, offset, &row.value_3.unwrap_or_default(), config.values[3])?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &(row.tag as u8).into(), config.tag)?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.tx_idx_or_number_diff.unwrap_or_default(), config.tx_idx_or_number_diff)?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_0.unwrap_or_default(), config.values[0])?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_1.unwrap_or_default(), config.values[1])?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_2.unwrap_or_default(), config.values[2])?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_3.unwrap_or_default(), config.values[3])?;
                     }
                     Ok(())
                 },

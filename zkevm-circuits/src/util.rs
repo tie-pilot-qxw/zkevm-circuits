@@ -32,37 +32,74 @@ pub(crate) fn query_expression<F: Field, T>(
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Challenges<T = Challenge> {
     // randomness used for rlc in state circuit
-    rlc: T,
+    state_input: T,
+    evm_word: T,
+    keccak_input: T,
 }
 
 impl Challenges {
     /// Construct Challenges by allocating challenges in phases.
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         Self {
-            rlc: meta.challenge_usable_after(FirstPhase),
+            state_input: meta.challenge_usable_after(FirstPhase),
+            evm_word: meta.challenge_usable_after(FirstPhase),
+            keccak_input: meta.challenge_usable_after(FirstPhase),
         }
     }
     /// Return expression of challenges from ConstraintSystem
     pub fn exprs<F: Field>(&self, meta: &mut ConstraintSystem<F>) -> Challenges<Expression<F>> {
         Challenges {
-            rlc: query_expression(meta, |meta| meta.query_challenge(self.rlc)),
+            state_input: query_expression(meta, |meta| meta.query_challenge(self.state_input)),
+            evm_word: query_expression(meta, |meta| meta.query_challenge(self.evm_word)),
+            keccak_input: query_expression(meta, |meta| meta.query_challenge(self.keccak_input)),
         }
     }
     /// Return value of challenges from layouter
     pub fn values<F: Field>(&self, layouter: &mut impl Layouter<F>) -> Challenges<Value<F>> {
         Challenges {
-            rlc: layouter.get_challenge(self.rlc),
+            state_input: layouter.get_challenge(self.state_input),
+            evm_word: layouter.get_challenge(self.evm_word),
+            keccak_input: layouter.get_challenge(self.keccak_input),
+        }
+    }
+
+    pub fn mock_expr<F: Field>(
+        state_input: Expression<F>,
+        evm_word: Expression<F>,
+        keccak_input: Expression<F>,
+    ) -> Challenges<Expression<F>> {
+        Challenges {
+            state_input,
+            evm_word,
+            keccak_input,
         }
     }
 }
 impl<T: Clone> Challenges<T> {
-    /// Return challenge of rlc
-    pub fn rlc(&self) -> T {
-        self.rlc.clone()
+    /// Return challenge of state_input
+    pub fn state_input(&self) -> T {
+        self.state_input.clone()
+    }
+    /// Returns challenge of `evm_word`.
+    pub fn evm_word(&self) -> T {
+        self.evm_word.clone()
+    }
+
+    /// Returns challenge of `keccak_input`.
+    pub fn keccak_input(&self) -> T {
+        self.keccak_input.clone()
     }
     /// Return the challenges indexed by the challenge index
-    pub fn indexed(&self) -> [&T; 1] {
-        [&self.rlc]
+    pub fn indexed(&self) -> [&T; 3] {
+        [&self.state_input, &self.evm_word, &self.keccak_input]
+    }
+
+    pub(crate) fn mock(state_input: T, evm_word: T, keccak_input: T) -> Self {
+        Self {
+            state_input,
+            evm_word,
+            keccak_input,
+        }
     }
 }
 
@@ -79,7 +116,7 @@ impl<F: Field> Challenges<Expression<F>> {
     }
     /// Return power series
     pub fn rlc_powers_of_randomness<const S: usize>(&self) -> [Expression<F>; S] {
-        Self::powers_of(self.rlc.clone())
+        Self::powers_of(self.state_input.clone())
     }
 }
 
@@ -137,10 +174,25 @@ pub fn log2_ceil(n: usize) -> u32 {
     u32::BITS - (n as u32).leading_zeros() - (n & (n - 1) == 0) as u32
 }
 
-pub fn assign_advice_or_fixed<F: Field, C: Into<Column<Any>>>(
+pub fn assign_advice_or_fixed_with_u256<F: Field, C: Into<Column<Any>>>(
     region: &mut Region<'_, F>,
     offset: usize,
     value: &U256,
+    column: C,
+) -> Result<Cell, Error> {
+    let cell = assign_advice_or_fixed_with_value(
+        region,
+        offset,
+        Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
+        column,
+    )?;
+    Ok(cell)
+}
+
+pub fn assign_advice_or_fixed_with_value<F: Field, C: Into<Column<Any>>>(
+    region: &mut Region<'_, F>,
+    offset: usize,
+    value: Value<F>,
     column: C,
 ) -> Result<Cell, Error> {
     let column_any = column.into();
@@ -148,26 +200,26 @@ pub fn assign_advice_or_fixed<F: Field, C: Into<Column<Any>>>(
         Any::Advice(_) => region.assign_advice(
             || {
                 format!(
-                    "Column {:?} at offset={}, value={} ",
+                    "Column {:?} at offset={}, value={:?} ",
                     column_any, offset, value
                 )
             },
             Column::<Advice>::try_from(column_any)
                 .expect("should convert to Advice column successfully"),
             offset,
-            || Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
+            || value,
         )?,
         Any::Fixed => region.assign_fixed(
             || {
                 format!(
-                    "Column {:?} at offset={}, value={} ",
+                    "Column {:?} at offset={}, value:{:?}",
                     column_any, offset, value
                 )
             },
             Column::<Fixed>::try_from(column_any)
                 .expect("should convert to Fixed column successfully"),
             offset,
-            || Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&value))),
+            || value,
         )?,
         _ => {
             panic!("should not call this on Instance column")
@@ -175,7 +227,6 @@ pub fn assign_advice_or_fixed<F: Field, C: Into<Column<Any>>>(
     };
     Ok(assigned_cell.cell())
 }
-
 pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     let mut bytes = [0u8; 64];
     value.to_little_endian(&mut bytes[..32]);
@@ -397,6 +448,154 @@ impl<F: Field> ExpressionOutcome<F> {
             ExpressionOutcome::To(to) => Some(minuend - to),
             ExpressionOutcome::Any => None,
         }
+    }
+}
+
+/// Returns the random linear combination of the inputs.
+/// Encoding is done as follows: v_0 * R^0 + v_1 * R^1 + ...
+pub mod rlc {
+    use std::ops::{Add, Mul};
+
+    use crate::util::Expr;
+    use eth_types::Field;
+    use halo2_proofs::plonk::Expression;
+
+    pub(crate) fn expr<F: Field, E: Expr<F>>(expressions: &[E], randomness: E) -> Expression<F> {
+        if !expressions.is_empty() {
+            generic(expressions.iter().map(|e| e.expr()), randomness.expr())
+        } else {
+            0.expr()
+        }
+    }
+
+    pub(crate) fn value<'a, F: Field, I>(values: I, randomness: F) -> F
+    where
+        I: IntoIterator<Item = &'a u8>,
+        <I as IntoIterator>::IntoIter: DoubleEndedIterator,
+    {
+        let values = values
+            .into_iter()
+            .map(|v| F::from(*v as u64))
+            .collect::<Vec<F>>();
+        if !values.is_empty() {
+            generic(values, randomness)
+        } else {
+            F::ZERO
+        }
+    }
+
+    fn generic<V, I>(values: I, randomness: V) -> V
+    where
+        I: IntoIterator<Item = V>,
+        <I as IntoIterator>::IntoIter: DoubleEndedIterator,
+        V: Clone + Add<Output = V> + Mul<Output = V>,
+    {
+        let mut values = values.into_iter().rev();
+        let init = values.next().expect("values should not be empty");
+
+        values.fold(init, |acc, value| acc * randomness.clone() + value)
+    }
+}
+
+pub(crate) trait ConstrainBuilderCommon<F: Field> {
+    fn add_constraint(&mut self, name: &'static str, constraint: Expression<F>);
+
+    fn require_zero(&mut self, name: &'static str, constraint: Expression<F>) {
+        self.add_constraint(name, constraint);
+    }
+
+    fn require_equal(&mut self, name: &'static str, lhs: Expression<F>, rhs: Expression<F>) {
+        self.add_constraint(name, lhs - rhs);
+    }
+
+    fn require_boolean(&mut self, name: &'static str, value: Expression<F>) {
+        self.add_constraint(name, value.clone() * (1.expr() - value));
+    }
+
+    fn require_in_set(
+        &mut self,
+        name: &'static str,
+        value: Expression<F>,
+        set: Vec<Expression<F>>,
+    ) {
+        self.add_constraint(
+            name,
+            set.iter()
+                .fold(1.expr(), |acc, item| acc * (value.clone() - item.clone())),
+        );
+    }
+
+    fn add_constraints(&mut self, constraints: Vec<(&'static str, Expression<F>)>) {
+        for (name, constraint) in constraints {
+            self.add_constraint(name, constraint);
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct BaseConstraintBuilder<F> {
+    pub constraints: Vec<(&'static str, Expression<F>)>,
+    pub max_degree: usize,
+    pub condition: Option<Expression<F>>,
+}
+
+impl<F: Field> ConstrainBuilderCommon<F> for BaseConstraintBuilder<F> {
+    fn add_constraint(&mut self, name: &'static str, constraint: Expression<F>) {
+        let constraint = match &self.condition {
+            Some(condition) => condition.clone() * constraint,
+            None => constraint,
+        };
+        self.validate_degree(constraint.degree(), name);
+        self.constraints.push((name, constraint));
+    }
+}
+
+impl<F: Field> BaseConstraintBuilder<F> {
+    pub(crate) fn new(max_degree: usize) -> Self {
+        BaseConstraintBuilder {
+            constraints: Vec::new(),
+            max_degree,
+            condition: None,
+        }
+    }
+
+    pub(crate) fn condition<R>(
+        &mut self,
+        condition: Expression<F>,
+        constraint: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        debug_assert!(
+            self.condition.is_none(),
+            "Nested condition is not supported"
+        );
+        self.condition = Some(condition);
+        let ret: R = constraint(self);
+        self.condition = None;
+        ret
+    }
+
+    pub(crate) fn validate_degree(&self, degree: usize, name: &'static str) {
+        if self.max_degree > 0 {
+            debug_assert!(
+                degree <= self.max_degree,
+                "Expression {} degree too high: {} > {}",
+                name,
+                degree,
+                self.max_degree,
+            );
+        }
+    }
+
+    pub(crate) fn gate(&self, selector: Expression<F>) -> Vec<(&'static str, Expression<F>)> {
+        self.constraints
+            .clone()
+            .into_iter()
+            .map(|(name, constraint)| (name, selector.clone() * constraint))
+            .filter(|(name, constraint)| {
+                self.validate_degree(constraint.degree(), name);
+                true
+            })
+            .collect()
     }
 }
 

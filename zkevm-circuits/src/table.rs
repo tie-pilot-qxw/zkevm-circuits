@@ -7,7 +7,8 @@ use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberCo
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Expression, Fixed, Instance, Selector, VirtualCells,
+    Advice, Column, ConstraintSystem, Expression, Fixed, Instance, SecondPhase, Selector,
+    VirtualCells,
 };
 use halo2_proofs::poly::Rotation;
 use strum_macros::{AsRefStr, EnumVariantNames};
@@ -693,6 +694,52 @@ impl ExpTable {
     }
 }
 
+/// Keccak Table, used to verify keccak hashing from RLC'ed input.
+#[derive(Clone, Debug)]
+pub struct KeccakTable {
+    /// Byte array input as `RLC(reversed(input))`
+    pub input_rlc: Column<Advice>, // RLC of input bytes
+    /// Byte array input length
+    pub input_len: Column<Advice>,
+    /// RLC of the hash result
+    pub output_rlc: Column<Advice>, // RLC of hash of input bytes
+}
+
+impl KeccakTable {
+    /// Construct a new KeccakTable
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        Self {
+            input_len: meta.advice_column(),
+            input_rlc: meta.advice_column_in(SecondPhase),
+            output_rlc: meta.advice_column_in(SecondPhase),
+        }
+    }
+
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_input_rlc = meta.query_advice(self.input_rlc, Rotation::cur());
+        let table_input_len = meta.query_advice(self.input_len, Rotation::cur());
+        let table_output_rlc = meta.query_advice(self.output_rlc, Rotation::cur());
+        match entry {
+            LookupEntry::Keccak {
+                input_rlc,
+                input_len,
+                output_rlc,
+            } => {
+                vec![
+                    (input_rlc, table_input_rlc),
+                    (input_len, table_input_len),
+                    (output_rlc, table_output_rlc),
+                ]
+            }
+            _ => panic!("Not keccak lookup!"),
+        }
+    }
+}
+
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug, EnumVariantNames, AsRefStr)]
 pub enum LookupEntry<F> {
@@ -831,6 +878,14 @@ pub enum LookupEntry<F> {
         tag: Expression<F>,
         /// cnt == stamp of state + 1
         cnt: Expression<F>,
+    },
+    Keccak {
+        /// Byte array input as `RLC(reversed(input))`
+        input_rlc: Expression<F>,
+        /// Byte array input length
+        input_len: Expression<F>,
+        /// RLC of the hash result
+        output_rlc: Expression<F>,
     },
 }
 
@@ -996,7 +1051,7 @@ impl<F: Field> LookupEntry<F> {
 #[cfg(test)]
 pub(crate) mod test_util {
     use super::*;
-    use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
+    use crate::util::{assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes};
     use crate::witness::{bytecode, exp, Witness};
     use gadgets::is_zero::IsZeroInstruction;
     use halo2_proofs::circuit::{Region, Value};
@@ -1012,12 +1067,12 @@ pub(crate) mod test_util {
             row: &bytecode::Row,
         ) -> Result<(), Error> {
             let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
-            assign_advice_or_fixed(region, offset, &row.addr.unwrap_or_default(), self.addr)?;
-            assign_advice_or_fixed(region, offset, &row.bytecode.unwrap_or_default(), self.bytecode)?;
-            assign_advice_or_fixed(region, offset, &row.pc.unwrap_or_default(), self.pc)?;
-            assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
-            assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
-            assign_advice_or_fixed(region, offset, &row.cnt.unwrap_or_default(), self.cnt)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.addr.unwrap_or_default(), self.addr)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.bytecode.unwrap_or_default(), self.bytecode)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.pc.unwrap_or_default(), self.pc)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.cnt.unwrap_or_default(), self.cnt)?;
             cnt_is_zero.assign(
                 region,
                 offset,
@@ -1051,13 +1106,13 @@ pub(crate) mod test_util {
         ) -> Result<(), Error> {
             let tag = BinaryNumberChip::construct(self.tag);
             tag.assign(region, offset, &row.tag.unwrap_or_default())?;
-            assign_advice_or_fixed(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
-            assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
-            assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
-            assign_advice_or_fixed(region, offset, &row.call_id_contract_addr.unwrap_or_default(), self.call_id_contract_addr)?;
-            assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
-            assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
-            assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.call_id_contract_addr.unwrap_or_default(), self.call_id_contract_addr)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
             Ok(())
         }
         /// assign values from witness in a region, used for test
@@ -1082,11 +1137,31 @@ pub(crate) mod test_util {
         ) -> Result<(), Error> {
             let tag = BinaryNumberChip::construct(self.tag);
             tag.assign(region, offset, &row.tag)?;
-            assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
-            assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
-            assign_advice_or_fixed(region, offset, &row.operand_1_hi, self.operands[1][0])?;
-            assign_advice_or_fixed(region, offset, &row.operand_1_lo, self.operands[1][1])?;
-            assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &row.operand_0_hi,
+                self.operands[0][0],
+            )?;
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &row.operand_0_lo,
+                self.operands[0][1],
+            )?;
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &row.operand_1_hi,
+                self.operands[1][0],
+            )?;
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &row.operand_1_lo,
+                self.operands[1][1],
+            )?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
             Ok(())
         }
         /// assign values from witness in a region, used for test
@@ -1111,17 +1186,17 @@ pub(crate) mod test_util {
         ) -> Result<(), Error> {
             let src_tag = BinaryNumberChip::construct(self.src_tag);
             src_tag.assign(region, offset, &row.src_type)?;
-            assign_advice_or_fixed(region, offset, &row.src_id, self.src_id)?;
-            assign_advice_or_fixed(region, offset, &row.src_pointer, self.src_pointer)?;
-            assign_advice_or_fixed(region, offset, &row.src_stamp, self.src_stamp)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.src_id, self.src_id)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.src_pointer, self.src_pointer)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.src_stamp, self.src_stamp)?;
             let dst_tag = BinaryNumberChip::construct(self.dst_tag);
             dst_tag.assign(region, offset, &row.dst_type)?;
-            assign_advice_or_fixed(region, offset, &row.dst_id, self.dst_id)?;
-            assign_advice_or_fixed(region, offset, &row.dst_pointer, self.dst_pointer)?;
-            assign_advice_or_fixed(region, offset, &row.dst_stamp, self.dst_stamp)?;
-            assign_advice_or_fixed(region, offset, &row.cnt, self.len)?;
-            assign_advice_or_fixed(region, offset, &row.cnt, self.acc)?;
-            assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.dst_id, self.dst_id)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.dst_pointer, self.dst_pointer)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.dst_stamp, self.dst_stamp)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.len)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.acc)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
             Ok(())
         }
         /// assign values from witness in a region, used for test
@@ -1146,10 +1221,10 @@ pub(crate) mod test_util {
         ) -> Result<(), Error> {
             let tag = BinaryNumberChip::construct(self.tag);
             tag.assign(region, offset, &row.tag)?;
-            assign_advice_or_fixed(region, offset, &row.acc_0, self.acc_vec[0])?;
-            assign_advice_or_fixed(region, offset, &row.acc_1, self.acc_vec[1])?;
-            assign_advice_or_fixed(region, offset, &row.acc_2, self.acc_vec[2])?;
-            assign_advice_or_fixed(region, offset, &row.sum_2, self.sum_2)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.acc_0, self.acc_vec[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.acc_1, self.acc_vec[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.acc_2, self.acc_vec[2])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.sum_2, self.sum_2)?;
             Ok(())
         }
         /// assign values from witness in a region, used for test
@@ -1172,12 +1247,12 @@ pub(crate) mod test_util {
             offset: usize,
             row: &exp::Row,
         ) -> Result<(), Error> {
-            assign_advice_or_fixed(region, offset, &row.base_hi, self.base[0])?;
-            assign_advice_or_fixed(region, offset, &row.base_lo, self.base[1])?;
-            assign_advice_or_fixed(region, offset, &row.index_hi, self.index[0])?;
-            assign_advice_or_fixed(region, offset, &row.index_lo, self.index[1])?;
-            assign_advice_or_fixed(region, offset, &row.power_hi, self.power[0])?;
-            assign_advice_or_fixed(region, offset, &row.power_lo, self.power[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.base_hi, self.base[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.base_lo, self.base[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.index_hi, self.index[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.index_lo, self.index[1])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.power_hi, self.power[0])?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.power_lo, self.power[1])?;
             Ok(())
         }
         /// assign values from witness in a region, used for test

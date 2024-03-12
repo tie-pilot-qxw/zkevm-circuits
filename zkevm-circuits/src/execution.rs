@@ -2192,7 +2192,7 @@ mod test {
             use crate::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS};
             use crate::execution::ExecutionGadgets;
             use crate::table::{BitwiseTable, BytecodeTable, ExpTable, FixedTable, PublicTable, StateTable, ArithmeticTable, CopyTable};
-            use crate::util::{assign_advice_or_fixed, convert_u256_to_64_bytes};
+            use crate::util::{assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes};
             use eth_types::evm_types::{OpcodeId, Stack};
             #[allow(unused_imports)]
             use eth_types::{GethExecStep, U256};
@@ -2317,34 +2317,34 @@ mod test {
                             for (offset, row) in self.witness.core.iter().enumerate() {
                                 let cnt_is_zero: IsZeroWithRotationChip<F> =
                                     IsZeroWithRotationChip::construct(config.cnt_is_zero);
-                                assign_advice_or_fixed(
+                                assign_advice_or_fixed_with_u256(
                                     &mut region,
                                     offset,
                                     &row.tx_idx,
                                     config.tx_idx,
                                 )?;
-                                assign_advice_or_fixed(
+                                assign_advice_or_fixed_with_u256(
                                     &mut region,
                                     offset,
                                     &row.call_id,
                                     config.call_id,
                                 )?;
-                                assign_advice_or_fixed(
+                                assign_advice_or_fixed_with_u256(
                                     &mut region,
                                     offset,
                                     &row.code_addr,
                                     config.code_addr,
                                 )?;
-                                assign_advice_or_fixed(&mut region, offset, &row.pc, config.pc)?;
-                                assign_advice_or_fixed(
+                                assign_advice_or_fixed_with_u256(&mut region, offset, &row.pc, config.pc)?;
+                                assign_advice_or_fixed_with_u256(
                                     &mut region,
                                     offset,
                                     &row.opcode.as_u8().into(),
                                     config.opcode,
                                 )?;
-                                assign_advice_or_fixed(&mut region, offset, &row.cnt, config.cnt)?;
+                                assign_advice_or_fixed_with_u256(&mut region, offset, &row.cnt, config.cnt)?;
                                 for i in 0 .. NUM_VERS {
-                                    assign_advice_or_fixed(&mut region,offset,&row[i].unwrap_or_default(),config.vers[i])?;
+                                    assign_advice_or_fixed_with_u256(&mut region,offset,&row[i].unwrap_or_default(),config.vers[i])?;
                                 };
                                 cnt_is_zero.assign(
                                     &mut region,

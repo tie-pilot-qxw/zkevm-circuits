@@ -3,7 +3,8 @@ pub(crate) mod operation;
 use crate::arithmetic_circuit::operation::{get_every_operation_gadgets, OperationGadget};
 use crate::table::ArithmeticTable;
 use crate::util::{
-    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+    assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges, SubCircuit,
+    SubCircuitConfig,
 };
 use crate::witness::{arithmetic, Witness};
 use arithmetic::{Row, Tag};
@@ -53,19 +54,19 @@ impl<F: Field> ArithmeticCircuitConfig<F> {
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero);
         let tag = BinaryNumberChip::construct(self.tag);
-        assign_advice_or_fixed(region, offset, &row.cnt, self.cnt)?;
-        assign_advice_or_fixed(region, offset, &row.operand_0_hi, self.operands[0][0])?;
-        assign_advice_or_fixed(region, offset, &row.operand_0_lo, self.operands[0][1])?;
-        assign_advice_or_fixed(region, offset, &row.operand_1_hi, self.operands[1][0])?;
-        assign_advice_or_fixed(region, offset, &row.operand_1_lo, self.operands[1][1])?;
-        assign_advice_or_fixed(region, offset, &row.u16_0, self.u16s[0])?;
-        assign_advice_or_fixed(region, offset, &row.u16_1, self.u16s[1])?;
-        assign_advice_or_fixed(region, offset, &row.u16_2, self.u16s[2])?;
-        assign_advice_or_fixed(region, offset, &row.u16_3, self.u16s[3])?;
-        assign_advice_or_fixed(region, offset, &row.u16_4, self.u16s[4])?;
-        assign_advice_or_fixed(region, offset, &row.u16_5, self.u16s[5])?;
-        assign_advice_or_fixed(region, offset, &row.u16_6, self.u16s[6])?;
-        assign_advice_or_fixed(region, offset, &row.u16_7, self.u16s[7])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.operand_0_hi, self.operands[0][0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.operand_0_lo, self.operands[0][1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.operand_1_hi, self.operands[1][0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.operand_1_lo, self.operands[1][1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_0, self.u16s[0])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_1, self.u16s[1])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_2, self.u16s[2])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_3, self.u16s[3])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_4, self.u16s[4])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_5, self.u16s[5])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_6, self.u16s[6])?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.u16_7, self.u16s[7])?;
         cnt_is_zero.assign(
             region,
             offset,

@@ -1,6 +1,7 @@
 use crate::table::{BytecodeTable, FixedTable};
 use crate::util::{
-    assign_advice_or_fixed, convert_u256_to_64_bytes, Challenges, SubCircuit, SubCircuitConfig,
+    assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges, SubCircuit,
+    SubCircuitConfig,
 };
 use crate::witness::bytecode::Row;
 use crate::witness::Witness;
@@ -344,33 +345,38 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
         let addr_is_zero = IsZeroWithRotationChip::construct(self.addr_is_zero.clone());
 
-        assign_advice_or_fixed(region, offset, &row_cur.pc.unwrap_or_default(), self.pc)?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(region, offset, &row_cur.pc.unwrap_or_default(), self.pc)?;
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &row_cur.value_hi.unwrap_or_default(),
             self.value_hi,
         )?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &row_cur.value_lo.unwrap_or_default(),
             self.value_lo,
         )?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &row_cur.acc_hi.unwrap_or_default(),
             self.acc_hi,
         )?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &row_cur.acc_lo.unwrap_or_default(),
             self.acc_lo,
         )?;
-        assign_advice_or_fixed(region, offset, &row_cur.cnt.unwrap_or_default(), self.cnt)?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row_cur.cnt.unwrap_or_default(),
+            self.cnt,
+        )?;
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &row_cur.is_high.unwrap_or_default(),
@@ -461,8 +467,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     ) -> Result<(), Error> {
         // assign padding rows
         for offset in 0..num_padding_begin {
-            assign_advice_or_fixed(region, offset, &U256::zero(), self.addr)?;
-            assign_advice_or_fixed(region, offset, &U256::zero(), self.bytecode)?;
+            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.addr)?;
+            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.bytecode)?;
         }
         // use permutation to copy bytecode from instance to advice
         for offset in 0..max_codesize {
@@ -484,8 +490,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             )?;
         }
         for offset in num_padding_begin + max_codesize..num_row_incl_padding {
-            assign_advice_or_fixed(region, offset, &U256::zero(), self.addr)?;
-            assign_advice_or_fixed(region, offset, &U256::zero(), self.bytecode)?;
+            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.addr)?;
+            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.bytecode)?;
         }
         Ok(())
     }

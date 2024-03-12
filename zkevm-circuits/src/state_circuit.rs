@@ -4,7 +4,7 @@ pub mod ordering;
 use self::ordering::{Config as OrderingConfig, LIMB_SIZE};
 use crate::constant::LOG_NUM_STATE_TAG;
 use crate::table::{FixedTable, StateTable};
-use crate::util::{assign_advice_or_fixed, Challenges, SubCircuit, SubCircuitConfig};
+use crate::util::{assign_advice_or_fixed_with_u256, Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::state::{Row, Tag};
 use crate::witness::Witness;
 use eth_types::{Field, U256};
@@ -78,12 +78,12 @@ pub struct StateCircuitConfig<F> {
     _marker: PhantomData<F>,
 }
 
-pub struct StateCircuitConfigArgs<F: Field> {
+pub struct StateCircuitConfigArgs {
     pub(crate) q_enable: Selector,
     pub(crate) state_table: StateTable,
     pub(crate) fixed_table: FixedTable,
     /// Challenges
-    pub challenges: Challenges<Expression<F>>,
+    pub challenges: Challenges,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -96,7 +96,7 @@ pub struct SortedElements {
 }
 
 impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
-    type ConfigArgs = StateCircuitConfigArgs<F>;
+    type ConfigArgs = StateCircuitConfigArgs;
 
     fn new(
         meta: &mut ConstraintSystem<F>,
@@ -119,6 +119,8 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             cnt,
         } = state_table;
 
+        let challenges_expr = challenges.exprs(meta);
+
         // tag | mpi_call_id | mpi_pointer_hi | mpi_pointer_lo | mpi_stamp
         // new sorted element with Advice that will be sorted by the field in state row;
         // 示例：call_id_contract_addr有160bit，所以拆分为10个limb，申请了10个Advice，每个Advice填写一个limb
@@ -139,7 +141,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
         // 因为state circuit中填入的rows已经被提前排好了序，所以可以使用排序规则进行约束，
         // 正确排序的state rows可以通过这些约束。
         let power_of_randomness: [Expression<F>; LIMB_SIZE - 1] =
-            challenges.rlc_powers_of_randomness();
+            challenges_expr.rlc_powers_of_randomness();
 
         let ordering_config =
             OrderingConfig::new(meta, q_enable, keys, fixed_table, power_of_randomness);
@@ -383,15 +385,20 @@ impl<F: Field> StateCircuitConfig<F> {
         offset: usize,
         cnt: U256,
     ) -> Result<(), Error> {
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.stamp)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.value_hi)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.value_lo)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.pointer_hi)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.pointer_lo)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.call_id_contract_addr)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.is_first_access)?;
-        assign_advice_or_fixed(region, offset, &U256::zero(), self.is_write)?;
-        assign_advice_or_fixed(region, offset, &cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.stamp)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.value_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.value_lo)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.pointer_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.pointer_lo)?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.call_id_contract_addr,
+        )?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.is_first_access)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.is_write)?;
+        assign_advice_or_fixed_with_u256(region, offset, &cnt, self.cnt)?;
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &Tag::EndPadding)?;
 
@@ -408,13 +415,13 @@ impl<F: Field> StateCircuitConfig<F> {
         let first_different_limb =
             BinaryNumberChip::construct(self.ordering_config.first_different_limb);
         first_different_limb.assign(region, offset, &LimbIndex::Stamp0)?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &U256::zero(),
             self.ordering_config.limb_difference,
         )?;
-        assign_advice_or_fixed(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
             &U256::zero(),
@@ -434,14 +441,14 @@ impl<F: Field> StateCircuitConfig<F> {
     ) -> Result<(), Error> {
         let tag = BinaryNumberChip::construct(self.tag);
         tag.assign(region, offset, &row.tag.unwrap_or_default())?;
-        assign_advice_or_fixed(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
-        assign_advice_or_fixed(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
-        assign_advice_or_fixed(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
-        assign_advice_or_fixed(region, offset, &row.call_id_contract_addr.unwrap_or_default(), self.call_id_contract_addr)?;
-        assign_advice_or_fixed(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
-        assign_advice_or_fixed(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
-        assign_advice_or_fixed(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
-        assign_advice_or_fixed(region, offset, &cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.stamp.unwrap_or_default(), self.stamp)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.value_hi.unwrap_or_default(), self.value_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.value_lo.unwrap_or_default(), self.value_lo)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.call_id_contract_addr.unwrap_or_default(), self.call_id_contract_addr)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.pointer_hi.unwrap_or_default(), self.pointer_hi)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.pointer_lo.unwrap_or_default(), self.pointer_lo)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.is_write.unwrap_or_default(), self.is_write)?;
+        assign_advice_or_fixed_with_u256(region, offset, &cnt, self.cnt)?;
         // Assign value to the column of elements to be sorted
         self.sort_keys
             .call_id_or_address
@@ -490,7 +497,7 @@ impl<F: Field> StateCircuitConfig<F> {
                 // If the location by pointer is accessed for the first time, set the
                 // is_first_access column of the current row to 1, otherwise it is 0.
                 #[rustfmt::skip]
-                assign_advice_or_fixed(
+                assign_advice_or_fixed_with_u256(
                     region,
                     i,
                     &U256::from(if is_first_access { 1 } else { 0 }),
@@ -614,7 +621,6 @@ mod test {
             let state_table = StateTable::construct(meta, q_enable);
             let fixed_table = FixedTable::construct(meta);
             let challenges = Challenges::construct(meta);
-            let challenges_exprs = challenges.exprs(meta);
             StateTestCircuitConfig {
                 state_circuit: StateCircuitConfig::new(
                     meta,
@@ -622,7 +628,7 @@ mod test {
                         q_enable,
                         state_table,
                         fixed_table,
-                        challenges: challenges_exprs,
+                        challenges,
                     },
                 ),
                 fixed_circuit: FixedCircuitConfig::new(
