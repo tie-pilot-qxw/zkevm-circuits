@@ -7,7 +7,7 @@ pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
     Advice, Any, Challenge, Column, ConstraintSystem, Error, Expression, FirstPhase, Fixed,
-    VirtualCells,
+    SecondPhase, VirtualCells,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -40,6 +40,8 @@ pub struct Challenges<T = Challenge> {
 impl Challenges {
     /// Construct Challenges by allocating challenges in phases.
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        #[cfg(test)]
+        let _dummy = meta.advice_column_in(SecondPhase);
         Self {
             state_input: meta.challenge_usable_after(FirstPhase),
             evm_word: meta.challenge_usable_after(FirstPhase),
