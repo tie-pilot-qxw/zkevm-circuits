@@ -19,6 +19,7 @@ const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
 const STACK_POINTER_DELTA: i32 = -2;
 const PC_DELTA: u64 = 1;
+const N_IS_ZERO_COL_IDX: usize = 29;
 const HI_INV_COL_IDX: usize = 30;
 const LO_INV_COL_IDX: usize = 31;
 
@@ -38,13 +39,13 @@ pub struct MulmodGadget<F: Field> {
 /// STATE3 is r_lo, r_hi
 /// cnt == 2, vers_30 is n_hi_inv
 /// cnt == 2, vers_31 is n_lo_inv
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col |  8 col   |
-/// +---+-------+-------+-------+----------+
-/// | 2 | ARITH  |      |       | n_inv(2) |
-/// | 1 | STATE | STATE | STATE |  STATE   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// +---+-------+-------+-------+----------------------+
+/// |cnt| 8 col | 8 col | 8 col |  8 col               |
+/// +---+-------+-------+-------+----------------------+
+/// | 2 | ARITH  |      |       | n_is_zero | n_inv(2) |
+/// | 1 | STATE | STATE | STATE |  STATE               |
+/// | 0 | DYNA_SELECTOR   | AUX                        |
+/// +---+-------+-------+-------+----------------------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for MulmodGadget<F>
 {
@@ -117,15 +118,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // We need one condition to be 1 when n==0 so that we can accurately construct the constraint.
         let hi_inv = meta.query_advice(config.vers[HI_INV_COL_IDX], Rotation(-2));
         let lo_inv = meta.query_advice(config.vers[LO_INV_COL_IDX], Rotation(-2));
+        let n_is_zero = meta.query_advice(config.vers[N_IS_ZERO_COL_IDX], Rotation(-2));
 
         let n_is_zero_hi = SimpleIsZero::new(&arithmetic_operands[4], &hi_inv, String::from("hi"));
         let n_is_zero_lo = SimpleIsZero::new(&arithmetic_operands[5], &lo_inv, String::from("lo"));
 
-        // if n == 0, then n_is_zero == 1;
-        let n_is_zero = n_is_zero_hi.expr() * n_is_zero_lo.expr();
-
         constraints.extend(n_is_zero_hi.get_constraints());
         constraints.extend(n_is_zero_lo.get_constraints());
+
+        constraints.extend([(
+            "n is zero".into(),
+            n_is_zero.clone() - n_is_zero_hi.expr() * n_is_zero_lo.expr(),
+        )]);
 
         // In the following constraints, we still use the form of a_lo, a_hi for constraints instead of a_lo + a_hi,
         // because (a_lo+a_hi)*condition is a dangerous behavior and can be easily cracked by adversaries.
@@ -209,6 +213,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let n_lo = F::from_u128(n.low_u128());
         let lo_inv = U256::from_little_endian(n_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
         let hi_inv = U256::from_little_endian(n_hi.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        assign_or_panic!(core_row_2[N_IS_ZERO_COL_IDX], U256::from(n.is_zero() as u8));
         assign_or_panic!(core_row_2[HI_INV_COL_IDX], hi_inv);
         assign_or_panic!(core_row_2[LO_INV_COL_IDX], lo_inv);
 
