@@ -598,14 +598,13 @@ mod test {
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
-    use halo2_proofs::plonk::{Circuit, SecondPhase};
+    use halo2_proofs::plonk::Circuit;
 
     #[derive(Clone)]
     pub struct StateTestCircuitConfig<F: Field> {
         pub state_circuit: StateCircuitConfig<F>,
         pub fixed_circuit: FixedCircuitConfig<F>,
         pub challenges: Challenges,
-        pub dummy_column: Column<Advice>,
     }
 
     #[derive(Clone, Default, Debug)]
@@ -636,7 +635,6 @@ mod test {
                     FixedCircuitConfigArgs { fixed_table },
                 ),
                 challenges,
-                dummy_column: meta.advice_column_in(SecondPhase),
             }
         }
     }
