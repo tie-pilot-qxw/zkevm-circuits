@@ -482,10 +482,6 @@ impl<F: Field> StateCircuitConfig<F> {
             }
             self.assign_row(region, offset, row, cnt)?;
         }
-        // pad the rest rows
-        for offset in witness.state.len()..num_row_incl_padding {
-            self.assign_padding_row(region, offset, cnt)?;
-        }
         // 1. assign ordering with curr and prev state.
         // 2. if and only if the difference with two status not in Stamp*,
         // indicates that the location by the pointer is accessed for the first time,
@@ -504,6 +500,11 @@ impl<F: Field> StateCircuitConfig<F> {
                     self.is_first_access,
                 )?;
             }
+        }
+        // pad the rest rows
+        // also assign columns in ordering_config
+        for offset in witness.state.len()..num_row_incl_padding {
+            self.assign_padding_row(region, offset, cnt)?;
         }
         Ok(())
     }

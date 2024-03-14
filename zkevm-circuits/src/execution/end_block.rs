@@ -82,8 +82,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
             (
-                "last stamp in state circuit + 1 = cnt in lookup".into(),
-                state_stamp + 1.expr() - cnt,
+                "last stamp in state circuit = cnt in lookup".into(),
+                state_stamp - cnt,
             ),
             (
                 "last tag in state circuit = end padding".into(),
@@ -129,16 +129,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
         core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockLogNum));
 
-        let cnt = U256::from(current_state.state_stamp + 1);
         let state_circuit_end_padding = state::Row {
             tag: Some(Tag::EndPadding),
-            stamp: Some(cnt),
             ..Default::default()
         };
 
         // 记录总共使用的状态state状态行数
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_stamp_cnt_lookups(cnt);
+        core_row_1.insert_stamp_cnt_lookups(current_state.state_stamp.into());
 
         // core电路写入 执行标识
         let core_row_0 = ExecutionState::END_BLOCK.into_exec_state_core_row(
