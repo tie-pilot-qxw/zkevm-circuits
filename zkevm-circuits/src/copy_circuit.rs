@@ -976,7 +976,7 @@ mod test {
             // when feature `no_fixed_lookup` is on, we don't do synthesize
             #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit
-                .synthesize_sub(&config.fixed_circuit, &mut layouter)?;
+                .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
             Ok(())
         }
     }
