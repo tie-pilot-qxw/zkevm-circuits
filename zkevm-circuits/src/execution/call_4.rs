@@ -168,7 +168,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state is CALL_3
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::CALL_3], NUM_ROW, vec![]),
+            ExecStateTransition::new(vec![ExecutionState::CALL_3], NUM_ROW, vec![], None),
         ));
         constraints
     }

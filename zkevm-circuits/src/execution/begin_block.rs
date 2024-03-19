@@ -84,6 +84,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 vec![],
                 NUM_ROW,
                 vec![(ExecutionState::BEGIN_TX_1, begin_tx_1::NUM_ROW, None)],
+                None,
             ),
         ));
         constraints

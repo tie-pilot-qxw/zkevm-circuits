@@ -1253,9 +1253,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     // get_exec_state_constraints usage:
     // if state_transition.prev_states.len() > 0,
     //    prev_constraints: sum(prev_cond_expr) -1.expr()
-    // if state_transition.next_stats.len() > 0 , next_constraints:
-    //    sum(cond*next_cnt_is_zero*next_selector) - 1.expr(),if has cond;
-    //    else is : sum(next_cnt_is_zero*next_selector) - 1.expr
+    // if state_transition.next_stats.len() > 0 && state_transition.next_states_cond.len() > 0 , next_constraints:
+    //    sum(cond*(next_cnt_is_zero*next_selector-1))),
+    // if has cond,cond must be 1 or 0
+    // if state_transition.next_stats.len() > 0 && state_transition.next_states_cond.len()== 0 , next_constraints:
+    //    sum(next_cnt_is_zero*next_selector) - 1.expr
     pub(crate) fn get_exec_state_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -1264,7 +1266,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         // prev constraints
         let mut prev_cond_expr = 0.expr();
-        let mut prev_state_len = 0;
+        let prev_state_len = state_transition.prev_states.len();
         for prev_state in state_transition.prev_states {
             prev_cond_expr = prev_cond_expr
                 + self.execution_state_selector.selector(
@@ -1272,33 +1274,59 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     prev_state as usize,
                     Rotation(-1 * state_transition.current_gadget_num_rows as i32),
                 );
-            prev_state_len = prev_state_len + 1;
         }
         if prev_state_len > 0 {
             constraints.push(("prev state constraints".into(), prev_cond_expr - 1.expr()));
         }
         // next constraints
         let mut next_cond_expr = 0.expr();
-        let mut next_state_len = 0;
-        for (next_state, num_row, cond) in state_transition.next_states {
-            let next_cnt_is_zero = self.cnt_is_zero.expr_at(meta, Rotation(num_row as i32));
-            let mut temp_expr = next_cnt_is_zero
+        let next_state_len = state_transition.next_states.len();
+        let (next_states_cond, next_states_cond_len) = match state_transition.next_states_cond {
+            Some(cond) => {
+                let cond_len = cond.len();
+                // cond_len 必须等于next_states的长度
+                assert!(next_state_len == cond_len);
+                (cond, cond_len)
+            }
+            None => (vec![], 0),
+        };
+
+        for (state_index, (next_state, num_row, next_state_num_row_cond)) in
+            state_transition.next_states.iter().enumerate()
+        {
+            let next_cnt_is_zero = self.cnt_is_zero.expr_at(meta, Rotation(*num_row as i32));
+            let mut cnt_is_zero_plus_selector_expr = next_cnt_is_zero
                 * self.execution_state_selector.selector(
                     meta,
-                    next_state as usize,
-                    Rotation(num_row as i32),
+                    *next_state as usize,
+                    Rotation(*num_row as i32),
                 );
-            temp_expr = match cond {
-                Some(cond_expr) => cond_expr * temp_expr,
-                None => temp_expr,
+            cnt_is_zero_plus_selector_expr = match next_state_num_row_cond {
+                Some(state_num_row) => {
+                    constraints.push((
+                        "next state selector constraints".into(),
+                        cnt_is_zero_plus_selector_expr.clone() - state_num_row.clone(),
+                    ));
+                    state_num_row.clone()
+                }
+                None => cnt_is_zero_plus_selector_expr,
             };
 
-            next_cond_expr = next_cond_expr + temp_expr;
-            next_state_len = next_state_len + 1;
+            let current_state_cond_expr = if next_states_cond_len > 0 {
+                next_states_cond.get(state_index).unwrap().clone()
+                    * (cnt_is_zero_plus_selector_expr - 1.expr())
+            } else {
+                cnt_is_zero_plus_selector_expr
+            };
+            next_cond_expr = next_cond_expr + current_state_cond_expr;
         }
-        let next_constraints = next_cond_expr.clone() - 1.expr();
+        let next_state_constraints = if next_states_cond_len > 0 {
+            next_cond_expr
+        } else {
+            next_cond_expr - 1.expr()
+        };
         if next_state_len > 0 {
-            constraints.push(("next state constraints".into(), next_constraints));
+            constraints.push(("next state constraints".into(), next_state_constraints));
         }
         constraints
     }
@@ -1607,19 +1635,25 @@ pub(crate) struct ExecStateTransition<F> {
     pub(crate) prev_states: Vec<ExecutionState>,
     // current_gadget_num_rows current gadget num row in core
     pub(crate) current_gadget_num_rows: usize,
-    // next_states ,vector of (next gadget state ,next gadget num row in core)
+    // next_states ,vector of (next gadget state ,next gadget num row in core,
+    // next gadget selector multiply next gadget cnt is zero),the option is used for
+    // some gadget, which has next_states_cond ,to lower the degree
     pub(crate) next_states: Vec<(ExecutionState, usize, Option<Expression<F>>)>,
+    // next state cond vector if exists, length must equal next_states's length
+    pub(crate) next_states_cond: Option<Vec<Expression<F>>>,
 }
 impl<F: Field> ExecStateTransition<F> {
     pub fn new(
         prev_states: Vec<ExecutionState>,
         current_gadget_num_rows: usize,
         next_states: Vec<(ExecutionState, usize, Option<Expression<F>>)>,
+        next_states_cond: Option<Vec<Expression<F>>>,
     ) -> Self {
         Self {
             prev_states,
             current_gadget_num_rows,
             next_states,
+            next_states_cond,
         }
     }
 }

@@ -184,6 +184,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 NUM_ROW,
                 // 约束下一个状态为begin_tx_2
                 vec![(ExecutionState::BEGIN_TX_2, begin_tx_2::NUM_ROW, None)],
+                None,
             ),
         ));
         constraints

@@ -169,7 +169,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state is END_CALL
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::END_CALL], NUM_ROW, vec![]),
+            ExecStateTransition::new(vec![ExecutionState::END_CALL], NUM_ROW, vec![], None),
         ));
         // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
