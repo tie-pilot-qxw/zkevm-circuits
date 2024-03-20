@@ -655,7 +655,6 @@ mod test {
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             let challenges = config.challenges.values(&mut layouter);
-            println!("test-state-circuit-challenge {:?}", challenges);
             self.state_circuit
                 .synthesize_sub(&config.state_circuit, &mut layouter, &challenges)?;
             // when feature `no_fixed_lookup` is on, we don't do synthesize
@@ -718,6 +717,11 @@ mod test {
                     pointer_lo: Some(9.into()),
                     stamp: Some(11.into()),
                     is_write: Some(1.into()),
+                    ..Default::default()
+                },
+                // must have padding row
+                Row {
+                    tag: Some(Tag::EndPadding),
                     ..Default::default()
                 },
             ],

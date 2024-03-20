@@ -187,8 +187,7 @@ impl Config {
                     constraints.push(
                         selector.clone()
                             * first_different_limb.value_equals(i, Rotation::cur())(meta)
-                            * rlc_expression
-                            * (1.expr() - tag.clone()),
+                            * rlc_expression,
                     )
                 }
                 constraints
@@ -214,8 +213,7 @@ impl Config {
                 constraints.push(
                     selector.clone()
                         * first_different_limb.value_equals(i, Rotation::cur())(meta)
-                        * (limb_difference.clone() - cur_limb + prev_limb)
-                        * (1.expr() - tag.clone()),
+                        * (limb_difference.clone() - cur_limb + prev_limb),
                 )
             }
 
