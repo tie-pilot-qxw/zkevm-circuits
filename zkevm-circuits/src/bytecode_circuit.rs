@@ -144,8 +144,12 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             },
             _addr_diff_inv,
         );
-        let addr_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), addr);
+        let addr_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            addr,
+            None,
+        );
         // we need to copy (equality) from public input to advice column
         meta.enable_equality(instance_addr);
         meta.enable_equality(addr);

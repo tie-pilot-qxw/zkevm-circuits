@@ -160,8 +160,13 @@ impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
         let ArithmeticTable { tag, operands, cnt } = arithmetic_table;
         // init columns
         let u16s = std::array::from_fn(|_| meta.advice_column());
-        let cnt_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+        let is_not_zero = Some(meta.advice_column());
+        let cnt_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            cnt,
+            is_not_zero,
+        );
         let config = Self {
             q_enable,
             tag,

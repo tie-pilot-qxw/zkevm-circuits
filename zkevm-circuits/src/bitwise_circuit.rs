@@ -97,8 +97,12 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
         } = bitwise_table;
         let bytes: [Column<Advice>; NUM_OPERAND] = std::array::from_fn(|_| meta.advice_column());
         let cnt = meta.advice_column();
-        let cnt_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+        let cnt_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            cnt,
+            None,
+        );
 
         // construct config object
         let config = Self {

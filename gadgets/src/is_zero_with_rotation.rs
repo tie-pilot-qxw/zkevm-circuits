@@ -23,15 +23,22 @@ pub struct IsZeroWithRotationConfig<F> {
     pub value: Column<Advice>,
     /// Modular inverse of the value. Need to assign it
     pub value_inv: Column<Advice>,
+    /// The result, which is 0 if the value is zero, and 1 otherwise
+    pub is_not_zero: Option<Column<Advice>>,
+
     _marker: PhantomData<F>,
 }
 
 impl<F: Field> IsZeroWithRotationConfig<F> {
     /// Returns the is_zero expression at rotation
     pub fn expr_at(&self, meta: &mut VirtualCells<F>, at: Rotation) -> Expression<F> {
-        let value = meta.query_advice(self.value, at);
-        let value_inv = meta.query_advice(self.value_inv, at);
-        1.expr() - value * value_inv
+        if let Some(is_not_zero) = self.is_not_zero {
+            1.expr() - meta.query_advice(is_not_zero, at)
+        } else {
+            let value = meta.query_advice(self.value, at);
+            let value_inv = meta.query_advice(self.value_inv, at);
+            1.expr() - value * value_inv
+        }
     }
 
     /// Annotates columns of this gadget embedded within a circuit region.
@@ -57,6 +64,7 @@ impl<F: Field> IsZeroWithRotationChip<F> {
         meta: &mut ConstraintSystem<F>,
         q_enable: impl FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>,
         value: Column<Advice>,
+        is_not_zero: Option<Column<Advice>>,
     ) -> IsZeroWithRotationConfig<F> {
         let value_inv = meta.advice_column();
 
@@ -65,22 +73,29 @@ impl<F: Field> IsZeroWithRotationChip<F> {
 
             let value= meta.query_advice(value, Rotation::cur());
             let value_inv = meta.query_advice(value_inv, Rotation::cur());
-
-            let is_zero_expression = 1.expr() - value.clone() * value_inv;
+            let is_not_zero_expression = value.clone() * value_inv.clone();
 
             // We wish to satisfy the below constrain for the following cases:
-            //
             // 1. value == 0
-            // 2. if value != 0, require is_zero_expression == 0 => value_inv == value.invert()
-            [q_enable * value * is_zero_expression]
+            // 2. if value != 0, require is_not_zero == 1 => value * value.invert() == 1
+            // 3. is_not_zero == value * value.invert()
+            if let Some(v) = is_not_zero {
+                let is_not_zero = meta.query_advice(v, Rotation::cur());
+                vec![(q_enable.clone() * value.clone() *  (1.expr() - is_not_zero.clone())),
+                    (q_enable.clone() * (is_not_zero_expression.clone() - is_not_zero.clone()))]
+            } else {
+                vec![(q_enable.clone() * value.clone() *  (1.expr() - is_not_zero_expression.clone()))]
+            }
         });
 
         IsZeroWithRotationConfig::<F> {
             value,
             value_inv,
+            is_not_zero,
             _marker: PhantomData,
         }
     }
+
 
     /// Given an `IsZeroConfig`, construct the chip.
     pub fn construct(config: IsZeroWithRotationConfig<F>) -> Self {
@@ -96,7 +111,7 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroWithRotationChip<F> {
         value: Value<F>,
     ) -> Result<(), Error> {
         let config = self.config();
-        let value_invert = value.map(|value| value.invert().unwrap_or(F::ZERO));
+        let value_invert = value.map(|v| v.invert().unwrap_or(F::ZERO));
         region.assign_advice(
             || "witness inverse of value",
             config.value_inv,
@@ -104,6 +119,10 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroWithRotationChip<F> {
             || value_invert,
         )?;
 
+        let is_not_zero = value.map(|v| if v.is_zero_vartime() { F::ZERO } else { F::ONE });
+        if let Some(v) = config.is_not_zero {
+            region.assign_advice(|| "witness is_zero", v, offset, || is_not_zero)?;
+        }
         Ok(())
     }
 }
@@ -202,6 +221,7 @@ mod test {
                     meta,
                     |meta| meta.query_selector(q_enable),
                     value,
+                    None,
                 );
 
                 let config = Self::Config {

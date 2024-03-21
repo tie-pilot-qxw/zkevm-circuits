@@ -241,8 +241,12 @@ pub struct BytecodeTable<F> {
 impl<F: Field> BytecodeTable<F> {
     pub fn construct(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
         let cnt = meta.advice_column();
-        let cnt_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+        let cnt_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            cnt,
+            None,
+        );
         Self {
             addr: meta.advice_column(),
             pc: meta.advice_column(),
@@ -267,6 +271,7 @@ impl<F: Field> BytecodeTable<F> {
         let table_value_lo = meta.query_advice(self.value_lo, Rotation::cur());
         let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
         let table_is_push = 1.expr() - self.cnt_is_zero.expr_at(meta, Rotation::cur());
+
         match entry {
             LookupEntry::Bytecode { addr, pc, opcode } => {
                 //let not_code = 0.expr();

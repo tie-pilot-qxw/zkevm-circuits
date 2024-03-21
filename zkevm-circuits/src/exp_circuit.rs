@@ -63,8 +63,12 @@ impl<F: Field> SubCircuitConfig<F> for ExpCircuitConfig<F> {
         let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let count = meta.advice_column();
         // let is_high = meta.advice_column();
-        let count_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), count);
+        let count_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            count,
+            None,
+        );
 
         let _count_minus_128_inv = meta.advice_column();
         let count_is_128 = IsZeroChip::configure(

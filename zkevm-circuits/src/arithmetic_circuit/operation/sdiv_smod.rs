@@ -2,11 +2,16 @@ use crate::arithmetic_circuit::operation::{
     get_lt_operations, get_lt_word_operations, get_row, get_u16s, OperationConfig, OperationGadget,
     SLT_N_BYTES, S_MAX,
 };
+use crate::util::convert_f_to_u256;
+use crate::util::convert_u256_to_f;
+
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::util::{pow_of_two, split_u256_hi_lo, split_u256_limb64, Expr};
+use halo2_proofs::halo2curves::bn256::Fr;
+
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -104,7 +109,7 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         let [a_is_neg, b_is_neg] = ab_carry_lt.clone();
         let cd_carry_lt = config.get_operand(23)(meta);
         let [c_is_neg, d_is_neg] = cd_carry_lt.clone();
-        let a_com_carry_lt = config.get_operand(28)(meta);
+        let [a_com_carry_lt, _] = config.get_operand(28)(meta);
 
         // 1.Construct constraints for negative signs of a, b, c, and d.
         // get_is_neg_constraints used to determine whether the operand is a negative number
@@ -115,7 +120,7 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         let is_neg_constraints = get_is_neg_constraints(
             &ab_carry_lt.clone(),
             &cd_carry_lt.clone(),
-            &a_com_carry_lt[0],
+            &a_com_carry_lt,
             &rhs,
             &diff,
         );
@@ -150,27 +155,46 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
         let divisor_not_is_zero = b[0].clone() + b[1].clone(); //if divisor is zero then divisor_is_zero is 0
         let dividend_not_is_zero = a[0].clone() + a[1].clone(); //if dividend is zero then dividend_is_zero is 0
 
+        let [div_zero_flag, _] = config.get_operand(8)(meta);
+        // constraint div_zero_flag = divisor_not_is_zero * dividend_not_is_zero
+        constraints.push((
+            "div_zero_flag = divisor_not_is_zero * dividend_not_is_zero".to_string(),
+            div_zero_flag.clone() - (divisor_not_is_zero.clone() * dividend_not_is_zero.clone()),
+        ));
+
         constraints.push((
             "sign(dividend) == sign(remainder) when divisor and remainder are all non-zero"
                 .to_string(),
-            divisor_not_is_zero.clone()
-                * dividend_not_is_zero.clone()
-                * (a_is_neg.clone() - d_is_neg.clone()),
+            div_zero_flag.clone() * (a_is_neg.clone() - d_is_neg.clone()),
         ));
 
         //5.Computes sign relations with sign multiplication
-        let a_com_carry_lt = config.get_operand(28)(meta);
+        let [a_com_carry_lt, _] = config.get_operand(28)(meta);
+
+        let [b_c_is_neg, _]: [Expression<F>; 2] = config.get_operand(29)(meta);
+
+        // constraints that mul_signed_operand = c_is_neg + b_is_neg - a_is_neg - 2 * c_is_neg * b_is_neg
+        constraints.push((
+            "b_c_is_neg = c_is_neg * b_is_neg".to_string(),
+            b_c_is_neg.clone() - c_is_neg.clone() * b_is_neg.clone(),
+        ));
 
         // Computes sign relations with sign multiplication
         // Satisfying negative multiplied by negative equals positive,
         // negative multiplied by positive equals negative.
-        let mul_signed = c_is_neg.clone() + b_is_neg.clone()
-            - a_is_neg.clone()
-            - 2.expr() * c_is_neg.clone() * b_is_neg.clone();
+        let mul_signed =
+            c_is_neg.clone() + b_is_neg.clone() - a_is_neg.clone() - 2.expr() * b_c_is_neg.clone();
+
+        let [signed, _] = config.get_operand(30)(meta);
+        // constraint signed = quotient_not_is_zero * (1.expr() - a_com_carry_lt.clone())
+        constraints.push((
+            "signed = quotient_not_is_zero * (1.expr() - a_com_carry_lt.clone())".to_string(),
+            signed.clone() - quotient_not_is_zero.clone() * (1.expr() - a_com_carry_lt.clone()),
+        ));
 
         constraints.push((
             "sign(dividend) == sign(divisor) ^ sign(quotient)".to_string(),
-            quotient_not_is_zero * (1.expr() - a_com_carry_lt[0].clone()) * mul_signed,
+            signed.clone() * mul_signed.clone(),
         ));
         constraints
     }
@@ -182,8 +206,8 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
 /// +-----+----------------+----------------+----------------+----------------+----------------+---------+---------+---------+------------+
 /// | 17  |                |                |                |                | d_lo_0         |         |         |         |            |
 /// | 16  |                |                |                |                | d_hi_0         |         |         |         |            |
-/// | 15  |                |                |                |                | c_lo_0         |         |         |         |            |
-/// | 14  | a_com_lt       |                |                |                | c_hi_0         |         |         |         |            |
+/// | 15  | signed         |                |                |                | c_lo_0         |         |         |         |            |
+/// | 14  | a_com_lt       |                | b_c_is_neg     |                | c_hi_0         |         |         |         |            |
 /// | 13  | c_sum_carry_hi | c_sum_carry_lo | d_sum_carry_hi | d_sum_carry_lo | b_hi_0         |         |         |         |            |
 /// | 12  | a_sum_carry_hi | a_sum_carry_lo | b_sum_carry_hi | b_sum_carry_lo | a_hi_0         |         |         |         |            |
 /// | 11  | a_lt_carry_hi  | b_lt_carry_hi  | c_lt_carry_hi  | d_lt_carry_hi  | a_diff         | b_diff  | c_diff  | d_diff  | a_com_diff |
@@ -194,7 +218,7 @@ impl<F: Field> OperationGadget<F> for SDivSModGadget<F> {
 /// | 7   |                |                |                |                | d_com_lo_0     |         |         |         |            |
 /// | 6   |                |                |                |                | d_com_hi_0     |         |         |         |            |
 /// | 5   |                |                |                |                | c_com_lo_0     |         |         |         |            |
-/// | 4   |                |                |                |                | c_com_hi_0     |         |         |         |            |
+/// | 4   | div_zero_flag  |                |                |                | c_com_hi_0     |         |         |         |            |
 /// | 3   | c_com_hi       | c_com_lo       | d_com_hi       | d_com_lo       | b_com_lo_0     |         |         |         |            |
 /// | 2   | a_com_hi       | a_com_lo       | b_com_hi       | b_com_lo       | b_com_hi_0     |         |         |         |            |
 /// | 1   | c_hi           | c_lo           | d_hi           | d_lo           | a_com_lo_0     |         |         |         |            |
@@ -387,15 +411,31 @@ pub fn gen_com_witness(operands: [U256; 5], sum_carry: [(U256, U256); 4], tag: T
         tag,
     );
 
+    // Computes sign relations with sign multiplication
+    // Satisfying negative multiplied by negative equals positive,
+    // negative multiplied by positive equals negative.
+
+    let b_c_is_neg = U256::from(c_lt as i8) * U256::from(b_lt as i8);
     let row_14 = get_row(
         [U256::from(a_com_lt as i8), U256::zero()],
-        [U256::zero(); 2],
+        [b_c_is_neg, U256::zero()],
         c_hi_u16s,
         14,
         tag,
     );
 
-    let row_15 = get_row([U256::zero(); 2], [U256::zero(); 2], c_u16s, 15, tag);
+    let c_slice = split_u256_hi_lo(&operands[2]);
+    let quotient_not_is_zero = c_slice[0] + c_slice[1];
+
+    let quotient_not_is_zero_f = convert_u256_to_f::<Fr>(&quotient_not_is_zero);
+
+    let a_com_carry_lt = U256::from(a_com_lt as i8);
+    let a_com_carry_lt_f = convert_u256_to_f::<Fr>(&a_com_carry_lt);
+
+    let signed_f = quotient_not_is_zero_f * (Fr::one() - a_com_carry_lt_f);
+    let signed = convert_f_to_u256(&signed_f);
+
+    let row_15 = get_row([signed, U256::zero()], [U256::zero(); 2], c_u16s, 15, tag);
 
     let row_16 = get_row([U256::zero(); 2], [U256::zero(); 2], d_hi_u16s, 16, tag);
 
@@ -508,7 +548,20 @@ fn gen_sign_div_mod_witness(operands: Vec<U256>, tag: Tag) -> ([[U256; 6]; 4], V
     let row_3 = get_row(c_com_slice, d_com_slice, b_com_u16s, 3, tag);
 
     let c_com_hi_u16s = c_com_u16s.split_off(8);
-    let row_4 = get_row([U256::zero(); 2], [U256::zero(); 2], c_com_hi_u16s, 4, tag);
+
+    let tmp_a = a_slice[0] + a_slice[1];
+    let tmp_b = b_slice[0] + b_slice[1];
+    let tmp_a_f = convert_u256_to_f::<Fr>(&tmp_a);
+    let tmp_b_f = convert_u256_to_f::<Fr>(&tmp_b);
+
+    let div_zero_flag_f = tmp_a_f * tmp_b_f;
+    let row_4 = get_row(
+        [convert_f_to_u256::<Fr>(&div_zero_flag_f), U256::zero()],
+        [U256::zero(); 2],
+        c_com_hi_u16s,
+        4,
+        tag,
+    );
     let row_5 = get_row([U256::zero(); 2], [U256::zero(); 2], c_com_u16s, 5, tag);
 
     let d_com_hi_u16s = d_com_u16s.split_off(8);
