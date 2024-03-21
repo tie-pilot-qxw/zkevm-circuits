@@ -1,3 +1,4 @@
+use crate::constant::{END_TX_NEXT_IS_BEGIN_TX1, END_TX_NEXT_IS_END_BLOCK, NUM_AUXILIARY};
 use crate::execution::{begin_tx_1, end_block, ExecStateTransition};
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -57,7 +58,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "tag is BlockTxNum".into(),
             public_tag - (public::Tag::BlockTxNum as u8).expr(),
         ));
-
+        let next_is_end_block = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_TX_NEXT_IS_END_BLOCK],
+            Rotation::cur(),
+        );
+        let next_is_begin_tx1 = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_TX_NEXT_IS_BEGIN_TX1],
+            Rotation::cur(),
+        );
         // 约束下一个执行状态
         constraints.append(&mut config.get_exec_state_constraints(
             meta,
@@ -70,20 +80,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     (
                         ExecutionState::BEGIN_TX_1,
                         begin_tx_1::NUM_ROW,
-                        // cond_expr字段的值计算后要等于1，因为get_exec_state_constraints
-                        // 内对所有变量计算后的整体表达式-1来保证约束成立
-                        Some(1.expr() - is_zero.expr()),
+                        Some(next_is_begin_tx1),
                     ),
                     // 区块中最后一笔交易时（即tx_id_diff=0），约束下一个状态为end_block
                     // END_BLOCK ==》is_zero=1
                     (
                         ExecutionState::END_BLOCK,
                         end_block::NUM_ROW,
-                        // cond_expr字段的值计算后要等于1，因为get_exec_state_constraints
-                        // 内对所有变量计算后的整体表达式-1来保证约束成立
-                        Some(is_zero.expr()),
+                        Some(next_is_end_block),
                     ),
                 ],
+                // cond_expr字段的值计算后要等于1，因为get_exec_state_constraints
+                // 内对所有变量计算后的整体表达式-1来保证约束成立
+                Some(vec![1.expr() - is_zero.expr(), is_zero.expr()]),
             ),
         ));
         constraints
@@ -101,7 +110,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
         let core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-        let core_row_0 = ExecutionState::END_TX.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::END_TX.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -122,7 +131,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // core_row_2添加public entry记录总的交易数，
         core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockTxNum));
-
+        // 根据next exec state 填充core row0 的 下一个状态是begin_tx_1(列25) 还是 end_block(列26),分别在对应的列置为1
+        match current_state.next_exec_state {
+            Some(ExecutionState::BEGIN_TX_1) => {
+                assign_or_panic!(
+                    core_row_0[NUM_STATE_HI_COL
+                        + NUM_STATE_LO_COL
+                        + NUM_AUXILIARY
+                        + END_TX_NEXT_IS_BEGIN_TX1],
+                    U256::one()
+                );
+            }
+            Some(ExecutionState::END_BLOCK) => {
+                assign_or_panic!(
+                    core_row_0[NUM_STATE_HI_COL
+                        + NUM_STATE_LO_COL
+                        + NUM_AUXILIARY
+                        + END_TX_NEXT_IS_END_BLOCK],
+                    U256::one()
+                );
+            }
+            _ => (),
+        }
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             ..Default::default()
@@ -173,6 +203,7 @@ mod test {
             );
             row
         };
+        current_state.next_exec_state = Some(next_state);
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();

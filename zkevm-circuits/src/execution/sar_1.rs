@@ -210,6 +210,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 vec![],
                 NUM_ROW,
                 vec![(ExecutionState::SAR_2, sar_2::NUM_ROW, None)],
+                None,
             ),
         ));
         constraints

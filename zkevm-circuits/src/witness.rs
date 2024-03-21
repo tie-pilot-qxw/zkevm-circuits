@@ -107,6 +107,8 @@ pub struct WitnessExecHelper {
     pub tx_value: U256,
     // 存储CALL指令的父环境PC值，如在CALL调用中，key==即将执行的CALL_ID，value=父环境的PC值
     pub parent_pc: HashMap<u64, u64>,
+    // 存储下一个指令的第一个状态
+    pub next_exec_state: Option<ExecutionState>,
 }
 
 impl WitnessExecHelper {
@@ -142,11 +144,14 @@ impl WitnessExecHelper {
             sar: None,
             tx_value: 0.into(),
             parent_pc: HashMap::new(),
+            next_exec_state: None,
         }
     }
 
     pub fn update_from_next_step(&mut self, trace: &GethExecStep) {
         self.stack_top = trace.stack.0.last().cloned();
+        // 更新一下下一个指令的第一个状态
+        self.next_exec_state = ExecutionState::from_opcode(trace.op).first().copied();
     }
 
     /// stack_pointer decrease
@@ -208,20 +213,27 @@ impl WitnessExecHelper {
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
         let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
+        self.next_exec_state = Some(ExecutionState::BEGIN_TX_2);
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
                 .unwrap()
                 .gen_witness(first_step, self),
         );
+        let mut iter_for_next_step = trace.iter();
+        let first_trace = iter_for_next_step.next();
+        match first_trace {
+            Some(first_trace) => {
+                self.next_exec_state = ExecutionState::from_opcode(first_trace.op).first().copied();
+            }
+            None => (),
+        }
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_2)
                 .unwrap()
                 .gen_witness(first_step, self),
         );
-        let mut iter_for_next_step = trace.iter();
-        iter_for_next_step.next();
 
         let mut prev_is_return_revert_or_stop = false;
         let mut call_step_store: Vec<&GethExecStep> = vec![];
@@ -229,7 +241,17 @@ impl WitnessExecHelper {
             if let Some(next_step) = iter_for_next_step.next() {
                 self.update_from_next_step(next_step);
             }
-
+            if step.op == OpcodeId::RETURN
+                || step.op == OpcodeId::REVERT
+                || step.op == OpcodeId::STOP
+            {
+                // 若为root-call则,下一个状态为end-tx
+                if self.parent_call_id[&self.call_id] == 0 {
+                    self.next_exec_state = Some(ExecutionState::END_TX)
+                } else {
+                    self.next_exec_state = Some(ExecutionState::CALL_5);
+                }
+            }
             if prev_is_return_revert_or_stop {
                 // append CALL5 when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append CALL5 at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
@@ -253,6 +275,13 @@ impl WitnessExecHelper {
                 _ => {}
             }
         }
+        let is_last_tx_in_block = tx_idx == geth_data.geth_traces.len() - 1;
+        // 若为最后一笔交易,则下一个状态是end_block,否则下一个状态为begin_tx_1
+        if is_last_tx_in_block {
+            self.next_exec_state = Some(ExecutionState::END_BLOCK);
+        } else {
+            self.next_exec_state = Some(ExecutionState::BEGIN_TX_1);
+        }
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::END_TX)
@@ -261,7 +290,7 @@ impl WitnessExecHelper {
         );
         // 非区块中最后一笔交易，需清除上笔交易的状态，否则会将其它交易的状态写入下一笔
         // 交易的witness导致约束失败。
-        if tx_idx != geth_data.geth_traces.len() - 1 {
+        if !is_last_tx_in_block {
             self.reset_state_end_tx()
         }
         res
@@ -277,7 +306,15 @@ impl WitnessExecHelper {
     ) -> Witness {
         let mut res = Witness::default();
         let execution_states = ExecutionState::from_opcode(trace_step.op);
-        for execution_state in execution_states {
+        let execution_states_len = execution_states.len();
+        let next_state = self.next_exec_state;
+        for (index, execution_state) in execution_states.iter().enumerate() {
+            // 遍历opcodeId所生成的execution_state,除第一个和最后一个将在每一个gadget生成witness前设置下一个execution_state
+            if index < execution_states_len - 1 {
+                self.next_exec_state = Some(execution_states[index + 1]);
+            } else {
+                self.next_exec_state = next_state;
+            }
             if let Some(gadget) = execution_gadgets_map.get(&execution_state) {
                 res.append(gadget.gen_witness(trace_step, self));
             } else {

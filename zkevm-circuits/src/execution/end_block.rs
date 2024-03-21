@@ -93,7 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state should be end_tx.
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::END_TX], NUM_ROW, vec![]),
+            ExecStateTransition::new(vec![ExecutionState::END_TX], NUM_ROW, vec![], None),
         ));
 
         // log stamp constraint

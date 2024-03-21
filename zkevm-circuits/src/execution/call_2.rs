@@ -140,6 +140,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 vec![ExecutionState::CALL_1],
                 NUM_ROW,
                 vec![(ExecutionState::CALL_3, call_3::NUM_ROW, None)],
+                None,
             ),
         ));
         constraints

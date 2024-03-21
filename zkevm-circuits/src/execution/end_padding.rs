@@ -48,6 +48,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 vec![ExecutionState::END_BLOCK, ExecutionState::END_PADDING],
                 NUM_ROW,
                 vec![],
+                None,
             ),
         ));
         constraints.extend([("special next pc = 0".into(), pc_next)]);

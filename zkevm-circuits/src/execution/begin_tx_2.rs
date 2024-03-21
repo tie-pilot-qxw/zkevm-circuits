@@ -124,7 +124,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state constraint
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::BEGIN_TX_1], NUM_ROW, vec![]),
+            ExecStateTransition::new(vec![ExecutionState::BEGIN_TX_1], NUM_ROW, vec![], None),
         ));
         constraints
     }

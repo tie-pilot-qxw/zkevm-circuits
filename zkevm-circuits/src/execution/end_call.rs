@@ -1,4 +1,4 @@
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{END_CALL_NEXT_IS_CALL5, END_CALL_NEXT_IS_END_TX, NUM_AUXILIARY};
 use crate::execution::{
     call_5, end_tx, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -21,6 +21,7 @@ pub(crate) const PARENT_CALL_ID_INV_COL_IDX: usize = 1;
 /// The index of column to store returndatasize in row_0
 /// (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)
 pub(crate) const RETURNDATA_SIZE_COL_IDX: usize = 2;
+
 /// 当evm 操作码为 STOP、REVERT、RETURN时，先执行对应的指令的gadget，
 /// 再执行END_CALL gadget，进行父状态的恢复
 /// EndCall recovers the current state from the callee to the caller.
@@ -173,6 +174,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             String::from("parent_call_id"),
         );
         constraints.extend(parent_call_id_is_zero.get_constraints());
+        let next_is_end_tx = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_END_TX],
+            Rotation::cur(),
+        );
+        let next_is_call5 = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_CALL5],
+            Rotation::cur(),
+        );
         // prev state is RETURN_REVERT or STOP
         // next state is END_TX or CALL_5
         constraints.extend(config.get_exec_state_constraints(
@@ -185,16 +196,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     (
                         ExecutionState::END_TX,
                         end_tx::NUM_ROW,
-                        Some(parent_call_id_is_zero.expr()),
+                        Some(next_is_end_tx),
                     ),
                     // 当为一笔交易的中间合约调用，非root call时，约束下一个状态为CALL_5
                     // CALL_5处理CALL调用的执行结果以及对应的栈上操作数清理
-                    (
-                        ExecutionState::CALL_5,
-                        call_5::NUM_ROW,
-                        Some(1.expr() - parent_call_id_is_zero.expr()),
-                    ),
+                    (ExecutionState::CALL_5, call_5::NUM_ROW, Some(next_is_call5)),
                 ],
+                Some(vec![
+                    parent_call_id_is_zero.expr(),
+                    1.expr() - parent_call_id_is_zero.expr(),
+                ]),
             ),
         ));
 
@@ -306,6 +317,28 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
             current_state.returndata_size
         );
+        // 根据next exec state 填充core row0 的 下一个状态是Call5(列29)还是EndTx(列28),分别在对应的列置为1
+        match current_state.next_exec_state {
+            Some(ExecutionState::CALL_5) => {
+                assign_or_panic!(
+                    core_row_0[NUM_STATE_HI_COL
+                        + NUM_STATE_LO_COL
+                        + NUM_AUXILIARY
+                        + END_CALL_NEXT_IS_CALL5],
+                    U256::one()
+                );
+            }
+            Some(ExecutionState::END_TX) => {
+                assign_or_panic!(
+                    core_row_0[NUM_STATE_HI_COL
+                        + NUM_STATE_LO_COL
+                        + NUM_AUXILIARY
+                        + END_CALL_NEXT_IS_END_TX],
+                    U256::one()
+                );
+            }
+            _ => (),
+        }
         // CALL调用结束后，非root call时恢复code_addr，call_id为父调用状态
         //update code_addr and call_id
         if current_state.parent_call_id[&current_state.call_id] != 0 {
@@ -384,6 +417,7 @@ mod test {
             row.pc = 100.into();
             row
         };
+        current_state.next_exec_state = Some(ExecutionState::CALL_5);
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
@@ -432,6 +466,7 @@ mod test {
             row.pc = 0.into();
             row
         };
+        current_state.next_exec_state = Some(ExecutionState::END_TX);
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
