@@ -104,8 +104,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
 
         let vers: [Column<Advice>; NUM_VERS] = std::array::from_fn(|_| meta.advice_column());
 
-        let cnt_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+        let cnt_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            cnt,
+            None,
+        );
 
         let execution_state_selector = DynamicSelectorChip::configure(
             meta,

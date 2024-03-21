@@ -171,10 +171,18 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
         // initialize columns
         let q_enable = meta.complex_selector();
         let byte = meta.advice_column();
-        let len_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), len);
-        let cnt_is_zero =
-            IsZeroWithRotationChip::configure(meta, |meta| meta.query_selector(q_enable), cnt);
+        let len_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            len,
+            None,
+        );
+        let cnt_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            cnt,
+            None,
+        );
 
         let _len_sub_cnt_one_is_zero_inv = meta.advice_column();
         let len_sub_cnt_one_is_zero = IsZeroChip::configure(

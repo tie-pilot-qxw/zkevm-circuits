@@ -2260,6 +2260,7 @@ mod test {
                         meta,
                         |meta| meta.query_selector(q_enable),
                         cnt,
+                        None
                     );
                     let vers: [Column<Advice>; NUM_VERS] =
                         std::array::from_fn(|_| meta.advice_column());
