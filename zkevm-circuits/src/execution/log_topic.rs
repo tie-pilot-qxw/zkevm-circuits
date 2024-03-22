@@ -1,15 +1,16 @@
+use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    log_topic, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
+    Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{public, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
 use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep};
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -155,7 +156,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
-
+        let next_is_log_topic = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            Rotation::cur(),
+        );
         // prev state should be log_topic_num_addr or log_topic
         // next state should be log_topic or else
         let following_log_topic =
@@ -168,7 +172,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     ExecutionState::LOG_TOPIC,
                 ],
                 NUM_ROW,
-                vec![(ExecutionState::LOG_TOPIC, NUM_ROW, None)],
+                vec![(ExecutionState::LOG_TOPIC, NUM_ROW, Some(next_is_log_topic))],
                 Some(vec![following_log_topic]),
             ),
         ));
@@ -218,12 +222,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         if current_state.topic_left == 0 {
             current_state.log_stamp += 1;
         }
-        let core_row_0 = ExecutionState::LOG_TOPIC.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::LOG_TOPIC.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+        // 如果下一个状态仍然为log_topic,那么设置NUM_STATE_HI_COL+NUM_STATE_LO_COL+NUM_AUXILIARY 为1
+        match current_state.next_exec_state {
+            Some(ExecutionState::LOG_TOPIC) => {
+                assign_or_panic!(
+                    core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+                    U256::one()
+                );
+            }
+            _ => (),
+        }
         let state_rows = vec![stack_pop_topic];
 
         Witness {
@@ -292,6 +306,7 @@ mod test {
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some((log_stamp + 1).into());
             row
         };
+        current_state.next_exec_state = Some(next_state);
         let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
@@ -311,9 +326,9 @@ mod test {
         // test next state is log topic
         let opcode = OpcodeId::LOG2;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
-        let stack = Stack::from_slice(&[topic0_hash.into()]);
-        assign_and_constraint(ExecutionState::END_PADDING, opcode, stack)
+        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
+        let stack = Stack::from_slice(&[topic0_hash.into(), topic1_hash.into()]);
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 
     #[test]
@@ -321,10 +336,11 @@ mod test {
         // test next state is log topic
         let opcode = OpcodeId::LOG3;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
-        let stack = Stack::from_slice(&[topic0_hash.into()]);
-        assign_and_constraint(ExecutionState::END_PADDING, opcode, stack)
+        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
+        let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
+        let stack =
+            Stack::from_slice(&[topic0_hash.into(), topic1_hash.into(), topic2_hash.into()]);
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 
     #[test]
@@ -332,10 +348,15 @@ mod test {
         // test next state is log topic
         let opcode = OpcodeId::LOG4;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b96";
-        let stack = Stack::from_slice(&[topic0_hash.into()]);
-        assign_and_constraint(ExecutionState::END_PADDING, opcode, stack)
+        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
+        let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
+        let topic3_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b96";
+        let stack = Stack::from_slice(&[
+            topic0_hash.into(),
+            topic1_hash.into(),
+            topic2_hash.into(),
+            topic3_hash.into(),
+        ]);
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 }
