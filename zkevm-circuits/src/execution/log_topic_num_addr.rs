@@ -1,14 +1,16 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    begin_tx_1, log_bytes, log_topic, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome,
+    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
 use crate::witness::{public, Witness, WitnessExecHelper};
 
+use crate::keccak_circuit::keccak_packed_multi::decode::expr;
 use crate::util::{query_expression, ExpressionOutcome};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -30,7 +32,7 @@ use std::marker::PhantomData;
 /// +---+-------+------------+--------- +---------+
 ///
 
-const NUM_ROW: usize = 3;
+pub(crate) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 0;
 const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 1;
@@ -52,7 +54,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, 1)
+        (NUM_ROW, log_topic::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -118,13 +120,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
 
+        // extend opcode and pc constraints
+        constraints.extend([(
+            "opcode is one of LOG0,LOG1,LOG2,LOG3,LOG4".into(),
+            selector.select(&[
+                opcode.clone() - OpcodeId::LOG4.expr(),
+                opcode.clone() - OpcodeId::LOG3.expr(),
+                opcode.clone() - OpcodeId::LOG2.expr(),
+                opcode.clone() - OpcodeId::LOG1.expr(),
+                opcode - OpcodeId::LOG0.expr(),
+            ]),
+        )]);
+
         // extend pc constraints
         let pc_delta = selector.select(&[0.expr(), 0.expr(), 0.expr(), 0.expr(), PC_DELTA.expr()]);
+
         let delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(pc_delta.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
+
+        // prev state should be log_bytes
+        // next state should be log_topic if pc_delta == 0
+        let following_log_topic =
+            selector.select(&[1.expr(), 1.expr(), 1.expr(), 1.expr(), 0.expr()]);
+        constraints.extend(config.get_exec_state_constraints(
+            meta,
+            ExecStateTransition::new(
+                vec![ExecutionState::LOG_BYTES],
+                NUM_ROW,
+                vec![(ExecutionState::LOG_TOPIC, log_topic::NUM_ROW, None)],
+                Some(vec![following_log_topic]),
+            ),
+        ));
 
         constraints
     }
@@ -204,16 +233,11 @@ mod test {
     use crate::witness::WitnessExecHelper;
     generate_execution_gadget_test_circuit!();
 
-    #[test]
-    fn test_log_topic_num_addr_log0() {
-        let opcode = OpcodeId::LOG0;
-        let offset: u64 = 0x1;
-        let length: u64 = 0x4;
+    fn assign_and_constraint(next_state: ExecutionState, opcode: OpcodeId, stack: Stack) {
         let call_id: u64 = 0xa;
         let tx_idx = 0xb;
         let log_stamp = 0x0;
 
-        let stack = Stack::from_slice(&[length.into(), offset.into()]);
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_pointer,
@@ -226,7 +250,7 @@ mod test {
 
         let trace = prepare_trace_step!(0, opcode, stack);
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let mut row = ExecutionState::LOG_BYTES.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
@@ -238,245 +262,84 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let mut row = next_state.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = 1.into();
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some((log_stamp + 1).into());
+            if next_state.clone() == ExecutionState::END_PADDING {
+                row.pc = 1.into();
+                row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] =
+                    Some((log_stamp + 1).into());
+            }
+
             row
         };
-        let (witness, prover) =
+        let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
         prover.assert_satisfied_par();
+    }
+
+    #[test]
+    fn test_log_topic_num_addr_log0() {
+        // test next state is not log topic
+        let opcode = OpcodeId::LOG0;
+        let stack = Stack::from_slice(&[0x4.into(), 0x1.into()]);
+        assign_and_constraint(ExecutionState::END_PADDING, opcode, stack)
     }
 
     #[test]
     fn test_log_topic_num_add_log1() {
+        // test next state is log topic
         let opcode = OpcodeId::LOG1;
-        let offset: u64 = 0x1;
-        let length: u64 = 0x4;
-        let call_id: u64 = 0xa;
-        let tx_idx = 0xb;
-        let log_stamp = 0x1;
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-
-        let stack = Stack::from_slice(&[topic0_hash.into(), length.into(), offset.into()]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = WitnessExecHelper {
-            stack_pointer,
-            stack_top: None,
-            call_id,
-            tx_idx,
-            log_stamp,
-            ..WitnessExecHelper::new()
-        };
-        let trace = prepare_trace_step!(0, opcode, stack);
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 0.into();
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied_par();
+        let stack = Stack::from_slice(&[
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93".into(),
+            0x4.into(),
+            0x1.into(),
+        ]);
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 
     #[test]
     fn test_log_topic_num_add_log2() {
+        // test next state is log topic
         let opcode = OpcodeId::LOG2;
-        let offset: u64 = 0x1;
-        let length: u64 = 0x4;
-        let call_id: u64 = 0xa;
-        let tx_idx = 0xb;
-        let log_stamp = 0x2;
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-
         let stack = Stack::from_slice(&[
-            topic1_hash.into(),
-            topic0_hash.into(),
-            length.into(),
-            offset.into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93".into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94".into(),
+            0x4.into(),
+            0x1.into(),
         ]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = WitnessExecHelper {
-            stack_pointer,
-            stack_top: None,
-            call_id,
-            tx_idx,
-            log_stamp,
-            ..WitnessExecHelper::new()
-        };
-        let trace = prepare_trace_step!(0, opcode, stack);
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 0.into();
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied_par();
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 
     #[test]
     fn test_log_topic_num_add_log3() {
+        // test next state is log topic
         let opcode = OpcodeId::LOG3;
-        let offset: u64 = 0x1;
-        let length: u64 = 0x4;
-        let call_id: u64 = 0xa;
-        let tx_idx = 0xb;
-        let log_stamp = 0x2;
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-
         let stack = Stack::from_slice(&[
-            topic2_hash.into(),
-            topic1_hash.into(),
-            topic0_hash.into(),
-            length.into(),
-            offset.into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93".into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94".into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95".into(),
+            0x4.into(),
+            0x1.into(),
         ]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = WitnessExecHelper {
-            stack_pointer,
-            stack_top: None,
-            call_id,
-            tx_idx,
-            log_stamp,
-            ..WitnessExecHelper::new()
-        };
-        let trace = prepare_trace_step!(0, opcode, stack);
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 0.into();
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied_par();
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 
     #[test]
     fn test_log_topic_num_add_log4() {
+        // test next state is log topic
         let opcode = OpcodeId::LOG4;
-        let offset: u64 = 0x1;
-        let length: u64 = 0x4;
-        let call_id: u64 = 0xa;
-        let tx_idx = 0xb;
-        let log_stamp = 0x2;
-        let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let topic3_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
-        let code_addr = U256::from("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512");
-
         let stack = Stack::from_slice(&[
-            topic3_hash.into(),
-            topic2_hash.into(),
-            topic1_hash.into(),
-            topic0_hash.into(),
-            length.into(),
-            offset.into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93".into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94".into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95".into(),
+            "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b96".into(),
+            0x4.into(),
+            0x1.into(),
         ]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = WitnessExecHelper {
-            stack_pointer,
-            stack_top: None,
-            call_id,
-            tx_idx,
-            code_addr,
-            log_stamp,
-            ..WitnessExecHelper::new()
-        };
-        let trace = prepare_trace_step!(0, opcode, stack);
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 0.into();
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some(log_stamp.into());
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied_par();
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
     }
 }
