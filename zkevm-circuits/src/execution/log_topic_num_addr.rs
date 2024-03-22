@@ -1,16 +1,15 @@
+use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    begin_tx_1, log_bytes, log_topic, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome,
-    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    log_topic, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+    ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{public, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 
-use crate::keccak_circuit::keccak_packed_multi::decode::expr;
 use crate::util::{query_expression, ExpressionOutcome};
 use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep};
-use gadgets::simple_is_zero::SimpleIsZero;
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -145,12 +144,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // next state should be log_topic if pc_delta == 0
         let following_log_topic =
             selector.select(&[1.expr(), 1.expr(), 1.expr(), 1.expr(), 0.expr()]);
+        let next_is_log_topic = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            Rotation::cur(),
+        );
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
                 vec![ExecutionState::LOG_BYTES],
                 NUM_ROW,
-                vec![(ExecutionState::LOG_TOPIC, log_topic::NUM_ROW, None)],
+                vec![(
+                    ExecutionState::LOG_TOPIC,
+                    log_topic::NUM_ROW,
+                    Some(next_is_log_topic),
+                )],
                 Some(vec![following_log_topic]),
             ),
         ));
@@ -202,13 +209,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.log_stamp += 1;
         }
 
-        let core_row_0 = ExecutionState::LOG_TOPIC_NUM_ADDR.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::LOG_TOPIC_NUM_ADDR.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-
+        // 如果下一个状态为log_topic,设置NUM_STATE_HI_COL+NUM_STATE_LO_COL+NUM_AUXILIARY 为1
+        match current_state.next_exec_state {
+            Some(ExecutionState::LOG_TOPIC) => {
+                assign_or_panic!(
+                    core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+                    U256::one()
+                );
+            }
+            _ => (),
+        }
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             ..Default::default()
@@ -276,6 +292,7 @@ mod test {
 
             row
         };
+        current_state.next_exec_state = Some(next_state);
         let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
