@@ -241,11 +241,12 @@ pub struct BytecodeTable<F> {
 impl<F: Field> BytecodeTable<F> {
     pub fn construct(meta: &mut ConstraintSystem<F>, q_enable: Selector) -> Self {
         let cnt = meta.advice_column();
+        let is_not_zero = Some(meta.advice_column());
         let cnt_is_zero = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
             cnt,
-            None,
+            is_not_zero,
         );
         Self {
             addr: meta.advice_column(),

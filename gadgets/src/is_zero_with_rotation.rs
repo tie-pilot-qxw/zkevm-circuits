@@ -118,9 +118,8 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroWithRotationChip<F> {
             offset,
             || value_invert,
         )?;
-
-        let is_not_zero = value.map(|v| if v.is_zero_vartime() { F::ZERO } else { F::ONE });
         if let Some(v) = config.is_not_zero {
+            let is_not_zero = value.map(|v| if v.is_zero_vartime() { F::ZERO } else { F::ONE });
             region.assign_advice(|| "witness is_zero", v, offset, || is_not_zero)?;
         }
         Ok(())
