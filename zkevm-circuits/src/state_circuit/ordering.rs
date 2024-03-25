@@ -171,11 +171,6 @@ impl Config {
                 // Get the big-endian expression of the sorted element to calculate.
                 let cur = Queries::new(meta, keys, Rotation::cur());
                 let prev = Queries::new(meta, keys, Rotation::prev());
-                let tag = keys
-                    .tag
-                    .value_equals(state::Tag::EndPadding, Rotation::cur())(
-                    meta
-                );
                 let mut constraints = vec![];
                 for (i, rlc_expression) in
                     LimbIndex::iter().zip(rlc_limb_difference(cur, prev, powers_of_randomness))
@@ -203,10 +198,6 @@ impl Config {
             let cur: Queries<F> = Queries::new(meta, keys, Rotation::cur());
             let prev = Queries::new(meta, keys, Rotation::prev());
             let limb_difference = meta.query_advice(limb_difference, Rotation::cur());
-            let tag = keys
-                .tag
-                .value_equals(state::Tag::EndPadding, Rotation::cur())(meta);
-
             for ((i, cur_limb), prev_limb) in
                 LimbIndex::iter().zip(cur.be_limbs()).zip(prev.be_limbs())
             {

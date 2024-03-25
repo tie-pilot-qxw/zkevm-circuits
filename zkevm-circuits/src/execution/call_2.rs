@@ -128,6 +128,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "state_init_for_next_gadget correct".into(),
             stamp_init_for_next_gadget - state_stamp_init,
         )]);
+        // append prev and current core constraints
+        let prev_core_single_delta = CoreSinglePurposeOutcome::default();
+        constraints.append(&mut config.get_cur_single_purpose_constraints(
+            meta,
+            NUM_ROW,
+            prev_core_single_delta,
+        ));
         // append core single purpose constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
         constraints

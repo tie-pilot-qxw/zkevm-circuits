@@ -64,6 +64,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
+        // append prev and current core constraints
+        let prev_core_single_delta = CoreSinglePurposeOutcome::default();
+        constraints.append(&mut config.get_cur_single_purpose_constraints(
+            meta,
+            NUM_ROW,
+            prev_core_single_delta,
+        ));
         // core single constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_POINTER_DELTA.expr()),

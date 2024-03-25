@@ -162,6 +162,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // tx_id 不变，因为还在同一笔交易执行中
             ..Default::default()
         };
+        // append prev and current core constraints
+        let prev_core_single_delta = CoreSinglePurposeOutcome::default();
+        constraints.append(&mut config.get_cur_single_purpose_constraints(
+            meta,
+            NUM_ROW,
+            prev_core_single_delta,
+        ));
         // append core single purpose constraints
         constraints
             .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));

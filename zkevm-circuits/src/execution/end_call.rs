@@ -143,6 +143,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "returndata_size_for_next_gadget is correct".into(),
             returndata_size_for_next_gadget - returndata_size,
         )]);
+        // append prev and current core constraints
+        let prev_core_single_delta = CoreSinglePurposeOutcome::default();
+        constraints.append(&mut config.get_cur_single_purpose_constraints(
+            meta,
+            NUM_ROW,
+            prev_core_single_delta,
+        ));
         // 非root call时约束call_id，pc，code_addr 为父状态，因为CALL调用结束后恢复
         // 这些状态至父状态； tx_id不变，因为此时还处于一个执行过程中；
         // 如：当call 为root call时，下一个状态为END_TX，否则为CALL_5
