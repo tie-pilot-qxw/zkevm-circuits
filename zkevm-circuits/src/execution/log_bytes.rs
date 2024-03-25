@@ -8,7 +8,6 @@ use crate::witness::{assign_or_panic, copy, public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
-use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -65,7 +64,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();

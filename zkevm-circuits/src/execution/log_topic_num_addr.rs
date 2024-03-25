@@ -131,6 +131,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ]),
         )]);
 
+        // append prev and current core constraints
+        let prev_core_single_delta = CoreSinglePurposeOutcome::default();
+        constraints.append(&mut config.get_cur_single_purpose_constraints(
+            meta,
+            NUM_ROW,
+            prev_core_single_delta,
+        ));
         // extend pc constraints
         let pc_delta = selector.select(&[0.expr(), 0.expr(), 0.expr(), 0.expr(), PC_DELTA.expr()]);
 
