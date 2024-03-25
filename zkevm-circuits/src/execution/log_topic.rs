@@ -163,7 +163,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state should be log_topic_num_addr or log_topic
         // next state should be log_topic or else
         let following_log_topic =
-            selector.select(&[1.expr(), 1.expr(), 1.expr(), 0.expr(), 0.expr()]);
+            selector.select(&[1.expr(), 1.expr(), 1.expr(), 1.expr(), 0.expr()]);
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -257,6 +257,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+
     use crate::constant::LOG_STAMP_IDX;
     use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
@@ -265,7 +266,12 @@ mod test {
     use crate::witness::WitnessExecHelper;
     generate_execution_gadget_test_circuit!();
 
-    fn assign_and_constraint(next_state: ExecutionState, opcode: OpcodeId, stack: Stack) {
+    fn assign_and_constraint(
+        next_state: ExecutionState,
+        opcode: OpcodeId,
+        stack: Stack,
+        topic_left: usize,
+    ) {
         let call_id: u64 = 0xa;
         let tx_idx = 0xb;
         let log_stamp = 0x1;
@@ -302,11 +308,16 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = 1.into();
+            row.pc = if topic_left == 1 {
+                U256::one()
+            } else {
+                U256::zero()
+            };
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + LOG_STAMP_IDX] = Some((log_stamp + 1).into());
             row
         };
         current_state.next_exec_state = Some(next_state);
+        current_state.topic_left = topic_left;
         let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         prover.assert_satisfied_par();
@@ -318,7 +329,7 @@ mod test {
         let opcode = OpcodeId::LOG1;
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let stack = Stack::from_slice(&[topic0_hash.into()]);
-        assign_and_constraint(ExecutionState::END_PADDING, opcode, stack)
+        assign_and_constraint(ExecutionState::END_PADDING, opcode, stack, 1)
     }
 
     #[test]
@@ -328,7 +339,7 @@ mod test {
         let topic0_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b93";
         let topic1_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b94";
         let stack = Stack::from_slice(&[topic0_hash.into(), topic1_hash.into()]);
-        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack, 2)
     }
 
     #[test]
@@ -340,7 +351,7 @@ mod test {
         let topic2_hash = "0xbf2ed60bd5b5965d685680c01195c9514e4382e28e3a5a2d2d5244bf59411b95";
         let stack =
             Stack::from_slice(&[topic0_hash.into(), topic1_hash.into(), topic2_hash.into()]);
-        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack, 3)
     }
 
     #[test]
@@ -357,6 +368,6 @@ mod test {
             topic2_hash.into(),
             topic3_hash.into(),
         ]);
-        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack)
+        assign_and_constraint(ExecutionState::LOG_TOPIC, opcode, stack, 4)
     }
 }
