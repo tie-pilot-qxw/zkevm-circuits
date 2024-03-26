@@ -255,7 +255,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 将数据全部弹出栈
         current_state.stack_pointer -= 7;
         //generate call_context read row
-        let call_context_read_row = current_state.get_returndata_call_id_row();
+        let call_context_read_row = current_state.get_returndata_call_id_row(false);
         //generate stack_write row
         let stack_write_row =
             current_state.get_push_stack_row(trace, U256::from(current_state.return_success as u8));

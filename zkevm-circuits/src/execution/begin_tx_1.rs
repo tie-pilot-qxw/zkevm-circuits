@@ -105,7 +105,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             NUM_ROW,
             call_id.clone(),
-            [
+            &[
                 CallContextTag::StorageContractAddr,
                 CallContextTag::CallDataSize,
                 CallContextTag::ParentCallId,
@@ -229,6 +229,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some((addr >> 128).as_u128().into()),
             Some(addr.low_u128().into()),
             CallContextTag::StorageContractAddr,
+            None,
         );
         // 记录交易的calldata size
         let calldata_size = current_state
@@ -240,6 +241,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(calldata_size.into()),
             CallContextTag::CallDataSize,
+            None,
         );
         // 记录当前的call_id的父调用为0，标识它为root call
         current_state
@@ -249,6 +251,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(0.into()),
             CallContextTag::ParentCallId,
+            None,
         );
         // 记录当前的call_id的父合约地址为0，标识它为root call
         current_state
@@ -258,6 +261,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(0.into()),
             CallContextTag::ParentCodeContractAddr,
+            None,
         );
         // 从交易的calldata区域copy数据至root call的calldata
         let (copy_rows, state_rows_from_copy) = if calldata_size > 0 {
