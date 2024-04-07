@@ -211,7 +211,7 @@ impl WitnessExecHelper {
         self.bytecode = bytecode;
 
         let mut res: Witness = Default::default();
-        let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2
+        let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
         let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
         self.next_exec_state = Some(ExecutionState::BEGIN_TX_2);
         res.append(
@@ -222,6 +222,14 @@ impl WitnessExecHelper {
         );
         let mut iter_for_next_step = trace.iter();
         let first_trace = iter_for_next_step.next();
+
+        self.next_exec_state = Some(ExecutionState::BEGIN_TX_3);
+        res.append(
+            execution_gadgets_map
+                .get(&ExecutionState::BEGIN_TX_2)
+                .unwrap()
+                .gen_witness(first_step, self),
+        );
         match first_trace {
             Some(first_trace) => {
                 self.next_exec_state = ExecutionState::from_opcode(first_trace.op).first().copied();
@@ -230,11 +238,10 @@ impl WitnessExecHelper {
         }
         res.append(
             execution_gadgets_map
-                .get(&ExecutionState::BEGIN_TX_2)
+                .get(&ExecutionState::BEGIN_TX_3)
                 .unwrap()
                 .gen_witness(first_step, self),
         );
-
         let mut prev_is_return_revert_or_stop = false;
         let mut call_step_store: Vec<&GethExecStep> = vec![];
         for step in trace {
@@ -1314,13 +1321,17 @@ impl WitnessExecHelper {
         value_hi: Option<U256>,
         value_lo: Option<U256>,
         context_tag: state::CallContextTag,
+        call_id: Option<U256>,
     ) -> state::Row {
         let res = state::Row {
             tag: Some(state::Tag::CallContext),
             stamp: Some((self.state_stamp).into()),
             value_hi,
             value_lo,
-            call_id_contract_addr: Some(self.call_id.into()),
+            call_id_contract_addr: match call_id {
+                Some(call_id) => Some(call_id),
+                None => Some(self.call_id.into()),
+            },
             pointer_hi: None,
             pointer_lo: Some((context_tag as u8).into()),
             is_write: Some(1.into()),
@@ -1395,7 +1406,7 @@ impl WitnessExecHelper {
 
         (copy_rows, state_rows)
     }
-    pub fn get_returndata_call_id_row(&mut self) -> state::Row {
+    pub fn get_returndata_call_id_row(&mut self, is_write: bool) -> state::Row {
         let res = state::Row {
             tag: Some(state::Tag::CallContext),
             stamp: Some((self.state_stamp).into()),
@@ -1404,7 +1415,7 @@ impl WitnessExecHelper {
             call_id_contract_addr: None,
             pointer_hi: None,
             pointer_lo: Some((state::CallContextTag::ReturnDataCallId as u8).into()),
-            is_write: Some(0.into()),
+            is_write: Some((is_write as u8).into()),
         };
         self.state_stamp += 1;
         res
@@ -1422,6 +1433,26 @@ impl WitnessExecHelper {
         };
         self.state_stamp += 1;
         (res, self.returndata_size.into())
+    }
+    pub fn get_current_returndata_size_read_row(&mut self) -> (state::Row, U256) {
+        let returndata_size: U256 = self
+            .return_data
+            .get(&self.returndata_call_id)
+            .map(|v| v.len())
+            .unwrap_or_default()
+            .into();
+        let res = state::Row {
+            tag: Some(Tag::CallContext),
+            stamp: Some((self.state_stamp).into()),
+            value_hi: Some((returndata_size >> 128).as_u128().into()),
+            value_lo: Some(returndata_size.low_u128().into()),
+            call_id_contract_addr: Some(self.returndata_call_id.into()),
+            pointer_hi: None,
+            pointer_lo: Some((CallContextTag::ReturnDataSize as u8).into()),
+            is_write: Some(0.into()),
+        };
+        self.state_stamp += 1;
+        (res, returndata_size)
     }
     pub fn get_storage_contract_addr_row(&mut self) -> (state::Row, U256) {
         let value = self.storage_contract_addr.get(&self.call_id).unwrap();
@@ -2015,7 +2046,31 @@ impl core::Row {
             ]);
         }
     }
-
+    // insert returndata size in cnt =3 row , fill column ranging from 0 to 7
+    pub fn insert_returndata_size_state_lookup(&mut self, state_row: &state::Row) {
+        assert_eq!(self.cnt, 3.into());
+        for i in 0..8 {
+            assert!(self[i].is_none());
+        }
+        self[0] = state_row.tag.map(|tag| (tag as u8).into());
+        self[1] = state_row.stamp;
+        self[2] = state_row.value_hi;
+        self[3] = state_row.value_lo;
+        self[4] = state_row.call_id_contract_addr;
+        self[5] = state_row.pointer_hi;
+        self[6] = state_row.pointer_lo;
+        self[7] = state_row.is_write;
+        self.comments.extend([
+            (format!("vers_{}", 0), format!("tag={:?}", state_row.tag)),
+            (format!("vers_{}", 1), "stamp".into()),
+            (format!("vers_{}", 2), "value_hi".into()),
+            (format!("vers_{}", 3), "value_lo".into()),
+            (format!("vers_{}", 4), "call_id".into()),
+            (format!("vers_{}", 5), "not used".into()),
+            (format!("vers_{}", 6), "stack pointer".into()),
+            (format!("vers_{}", 7), "is_write: read=0, write=1".into()),
+        ]);
+    }
     /// insert_stamp_cnt_lookups, include tag and cnt of state, tag always be EndPadding
     pub fn insert_stamp_cnt_lookups(&mut self, cnt: U256) {
         // this lookup must be in the row with this cnt
@@ -2076,7 +2131,7 @@ impl core::Row {
     ) {
         assert_eq!(self.cnt, 2.into());
         assert_eq!(arith_entries.len(), 1);
-        assert_eq!(index, 0);
+        //assert_eq!(index, 0);
 
         let column_values = [
             arith_entries[0].operand_0_hi,
@@ -2085,14 +2140,17 @@ impl core::Row {
             arith_entries[0].operand_1_lo,
         ];
         for i in 0..4 {
-            assign_or_panic!(self[U64_OVERFLOW_START_IDX + i], column_values[i]);
+            assign_or_panic!(
+                self[U64_OVERFLOW_START_IDX + index * U64_OVERFLOW_COLUMN_WIDTH + i],
+                column_values[i]
+            );
         }
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
+            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
         ]);
     }
 

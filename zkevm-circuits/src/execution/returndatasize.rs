@@ -154,7 +154,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         //generate call_context rows
-        let returndata_call_id_0 = current_state.get_returndata_call_id_row();
+        let returndata_call_id_0 = current_state.get_returndata_call_id_row(false);
         let (returndata_size_0, returndata_size) = current_state.get_returndata_size_row();
         //generate stack_push row
         let stack_push_0 = current_state.get_push_stack_row(trace, returndata_size);

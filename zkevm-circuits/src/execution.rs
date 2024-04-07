@@ -4,6 +4,7 @@ pub mod and_or_xor;
 pub mod begin_block;
 pub mod begin_tx_1;
 pub mod begin_tx_2;
+pub mod begin_tx_3;
 pub mod byte;
 pub mod call_1;
 pub mod call_2;
@@ -119,6 +120,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::exp::new(),
             crate::execution::begin_tx_1::new(),
             crate::execution::begin_tx_2::new(),
+            crate::execution::begin_tx_3::new(),
             crate::execution::selfbalance::new(),
             crate::execution::returndatacopy::new(),
             crate::execution::returndatasize::new(),
@@ -347,6 +349,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
+    pub(crate) fn get_returndata_size_state_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+    ) -> LookupEntry<F> {
+        let (
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        ) = (
+            meta.query_advice(self.vers[0], Rotation(-3)),
+            meta.query_advice(self.vers[1], Rotation(-3)),
+            meta.query_advice(self.vers[2], Rotation(-3)),
+            meta.query_advice(self.vers[3], Rotation(-3)),
+            meta.query_advice(self.vers[4], Rotation(-3)),
+            meta.query_advice(self.vers[5], Rotation(-3)),
+            meta.query_advice(self.vers[6], Rotation(-3)),
+            meta.query_advice(self.vers[7], Rotation(-3)),
+        );
+        LookupEntry::State {
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        }
+    }
+
     // insert_public_lookup insert public lookup ,6 columns
     /// +---+-------+-------+-------+------+-----------+
     /// |cnt| 8 col | 8 col | 8 col | 2 col | public lookup(6 col) |
@@ -517,7 +554,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         res
     }
-
     pub(crate) fn get_stack_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -944,7 +980,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
         index: usize,
     ) -> LookupEntry<F> {
-        assert!(index == 0);
+        // assert!(index == 0);
         let (hi_0, lo_0, hi_1, lo_1) = (
             meta.query_advice(
                 self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 0],
@@ -1067,8 +1103,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
         prev_exec_state_row: usize,
         call_id: Expression<F>,
-        tags: [CallContextTag; 4],
+        tags: &[CallContextTag],
     ) -> Vec<(String, Expression<F>)> {
+        assert!(tags.len() < 5);
         let mut constraints = vec![];
         for (i, tag) in tags.iter().enumerate() {
             let entry = self.get_state_lookup(meta, i);
@@ -1931,6 +1968,7 @@ pub enum ExecutionState {
     END_PADDING, // it has to be the first state as it is the padding state
     BEGIN_TX_1, // start a tx, part one
     BEGIN_TX_2, // start a tx, part two
+    BEGIN_TX_3, // start a tx, part three
     BEGIN_BLOCK,
     END_BLOCK,
     // opcode/operation successful states

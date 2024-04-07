@@ -1,5 +1,6 @@
 use crate::execution::{
-    AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    begin_tx_3, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
+    ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -53,7 +54,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, 1)
+        (NUM_ROW, begin_tx_3::NUM_ROW)
     }
 
     fn get_constraints(
@@ -77,7 +78,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             NUM_ROW,
             call_id,
-            [
+            &[
                 CallContextTag::SenderAddr,
                 CallContextTag::Value,
                 CallContextTag::ParentProgramCounter,
@@ -124,7 +125,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state constraint
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::BEGIN_TX_1], NUM_ROW, vec![], None),
+            ExecStateTransition::new(
+                vec![ExecutionState::BEGIN_TX_1],
+                NUM_ROW,
+                vec![(ExecutionState::BEGIN_TX_3, begin_tx_3::NUM_ROW, None)],
+                None,
+            ),
         ));
         constraints
     }
@@ -161,12 +167,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some((sender >> 128).as_u128().into()),
             Some(sender.low_u128().into()),
             CallContextTag::SenderAddr,
+            None,
         );
         // 交易的eth金额 value
         let write_value_row = current_state.get_write_call_context_row(
             Some((value >> 128).as_u128().into()),
             Some(value.low_u128().into()),
             CallContextTag::Value,
+            None,
         );
         // 更新root call的parent pc为0，并记录相关状态
         current_state.parent_pc.insert(current_state.call_id, 0);
@@ -174,6 +182,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(0.into()),
             CallContextTag::ParentProgramCounter,
+            None,
         );
         // root call的parent stack pointer为0，并记录相关状态
         current_state
@@ -183,6 +192,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(0.into()),
             CallContextTag::ParentStackPointer,
+            None,
         );
 
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
@@ -263,7 +273,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            ExecutionState::END_PADDING.into_exec_state_core_row(
+            ExecutionState::BEGIN_TX_3.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

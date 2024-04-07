@@ -1,10 +1,9 @@
-// Code generated - COULD HAVE BUGS!
-// This file is a generated execution gadget definition.
-
+use crate::arithmetic_circuit::operation::{self, u64overflow};
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
+use crate::witness::state::CallContextTag;
+use crate::witness::{arithmetic, assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -13,26 +12,35 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 4;
+use super::CoreSinglePurposeOutcome;
+
+const NUM_ROW: usize = 4;
+const STATE_STAMP_DELTA: u64 = 5;
 const STACK_POINTER_DELTA: i32 = -3;
 const PC_DELTA: u64 = 1;
-const SIZE_SIGN_COL_IDX: usize = 12;
-const LEN_LO_INV_COL_IDX: usize = 11;
+const LEN_LO_INV_COL_IDX: usize = 9;
+const OVERFLOW_COL_IDX: usize = 30;
 
 /// ReturnDataCopy Execution State layout is as follows
-/// where STATE means state table lookup(call_context read returndata_call_id, stack pop dst_offset, stack_pop offset, stack_pop length),
-/// Copy means byte table lookup (full mode),
+/// where RSSTATE means return data size state table lookup
+/// STATE means state table lookup(call_context read returndata_call_id, stack pop dst_offset, stack_pop offset, stack_pop length),
+/// ARITH(9) means return data size - (offset+length)
+/// LI(1) means length lo inv
+/// OAF(4) means arithmetic overflow of offset
+/// OLF(4) means arithmetic overflow of sum(offset , length)
+/// OF(1) means return data size - (offset+length) >= 0
+/// Copy(CP) means byte table lookup (full mode),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-------+-------+---------+
-/// |cnt| 8 col | 8 col | 8 col |  8col   |
-/// +---+-------+-------+-------+---------+
-/// | 2 | COPY(11)|LEN_INV(1)|OVERFLOW(1) |
-/// | 1 | STATE | STATE | STATE | STATE   |
-/// | 0 | DYNA_SELECTOR   | AUX           |
-/// +---+-------+-------+-------+---------+
+/// +---+-------+-----------------------+-------+---------+
+/// |cnt| 8 col |           8 col       | 8 col |  8col   |
+/// +---+-------+-----------------------+-------+---------+
+/// | 3 |RSSTATE|                       |       |         |
+/// | 2 |ARITH(9) |LI(1)|     |CP(11) |OAF(4)|OLF(4)|OF(1)|
+/// | 1 | STATE |        STATE          | STATE | STATE   |
+/// | 0 |       DYNA_SELECTOR             | AUX           |
+/// +---+-------+-----------------------+-------+---------+
 pub struct ReturndatacopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -58,14 +66,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-
-        let copy_entry = config.get_copy_lookup(meta);
+        let copy_entry = config.get_copy_padding_lookup(meta);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-
+        // get arithmetic lookup
+        let less_arithmetic_entry = config.get_arithmetic_lookup(meta, 0);
+        let (less_arithmetic_tag, less_arithmetic_operands_full) =
+            extract_lookup_expression!(arithmetic, less_arithmetic_entry.clone());
+        // get arithmetic overflow lookup
+        let overflow_entry = config.get_arithmetic_u64overflow_lookup(meta, 0);
+        let [overflow_value_hi, overflow_value_lo, overflow, overflow_inv] =
+            extract_lookup_expression!(arithmetic_u64, overflow_entry.clone());
+        // get offset plus length overflow lookup
+        let offset_plus_length_overflow_entry = config.get_arithmetic_u64overflow_lookup(meta, 1);
+        let [offset_plus_length_value_hi, offset_plus_length_value_lo, offset_plus_length_overflow, offset_plus_length_overflow_inv] =
+            extract_lookup_expression!(arithmetic_u64, offset_plus_length_overflow_entry.clone());
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + copy_lookup_len(copied code)
         let delta = AuxiliaryOutcome {
@@ -111,22 +127,107 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 top2_stamp = stamp;
             }
         }
+        // get return data size lookup
+        let returndata_size_entry = config.get_returndata_size_state_lookup(meta);
+        constraints.append(&mut config.get_call_context_constraints(
+            meta,
+            returndata_size_entry.clone(),
+            4,
+            NUM_ROW,
+            false,
+            (CallContextTag::ReturnDataSize as u8).expr(),
+            state_values[0].clone(),
+        ));
+        let (_, _, returndata_size_hi, returndata_size_lo, _, _, _, _) =
+            extract_lookup_expression!(state, returndata_size_entry);
 
+        // offset overflow constraints
+        let not_overflow =
+            SimpleIsZero::new(&overflow, &overflow_inv, "offset u64 overflow".into());
+        constraints.extend([
+            ("not overflow".into(), not_overflow.expr() - 1.expr()),
+            ("overflow value hi = 0".into(), overflow_value_hi),
+            (
+                "overflow value lo = state_values[2]".into(),
+                overflow_value_lo - state_values[2].clone(),
+            ),
+        ]);
+        // offset plus length overflow constraints
+        let offset_plus_length_not_overflow = SimpleIsZero::new(
+            &offset_plus_length_overflow,
+            &offset_plus_length_overflow_inv,
+            "offset plus length u64 overflow".into(),
+        );
+        constraints.extend([
+            (
+                "offset plus length not overflow".into(),
+                offset_plus_length_not_overflow.expr() - 1.expr(),
+            ),
+            (
+                "offset plus length hi = 0".into(),
+                offset_plus_length_value_hi,
+            ),
+            (
+                "offset plus length lo = state_values[2] + state_values[3]".into(),
+                offset_plus_length_value_lo - state_values[2].clone() - state_values[3].clone(),
+            ),
+        ]);
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
         let is_zero_len =
-            SimpleIsZero::new(&state_values[3], &len_lo_inv, String::from("lengthlo"));
+            SimpleIsZero::new(&state_values[3], &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
+
+        let offset_plus_length = state_values[3].clone() + state_values[2].clone();
+        let overflow_flag = meta.query_advice(config.vers[OVERFLOW_COL_IDX], Rotation(-2));
+        // length + offset <= return_data_size
+        // arithmetic constraints
+        // arithmetic_operands_full[0] = return_data_size_hi
+        // arithmetic_operands_full[1] = return_data_size_lo
+        // arithmetic_operands_full[2] = 0
+        // arithmetic_operands_full[3] = offset_plus_length
+        // arithmetic_operands_full[6] = 0
+        // arithmetic_operands_full[7] = overflow_flag
+        constraints.extend([
+            (
+                "arithmetic tag is sub".into(),
+                less_arithmetic_tag - (arithmetic::Tag::Sub as u8).expr(),
+            ),
+            (
+                "arithmetic_operands_full[0] = return_data_size_hi".into(),
+                less_arithmetic_operands_full[0].clone() - returndata_size_hi.clone(),
+            ),
+            (
+                "arithmetic_operands_full[1] = return_data_size_lo".into(),
+                less_arithmetic_operands_full[1].clone() - returndata_size_lo.clone(),
+            ),
+            (
+                "arithmetic_operands_full[2] = 0".into(),
+                less_arithmetic_operands_full[2].clone(),
+            ),
+            (
+                "arithmetic_operands_full[3] = offset_plus_length".into(),
+                less_arithmetic_operands_full[3].clone() - offset_plus_length,
+            ),
+            (
+                "arithmetic_operands_full[6] = overflow_flag".into(),
+                less_arithmetic_operands_full[6].clone() - overflow_flag,
+            ),
+            (
+                "arithmetic_operands_full[7] = 0".into(),
+                less_arithmetic_operands_full[7].clone(),
+            ),
+        ]);
 
         let returndata_call_id = state_values[0].clone();
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::Returndata,
             returndata_call_id.clone(),
             state_values[2].clone(),
-            top2_stamp.clone() + 1.expr(),
+            top2_stamp.clone() + 2.expr(),
             copy::Tag::Memory,
             call_id,
             state_values[1].clone(),
-            top2_stamp + state_values[3].clone() + 1.expr(),
+            top2_stamp + state_values[3].clone() + 2.expr(),
             None,
             state_values[3].clone(),
             is_zero_len.expr(),
@@ -134,15 +235,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_entry,
         ));
 
-        constraints.extend([
-            (
-                "opcode is RETURNDATACOPY".into(),
-                opcode - OpcodeId::RETURNDATACOPY.expr(),
-            ),
-            ("next pc ".into(), pc_next - pc_cur - PC_DELTA.expr()),
-        ]);
-        // TODO: add return data length > copy size
-
+        constraints.extend([(
+            "opcode is RETURNDATACOPY".into(),
+            opcode - OpcodeId::RETURNDATACOPY.expr(),
+        )]);
+        // pc, call_id,code_addr,tx_idx constraints
+        constraints.append(&mut config.get_next_single_purpose_constraints(
+            meta,
+            CoreSinglePurposeOutcome {
+                pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+                ..Default::default()
+            },
+        ));
         constraints
     }
     fn get_lookups(
@@ -154,7 +258,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
-        let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let returndata_size_lookup =
+            query_expression(meta, |meta| config.get_returndata_size_state_lookup(meta));
+        let code_copy_lookup = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
+        let less_arithmetic_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
+        let overflow_arithmetic_lookup = query_expression(meta, |meta| {
+            config.get_arithmetic_u64overflow_lookup(meta, 0)
+        });
+        let offset_plus_length_overflow_arithmetic_lookup = query_expression(meta, |meta| {
+            config.get_arithmetic_u64overflow_lookup(meta, 1)
+        });
         vec![
             (
                 "state lookup, call_context read returndata_call_id".into(),
@@ -170,19 +284,36 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_lookup_2,
             ),
             ("returndata copy lookup".into(), code_copy_lookup),
+            ("arithmetic less sub lookup".into(), less_arithmetic_lookup),
+            (
+                "arithmetic overflow lookup".into(),
+                overflow_arithmetic_lookup,
+            ),
+            (
+                "offset plus length overflow lookup".into(),
+                offset_plus_length_overflow_arithmetic_lookup,
+            ),
+            (
+                "return data size lookup at Rotation(-3)".into(),
+                returndata_size_lookup,
+            ),
         ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::RETURNDATACOPY);
         //get call_context read returndata_call_id row
-        let call_context_read = current_state.get_returndata_call_id_row();
+        let call_context_read = current_state.get_returndata_call_id_row(false);
 
         // get dstOffset、offset、length from stack top
         let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
-
+        let (call_context_returndata_size, returndata_size) =
+            current_state.get_current_returndata_size_read_row();
+        let mut core_row_3 = current_state.get_core_row_without_versatile(&trace, 3);
+        // insert return data size in cnt = 3 row
+        core_row_3.insert_returndata_size_state_lookup(&call_context_returndata_size);
         // generate core rows
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
@@ -192,7 +323,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // insert lookUp: Core ---> Copy
         if length == 0.into() {
             core_row_2.insert_copy_lookup(
-                0,
+                1,
                 &copy::Row {
                     byte: 0.into(),
                     src_type: copy::Tag::default(),
@@ -209,27 +340,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 },
             );
         } else {
-            core_row_2.insert_copy_lookup(0, &copy_rows[0]);
+            core_row_2.insert_copy_lookup(1, &copy_rows[0]);
         }
-
+        // insert offset overflow arithmetic
+        let (mut dest_offset_overflow_arith, _) = u64overflow::gen_witness::<F>(vec![offset]);
+        core_row_2.insert_arithmetic_u64overflow_lookup(0, &dest_offset_overflow_arith);
+        // insert offset + length overflow arithmetic
+        let (mut offset_plus_length_overflow_arith, _) =
+            u64overflow::gen_witness::<F>(vec![offset + length]);
+        core_row_2.insert_arithmetic_u64overflow_lookup(1, &offset_plus_length_overflow_arith);
         let len_lo = F::from_u128(length.low_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-
         //lenlo_inv
         assign_or_panic!(core_row_2[LEN_LO_INV_COL_IDX], len_lo_inv);
 
-        // get returndata_size
-        let returndata_size = current_state
-            .return_data
-            .get(&current_state.returndata_call_id)
-            .map(|v| v.len())
-            .unwrap_or_default();
-        if (offset + length) > U256::from(returndata_size) {
-            assign_or_panic!(core_row_2[SIZE_SIGN_COL_IDX], U256::from(1));
-        } else {
-            assign_or_panic!(core_row_2[SIZE_SIGN_COL_IDX], U256::zero());
-        };
+        // 若不满足,应该在trace中有ErrReturnDataOutOfBounds
+        assert!(offset + length <= returndata_size);
+        let (mut less_arithmetic_rows, arithmetic_result) =
+            operation::sub::gen_witness(vec![returndata_size, offset + length]);
+        core_row_2.insert_arithmetic_lookup(0, &less_arithmetic_rows);
+        assign_or_panic!(core_row_2[OVERFLOW_COL_IDX], arithmetic_result[1]);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State
@@ -252,12 +383,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pop_dst_offset,
             stack_pop_offset,
             stack_pop_length,
+            call_context_returndata_size,
         ];
         state_rows.extend(copy_state_rows);
+        let mut arithmetic_rows = vec![];
+        arithmetic_rows.append(&mut dest_offset_overflow_arith);
+        arithmetic_rows.append(&mut offset_plus_length_overflow_arith);
+        arithmetic_rows.append(&mut less_arithmetic_rows);
         Witness {
-            core: vec![core_row_2, core_row_1, core_row_0],
+            core: vec![core_row_3, core_row_2, core_row_1, core_row_0],
             state: state_rows,
             copy: copy_rows,
+            arithmetic: arithmetic_rows,
             ..Default::default()
         }
     }
