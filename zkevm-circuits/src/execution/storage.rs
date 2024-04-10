@@ -48,9 +48,9 @@ const PC_DELTA: u64 = 1;
 ///     STATE3:  State lookup(stack pop value), src: Core circuit, target: State circuit table, 8 columns
 ///     STATE4:  stack lookup(storage write value), src: Core circuit, target: State circuit table, 8 columns
 /// Public part:
-///     STATE5:  stack lookup(slot in access list read), src: Core circuit, target: State circuit table, 12 columns
-///     STATE6:  stack lookup(slot in access list write), src: Core circuit, target: State circuit table, 12 columns
-///     STATE7:  stack lookup(get_value_prev_storage_write_row), src: Core circuit, target: State circuit table, 12 columns
+///     STATE5:  State lookup(slot in access list read), src: Core circuit, target: State circuit table, 12 columns
+///     STATE6:  State lookup(slot in access list write), src: Core circuit, target: State circuit table, 12 columns
+///     STATE7:  State lookup(get_value_prev_storage_write_row), src: Core circuit, target: State circuit table, 12 columns
 ///     U64: arithemetic lookup, gas_left u64 constraint, src: Core circuit, target: Arithemetic circuit table, 4 columns
 ///     lt, diff: SstoreSentryGasEIP2200 < gas_left, lt constraint, 1 column
 ///     prev_eq_value_inv_hi: value_hi == value_pre_hi, 1 column
@@ -432,14 +432,14 @@ fn get_core_row_3<F: Field>(
     let storage_value_lo = U256::from(storage_value.low_u128());
 
     // 2. value_prev == value
-    let prev_eq_value_inv_hi = get_eq_operation::<F>(&value_prev_hi, &storage_value_hi);
-    let prev_eq_value_inv_lo = get_eq_operation::<F>(&value_prev_lo, &storage_value_lo);
+    let prev_eq_value_inv_hi = get_diff_inv::<F>(&value_prev_hi, &storage_value_hi);
+    let prev_eq_value_inv_lo = get_diff_inv::<F>(&value_prev_lo, &storage_value_lo);
     core_row_3[STORAGE_COLUMN_WIDTH] = Some(prev_eq_value_inv_hi);
     core_row_3[STORAGE_COLUMN_WIDTH + 1] = Some(prev_eq_value_inv_lo);
 
     // 3.committed_value == value_prev
-    let committed_eq_prev_inv_hi = get_eq_operation::<F>(&committed_value_hi, &value_prev_hi);
-    let committed_eq_prev_inv_lo = get_eq_operation::<F>(&committed_value_lo, &value_prev_lo);
+    let committed_eq_prev_inv_hi = get_diff_inv::<F>(&committed_value_hi, &value_prev_hi);
+    let committed_eq_prev_inv_lo = get_diff_inv::<F>(&committed_value_lo, &value_prev_lo);
     core_row_3[STORAGE_COLUMN_WIDTH + 2] = Some(committed_eq_prev_inv_hi);
     core_row_3[STORAGE_COLUMN_WIDTH + 3] = Some(committed_eq_prev_inv_lo);
 
@@ -456,8 +456,8 @@ fn get_core_row_3<F: Field>(
     core_row_3[STORAGE_COLUMN_WIDTH + 6] = Some(value_pre_inv);
 
     // 7. committed_eq_value
-    let committed_eq_value_inv_hi = get_eq_operation::<F>(&committed_value_hi, &storage_value_hi);
-    let committed_eq_value_inv_lo = get_eq_operation::<F>(&committed_value_lo, &storage_value_lo);
+    let committed_eq_value_inv_hi = get_diff_inv::<F>(&committed_value_hi, &storage_value_hi);
+    let committed_eq_value_inv_lo = get_diff_inv::<F>(&committed_value_lo, &storage_value_lo);
     core_row_3[STORAGE_COLUMN_WIDTH + 7] = Some(committed_eq_value_inv_hi);
     core_row_3[STORAGE_COLUMN_WIDTH + 8] = Some(committed_eq_value_inv_lo);
 
@@ -718,7 +718,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 
 // lhs, rhs is 128bit
-fn get_eq_operation<F: Field>(lhs: &U256, rhs: &U256) -> U256 {
+fn get_diff_inv<F: Field>(lhs: &U256, rhs: &U256) -> U256 {
     let lhs = F::from_u128(lhs.as_u128());
     let rhs = F::from_u128(rhs.as_u128());
 
