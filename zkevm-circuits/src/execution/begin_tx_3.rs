@@ -1,16 +1,20 @@
+use crate::arithmetic_circuit::operation;
+use crate::constant::GAS_LEFT_IDX;
 use crate::execution::{
     AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::WitnessExecHelper;
+use crate::witness::{arithmetic, public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
-use eth_types::{Field, GethExecStep};
-use gadgets::util::Expr;
+use eth_types::evm_types::{GasCost, INIT_CODE_WORD_GAS};
+use eth_types::{Field, GethExecStep, U256};
+use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(super) const NUM_ROW: usize = 2;
+pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 2;
 
 pub struct BeginTx3Gadget<F: Field> {
@@ -27,12 +31,15 @@ pub struct BeginTx3Gadget<F: Field> {
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
-/// +---+-------+-------+-------+----------+
-/// | 1 | STATE | STATE |       |          |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// PUBLIC Tag is TXIsCreate, include is create, call data gas cost
+/// Arithmetic_tiny is ((call_data_length + 31) / 32)
+/// +-----+-----------------------+-------------------------+
+/// | cnt |                       |                         |
+/// +-----+-----------------------+-------------------------+
+/// | 2   | PUBLIC(0..5)          | Arithmetic_tiny(7..11)  |
+/// | 1   | STATE0(0..7)          | STATE(8..15)            |
+/// | 0   | DYNA_SELECTOR(0..17)  | AUX(18..24)             |
+/// +-----+-----------------------+-------------------------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for BeginTx3Gadget<F>
 {
@@ -58,12 +65,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
+        let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
+        // auxiliary and single purpose constraints
+        let gas_cost = get_intrinsic_gas_cost(config, meta, tx_id.clone(), &mut constraints);
         // auxiliary and single purpose constraints
         let delta = AuxiliaryOutcome {
             // 记录了2个state状态
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(gas_cost),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
+        constraints.append(&mut config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta.clone()));
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         let delta = Default::default();
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
@@ -114,9 +127,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 从core电路中读取记录的2个state状态，与state 电路进行lookup
         let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let public_intrinsic_gas_cost =
+            query_expression(meta, |meta| config.get_public_lookup(meta, 0));
+        // 从core电路中读取arithmetic状态，与arithmetic电路进行lookup
+        let arithmetic_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 0));
         vec![
             ("default return data call id write".into(), state_lookup_0),
             ("default return data size write".into(), state_lookup_1),
+            (
+                "public intrinsic gas cost lookup".into(),
+                public_intrinsic_gas_cost,
+            ),
+            ("arithmetic lookup".into(), arithmetic_lookup),
         ]
     }
 
@@ -129,21 +152,38 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             CallContextTag::ReturnDataSize,
             Some(current_state.returndata_call_id.into()),
         );
+        let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
+        let public_row = current_state.get_public_tx_is_create_row();
+        core_row_2.insert_public_lookup(0, &public_row);
+        let call_data_len = current_state
+            .call_data_size
+            .get(&current_state.call_id)
+            .unwrap_or(&U256::zero())
+            .clone();
+        let (arithmetic_row, _) =
+            operation::memory_expansion::gen_witness(vec![call_data_len, 0.into()]);
+        core_row_2.insert_arithmetic_tiny_lookup(0, &arithmetic_row);
+
         // core_row_1 写入2个state row状态, returndata_call_id 和 returndata_size
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &default_returndata_call_id_row,
             &default_returndata_size_row,
         ]);
-        let core_row_0 = ExecutionState::BEGIN_TX_3.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::BEGIN_TX_3.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+        let gas_cost = intrinsic_gas_cost(current_state, call_data_len);
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+            Some(U256::from(current_state.gas_left - gas_cost));
+
         Witness {
-            core: vec![core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![default_returndata_call_id_row, default_returndata_size_row],
+            arithmetic: arithmetic_row,
             ..Default::default()
         }
     }
@@ -154,6 +194,62 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
     Box::new(BeginTx3Gadget {
         _marker: PhantomData,
     })
+}
+
+fn get_intrinsic_gas_cost<
+    F: Field,
+    const NUM_STATE_HI_COL: usize,
+    const NUM_STATE_LO_COL: usize,
+>(
+    config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    meta: &mut VirtualCells<F>,
+    tx_id_or_number_diff: Expression<F>,
+    constraints: &mut Vec<(String, Expression<F>)>,
+) -> Expression<F> {
+    let public_entry = config.get_public_lookup(meta, 0);
+    let (public_tag, tx_id, [is_create, call_data_gas_cost, _, _]) =
+        extract_lookup_expression!(public, public_entry);
+
+    let arithmetic_entry = config.get_arithmetic_tiny_lookup(meta, 0);
+    let (tag, [_, _, _, call_data_word_length]) =
+        extract_lookup_expression!(arithmetic_tiny, arithmetic_entry);
+
+    constraints.extend([
+        (
+            "public tag = TxIsCreate".into(),
+            public_tag - (public::Tag::TxIsCreate as u8).expr(),
+        ),
+        ("tx_id = tx_id".into(), tx_id - tx_id_or_number_diff),
+        (
+            "arithmetic tag = MemoryExpansion".into(),
+            tag - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ),
+    ]);
+
+    let init_code_gas_cost = select::expr(
+        is_create.clone(),
+        call_data_word_length * INIT_CODE_WORD_GAS.expr(),
+        0.expr(),
+    );
+
+    let intrinsic_gas_cost = select::expr(
+        is_create.clone(),
+        GasCost::CREATION_TX.expr(),
+        GasCost::TX.expr(),
+    ) + call_data_gas_cost
+        + init_code_gas_cost;
+
+    intrinsic_gas_cost
+}
+
+pub fn intrinsic_gas_cost(current_state: &mut WitnessExecHelper, call_data_len: U256) -> u64 {
+    let init_code_gas_cost = (call_data_len + 31) / 32 * INIT_CODE_WORD_GAS;
+    let is_create = current_state.is_create as u64;
+
+    let intrinsic_gas_cost = is_create * (init_code_gas_cost.as_u64() + GasCost::CREATION_TX)
+        + (1 - is_create) * GasCost::TX
+        + current_state.call_data_gas_cost();
+    intrinsic_gas_cost
 }
 
 #[cfg(test)]
@@ -176,6 +272,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
+            gas_left: 0x254023,
             call_id,
             value,
             sender,
