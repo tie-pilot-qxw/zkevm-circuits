@@ -38,27 +38,38 @@ const PC_DELTA: u64 = 1;
 ///     2. write value to storage[key]
 /// Table layout:
 /// SLOAD:
-///     STATE1:  State lookup(call_context read storage_contract_addr), src: Core circuit, target: State circuit table, 12 columns
-///     STATE2:  State lookup(stack pop key), src: Core circuit, target: State circuit table, 12 columns
-///     STATE3:  State lookup(storage read value), src: Core circuit, target: State circuit table, 12 columns
-///     STATE4:  stack lookup(stack push value), src: Core circuit, target: State circuit table, 12 columns
-///     STATE5:  stack lookup(slot in access list read), src: Core circuit, target: State circuit table, 12 columns
-///     STATE6:  stack lookup(slot in access list write), src: Core circuit, target: State circuit table, 12 columns
+///     STATE1:  State lookup(call_context read storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(stack pop key), src: Core circuit, target: State circuit table, 8 columns
+///     STATE3:  State lookup(storage read value), src: Core circuit, target: State circuit table, 8 columns
+///     STATE4:  stack lookup(stack push value), src: Core circuit, target: State circuit table, 8 columns
 /// SSTORE:
-///     STATE1:  State lookup(call_context read storage_contract_addr), src: Core circuit, target: State circuit table, 12 columns
-///     STATE2:  State lookup(stack pop key), src: Core circuit, target: State circuit table, 12 columns
-///     STATE3:  State lookup(stack pop value), src: Core circuit, target: State circuit table, 12 columns
-///     STATE4:  stack lookup(storage write value), src: Core circuit, target: State circuit table, 12 columns
+///     STATE1:  State lookup(call_context read storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
+///     STATE2:  State lookup(stack pop key), src: Core circuit, target: State circuit table, 8 columns
+///     STATE3:  State lookup(stack pop value), src: Core circuit, target: State circuit table, 8 columns
+///     STATE4:  stack lookup(storage write value), src: Core circuit, target: State circuit table, 8 columns
+/// Public part:
 ///     STATE5:  stack lookup(slot in access list read), src: Core circuit, target: State circuit table, 12 columns
 ///     STATE6:  stack lookup(slot in access list write), src: Core circuit, target: State circuit table, 12 columns
-///
-/// +-----+-------------------------+-------------------------+------------------+-------+-------+-------------------------+-------------------------+-----------------------------+-----------------------------+------------------------+------------+---------------+-----------------------------+-----------------------------+
-/// | cnt | column                  | ..                      |                  |       |       |                         |                         |                             |                             |                        |            |               |                             |                             |
-/// +-----+-------------------------+-------------------------+------------------+-------+-------+-------------------------+-------------------------+-----------------------------+-----------------------------+------------------------+------------+---------------+-----------------------------+-----------------------------+
-/// | 3   | STATE5(0..11)           | STATE6(12..23)          | ARITH(24..27)    | lt(28)| diff(29)| prev_eq_value_inv_hi(30)| prev_eq_value_inv_lo(31)| committed_eq_prev_inv_hi(32)| committed_eq_prev_inv_lo(33)| committed_value_inv(34)| value_inv(35)| value_pre_inv(36)| committed_eq_value_inv_hi(37)| committed_eq_value_inv_lo(38)|
-/// | 1   | STATE1(0..11)           | STATE2(12..23)          | STATE3(24..35)                                                                                                                                                                             | STATE4(36..47)                                                        |
-/// | 0   | dynamic_selector (0..17)      | AUX(18..24)       |                  |       |       |                         |                         |                             |                             |                        |            |               |                             |                             |
-/// +-----+-------------------------+-------------------------+------------------+-------+-------+-------------------------+-------------------------+-----------------------------+-----------------------------+------------------------+------------+---------------+-----------------------------+-----------------------------+
+///     STATE7:  stack lookup(get_value_prev_storage_write_row), src: Core circuit, target: State circuit table, 12 columns
+///     U64: arithemetic lookup, gas_left u64 constraint, src: Core circuit, target: Arithemetic circuit table, 4 columns
+///     lt, diff: SstoreSentryGasEIP2200 < gas_left, lt constraint, 1 column
+///     prev_eq_value_inv_hi: value_hi == value_pre_hi, 1 column
+///     prev_eq_value_inv_lo: value_lo == value_pre_lo, 1 column
+///     committed_eq_prev_inv_hi: committed_value_hi == value_pre_hi, 1 column
+///     committed_eq_prev_inv_lo: committed_value_lo == value_pre_lo, 1 column
+///     committed_value_inv: committed_value == 0, 1 column
+///     value_inv: value == 0, 1 column
+///     value_pre_inv: value_pre == 0, 1 column
+///     committed_eq_value_inv_hi: committed_value_hi == value_hi, 1 column
+///     committed_eq_value_inv_lo: committed_value_lo == value_lo, 1 column
+/// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
+/// | cnt |                                    |                                      |                           |                               |                               |                              |                |                  |                                |                                |
+/// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
+/// | 3   | STATE7(0..11)                      | prev_eq_value_inv_hi(12)             | prev_eq_value_inv_lo(13)  | committed_eq_prev_inv_hi(14)  | committed_eq_prev_inv_lo(15)  | committed_value_inv(16)      | value_inv(17)  | value_pre_inv(18)| committed_eq_value_inv_hi(19) | committed_eq_value_inv_lo(20) |
+/// | 2   | STATE5(0..11)                      | STATE6(12..23)                       | U64(24..27)                | lt(28)                        | diff(29)                      |                              |                |                  |                                |                                |
+/// | 1   | STATE1(0..7)                       | STATE2(8..15)                        | STATE3(16..23)             | STATE4(24..31)                |                               |                              |                |                  |                                |                                |
+/// | 0   | dynamic_selector (0..17)           | AUX(18..24)                          |                           |                               |                               |                              |                |                  |                                |                                |
+/// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
 ///
 /// Note:
 ///     1. In STATE3 of SLOAD and STATE4 of SSTORE, contract_addr is value hi,lo of STATE1 and pointer hi,lo is value hi,lo of STATE2.
