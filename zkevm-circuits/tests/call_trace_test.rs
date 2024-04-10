@@ -5,9 +5,7 @@ use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{get_geth_data, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
-// todo CALL gas实现后再删除ignore
 #[test]
-#[ignore]
 fn test_call_trace() {
     // gen witness
     let witness = Witness::new(&get_geth_data(

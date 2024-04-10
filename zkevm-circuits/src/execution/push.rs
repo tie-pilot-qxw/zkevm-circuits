@@ -67,8 +67,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
-        // todo PUSH暂时先注释掉，CALL的gas实现后再调试
-        // constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(

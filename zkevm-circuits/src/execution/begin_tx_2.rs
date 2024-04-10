@@ -1,13 +1,16 @@
+use crate::arithmetic_circuit::operation;
+use crate::constant::GAS_LEFT_IDX;
 use crate::execution::{
     begin_tx_3, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
     ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{public, WitnessExecHelper};
+use crate::witness::{arithmetic, public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
-use eth_types::{Field, GethExecStep};
-use gadgets::util::Expr;
+use eth_types::evm_types::{GasCost, INIT_CODE_WORD_GAS};
+use eth_types::{Field, GethExecStep, U256};
+use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;

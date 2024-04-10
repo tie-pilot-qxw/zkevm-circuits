@@ -83,6 +83,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id_new = state_stamp_init.clone() + 1.expr();
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
+            gas_left: ExpressionOutcome::Delta(0.expr()), // 此处的gas_left值与post_call保持一致
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             // stack pointer will become 0 after call_4
             stack_pointer: ExpressionOutcome::Delta(-stack_pointer_prev.expr()),
@@ -175,7 +176,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state is CALL_3
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::CALL_3], NUM_ROW, vec![], None),
+            ExecStateTransition::new(vec![ExecutionState::POST_CALL], NUM_ROW, vec![], None),
         ));
         constraints
     }
@@ -303,7 +304,7 @@ mod test {
         let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::CALL_3.into_exec_state_core_row(
+            let mut row = ExecutionState::POST_CALL.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

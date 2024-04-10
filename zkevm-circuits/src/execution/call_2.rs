@@ -1,4 +1,4 @@
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
 use crate::execution::{
     call_3, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -72,7 +72,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
+        let memory_chunk_prev_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            Rotation::cur(),
+        );
+        let memory_chunk_prev = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            Rotation(-1 * NUM_ROW as i32),
+        );
+
         let delta = AuxiliaryOutcome {
+            gas_left: ExpressionOutcome::Delta(0.expr()), // 此处的gas_left值与CALL1-3保持一致
+            refund: ExpressionOutcome::Delta(0.expr()),
             // 读取value，记录call_id对应的value 两次操作，所以stamp delta=2
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             // 未进行出栈操作，约束当前stack pointer与上个gadget相同
@@ -80,7 +91,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         // append auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..2 {
@@ -122,12 +134,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
         // append opcode constraint
-        constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
-        // append constraint for the next execution state's stamp_init
-        constraints.extend([(
-            "state_init_for_next_gadget correct".into(),
-            stamp_init_for_next_gadget - state_stamp_init,
-        )]);
+        constraints.extend([
+            ("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr()),
+            // append constraint for the next execution state's stamp_init
+            (
+                "state_init_for_next_gadget correct".into(),
+                stamp_init_for_next_gadget - state_stamp_init,
+            ),
+            (
+                "memory_chunk_prev_for_next correct".into(),
+                memory_chunk_prev_for_next - memory_chunk_prev,
+            ),
+        ]);
         // append prev and current core constraints
         let prev_core_single_delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_cur_single_purpose_constraints(
@@ -195,6 +213,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             stamp_init.into()
         );
+        // core_row_0写入memory_chunk_prev, 向下传至memory gas计算部分
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            current_state.memory_chunk_prev.into()
+        );
+        // CALL1到POST_MEMORY_GAS时还未进行gas计算，此时gas_left为trace.gas
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+
         Witness {
             core: vec![core_row_1, core_row_0],
             state: vec![stack_read_row, call_context_write_row],
@@ -250,6 +276,7 @@ mod test {
                 Some(stack_pointer.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY] =
                 Some(state_stamp_init.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
             row
         };
         let padding_end_row = |current_state| {

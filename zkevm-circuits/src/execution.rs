@@ -40,6 +40,8 @@ pub mod mstore8;
 pub mod mulmod;
 pub mod not;
 pub mod pop;
+pub mod post_call;
+pub mod post_call_memory_gas;
 pub mod public_context;
 pub mod push;
 pub mod return_revert;
@@ -93,6 +95,8 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::call_1::new(),
             crate::execution::call_2::new(),
             crate::execution::call_3::new(),
+            crate::execution::post_call_memory_gas::new(),
+            crate::execution::post_call::new(),
             crate::execution::call_4::new(),
             crate::execution::call_5::new(),
             crate::execution::call_context::new(),
@@ -338,6 +342,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 5], Rotation::prev()),
             meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 6], Rotation::prev()),
             meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 7], Rotation::prev()),
+        );
+        LookupEntry::State {
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        }
+    }
+
+    pub(crate) fn get_state_lookup_2(
+        &self,
+        meta: &mut VirtualCells<F>,
+        num: usize,
+        at: Rotation,
+    ) -> LookupEntry<F> {
+        assert!(num < 4);
+        let (
+            tag,
+            stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            pointer_lo,
+            is_write,
+        ) = (
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 0], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 1], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 2], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 3], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 4], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 5], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 6], at),
+            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 7], at),
         );
         LookupEntry::State {
             tag,
@@ -2207,6 +2249,8 @@ pub enum ExecutionState {
     CALL_2,
     CALL_3,
     CALL_4,
+    POST_CALL_MEMORY_GAS,
+    POST_CALL,
     CALL_5,
     END_CALL,
     END_TX,
@@ -2424,7 +2468,14 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::CALL => {
-                vec![Self::CALL_1, Self::CALL_2, Self::CALL_3, Self::CALL_4]
+                vec![
+                    Self::CALL_1,
+                    Self::CALL_2,
+                    Self::CALL_3,
+                    Self::POST_CALL_MEMORY_GAS,
+                    Self::POST_CALL,
+                    Self::CALL_4,
+                ]
             }
             OpcodeId::CALLCODE => {
                 todo!()
