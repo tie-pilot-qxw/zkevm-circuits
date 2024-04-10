@@ -1,6 +1,9 @@
 use crate::arithmetic_circuit::operation;
+use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
+use crate::execution::ExecutionState::{MEMORY_COPIER_GAS, MEMORY_GAS};
 use crate::execution::{
-    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+    memory_copier_gas, memory_gas_cost, AuxiliaryOutcome, CoreSinglePurposeOutcome,
+    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -28,13 +31,16 @@ const LEN_LO_INV_COL_IDX: usize = 24;
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | not used |
-/// +---+-------+-------+-------+----------+
-/// | 2 | COPY   |       |       | ARITH(5)|
-/// | 1 | STATE | STATE | STATE |          |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// new_memory_size is `length + offset`
+/// memory_chunk_prev is the previous memory chunk
+/// length is the opcode input parameter
+/// +---+-------+-------+-------+-------------------------------------------------------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col                                                 |
+/// +---+-------+-------+-------+-------------------------------------------------------+
+/// | 2 | COPY   |        |       |         | ARITH(5) |                                 |
+/// | 1 | STATE  | STATE  | STATE|                                                       |
+/// | 0 | DYNA_SELECTOR   | AUX  | new_memory_size(26) |memory_chunk_prev(27)|length(28) |
+/// +---+-------+-------+-------+-------------------------------------------------------+
 pub struct CalldatacopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -52,7 +58,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, 1)
+        (NUM_ROW, memory_gas_cost::NUM_ROW)
     }
 
     fn get_constraints(
@@ -88,7 +94,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let length = stack_pop_values[2].clone();
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation::prev());
-        let is_zero_len = SimpleIsZero::new(&length, &len_lo_inv, String::from("length_lo"));
+        let is_zero_len =
+            SimpleIsZero::new(&length.clone(), &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut is_zero_len.get_constraints());
@@ -112,6 +119,39 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "opcode".into(),
             opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
         )]);
+
+        // next state constraints
+        let memory_size_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "memory_size_for_next ==  (mem_off + length) * (1 - is_zero_len.expr()) in state lookup".into(),
+            (stack_pop_values[0].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - memory_size_for_next.clone(),
+        ));
+
+        let memory_chunk_prev_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "memory_chunk_prev_for_next == memory_chunk_prev in auxiliary".into(),
+            memory_chunk_prev_for_next
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        let length_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "length_for_next == length in state lookup".into(),
+            length_for_next - length.clone(),
+        ));
 
         // Extract the tag and arithmetic operands from the arithmetic lookup expression.
         // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
@@ -151,18 +191,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // 弹出了三个操作数
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            gas_left: ExpressionOutcome::Delta(0.expr()), // call data copy最终的gas有memory_copier_gas决定
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         // 添加辅助列的约束，约束上下相邻指令的状态
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
         // 约束pc、tx_id等状态
-        let delta = CoreSinglePurposeOutcome {
-            // 因为pc向后移动1，该指令下同一笔交易中其它状态不变
-            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
+        // pc后移至memory_copier_gas后变化
+        let delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
-
+        constraints.extend(config.get_exec_state_constraints(
+            meta,
+            ExecStateTransition::new(
+                vec![],
+                NUM_ROW,
+                vec![(MEMORY_GAS, memory_gas_cost::NUM_ROW, None)],
+                None,
+            ),
+        ));
         constraints
     }
 
@@ -216,23 +264,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(0, copy_rows.get(0).unwrap());
         }
 
-        // core电路写入三个操作数的state 状态
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2]);
-        // 记录copy数据字节大小的倒数，在约束逻辑区分长度为0和非0情况
-        let len_lo = F::from_u128(length.low_u128());
-        let lenlo_inv =
-            U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_1[LEN_LO_INV_COL_IDX], lenlo_inv);
-
-        // 插入执行指令的flag
-        let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
-            trace,
-            current_state,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        );
-
         let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
         let offset_bound = if length.is_zero() {
             U256::zero()
@@ -243,8 +274,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (arith_mem, result) =
             operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
         assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
-
         core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
+
+        // core电路写入三个操作数的state 状态
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        core_row_1.insert_state_lookups([&stack_pop_0, &stack_pop_1, &stack_pop_2]);
+        // 记录copy数据字节大小的倒数，在约束逻辑区分长度为0和非0情况
+        let len_lo = F::from_u128(length.low_u128());
+        let lenlo_inv =
+            U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+        assign_or_panic!(core_row_1[LEN_LO_INV_COL_IDX], lenlo_inv);
+
+        // 插入执行指令的flag
+        let mut core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
+            trace,
+            current_state,
+            NUM_STATE_HI_COL,
+            NUM_STATE_LO_COL,
+        );
+
+        // 根据栈里的输入记录length和memory_size
+        current_state.length_in_stack = length.as_u64();
+        current_state.new_memory_size = offset_bound.as_u64();
+
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+
+        // 固定的预分配位置
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            offset_bound
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            current_state.memory_chunk_prev.into()
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
+            length.into()
+        );
 
         // generate witness for coredataload instruct
         state_rows.extend(vec![stack_pop_0, stack_pop_1, stack_pop_2]);
@@ -321,6 +388,7 @@ mod test {
     fn run_prover(stack: Stack, mut current_state: WitnessExecHelper, _file_name: &str) {
         let stack_pointer = stack.0.len();
         let trace = prepare_trace_step!(0, OpcodeId::CALLDATACOPY, stack);
+        current_state.gas_left = 100;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -333,13 +401,12 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let mut row = ExecutionState::MEMORY_GAS.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = 1.into();
             row
         };
         let (witness, prover) =

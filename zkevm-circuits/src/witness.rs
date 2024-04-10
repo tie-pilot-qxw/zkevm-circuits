@@ -125,6 +125,10 @@ pub struct WitnessExecHelper {
     pub parent_gas: HashMap<u64, u64>,
     // 存储父环境的trace.gas_cost
     pub parent_gas_cost: HashMap<u64, u64>,
+    // 暂存上一步的memory_size, 对应EVM中的memoryFunc的传参，是由stack中的值决定的
+    pub new_memory_size: u64,
+    // 暂存上一步stack中的length值，针对copy等指令
+    pub length_in_stack: u64,
 }
 
 impl WitnessExecHelper {
@@ -168,6 +172,8 @@ impl WitnessExecHelper {
             memory_gas_cost: 0,
             parent_gas: HashMap::new(),
             parent_gas_cost: HashMap::new(),
+            new_memory_size: 0,
+            length_in_stack: 0,
         }
     }
 
@@ -2586,7 +2592,8 @@ impl core::Row {
         index: usize,
         arith_entries: &[arithmetic::Row],
     ) {
-        assert_eq!(self.cnt, 2.into());
+        // in memory gas cost, arithmetic lookup needs to be placed on the cnt=1
+        // assert_eq!(self.cnt, 2.into());
         assert!(index < 6);
         let arith_row = &arith_entries[arith_entries.len() - 1];
         let column_values = [
