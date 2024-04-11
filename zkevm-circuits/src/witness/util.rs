@@ -17,12 +17,12 @@ pub fn handle_sload(
     }
 }
 
+// 传入的tx_idx下标从1开始计数
 pub fn handle_sstore(to: U256, step: &GethExecStep, state_db: &mut StateDB, tx_idx: usize) {
     for (key, value) in &step.storage.0 {
-        // current_state 中的是从1开始计数，所以这里要加1
-        if state_db.get_pending_storage(&to, key, tx_idx + 1).is_none() {
+        if state_db.get_pending_storage(&to, key, tx_idx).is_none() {
             // 倒序遍历，如果同一笔交易里有两个sstore操作，并且他们的key元组相同，那么只保留第一次插入的值
-            state_db.insert_pending_storage(to, *key, value.clone(), tx_idx + 1);
+            state_db.insert_pending_storage(to, *key, value.clone(), tx_idx);
         }
     }
 }

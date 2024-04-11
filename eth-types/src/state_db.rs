@@ -2,19 +2,38 @@
 use crate::{Word, U256};
 use std::collections::{HashMap, HashSet};
 
+/// 与is_warm相关的opcode:
+///     - sstore (addr, key)
+///     - sload (addr, key)
+///     - extcodecopy (addr)
+///     - balance (addr)
+///     - extcodesize (addr)
+///     - extcodehash (addr)
+///     - call,callcode,delegatecall,staticcall (addr)
+///     - selfdestruct (addr)
+///     - ErrorOOGAccountAccess (balance，extcodesize，extcodehash有关) (addr)
+///     - ErrorOOGCall(call,callcode,delegatecall,staticcall) (addr)
+///     - ErrorOOGMemoryCopy(extcodecopy) (addr)
+
 /// state db for EVM
 #[derive(Debug, Clone, Default)]
 pub struct StateDB {
     /// key is address -- is_warm (生命周期是交易级别，影响的是一笔交易内的数据)
+    /// is_warm在一笔交易中初次被访问时应该false，之后会被写为true
     pub access_list: HashSet<Word>,
     /// key is (address, slot) -- is_warm (生命周期是交易级别，影响的是一笔交易内的数据)
+    /// is_warm在一笔交易中初次被访问时应该false，之后会被写为true
+    /// 向lot_access_list中插入新的数据时, 会同时向该address插入access_list
     pub slot_access_list: HashSet<(Word, U256)>,
     /// key is (address, slot) -- value_prev (生命周期是交易级别，影响的是一笔交易内的数据)
+    /// 同一笔交易，上一次sstore opcode写入的值
     pub dirty_storage: HashMap<(Word, U256), U256>,
     /// pending key is (address, slot, tx_idx) -- committed_value in pending (生命周期是交易级别，会因为上一笔交易的改变而改变)
+    /// 上一笔交易，最后一次sstore对某个key写入的值
     pub pending_storage: HashMap<(Word, U256), (U256, usize)>,
     /// original key is (address, slot) -- committed_value in original (生命周期是区块级别，对于一个区块内的所有交易都是一样的)
-    /// tx_idx == 0
+    /// tx_idx == 1
+    /// 同一个区块，上一个区块对应key的value，即已经提交的值，对于当前区块该值不会发生变化
     pub original_storage: HashMap<(Word, U256), U256>,
 }
 

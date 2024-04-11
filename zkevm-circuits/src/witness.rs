@@ -97,6 +97,8 @@ pub struct WitnessExecHelper {
     pub storage_contract_addr: HashMap<u64, U256>,
     pub state_stamp: u64,
     pub log_stamp: u64,
+    // gas_left默认存储的是执行完当前状态后的剩余gas
+    // 对于类似CALL指令这种特殊的gas，会在CALL gen_witness时单独进行修改
     pub gas_left: u64,
     pub refund: u64,
     pub memory_chunk: u64,
@@ -167,7 +169,7 @@ impl WitnessExecHelper {
 
     /// 主要分为两部，第一步是为了找到上一个区块的对应的key/value，填充original_storage;
     /// 第二步是获取每一笔交易的最后一次sstore的值，填充pending_storage;
-    pub fn preprocess_transaction(&mut self, geth_data: &GethData) {
+    pub fn preprocess_storage(&mut self, geth_data: &GethData) {
         self.handle_committed_value(geth_data);
         self.handle_last_sstore(geth_data);
     }
@@ -188,7 +190,8 @@ impl WitnessExecHelper {
             for step in trace.struct_logs.iter().rev() {
                 if step.op == OpcodeId::SSTORE {
                     let to = extract_address_from_tx(geth_data, i);
-                    handle_sstore(to, step, &mut self.state_db, i);
+                    // current_state 中的是从1开始计数，所以这里要加1
+                    handle_sstore(to, step, &mut self.state_db, i + 1);
                 }
             }
         }
@@ -688,7 +691,7 @@ impl WitnessExecHelper {
         res
     }
 
-    pub fn get_value_prev_storage_write_row(
+    pub fn get_storage_full_write_row(
         &mut self,
         key: U256,
         value: U256,
@@ -1880,14 +1883,9 @@ impl WitnessExecHelper {
 
         public_row
     }
-    pub fn get_committed_value(&self, address: &Word, key: &Word, tx_idx: usize) -> (bool, U256) {
-        if tx_idx == 0 {
-            return match self.state_db.get_original_storage(address, key) {
-                Some(value) => (true, value),
-                None => (false, U256::zero()),
-            };
-        }
 
+    /// evm中，get_committed_value取值顺序 pending -> original
+    pub fn get_committed_value(&self, address: &Word, key: &Word, tx_idx: usize) -> (bool, U256) {
         match self.state_db.get_pending_storage(address, key, tx_idx) {
             Some(value) => (true, value),
             None => match self.state_db.get_original_storage(address, key) {
@@ -1896,6 +1894,10 @@ impl WitnessExecHelper {
             },
         }
     }
+
+    /// evm中，get_dirty_value取值顺序 dirty -> pending -> original
+    /// pending中是上一笔交易最后一次sstore写入的值，在get_pending_storage会对tx_idx进行比较
+    /// 此处输入的tx_idx为current_state.tx_idx
     pub fn get_dirty_value(&self, address: &Word, key: &Word, tx_idx: usize) -> (bool, U256) {
         match self.state_db.get_dirty_storage(address, key) {
             Some(value) => (true, value),
@@ -1903,6 +1905,7 @@ impl WitnessExecHelper {
         }
     }
 
+    /// 每次sstore会调用这个函数
     pub fn insert_dirty_storage(&mut self, address: Word, key: U256, value: U256) {
         self.state_db.insert_dirty_storage(address, key, value);
     }
@@ -2846,7 +2849,7 @@ impl Witness {
         witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
         // initialize txs number in current_state with geth_data
         current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
-        current_state.preprocess_transaction(geth_data);
+        current_state.preprocess_storage(geth_data);
         for i in 0..geth_data.geth_traces.len() {
             let trace_related_witness =
                 current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);

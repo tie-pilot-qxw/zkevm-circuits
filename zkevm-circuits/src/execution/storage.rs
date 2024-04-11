@@ -415,7 +415,7 @@ fn get_core_row_3<F: Field>(
     );
 
     let mut core_row_3 = current_state.get_core_row_without_versatile(&trace, 3);
-    let storage_write_row = current_state.get_value_prev_storage_write_row(
+    let storage_write_row = current_state.get_storage_full_write_row(
         storage_key,
         storage_value,
         contract_addr,
