@@ -108,9 +108,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let not_overflow = SimpleIsZero::new(&overflow, &overflow_inv, "u64 overflow".into());
         for i in 0..2 {
             let copy_entry = if i == 0 {
-                config.get_copy_lookup(meta)
+                config.get_copy_lookup(meta, 0)
             } else {
-                config.get_copy_padding_lookup(meta)
+                config.get_copy_lookup(meta, 1)
             };
             let (_, stamp, ..) =
                 extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
@@ -164,8 +164,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_pop = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta));
-        let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
+        let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
+        let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
         let arithmetic_entry = query_expression(meta, |meta| {
             config.get_arithmetic_u64overflow_lookup(meta, 0)
         });

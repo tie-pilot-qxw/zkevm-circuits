@@ -79,7 +79,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         let call_id_new = state_stamp_prev.clone() + 1.expr();
 
-        let copy_entry = config.get_copy_lookup(meta);
+        let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryOutcome {
@@ -202,7 +202,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let call_context_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
-        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
 
         vec![
             ("stack read args_offset".into(), stack_lookup_0),

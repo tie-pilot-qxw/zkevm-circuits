@@ -59,7 +59,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode_advice = meta.query_advice(config.opcode, Rotation::cur());
         // create custom gate constraints
-        let copy_entry = config.get_copy_lookup(meta);
+        let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryOutcome {
@@ -138,7 +138,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         // 从core电路中读取copy 的状态，与copy电路进行lookup约束
-        let calldata_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let calldata_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
 
         vec![
             (

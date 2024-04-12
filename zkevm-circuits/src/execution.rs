@@ -143,9 +143,9 @@ macro_rules! get_every_execution_gadgets {
 }
 use crate::constant::{
     self, ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH,
-    BYTECODE_COLUMN_START_IDX, COPY_COLUMN_START_IDX, COPY_PADDING_COLUMN_START_IDX,
-    EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, PUBLIC_COLUMN_START_IDX,
-    PUBLIC_COLUMN_WIDTH, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX,
+    LOG_SELECTOR_COLUMN_START_IDX, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH,
+    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
     U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
@@ -1059,7 +1059,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_copy_padding_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
+    pub(crate) fn get_copy_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+    ) -> LookupEntry<F> {
+        let column_offset = index * COPY_LOOKUP_COLUMN_CNT;
         let (
             src_type,
             src_id,
@@ -1073,58 +1078,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             len,
             acc,
         ) = (
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 1], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 2], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 3], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 4], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 5], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 6], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 7], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 8], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 9], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_PADDING_COLUMN_START_IDX + 10], Rotation(-2)),
-        );
-        LookupEntry::Copy {
-            src_type,
-            src_id,
-            src_pointer,
-            src_stamp,
-            dst_type,
-            dst_id,
-            dst_pointer,
-            dst_stamp,
-            cnt,
-            len,
-            acc,
-        }
-    }
-
-    pub(crate) fn get_copy_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
-        let (
-            src_type,
-            src_id,
-            src_pointer,
-            src_stamp,
-            dst_type,
-            dst_id,
-            dst_pointer,
-            dst_stamp,
-            cnt,
-            len,
-            acc,
-        ) = (
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 1], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 2], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 3], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 4], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 5], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 6], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 7], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 8], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 9], Rotation(-2)),
-            meta.query_advice(self.vers[COPY_COLUMN_START_IDX + 10], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 1], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 2], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 3], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 4], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 5], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 6], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 7], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 8], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 9], Rotation(-2)),
+            meta.query_advice(self.vers[column_offset + 10], Rotation(-2)),
         );
         LookupEntry::Copy {
             src_type,

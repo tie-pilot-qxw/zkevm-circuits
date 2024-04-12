@@ -70,7 +70,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // build constraints ---
         // append auxiliary constraints
-        let copy_entry = config.get_copy_lookup(meta);
+        let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
         let delta = AuxiliaryOutcome {
@@ -201,7 +201,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
-        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
         vec![
             (
                 "state lookup, stack pop lookup offset".into(),
