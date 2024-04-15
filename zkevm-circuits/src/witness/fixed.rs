@@ -19,8 +19,6 @@ pub enum Tag {
     And,
     // Make sure this equals bitwise Row's tag
     Or,
-    // Make sure this equals bitwise Row's tag
-    Xor,
     // The tag for (Opcode,PUSH number,PUSH number>15)
     Bytecode,
 }

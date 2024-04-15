@@ -31,7 +31,6 @@ pub enum Tag {
     Nil,
     And,
     Or,
-    Xor,
 }
 
 impl From<Tag> for usize {
@@ -66,7 +65,6 @@ impl Row {
                 Tag::Nil => byte_vec.push(U256::zero()),
                 Tag::And => byte_vec.push((operand1_bytes[i] & operand2_bytes[i]).into()),
                 Tag::Or => byte_vec.push((operand1_bytes[i] | operand2_bytes[i]).into()),
-                Tag::Xor => byte_vec.push((operand1_bytes[i] ^ operand2_bytes[i]).into()),
             }
 
             let mut byte_acc_vec: Vec<U256> = vec![];

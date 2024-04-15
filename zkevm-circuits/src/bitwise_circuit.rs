@@ -24,17 +24,17 @@ use std::marker::PhantomData;
 pub(crate) const NUM_OPERAND: usize = 3;
 
 /// Overview:
-///  a circuit that specifically handles bitwise operations such as AND OR XOR BYTE。
+///  a circuit that specifically handles bitwise operations such as AND OR  BYTE。
 ///  in this circuit, integers are broken into bytes and logical operations are performed on bytes.
 ///
 /// Table layout
 /// +---+--------+--------+--------+---------+------+-------+-------+-------+
 /// |tag| byte_0 | byte_1 | byte_2 |  acc_0 | acc_1 | acc_2 | sum_2 |  cnt  |
 /// +---+--------+--------+--------+-------+--------+-------+-------+-------+
-/// tag: Nil、And、Or、Xor (Nil is the default value)
+/// tag: Nil、And、Or (Nil is the default value)
 /// byte_0: operand1
 /// byte_1: operand2
-/// byte_2: calc result(And: operand1 & operand2、Or: operand1 | operand2, Xor: operand1 ^ operand2)
+/// byte_2: calc result(And: operand1 & operand2、Or: operand1 | operand2)
 /// acc_0: accumulated value of byte_0, `acc_0=byte_0+acc_0_pre*256`
 /// acc_1: accumulated value of byte_1, `acc_1=byte_1+acc_1_pre*256`
 /// acc_2: accumulated value of byte_2, `acc_2=acc_2_pre*256`
@@ -55,7 +55,7 @@ pub(crate) const NUM_OPERAND: usize = 3;
 #[derive(Clone)]
 pub struct BitwiseCircuitConfig<F: Field> {
     q_enable: Selector,
-    /// The operation tag, one of AND, OR, XOR
+    /// The operation tag, one of AND, OR
     pub tag: BinaryNumberConfig<Tag, LOG_NUM_BITWISE_TAG>,
     /// The byte values of operands in one row
     pub bytes: [Column<Advice>; NUM_OPERAND],
@@ -239,7 +239,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
         });
 
         // lookup constraint
-        // constrain the operation results of And, Or, Xor
+        // constrain the operation results of And, Or
         config.fixed_lookup(meta, "BITWISE_LOOKUP");
 
         config
@@ -311,7 +311,7 @@ impl<F: Field> BitwiseCircuitConfig<F> {
     }
 
     /// fixed lookup, src: Bitwise circuit, target: Fixed circuit table
-    /// use lookup table operations to ensure that the operations of And, Or, and Xor are correct.
+    /// use lookup table operations to ensure that the operations of And, Or  are correct.
     #[allow(unused_variables)]
     pub fn fixed_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         // when feature `no_fixed_lookup` is on, we don't do lookup
@@ -684,24 +684,6 @@ mod test {
             acc_1: U256::from(0xaabbcc_u128),
             acc_2: U256::from(0xabcdef_u128 | 0xaabbcc_u128),
             sum_2: U256::from(0x0299_u128), // sum of acc_2 bytes
-        };
-
-        test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)
-    }
-
-    /// Test Xor operation
-    #[test]
-    fn test_bitwise_acc_lookup4() {
-        let tag = Tag::Xor;
-        let operand1 = 0xabcdef_u128;
-        let operand2 = 0xaabbcc_u128;
-
-        let lookup_expect_acc_row = BitwiseTestRow {
-            tag,
-            acc_0: U256::from(0xabcdef_u128),
-            acc_1: U256::from(0xaabbcc_u128),
-            acc_2: U256::from(0xabcdef_u128 ^ 0xaabbcc_u128),
-            sum_2: U256::from(0x9a_u128), // sum of acc_2 bytes
         };
 
         test_bitwise_circuit_lookup(tag, operand1, operand2, lookup_expect_acc_row)

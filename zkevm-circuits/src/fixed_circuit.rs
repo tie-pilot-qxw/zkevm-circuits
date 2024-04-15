@@ -90,10 +90,10 @@ impl<F: Field> FixedCircuitConfig<F> {
             });
         }
 
-        // 生成逻辑运算（And/Or/Xor）需要的row数据 ==>  0-255行
+        // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
         let operand_num = 1 << 8;
-        for tag in [fixed::Tag::And, fixed::Tag::Or, fixed::Tag::Xor].iter() {
+        for tag in [fixed::Tag::And, fixed::Tag::Or].iter() {
             vec.append(&mut Self::assign_with_tag_value(*tag, operand_num));
         }
         // assign u10 and part of u16
@@ -106,7 +106,7 @@ impl<F: Field> FixedCircuitConfig<F> {
             vec.push(fixed::Row {
                 // part of u16
                 // 紧凑电路布局，因为Row有3列数据，将后2列数据分配给U10，第一列数据value_0分
-                // 配给U16使用，因为在u8的And、Or、Xor逻辑操作中，该列已经填写
+                // 配给U16使用，因为在u8的And、Or 逻辑操作中，该列已经填写
                 // 了[0..255]范围的数据，因此在与U10复用一行数据时，起始值需要除去已填写的范围,
                 // 因此在u10赋值过程中，value_0将添加[256..1279]
                 // value_2的值赋值范围是[1..1024],所以为 i+1
@@ -145,7 +145,6 @@ impl<F: Field> FixedCircuitConfig<F> {
         let f = match tag {
             fixed::Tag::And => |i, j| i & j,
             fixed::Tag::Or => |i, j| i | j,
-            fixed::Tag::Xor => |i, j| i ^ j,
             _ => panic!("not known tag {:?}", tag),
         };
 

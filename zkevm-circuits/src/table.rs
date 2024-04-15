@@ -688,7 +688,7 @@ impl PublicTable {
 /// The table shared between Core Circuit and Bitwise Circuit
 #[derive(Clone, Copy, Debug)]
 pub struct BitwiseTable {
-    /// The operation tag, one of AND, OR, XOR
+    /// The operation tag, one of AND, OR
     pub tag: BinaryNumberConfig<bitwise::Tag, LOG_NUM_BITWISE_TAG>,
     /// The accumulation of bytes in one operation for each operand in one row
     pub acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND],
@@ -833,9 +833,9 @@ pub enum LookupEntry<F> {
     U16(Expression<F>),
     /// Lookup to fixed table
     Fixed {
-        /// Tag could be LogicAnd, LogicOr, LogicXor, or PushCnt
+        /// Tag could be LogicAnd, LogicOr, or Bytecode (opcode, push cnt, is_high)
         tag: Expression<F>,
-        /// Values in logic means operands, in push cnt means (opcode, cnt, is_high)
+        /// Values in logic means operands, in Bytecode mean (opcode, push cnt, is_high)
         values: [Expression<F>; 3],
     },
     /// Lookup to state table, which contains read/write of stack, memory, storage,
@@ -971,7 +971,7 @@ pub enum LookupEntry<F> {
     },
     /// Bitwise lookup operation, lookup to bitwise table
     Bitwise {
-        /// Tag could be Nil, And, Or or Xor
+        /// Tag could be Nil, And, Or
         tag: Expression<F>,
         /// Three operands of 128-bit
         acc: [Expression<F>; 3],
