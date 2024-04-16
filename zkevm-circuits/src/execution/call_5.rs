@@ -82,7 +82,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation(-1 * NUM_ROW as i32),
         );
 
-        let copy_entry = config.get_copy_lookup(meta);
+        let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
         // append auxiliary constraints
@@ -197,7 +197,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // return_success(Call 指令的执行结果) state row
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         // copy return data to memory
-        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
 
         //TODO:confirm whether the following is correct
         let _arithmetic_lookup = query_expression(meta, |meta| {

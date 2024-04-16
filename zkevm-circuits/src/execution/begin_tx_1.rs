@@ -68,7 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
-        let copy = config.get_copy_lookup(meta);
+        let copy = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
         let delta = AuxiliaryOutcome {
@@ -218,7 +218,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         // 从core电路的 core_row_2行获取copy数据，core电路与copy电路lookup
-        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
+        let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
         // 从core电路的 core_row_2行获取public数据，core电路与public电路lookup
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         let public_gas_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 1));

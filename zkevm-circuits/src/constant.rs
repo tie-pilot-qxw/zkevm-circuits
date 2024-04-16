@@ -96,14 +96,8 @@ pub(crate) const PUBLIC_COLUMN_WIDTH: usize = 6;
 /// public lookup column start
 pub(crate) const PUBLIC_COLUMN_START_IDX: usize = 26;
 
-/// copy lookup column start
-pub(crate) const COPY_COLUMN_START_IDX: usize = 0;
-
 /// stamp cnt lookup column start
 pub(crate) const STAMP_CNT_COLUMN_START_IDX: usize = 0;
-
-/// copy padding lookup column start
-pub(crate) const COPY_PADDING_COLUMN_START_IDX: usize = 11;
 
 /// The index of column to store 1 , if next state is end_tx;other wise set 0
 ///  (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)

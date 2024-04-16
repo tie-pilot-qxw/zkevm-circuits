@@ -67,7 +67,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let copy_entry = config.get_copy_padding_lookup(meta);
+        let copy_entry = config.get_copy_lookup(meta, 1);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
         // get arithmetic lookup
@@ -260,7 +260,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         let returndata_size_lookup =
             query_expression(meta, |meta| config.get_returndata_size_state_lookup(meta));
-        let code_copy_lookup = query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
+        let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
         let less_arithmetic_lookup =
             query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
         let overflow_arithmetic_lookup = query_expression(meta, |meta| {

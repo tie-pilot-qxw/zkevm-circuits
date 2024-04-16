@@ -81,8 +81,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let address = meta.query_advice(config.code_addr, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let copy_lookup_entry = config.get_copy_lookup(meta);
-        let copy_padding_lookup_entry = config.get_copy_padding_lookup(meta);
+        let copy_lookup_entry = config.get_copy_lookup(meta, 0);
+        let copy_padding_lookup_entry = config.get_copy_lookup(meta, 1);
 
         let (_, _, _, _, _, _, _, _, _, copy_lookup_len, _) =
             extract_lookup_expression!(copy, copy_lookup_entry.clone());
@@ -218,9 +218,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
-        let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
-        let padding_copy_lookup =
-            query_expression(meta, |meta| config.get_copy_padding_lookup(meta));
+        let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
+        let padding_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
         vec![
             ("state lookup, stack pop dst_offset".into(), stack_lookup_0),
             (
