@@ -42,6 +42,38 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (storage, $value:expr) => {
+        match $value {
+            LookupEntry::Storage {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                key_hi,
+                key_lo,
+                is_write,
+                value_pre_hi,
+                value_pre_lo,
+                committed_value_hi,
+                committed_value_lo,
+            } => (
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                key_hi,
+                key_lo,
+                is_write,
+                value_pre_hi,
+                value_pre_lo,
+                committed_value_hi,
+                committed_value_lo,
+            ),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
     (bytecode, $value:expr) => {
         match $value {
             LookupEntry::BytecodeFull {
@@ -145,6 +177,10 @@ pub struct StateTable {
     pub(crate) pointer_lo: Column<Advice>,
     pub(crate) is_write: Column<Advice>,
     pub(crate) cnt: Column<Advice>,
+    pub(crate) value_pre_lo: Column<Advice>,
+    pub(crate) value_pre_hi: Column<Advice>,
+    pub(crate) committed_value_lo: Column<Advice>,
+    pub(crate) committed_value_hi: Column<Advice>,
 }
 
 impl StateTable {
@@ -158,6 +194,10 @@ impl StateTable {
         let is_write = meta.advice_column();
         let tag = BinaryNumberChip::configure(meta, q_enable.clone(), None);
         let cnt = meta.advice_column();
+        let value_pre_lo = meta.advice_column();
+        let value_pre_hi = meta.advice_column();
+        let committed_value_lo = meta.advice_column();
+        let committed_value_hi = meta.advice_column();
         Self {
             tag,
             stamp,
@@ -168,6 +208,10 @@ impl StateTable {
             pointer_lo,
             is_write,
             cnt,
+            value_pre_lo,
+            value_pre_hi,
+            committed_value_lo,
+            committed_value_hi,
         }
     }
 
@@ -186,6 +230,10 @@ impl StateTable {
         let table_pointer_lo = meta.query_advice(self.pointer_lo, Rotation::cur());
         let table_is_write = meta.query_advice(self.is_write, Rotation::cur());
         let table_cnt = meta.query_advice(self.cnt, Rotation::cur());
+        let table_value_pre_lo = meta.query_advice(self.value_pre_lo, Rotation::cur());
+        let table_value_pre_hi = meta.query_advice(self.value_pre_hi, Rotation::cur());
+        let table_committed_value_lo = meta.query_advice(self.committed_value_lo, Rotation::cur());
+        let table_committed_value_hi = meta.query_advice(self.committed_value_hi, Rotation::cur());
 
         match entry {
             LookupEntry::State {
@@ -211,6 +259,35 @@ impl StateTable {
             }
             LookupEntry::StampCnt { tag, cnt } => {
                 vec![(tag, table_tag), (cnt, table_cnt)]
+            }
+            LookupEntry::Storage {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                key_hi,
+                key_lo,
+                is_write,
+                value_pre_hi,
+                value_pre_lo,
+                committed_value_hi,
+                committed_value_lo,
+            } => {
+                vec![
+                    (tag, table_tag),
+                    (stamp, table_stamp),
+                    (value_hi, table_value_hi),
+                    (value_lo, table_value_lo),
+                    (call_id_contract_addr, table_call_id_contract_addr),
+                    (key_hi, table_pointer_hi),
+                    (key_lo, table_pointer_lo),
+                    (is_write, table_is_write),
+                    (value_pre_hi, table_value_pre_hi),
+                    (value_pre_lo, table_value_pre_lo),
+                    (committed_value_hi, table_committed_value_hi),
+                    (committed_value_lo, table_committed_value_lo),
+                ]
             }
             _ => {
                 panic!("Not state lookup!")
@@ -784,6 +861,35 @@ pub enum LookupEntry<F> {
         /// A boolean value to specify if the access record is a read or write.
         is_write: Expression<F>,
     },
+    Storage {
+        /// Tag can be stack, memory, storage, call context, call data, and return data
+        tag: Expression<F>,
+        /// State stamp.
+        stamp: Expression<F>,
+        /// Value high 128 bits.
+        value_hi: Expression<F>,
+        /// Value low 128 bits.
+        value_lo: Expression<F>,
+        /// This item in storage means contract addr. In stack, memory, call context
+        /// it means call id.
+        call_id_contract_addr: Expression<F>,
+        /// Point high is used for storage and means the key's high 128 bits.
+        key_hi: Expression<F>,
+        /// Point lo is used for storage and means the key's low 128 bits.
+        /// It also means the pointer for stack, memory, call data, and return data.
+        /// It also means the tag for call context.
+        key_lo: Expression<F>,
+        /// A boolean value to specify if the access record is a read or write.
+        is_write: Expression<F>,
+        /// previous value high 128 bits.
+        value_pre_lo: Expression<F>,
+        /// previous value lo 128 bits.
+        value_pre_hi: Expression<F>,
+        /// committed value high 128 bits.
+        committed_value_lo: Expression<F>,
+        /// committed value lo 128 bits.
+        committed_value_hi: Expression<F>,
+    },
     /// Lookup to bytecode table that only involves addr, pc, and opcode
     Bytecode {
         /// Address of the contract
@@ -976,6 +1082,35 @@ impl<F: Field> LookupEntry<F> {
                     pointer_hi.identifier(),
                     pointer_lo.identifier(),
                     is_write.identifier(),
+                ]
+            }
+            LookupEntry::Storage {
+                tag,
+                stamp,
+                value_hi,
+                value_lo,
+                call_id_contract_addr,
+                key_hi,
+                key_lo,
+                is_write,
+                value_pre_hi,
+                value_pre_lo,
+                committed_value_lo,
+                committed_value_hi,
+            } => {
+                vec![
+                    tag.identifier(),
+                    stamp.identifier(),
+                    value_hi.identifier(),
+                    value_lo.identifier(),
+                    call_id_contract_addr.identifier(),
+                    key_hi.identifier(),
+                    key_lo.identifier(),
+                    is_write.identifier(),
+                    value_pre_hi.identifier(),
+                    value_pre_lo.identifier(),
+                    committed_value_lo.identifier(),
+                    committed_value_hi.identifier(),
                 ]
             }
             LookupEntry::Public {

@@ -351,6 +351,7 @@ pub fn read_accounts_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<Accoun
     for i in 0..accounts_len {
         let mut bytecode = x.result[i].bytecode.clone();
         let contract_addr = x.result[i].contract_addr.clone();
+        let storage = x.result[i].storage.clone();
         if bytecode.starts_with("0x") {
             bytecode = bytecode.split_off(2);
         }
@@ -359,6 +360,7 @@ pub fn read_accounts_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<Accoun
         let account = Account {
             address: contract_addr.as_bytes().into(),
             code: bytecode_vec.into(),
+            storage,
             ..Default::default()
         };
         accounts.push(account);

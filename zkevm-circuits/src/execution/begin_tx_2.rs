@@ -67,6 +67,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             // 记录了4个state状态
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            // 目前gas,refund的约束还没启用
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -108,7 +111,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         //constraint public lookup
         let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
-        let public_entry = config.get_public_lookup(meta, Rotation(-2));
+        let public_entry = config.get_public_lookup(meta, 0);
         config.get_public_constraints(
             meta,
             public_entry,
@@ -132,6 +135,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 None,
             ),
         ));
+
         constraints
     }
 
@@ -146,8 +150,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let state_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         // 从core电路中读取public状态，与public电路进行lookup
-        let public_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
 
         vec![
             ("value write".into(), state_lookup_0),
@@ -198,8 +201,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
         // 记录交易的from、value状态
-        let public_row = current_state.get_public_tx_row(public::Tag::TxFromValue);
-        core_row_2.insert_public_lookup(&public_row);
+        let public_row = current_state.get_public_tx_row(public::Tag::TxFromValue, 0);
+        core_row_2.insert_public_lookup(0, &public_row);
 
         // core_row_1 写入4个state row状态
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);

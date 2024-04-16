@@ -90,7 +90,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // public_values[1] is code address lo
         // public_values[2] is code size hi (must be zero, because of the rigid requirements of EVM (the code size does not exceed about 40,000))
         // public_values[3] is code size lo
-        let public_entry = config.get_public_lookup(meta, Rotation(-2));
+        let public_entry = config.get_public_lookup(meta, 0);
         let (public_tag, _, public_values) = extract_lookup_expression!(public, public_entry);
 
         constraints.extend([
@@ -123,8 +123,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let public_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         vec![
             ("stack lookup".into(), stack_lookup),
             ("public lookup(code size)".into(), public_lookup),
@@ -150,7 +149,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         //  get public row and insert public row lookup
         let public_row = current_state.get_public_code_size_row(current_state.code_addr, code_size);
-        core_row_2.insert_public_lookup(&public_row);
+        core_row_2.insert_public_lookup(0, &public_row);
 
         // get core row1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);

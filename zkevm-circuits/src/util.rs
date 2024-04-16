@@ -433,6 +433,7 @@ pub fn get_multi_trace_geth_data<P: AsRef<Path>>(
 /// A place to hold one of two outcomes:
 /// Delta: current cell increases from previous cell by this expression
 /// To: current cell becomes this expression
+#[derive(Clone)]
 pub enum ExpressionOutcome<F> {
     Delta(Expression<F>),
     To(Expression<F>),

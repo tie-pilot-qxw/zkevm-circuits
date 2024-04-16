@@ -93,7 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, state_value_hi, state_value_lo, _, _, _, _) =
             extract_lookup_expression!(state, entry);
         // public lookup
-        let public_entry = config.get_public_lookup(meta, Rotation(-2));
+        let public_entry = config.get_public_lookup(meta, 0);
         // query public_tag , only one tag is 1,other tag is 0;
         let timestamp_tag =
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev());
@@ -158,7 +158,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         // public lookup
         let public_context_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+            query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         vec![
             ("stack push value lookup".into(), stack_lookup_0),
             ("public context value lookup".into(), public_context_lookup),
@@ -181,15 +181,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             _ => panic!("not PUBLIC_CONTEXT op"),
         };
         // core_row_2
-        core_row_2.insert_public_lookup(&public::Row {
-            tag: public_tag,
-            tx_idx_or_number_diff: Some(0.into()),
-            value_0: Some(U256::from(value_hi)),
-            value_1: Some(U256::from(value_lo)),
-            value_2: Some(0.into()),
-            value_3: Some(0.into()),
-            ..Default::default()
-        });
+        core_row_2.insert_public_lookup(
+            0,
+            &public::Row {
+                tag: public_tag,
+                tx_idx_or_number_diff: Some(0.into()),
+                value_0: Some(U256::from(value_hi)),
+                value_1: Some(U256::from(value_lo)),
+                value_2: Some(0.into()),
+                value_3: Some(0.into()),
+                ..Default::default()
+            },
+        );
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 

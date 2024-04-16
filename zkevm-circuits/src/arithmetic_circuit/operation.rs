@@ -132,7 +132,7 @@ pub(crate) fn get_u16s<F: Field>(
 /// Supports the following constraint calculations:
 /// 1.`c_lo - b_lo = diff_lo - carry_lo << N_BYTES`
 /// 2.`c_hi - b_hi - carry_lo = diff_hi - carry_hi << N_BYTES`
-fn get_lt_word_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u16>; 2]) {
+pub(crate) fn get_lt_word_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u16>; 2]) {
     assert_eq!(2, operands.len());
     let c = split_u256_hi_lo(&operands[0]);
     let b = split_u256_hi_lo(&operands[1]);
@@ -157,7 +157,7 @@ fn get_lt_word_operations(operands: Vec<U256>) -> (Vec<bool>, [U256; 2], [Vec<u1
 /// Supports the following constraint calculations:
 /// `lhs - rhs = diff - lt * range`
 /// Determine whether the operand is positive or negative
-fn get_lt_operations(lhs: &U256, rhs: &U256, range: &U256) -> (bool, U256, Vec<u16>) {
+pub(crate) fn get_lt_operations(lhs: &U256, rhs: &U256, range: &U256) -> (bool, U256, Vec<u16>) {
     let lt = lhs < rhs;
 
     let diff = if lt { range - rhs + lhs } else { lhs - rhs };

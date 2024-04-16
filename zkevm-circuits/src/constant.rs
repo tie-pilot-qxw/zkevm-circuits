@@ -19,6 +19,9 @@ pub const STACK_POINTER_IDX: usize = 1;
 /// NUM_STATE_HI_COL + NUM_STATE_LO_COL do not count here
 pub const LOG_STAMP_IDX: usize = 2;
 
+/// gas left index, cnt == 0, gas_left = NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX
+pub(crate) const GAS_LEFT_IDX: usize = 3;
+
 /// Number of versatile columns in core circuit
 pub const NUM_VERS: usize = 32;
 
@@ -73,6 +76,9 @@ pub(crate) const BITWISE_COLUMN_WIDTH: usize = 5;
 /// state column width
 pub(crate) const STATE_COLUMN_WIDTH: usize = 8;
 
+/// storage column width
+pub(crate) const STORAGE_COLUMN_WIDTH: usize = 12;
+
 /// bytecode lookup column start
 pub(crate) const BYTECODE_COLUMN_START_IDX: usize = 24;
 
@@ -83,6 +89,9 @@ pub(crate) const U64_OVERFLOW_COLUMN_WIDTH: usize = 4;
 
 /// arithmetic lookup column width
 pub(crate) const ARITHMETIC_COLUMN_WIDTH: usize = 9;
+
+/// public lookup column width
+pub(crate) const PUBLIC_COLUMN_WIDTH: usize = 6;
 
 /// public lookup column start
 pub(crate) const PUBLIC_COLUMN_START_IDX: usize = 26;

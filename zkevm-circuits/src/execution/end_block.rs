@@ -77,7 +77,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 获取当前log值，与core电路中记录的public状态进行约束
         let last_log_stamp = meta.query_advice(log_stamp, Rotation::cur());
         let (public_tag, _, [public_log_num_in_block, _, _, _]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta, Rotation(-2)));
+            extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
         constraints.extend([
             ("special next pc = 0".into(), pc_next),
@@ -116,8 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         // 从core电路中读取state使用的行和public内容，分别与state电路和public电路进行lookup
         let stamp_cnt_lookup = query_expression(meta, |meta| config.get_stamp_cnt_lookup(meta));
-        let public_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         vec![
             ("stamp_cnt".into(), stamp_cnt_lookup),
             ("public_log_num_lookup".into(), public_lookup),
@@ -127,7 +126,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // core电路中记录区块中log的数量，写入core_row_2行
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
-        core_row_2.insert_public_lookup(&current_state.get_public_tx_row(public::Tag::BlockLogNum));
+        core_row_2.insert_public_lookup(
+            0,
+            &current_state.get_public_tx_row(public::Tag::BlockLogNum, 0),
+        );
 
         let state_circuit_end_padding = state::Row {
             tag: Some(Tag::EndPadding),

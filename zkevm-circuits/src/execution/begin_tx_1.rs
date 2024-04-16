@@ -81,10 +81,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let Auxiliary {
+            state_stamp,
+            refund,
+            gas_left,
+            ..
+        } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let (_, _, storage_contract_addr_hi, storage_contract_addr_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
+        let refund = meta.query_advice(refund, Rotation::cur());
+        constraints.push(("init tx refund = 0".into(), refund));
         // 约束pc, tx_idx, call_id, code_addr为0
         let delta = CoreSinglePurposeOutcome {
             tx_idx: ExpressionOutcome::Delta(TX_IDX_DELTA.expr()),
@@ -158,12 +165,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         //约束public entry 与state entry记录的calldata size和code_addr状态一致
-        let public_entry = config.get_public_lookup(meta, Rotation(-2));
+        let public_entry = config.get_public_lookup(meta, 0);
         config.get_public_constraints(
             meta,
             public_entry,
             (public::Tag::TxToCallDataSize as u8).expr(),
-            Some(tx_idx),
+            Some(tx_idx.clone()),
             [
                 // constraint storage_contract_addr hi == tx.to hi
                 Some(operands[0][0].clone()),
@@ -174,6 +181,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 // constraint calldata_size lo == tx.input.len
                 Some(operands[1][1].clone()),
             ],
+        );
+
+        let gas_left = meta.query_advice(gas_left, Rotation::cur());
+        let public_entry = config.get_public_lookup(meta, 1);
+        config.get_public_constraints(
+            meta,
+            public_entry,
+            (public::Tag::TxGasLimit as u8).expr(),
+            Some(tx_idx),
+            [Some(gas_left), None, None, None],
         );
 
         // next state constraints
@@ -203,9 +220,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 从core电路的 core_row_2行获取copy数据，core电路与copy电路lookup
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta));
         // 从core电路的 core_row_2行获取public数据，core电路与public电路lookup
-        let public_lookup =
-            query_expression(meta, |meta| config.get_public_lookup(meta, Rotation(-2)));
-
+        let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
+        let public_gas_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 1));
         vec![
             ("contract addr write".into(), state_lookup_0),
             ("calldata size write".into(), state_lookup_1),
@@ -213,6 +229,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("parent code addr write".into(), state_lookup_3),
             ("copy lookup".into(), copy_lookup),
             ("public lookup".into(), public_lookup),
+            ("public gas lookup".into(), public_gas_lookup),
         ]
     }
 
@@ -301,8 +318,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_2[LEN_LO_INV_COL_IDX], len_lo_inv);
 
         // core_row_2写入交易的calldata size和to 地址，与public电路lookup
-        let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize);
-        core_row_2.insert_public_lookup(&public_row);
+        let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize, 0);
+        core_row_2.insert_public_lookup(0, &public_row);
+        let public_row = current_state.get_public_tx_row(public::Tag::TxGasLimit, 1);
+        core_row_2.insert_public_lookup(1, &public_row);
 
         // core_row_1写入交易的4个状态（to地址或创建的合约地址，交易的calldata_size，父call_id和code_addr）
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);

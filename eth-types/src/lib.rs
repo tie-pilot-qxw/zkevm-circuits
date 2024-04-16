@@ -20,7 +20,7 @@ pub mod evm_types;
 pub mod geth_types;
 pub mod keccak;
 pub mod sign_types;
-pub use keccak::{keccak256, Keccak};
+pub mod state_db;
 
 pub use bytecode::Bytecode;
 pub use error::Error;
@@ -28,6 +28,8 @@ use halo2_proofs::halo2curves::{
     bn256::{Fq, Fr},
     ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
 };
+pub use keccak::{keccak256, Keccak};
+pub use state_db::StateDB;
 
 use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
 use ethers_core::types::{self, Log};
@@ -541,6 +543,9 @@ pub struct WrapAccount {
     pub bytecode: String,
     ///contract_addr in each account
     pub contract_addr: Address,
+    /// storage in each account
+    #[serde(default)]
+    pub storage: HashMap<Word, Word>,
 }
 /// Accounts Wrapper in api result
 #[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
