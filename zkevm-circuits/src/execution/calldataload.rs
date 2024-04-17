@@ -5,7 +5,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -101,10 +101,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
 
-        let [value_hi, value_lo, overflow, overflow_inv] = extract_lookup_expression!(
-            arithmetic_u64,
-            config.get_arithmetic_u64overflow_lookup(meta, 0)
-        );
+        let (tag, [value_hi, value_lo, overflow, overflow_inv]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 4));
         let not_overflow = SimpleIsZero::new(&overflow, &overflow_inv, "u64 overflow".into());
         for i in 0..2 {
             let copy_entry = if i == 0 {
@@ -153,6 +151,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 "value_lo=operands[0][1]".into(),
                 value_lo - operands[0][1].clone(),
             ),
+            (
+                "arithmetic tag".into(),
+                tag - (arithmetic::Tag::U64Overflow as u8).expr(),
+            ),
         ]);
         constraints
     }
@@ -166,15 +168,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let copy_lookup_0 = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
         let copy_lookup_1 = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
-        let arithmetic_entry = query_expression(meta, |meta| {
-            config.get_arithmetic_u64overflow_lookup(meta, 0)
-        });
+        let arithmetic_u64 =
+            query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 4));
+
         vec![
             ("stack pop index of call_data ".into(), stack_pop),
             ("stack push value of call_data".into(), stack_push),
             ("copy lookup 0".into(), copy_lookup_0),
             ("copy lookup 1".into(), copy_lookup_1),
-            ("whether u64 overflow".into(), arithmetic_entry),
+            ("whether u64 overflow".into(), arithmetic_u64),
         ]
     }
 
@@ -206,7 +208,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_row_1 = copy_rows.get(31).unwrap();
         core_row_2.insert_copy_lookup(0, copy_row_0);
         core_row_2.insert_copy_lookup(1, copy_row_1);
-        core_row_2.insert_arithmetic_u64overflow_lookup(0, &arith_rows);
+        core_row_2.insert_arithmetic_tiny_lookup(4, &arith_rows);
 
         // 计算push到栈上的数据 value, 并生成state row写入core_row_1
         // copy_row_0为前16byte，copy_row_1为后16byte，将copy_row_0

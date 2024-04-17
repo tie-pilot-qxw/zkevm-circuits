@@ -12,6 +12,7 @@ mod codecopy; //39
 mod div; //04
 mod eq; //14
 mod exp; //0A
+         // mod extcodecopy; Requires CREATE to be implemented
 mod gasprice; //3A
 mod gt; //11
 mod iszero; //15
@@ -60,9 +61,9 @@ mod log2; //A2
 mod log3; //A3
 mod log4; //A4
 mod mload; //51
+mod msize;
 mod mstore; //52
-            // mod mstore8; //53
-            // todo: mstore8 execution gadget is not finished yet.
+mod mstore8; //53
 mod number; //43
 mod pop; //50
 mod push1; //60

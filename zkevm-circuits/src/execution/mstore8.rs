@@ -1,10 +1,11 @@
+use crate::arithmetic_circuit::operation;
 use crate::execution::{AuxiliaryOutcome, CoreSinglePurposeOutcome};
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{bitwise, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, bitwise, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep};
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -27,10 +28,11 @@ const BYTE_MAX: u8 = 0xff;
 ///     STATE0:  State lookup(stack_pop_0), src: Core circuit, target: State circuit table, 8 columns
 ///     STATE1:  State lookup(stack_pop_1), src: Core circuit, target: State circuit table, 8 columns
 ///     STATE2:  stack lookup(memory_write), src: Core circuit, target: State circuit table, 8 columns
+///     ARITH5:  Arithmetic memory expansion lookup, 5 columns
 /// +---+-------+--------+--------+----------+
 /// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
 /// +---+-------+--------+--------+----------+
-/// | 2 | NOTUSED(10)| BITWISE_LO(5)         |
+/// | 2 | NOTUSED(10)| BITWISE_LO(5)|ARITH(5)|
 /// | 1 | STATE1| STATE2 | STATE3 |          |
 /// | 0 | DYNA_SELECTOR         | AUX        |
 /// +---+-------+--------+--------+----------+
@@ -60,14 +62,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        // append auxiliary constraints
-        let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            ..Default::default()
-        };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = vec![];
+
         // append stack constraints and memory constraints
         let mut operands: Vec<[Expression<F>; 2]> = vec![];
         for i in 0..3 {
@@ -116,6 +113,43 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "opcode".into(),
             opcode.clone() - OpcodeId::MSTORE8.as_u8().expr(),
         )]);
+
+        // Extract the tag and arithmetic operands from the arithmetic lookup expression.
+        // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
+        let (tag, [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
+        // constraint for arithmetic operand
+        constraints.push((
+            "offset in arithmetic = in state lookup + 8".into(),
+            offset_bound.clone() - operands[0][1].clone() - 8.expr(),
+        ));
+        constraints.push((
+            "memory_chunk_prev in arithmetic = in auxiliary".into(),
+            memory_chunk_prev.clone()
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        // Add constraints for arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            tag.clone() - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ));
+
+        let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
+            + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
+
+        // append auxiliary constraints
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            ..Default::default()
+        };
+
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
@@ -136,12 +170,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let memory_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let bitwise_lookup = query_expression(meta, |meta| config.get_bitwise_lookup(meta, 0));
+        let arithmetic_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 5));
 
         vec![
             ("stack lookup 0".into(), stack_lookup_0),
             ("stack lookup 1".into(), stack_lookup_1),
             ("memory lookup".into(), memory_lookup),
             ("bitwise lookup".into(), bitwise_lookup),
+            ("arithmetic lookup".into(), arithmetic_lookup),
         ]
     }
 
@@ -177,10 +214,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let (arith_mem, result) = operation::memory_expansion::gen_witness(vec![
+            offset + U256::from(8),
+            memory_chunk_prev,
+        ]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+
+        core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
+
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_0, stack_pop_1, memory_write_row],
             bitwise: bitwise_rows,
+            arithmetic: arith_mem,
+
             ..Default::default()
         }
     }
@@ -211,6 +259,7 @@ mod test {
 
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
+            memory_chunk: 0x801,
             ..WitnessExecHelper::new()
         };
 

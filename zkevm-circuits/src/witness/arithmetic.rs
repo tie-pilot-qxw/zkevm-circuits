@@ -36,6 +36,7 @@ pub enum Tag {
     Addmod,
     Mulmod,
     Length,
+    MemoryExpansion,
 }
 
 impl From<Tag> for usize {

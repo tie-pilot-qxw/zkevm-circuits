@@ -36,6 +36,7 @@ pub mod log_topic;
 pub mod log_topic_num_addr;
 pub mod lt_gt_slt_sgt;
 pub mod memory;
+pub mod msize;
 pub mod mstore8;
 pub mod mulmod;
 pub mod not;
@@ -97,6 +98,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::public_context::new(),
             crate::execution::tx_context::new(),
             crate::execution::memory::new(),
+            crate::execution::msize::new(),
             crate::execution::mstore8::new(),
             crate::execution::storage::new(),
             crate::execution::call_context::new(),
@@ -142,11 +144,11 @@ macro_rules! get_every_execution_gadgets {
     }};
 }
 use crate::constant::{
-    self, ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH,
-    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX,
-    LOG_SELECTOR_COLUMN_START_IDX, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH,
-    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
-    U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
+    self, ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
+    BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BYTECODE_COLUMN_START_IDX,
+    COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX,
+    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH,
+    STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
@@ -222,7 +224,7 @@ pub(crate) struct AuxiliaryOutcome<F> {
     /// Outcome of refund at the end of the execution state and the previous state
     pub(crate) refund: ExpressionOutcome<F>,
     /// Outcome of memory usage in chunk at the end of the execution state and the previous state
-    pub(crate) memory_chunk: ExpressionOutcome<F>,
+    pub(crate) memory_chunk: ExpressionOutcome<F>, // `memory_word_size = ceil(address/32) = floor((address + 31) / 32)`
     /// Outcome of read only indicator (0/1) at the end of the execution state and the previous state
     pub(crate) read_only: ExpressionOutcome<F>,
 }
@@ -711,7 +713,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             LookupEntry::Bitwise { .. } => self.bitwise_table.get_lookup_vector(meta, lookup),
             LookupEntry::Copy { .. } => self.copy_table.get_lookup_vector(meta, lookup),
             LookupEntry::Arithmetic { .. }
-            | LookupEntry::ArithmeticU64 { .. }
+            | LookupEntry::ArithmeticTiny { .. }
             | LookupEntry::ArithmeticShort { .. } => {
                 self.arithmetic_table.get_lookup_vector(meta, lookup)
             }
@@ -1030,32 +1032,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_arithmetic_u64overflow_lookup(
+    pub(crate) fn get_arithmetic_tiny_lookup(
         &self,
         meta: &mut VirtualCells<F>,
         index: usize,
     ) -> LookupEntry<F> {
-        // assert!(index == 0);
-        let (hi_0, lo_0, hi_1, lo_1) = (
-            meta.query_advice(
-                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 0],
-                Rotation(-2),
-            ),
-            meta.query_advice(
-                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 1],
-                Rotation(-2),
-            ),
-            meta.query_advice(
-                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 2],
-                Rotation(-2),
-            ),
-            meta.query_advice(
-                self.vers[U64_OVERFLOW_COLUMN_WIDTH * index + U64_OVERFLOW_START_IDX + 3],
-                Rotation(-2),
-            ),
+        let offset = ARITHMETIC_TINY_START_IDX + index * ARITHMETIC_TINY_COLUMN_WIDTH;
+
+        let (val_0, val_1, val_2, val_3, tag) = (
+            meta.query_advice(self.vers[offset + 0], Rotation(-2)),
+            meta.query_advice(self.vers[offset + 1], Rotation(-2)),
+            meta.query_advice(self.vers[offset + 2], Rotation(-2)),
+            meta.query_advice(self.vers[offset + 3], Rotation(-2)),
+            meta.query_advice(self.vers[offset + 4], Rotation(-2)),
         );
-        LookupEntry::ArithmeticU64 {
-            values: [hi_0, lo_0, hi_1, lo_1],
+        LookupEntry::ArithmeticTiny {
+            tag,
+            values: [val_0, val_1, val_2, val_3],
         }
     }
 
@@ -1898,7 +1891,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 | LookupEntry::Bytecode { .. }
                 | LookupEntry::Public { .. }
                 | LookupEntry::Arithmetic { .. }
-                | LookupEntry::ArithmeticU64 { .. }
+                | LookupEntry::ArithmeticTiny { .. }
                 | LookupEntry::Fixed { .. }
                 | LookupEntry::U8(..)
                 | LookupEntry::U10(..)
@@ -1961,7 +1954,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 | LookupEntry::Bytecode { .. }
                 | LookupEntry::Public { .. }
                 | LookupEntry::Arithmetic { .. }
-                | LookupEntry::ArithmeticU64 { .. }
+                | LookupEntry::ArithmeticTiny { .. }
                 | LookupEntry::Fixed { .. }
                 | LookupEntry::U8(..)
                 | LookupEntry::U10(..)
@@ -2060,6 +2053,7 @@ pub enum ExecutionState {
     TX_CONTEXT,
     MEMORY,
     MSTORE8,
+    MSIZE,
     STORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
@@ -2135,15 +2129,14 @@ impl ExecutionState {
             OpcodeId::POP => {
                 vec![Self::POP]
             }
-            OpcodeId::MLOAD | OpcodeId::MSTORE | OpcodeId::MSTORE8 => vec![Self::MEMORY],
+            OpcodeId::MLOAD | OpcodeId::MSTORE => vec![Self::MEMORY],
+            OpcodeId::MSTORE8 => vec![Self::MSTORE8],
             OpcodeId::JUMP => vec![Self::JUMP],
             OpcodeId::JUMPI => vec![Self::JUMPI],
             OpcodeId::PC => {
                 todo!()
             }
-            OpcodeId::MSIZE => {
-                todo!()
-            }
+            OpcodeId::MSIZE => vec![Self::MSIZE],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
 
             OpcodeId::PUSH1
@@ -2524,14 +2517,20 @@ mod test {
         ($trace:expr, $current_state:expr, $padding_begin_row:expr, $padding_end_row:expr) => {{
             let gadget: Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> = new();
             let mut witness = Witness::default();
+            let mut current_state_begin = $current_state.clone();
+            current_state_begin.memory_chunk = current_state_begin.memory_chunk_prev;
             for _ in 0..gadget.unusable_rows().0 {
-                witness.core.insert(0, $padding_begin_row(&$current_state));
+                witness
+                    .core
+                    .insert(0, $padding_begin_row(&current_state_begin));
             }
             let this_witness = gadget.gen_witness(&$trace, &mut $current_state);
             assert_eq!(gadget.num_row(), this_witness.core.len());
             witness.append(this_witness);
+            let mut current_state_end = $current_state.clone();
+            current_state_end.memory_chunk_prev = current_state_end.memory_chunk;
             for _ in 0..gadget.unusable_rows().1 {
-                witness.core.push($padding_end_row(&$current_state));
+                witness.core.push($padding_end_row(&current_state_end));
             }
             let k = 8;
             let instance = witness.get_public_instance();

@@ -1,5 +1,6 @@
 use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
+use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::geth_types::{Account, GethData};
 use eth_types::ToAddress;
 use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
@@ -309,11 +310,40 @@ pub fn geth_data_test(
         code: bytecode.to_vec().into(),
         ..Default::default()
     };
+    let mut trace_new = trace.clone();
+
+    let last_mem = trace
+        .struct_logs
+        .last()
+        .map(|v| {
+            if v.op == OpcodeId::RETURN {
+                // calculate the correct mem usage of the last return
+                let mut mem_tmp = v.memory.clone();
+                let dst_offset = v.stack.last().unwrap();
+                let length = v.stack.nth_last(1).unwrap();
+                mem_tmp.extend_at_least((dst_offset + length).as_usize());
+                mem_tmp
+            } else {
+                v.memory.clone()
+            }
+        })
+        .unwrap_or_default();
+    let mem: Vec<Memory> = trace
+        .struct_logs
+        .iter()
+        .map(|step| step.memory.clone())
+        .chain(std::iter::once(last_mem))
+        .collect();
+
+    for (i, step) in trace_new.struct_logs.iter_mut().enumerate() {
+        step.memory = mem[i + 1].clone();
+    }
+
     GethData {
         chain_id: 1337.into(),
         history_hashes,
         eth_block,
-        geth_traces: vec![trace],
+        geth_traces: vec![trace_new],
         accounts: vec![account],
         logs: vec![receipt_log],
     }

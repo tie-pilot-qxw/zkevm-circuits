@@ -1,12 +1,13 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
+use crate::arithmetic_circuit::operation;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
@@ -44,10 +45,11 @@ use std::marker::PhantomData;
 ///     COPY_LEN_INV: the multiplicative inverse of normal_length, used to determine whether normal_length is 0,please refer to the usage of SimpleIsZero
 ///     ZERO_LEN_LO: zero padding length,
 ///     ZERO_LEN_INV: the multiplicative inverse of zero_length, used to determine whether zero_length is 0
+///     ARITH:  means memory expansion arithmatic lookup
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
-/// | 2 | COPY(9)| ZEROCOPY(9) | COPY_LEN_LO(1) | COPY_LEN_INV(1) | ZERO_LEN_LO(1) | ZERO_LEN_INV(1)
+/// | 2 | COPY(11)| ZEROCOPY(11) | COPY_LEN_LO(1) | COPY_LEN_INV(1) | ZERO_LEN_LO(1) | ZERO_LEN_INV(1) | LENGTH_INV(1) | ARITH(5)
 /// | 1 | STATE | STATE | STATE | notUsed |
 /// | 0 | DYNA_SELECTOR   | AUX           |
 /// +---+-------+-------+-------+---------+
@@ -89,28 +91,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, _, _, _, _, _, _, _, copy_padding_lookup_len, _) =
             extract_lookup_expression!(copy, copy_padding_lookup_entry.clone());
 
-        // auxiliary constraints
-        // code_copy will increase the stamp automatically
-        // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
-        let auxiliary_delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(
-                STATE_STAMP_DELTA.expr()
-                    + copy_lookup_len.clone()
-                    + copy_padding_lookup_len.clone(),
-            ),
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            ..Default::default()
-        };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
-
-        // core single constraints
-        let core_single_delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(1.expr()),
-            ..Default::default()
-        };
-        constraints
-            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
-
+        let mut constraints = vec![];
         // stack constraints
         // index0: dst_offset, index1: offset, index2: len
         let mut copy_code_stamp_start = 0.expr();
@@ -208,8 +189,70 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // ),
         ]);
 
+        // Extract the tag and arithmetic operands from the arithmetic lookup expression.
+        // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
+        let (tag, [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
+
+        let length = stack_pop_values[2][1].clone();
+        let length_inv = meta.query_advice(config.vers[START_COL_IDX + 4], Rotation(-2));
+
+        // constraint that length_inv is length's inverse
+        let is_zero_len = SimpleIsZero::new(&length, &length_inv, String::from("length_lo"));
+        constraints.extend(is_zero_len.get_constraints());
+
+        // constraint for arithmetic operand
+        constraints.push((
+            "offset_bound in arithmetic = (mem_off + length) * (1 - is_zero_len.expr()) in state lookup"
+                .into(),
+            (stack_pop_values[0][1].clone() + length.clone()) *(1.expr() - is_zero_len.expr())
+                - offset_bound.clone(),
+        ));
+
+        constraints.push((
+            "memory_chunk_prev in arithmetic = in auxiliary".into(),
+            memory_chunk_prev.clone()
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        // Add constraints for arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            tag.clone() - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ));
+
+        let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
+            + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
+
+        // auxiliary constraints
+        // code_copy will increase the stamp automatically
+        // state_stamp_delta = STATE_STAMP_DELTA + len(copied code)
+        let auxiliary_delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr()
+                    + copy_lookup_len.clone()
+                    + copy_padding_lookup_len.clone(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            ..Default::default()
+        };
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta));
+
+        // core single constraints
+        let core_single_delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(1.expr()),
+            ..Default::default()
+        };
+        constraints
+            .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
+
         constraints
     }
+
     fn get_lookups(
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
@@ -220,6 +263,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
         let padding_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
+
+        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 5));
+
         vec![
             ("state lookup, stack pop dst_offset".into(), stack_lookup_0),
             (
@@ -232,6 +278,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("code copy lookup".into(), code_copy_lookup),
             ("code copy padding lookup".into(), padding_copy_lookup),
+            ("arithmetic tiny lookup".into(), arithmetic),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -279,13 +326,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
+
+        let length_inv = U256::from_little_endian(
+            F::from(length.low_u64())
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+
         let column_values = [
             U256::from(code_copy_len),
             code_copy_len_lo_inv,
             U256::from(padding_len),
             padding_copy_len_lo_inv,
+            length_inv,
         ];
-        for i in 0..4 {
+        for i in 0..5 {
             assign_or_panic!(core_row_2[i + START_COL_IDX], column_values[i]);
         }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
@@ -310,11 +367,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ];
         state_rows.extend(memory_state_rows);
 
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let offset_bound = if length.is_zero() {
+            U256::zero()
+        } else {
+            mem_offset + length
+        };
+
+        let (arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+
+        core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
+
         // put rows into the Witness object
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
             copy: copy_rows,
+            arithmetic: arith_mem,
             ..Default::default()
         }
     }
@@ -372,6 +443,9 @@ mod test {
             .bytecode
             .insert(0xaa.into(), code_vec.to_vec().into());
         current_state.code_addr = 0xaa.into();
+        current_state.memory_chunk_prev = 256;
+        current_state.memory_chunk = 256;
+
         let trace = prepare_trace_step!(0, OpcodeId::CODECOPY, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(

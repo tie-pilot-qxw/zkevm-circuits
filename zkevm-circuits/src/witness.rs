@@ -13,12 +13,12 @@ use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
-    ARITHMETIC_COLUMN_WIDTH, BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX,
-    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
+    ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
+    BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BYTECODE_COLUMN_START_IDX,
+    COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
     LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
     NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES,
     STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
-    U64_OVERFLOW_COLUMN_WIDTH, U64_OVERFLOW_START_IDX,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -58,7 +58,7 @@ pub struct Witness {
     pub keccak: Vec<Vec<u8>>,
     // we omit fixed table rows on purpose due to its large size
 }
-
+#[derive(Debug, Default, Clone)]
 pub struct WitnessExecHelper {
     pub stack_pointer: usize,
     // 存储CALL指令的父环境stack_pointer值，如在CALL调用中，key==即将执行的CALL_ID，value=父环境的stack_pointer值
@@ -102,6 +102,7 @@ pub struct WitnessExecHelper {
     pub gas_left: u64,
     pub refund: u64,
     pub memory_chunk: u64,
+    pub memory_chunk_prev: u64,
     pub read_only: u64,
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
@@ -143,6 +144,7 @@ impl WitnessExecHelper {
             gas_left: 0,
             refund: 0,
             memory_chunk: 0,
+            memory_chunk_prev: 0,
             read_only: 0,
             bytecode: HashMap::new(),
             stack_top: None,
@@ -288,6 +290,17 @@ impl WitnessExecHelper {
             if let Some(next_step) = iter_for_next_step.next() {
                 self.update_from_next_step(next_step);
             }
+
+            let memory_usage = (step.memory.0.len() / 32) as u64;
+            let memory_chunk = self.memory_chunk;
+            self.memory_chunk_prev = memory_chunk;
+
+            if memory_usage > memory_chunk {
+                self.memory_chunk = memory_usage;
+            } else {
+                self.memory_chunk = memory_chunk;
+            }
+
             if step.op == OpcodeId::RETURN
                 || step.op == OpcodeId::REVERT
                 || step.op == OpcodeId::STOP
@@ -2375,34 +2388,50 @@ impl core::Row {
         ]);
     }
 
-    pub fn insert_arithmetic_u64overflow_lookup(
+    pub fn insert_arithmetic_tiny_lookup(
         &mut self,
         index: usize,
         arith_entries: &[arithmetic::Row],
     ) {
         assert_eq!(self.cnt, 2.into());
-        assert_eq!(arith_entries.len(), 1);
-        //assert_eq!(index, 0);
-
+        assert!(index < 6);
+        let arith_row = &arith_entries[arith_entries.len() - 1];
         let column_values = [
-            arith_entries[0].operand_0_hi,
-            arith_entries[0].operand_0_lo,
-            arith_entries[0].operand_1_hi,
-            arith_entries[0].operand_1_lo,
+            arith_row.operand_0_hi,
+            arith_row.operand_0_lo,
+            arith_row.operand_1_hi,
+            arith_row.operand_1_lo,
+            (arith_row.tag as u8).into(),
         ];
-        for i in 0..4 {
-            assign_or_panic!(
-                self[U64_OVERFLOW_START_IDX + index * U64_OVERFLOW_COLUMN_WIDTH + i],
-                column_values[i]
-            );
+        let offset = ARITHMETIC_TINY_START_IDX + index * ARITHMETIC_TINY_COLUMN_WIDTH;
+
+        for i in 0..ARITHMETIC_TINY_COLUMN_WIDTH {
+            assign_or_panic!(self[offset + i], column_values[i]);
         }
         #[rustfmt::skip]
         self.comments.extend([
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
-            (format!("vers_{}", U64_OVERFLOW_COLUMN_WIDTH + index * U64_OVERFLOW_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
+            (format!("vers_{}", offset + 4), format!("arithmetic tag={:?}", arith_row.tag)),
         ]);
+
+        match arith_entries[0].tag {
+            arithmetic::Tag::U64Overflow => {
+                self.comments.extend([
+                    (format!("vers_{}", offset), "value hi".into()),
+                    (format!("vers_{}", offset + 1), "value lo".into()),
+                    (format!("vers_{}", offset + 2), "w".into()),
+                    (format!("vers_{}", offset + 3), "w_inv".into()),
+                ]);
+            }
+            arithmetic::Tag::MemoryExpansion => {
+                self.comments.extend([
+                    (format!("vers_{}", offset), "offset".into()),
+                    (format!("vers_{}", offset + 1), "memory_chunk_prev".into()),
+                    (format!("vers_{}", offset + 2), "expansion_tag".into()),
+                    (format!("vers_{}", offset + 3), "access_memory_size".into()),
+                ]);
+            }
+            _ => (),
+        }
     }
 
     /// insert arithmetic_lookup insert arithmetic lookup, 9 columns in row prev(-2)
@@ -2532,6 +2561,24 @@ impl core::Row {
                 (
                     format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
                     "arithmetic remainder lo".into(),
+                ),
+            ]),
+            arithmetic::Tag::Length => self.comments.extend([
+                (
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 4),
+                    "arithmetic real_len".into(),
+                ),
+                (
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 5),
+                    "arithmetic zero_len".into(),
+                ),
+                (
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 6),
+                    "arithmetic real_len_is_zero".into(),
+                ),
+                (
+                    format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 7),
+                    "arithmetic zero_len_is_zero".into(),
                 ),
             ]),
             _ => (),

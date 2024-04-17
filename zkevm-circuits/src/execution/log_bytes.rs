@@ -1,10 +1,12 @@
+use crate::arithmetic_circuit::operation;
 use crate::execution::{
     log_topic_num_addr, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
+
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{assign_or_panic, copy, public, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, assign_or_panic, copy, public, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
@@ -22,13 +24,14 @@ use std::marker::PhantomData;
 /// PUBLIC means public table lookup 6 cols, origin from col 26
 /// STATE means state table lookup,
 /// LO_INV means length's inv , 1 col, located at col 24
+/// ARITH means memory expansion arithmatic lookup
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+---------+---------+
 /// |cnt| 8 col | 8 col |  8 col  |  8col   |
 /// +---+-------+-------+---------+---------+
-/// | 2 | Copy(9) |9col(not used)| PUBLIC(6) |
+/// | 2 | Copy(9) | ARITH(5)    | PUBLIC(6) |
 /// | 1 | STATE | STATE | notUsed | LO_INV(1 col) |
 /// | 0 | DYNA_SELECTOR | AUX               |
 /// +---+-------+-------+---------+---------+
@@ -75,13 +78,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
 
-        let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr() + len.clone()),
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            ..Default::default()
-        };
-
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = vec![];
 
         // append stack constraints
         let mut stack_pop_values = vec![];
@@ -180,6 +177,47 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ));
 
+        // Extract the tag and arithmetic operands from the arithmetic lookup expression.
+        // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
+        let (tag, [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 2));
+
+        let length = stack_pop_values[3].clone();
+
+        // constraint for arithmetic operand
+        constraints.push((
+            "offset_bound in arithmetic = (mem_off + length) * (1 - is_zero_len.expr()) in state lookup"
+                .into(),
+            (stack_pop_values[1].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - offset_bound.clone(),
+        ));
+
+        constraints.push((
+            "memory_chunk_prev in arithmetic = in auxiliary".into(),
+            memory_chunk_prev.clone()
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+        // Add constraints for arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            tag.clone() - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ));
+
+        let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
+            + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
+
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr() + len.clone()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            ..Default::default()
+        };
+
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+
         constraints
     }
     fn get_lookups(
@@ -191,6 +229,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
+
+        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 2));
+
         vec![
             (
                 "state lookup, stack pop lookup offset".into(),
@@ -202,6 +243,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("code copy lookup".into(), copy_lookup),
             ("public lookup".into(), public_lookup),
+            ("arithmetic tiny lookup".into(), arithmetic),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -249,12 +291,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let offset_bound = if length.is_zero() {
+            U256::zero()
+        } else {
+            offset + length
+        };
+
+        let (arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+
+        core_row_2.insert_arithmetic_tiny_lookup(2, &arith_mem);
+
         let mut state_rows = vec![stack_pop_offset, stack_pop_length];
         state_rows.extend(memory_state_rows);
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
             copy: copy_rows,
+            arithmetic: arith_mem,
             ..Default::default()
         }
     }
@@ -286,6 +342,7 @@ mod test {
             call_id,
             tx_idx,
             log_stamp,
+            memory_chunk: 1,
             ..WitnessExecHelper::new()
         };
 
