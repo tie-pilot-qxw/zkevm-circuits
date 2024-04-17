@@ -230,6 +230,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("parent code addr write".into(), state_lookup_3),
             ("copy lookup".into(), copy_lookup),
             ("public lookup".into(), public_lookup),
+            // todo 在实现gas基础扣费后，再开启，目前begin_tx_1.gas_left == first_step.gas
             // ("public gas lookup".into(), public_gas_lookup),
         ]
     }

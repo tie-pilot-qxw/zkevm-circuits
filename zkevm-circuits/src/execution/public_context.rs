@@ -68,6 +68,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let auxiliary_delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            // COINBASE, TIMESTAMP, NUMBER, GASLIMIT, CHAINID, BASEFEE gas cost == QUICK,
+            // Only one of the representatives is used here
             gas_left: ExpressionOutcome::Delta(OpcodeId::TIMESTAMP.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()

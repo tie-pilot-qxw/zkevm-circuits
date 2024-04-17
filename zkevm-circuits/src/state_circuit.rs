@@ -364,15 +364,9 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             ));
 
             // todo 要先修复多交易的tx_id
-            // vec.push((
-            //     "is_first_access=0 & access_list_tag => value_pre_lo in cur = value_lo in prev",
-            //     q_enable.clone()
-            //         * (1.expr() - is_first_access.clone())
-            //         * access_list_storage_condition.clone()
-            //         * (value_prev_lo_in_cur.clone() - prev_value_lo.clone())
-            // ));
-
-            // todo 要先修复多交易的tx_id
+            // 多交易里tag为access_list_tag 的情况时，会出现is_warm的当前行与上一行之间的约束不能满足这个约束。
+            // 当正确添加了tx_id后，此时is_first_access应该为1。
+            // 可通过multi test复现。
             // vec.push((
             //     "is_first_access=0 & access_list_tag => value_pre_lo in cur = value_lo in prev",
             //     q_enable.clone()
@@ -388,15 +382,6 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     * access_list_storage_condition.clone()
                     * (value_prev_hi_in_cur.clone() - prev_value_hi.clone())
             ));
-
-            // todo 要先修复多交易的tx_id
-            // vec.push((
-            //     "is_first_access=0 & access_list_tag => value_pre_lo in cur = value_lo in prev",
-            //     q_enable.clone()
-            //         * (1.expr() - is_first_access.clone())
-            //         * access_list_storage_condition.clone()
-            //         * (value_prev_lo_in_cur.clone() - prev_value_lo.clone())
-            // ));
 
             vec.push((
                 "access_list_tag => value_hi = 0",

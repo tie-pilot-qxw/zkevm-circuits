@@ -253,7 +253,8 @@ impl WitnessExecHelper {
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
         let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
-                                               // todo 这个不能直接赋值为first_step gas，要赋值tx.gas然后再计算
+        self.next_exec_state = Some(ExecutionState::BEGIN_TX_2);
+        // todo 这个不能直接赋值为first_step gas，要赋值tx.gas然后再计算，在基础gas计算的mr中修复
         self.gas_left = first_step.gas;
         res.append(
             execution_gadgets_map
@@ -315,6 +316,18 @@ impl WitnessExecHelper {
                 // append CALL5 when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append CALL5 at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
                 // 如果调用到CALL5,说明在CALL的流程并准备结束，此时CALL5的gas应该与CALL opcode时的gas保持一致，也即step.gas
+                // 假设trace操作为：
+                // CALL --------- (1)
+                // PUSH1 1 ------ (2)
+                // STOP --------- (3)
+                // PUSH1 2 ------ (4)
+                // 当CALL指令时，call_step_store push CALL此时的step；
+                // 当STOP指令时，call_step_store pop CALL此时的step，即(1)时的状态；
+                // 当执行到(4)时，实际上会先进入到CALL_5，我们希望CALL_5的gas_left应该为(4)的gas，也即step.gas
+                // 由于CALL指令gas计算比较复杂，CALL_5的gas_left不能直接用call_step_store.gas - call_step_store.gas_cost，
+                // 所以没有采用在CALL_5中单独修改gas_left。
+                // 因此对于下面的self.gas_left = step.gas - step.gas_cost操作没有放在update_from_next_step中，
+                // 因为在执行到PUSH1时，我们需要PUSH1的gas_left = step.gas - step.gas_cost.
                 self.gas_left = step.gas;
                 res.append(
                     execution_gadgets_map
@@ -325,6 +338,7 @@ impl WitnessExecHelper {
                 prev_is_return_revert_or_stop = false;
             }
             // 执行状态后的gas计算下移，不放在update_from_next中，因为在CALL5中会改变这个值
+            // 这里self.gas_left没有直接赋值为next_step.gas的原因是CALL里STOP时的gas_left应该为cur_gas - cur_gas_cost，而不是next_step.gas
             self.gas_left = step.gas - step.gas_cost;
             res.append(self.generate_execution_witness(step, &execution_gadgets_map));
 

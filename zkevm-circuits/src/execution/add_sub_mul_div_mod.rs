@@ -311,11 +311,7 @@ mod test {
             gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let gas_cost = if opcode == OpcodeId::ADD || opcode == OpcodeId::SUB {
-            GasCost::FASTEST
-        } else {
-            GasCost::FAST
-        };
+        let gas_cost = opcode.constant_gas_cost();
         let gas_left_before_exec = current_state.gas_left + gas_cost;
         let mut trace = prepare_trace_step!(0, opcode, stack);
         trace.gas = gas_left_before_exec;
