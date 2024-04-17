@@ -77,6 +77,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
             stack_pointer: ExpressionOutcome::To(0.expr()),
             log_stamp: ExpressionOutcome::To(0.expr()),
+            memory_chunk: ExpressionOutcome::To(0.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));

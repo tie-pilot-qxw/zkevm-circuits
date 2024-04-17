@@ -1,8 +1,6 @@
 use crate::arithmetic_circuit::operation;
 use crate::arithmetic_circuit::operation::{get_lt_operations, SLT_N_BYTES};
-use crate::constant::{
-    NUM_AUXILIARY, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH, U64_OVERFLOW_COLUMN_WIDTH,
-};
+use crate::constant::STORAGE_COLUMN_WIDTH;
 use crate::execution::{
     Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget,
     ExecutionState,
@@ -51,7 +49,7 @@ const PC_DELTA: u64 = 1;
 ///     STATE5:  State lookup(slot in access list read), src: Core circuit, target: State circuit table, 12 columns
 ///     STATE6:  State lookup(slot in access list write), src: Core circuit, target: State circuit table, 12 columns
 ///     STATE7:  State lookup(get_value_prev_storage_write_row), src: Core circuit, target: State circuit table, 12 columns
-///     U64: arithemetic lookup, gas_left u64 constraint, src: Core circuit, target: Arithemetic circuit table, 4 columns
+///     U64: arithemetic tiny lookup, gas_left u64 constraint, src: Core circuit, target: Arithemetic circuit table, 5 columns
 ///     lt, diff: SstoreSentryGasEIP2200 < gas_left, lt constraint, 1 column
 ///     prev_eq_value_inv_hi: value_hi == value_pre_hi, 1 column
 ///     prev_eq_value_inv_lo: value_lo == value_pre_lo, 1 column
@@ -66,7 +64,7 @@ const PC_DELTA: u64 = 1;
 /// | cnt |                                    |                                      |                           |                               |                               |                              |                |                  |                                |                                |
 /// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
 /// | 3   | STATE7(0..11)                      | prev_eq_value_inv_hi(12)             | prev_eq_value_inv_lo(13)  | committed_eq_prev_inv_hi(14)  | committed_eq_prev_inv_lo(15)  | committed_value_inv(16)      | value_inv(17)  | value_pre_inv(18)| committed_eq_value_inv_hi(19) | committed_eq_value_inv_lo(20) |
-/// | 2   | STATE5(0..11)                      | STATE6(12..23)                       | U64(24..27)                | lt(28)                        | diff(29)                      |                              |                |                  |                                |                                |
+/// | 2   | STATE5(0..11)                      | STATE6(12..23)                       | lt(24)                    |   diff(25)                    |                               | U64(27..31)                                                                                                                        |
 /// | 1   | STATE1(0..7)                       | STATE2(8..15)                        | STATE3(16..23)             | STATE4(24..31)                |                               |                              |                |                  |                                |                                |
 /// | 0   | dynamic_selector (0..17)           | AUX(18..24)                          |                           |                               |                               |                              |                |                  |                                |                                |
 /// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
@@ -219,14 +217,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // gas_left u64 overflow, 这个约束就保证了gas_left_before_exec - gas_cost > 0
         let Auxiliary { gas_left, .. } = config.get_auxiliary();
         let gas_left = meta.query_advice(gas_left, Rotation::cur());
-        let [value_hi, value_lo, overflow, overflow_inv] = extract_lookup_expression!(
-            arithmetic_u64,
-            config.get_arithmetic_u64overflow_lookup(meta, 0)
-        );
+        let (tag, [value_hi, value_lo, overflow, overflow_inv]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
         let not_overflow =
             SimpleIsZero::new(&overflow, &overflow_inv, "gas_left u64 overflow".into());
         constraints.extend(not_overflow.get_constraints());
         constraints.extend([
+            (
+                "arithmetic tag is u64".into(),
+                tag - (arithmetic::Tag::U64Overflow as u8).expr(),
+            ),
             ("value_hi in arithmetic == 0".into(), value_hi),
             (
                 "gas_left_lo == value_lo in arithmetic".into(),
@@ -260,9 +260,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.get_storage_lookup(meta, 1, Rotation(-2))
         });
         // must: 3. gas_left u64 overflow lookup
-        let arithmetic_u64overflow_lookup = query_expression(meta, |meta| {
-            config.get_arithmetic_u64overflow_lookup(meta, 0)
-        });
+        let arithmetic_u64overflow_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 5));
         let value_prev_lookup = query_expression(meta, |meta| {
             config.get_storage_lookup(meta, 0, Rotation(-3))
         });
@@ -377,7 +376,7 @@ fn get_core_row_2<F: Field>(
 
     let (arith_row, _) =
         operation::u64overflow::gen_witness::<F>(vec![current_state.gas_left.into()]);
-    core_row_2.insert_arithmetic_u64overflow_lookup(0, &arith_row);
+    core_row_2.insert_arithmetic_tiny_lookup(5, &arith_row);
 
     // 1. SstoreSentryGasEIP2200 < gas_left
     // lhs - rhs = diff - lt * range
@@ -389,8 +388,8 @@ fn get_core_row_2<F: Field>(
         &U256::from(trace.gas),
         &U256::from(2).pow(U256::from(SLT_N_BYTES * 32)),
     );
-    core_row_2[2 * STORAGE_COLUMN_WIDTH + U64_OVERFLOW_COLUMN_WIDTH] = Some((lt as u8).into());
-    core_row_2[2 * STORAGE_COLUMN_WIDTH + U64_OVERFLOW_COLUMN_WIDTH + 1] = Some(diff);
+    core_row_2[2 * STORAGE_COLUMN_WIDTH] = Some((lt as u8).into());
+    core_row_2[2 * STORAGE_COLUMN_WIDTH + 1] = Some(diff);
 
     (
         core_row_2,
@@ -619,14 +618,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints: &mut Vec<(String, Expression<F>)>,
     ) -> Expression<F> {
         // 1. SstoreSentryGasEIP2200 < gas_left
-        let lt = meta.query_advice(
-            config.vers[2 * STORAGE_COLUMN_WIDTH + U64_OVERFLOW_COLUMN_WIDTH],
-            Rotation(-2),
-        );
-        let diff = meta.query_advice(
-            config.vers[2 * STORAGE_COLUMN_WIDTH + U64_OVERFLOW_COLUMN_WIDTH + 1],
-            Rotation(-2),
-        );
+        let lt = meta.query_advice(config.vers[2 * STORAGE_COLUMN_WIDTH], Rotation(-2));
+        let diff = meta.query_advice(config.vers[2 * STORAGE_COLUMN_WIDTH + 1], Rotation(-2));
         let Auxiliary { gas_left, .. } = config.get_auxiliary();
         let gas_left = meta.query_advice(gas_left, Rotation(-1 * NUM_ROW as i32));
         let is_lt: SimpleLtGadget<F, 8> =

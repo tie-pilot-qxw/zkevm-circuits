@@ -2,6 +2,7 @@ pub(crate) mod add;
 pub(crate) mod addmod;
 pub(crate) mod div_mod;
 pub(crate) mod length;
+pub(crate) mod memory_expansion;
 pub(crate) mod mul;
 pub(crate) mod mulmod;
 pub(crate) mod sdiv_smod;

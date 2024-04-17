@@ -324,10 +324,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_context_read_row,
             stack_write_row,
         ]);
+
         //generate arithmetic rows
-        let (arithmetic_rows, _) = operation::length::gen_witness(vec![
-            ret_length,
+        let (arithmetic_rows, _) = operation::length::gen_witness::<F>(vec![
             ret_offset,
+            ret_length,
             current_state.returndata_size,
         ]);
 
@@ -335,7 +336,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
-            arithmetic: arithmetic_rows,
+            arithmetic: arithmetic_rows, // todo, implement length arithmetic and memory_expansion arithmetic
             ..Default::default()
         }
     }

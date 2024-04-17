@@ -95,9 +95,9 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
-    (arithmetic_u64, $value:expr) => {
+    (arithmetic_tiny, $value:expr) => {
         match $value {
-            LookupEntry::ArithmeticU64 { values } => (values),
+            LookupEntry::ArithmeticTiny { tag, values } => (tag, values),
             _ => panic!("Pattern doesn't match!"),
         }
     };
@@ -515,9 +515,9 @@ impl ArithmeticTable {
                     (values[5].clone(), table_2_lo),
                 ]
             }
-            LookupEntry::ArithmeticU64 { values } => {
+            LookupEntry::ArithmeticTiny { tag, values } => {
                 vec![
-                    ((arithmetic::Tag::U64Overflow as u64).expr(), table_tag),
+                    (tag.clone(), table_tag),
                     (values[0].clone(), table_0_hi),
                     (values[1].clone(), table_0_lo),
                     (values[2].clone(), table_1_hi),
@@ -958,9 +958,9 @@ pub enum LookupEntry<F> {
         /// Operand 0-2 high and low 128 bits, order: [hi0,lo0,hi1,lo1,...]
         values: [Expression<F>; 6],
     },
-    /// Lookup to arithmetic table. U64 lookup only used 4 values
-    ArithmeticU64 {
-        /// Operands order: [hi0,lo0,hi_192,inv]
+    /// Lookup to arithmetic tiny table. This lookup only used 5 values
+    ArithmeticTiny {
+        tag: Expression<F>,
         values: [Expression<F>; 4],
     },
     /// Lookup to exp table
@@ -1154,8 +1154,8 @@ impl<F: Field> LookupEntry<F> {
                 contents.extend(values.iter().map(|v| v.identifier()));
                 contents
             }
-            LookupEntry::ArithmeticU64 { values } => {
-                let mut contents = vec![];
+            LookupEntry::ArithmeticTiny { tag, values } => {
+                let mut contents = vec![tag.identifier()];
                 contents.extend(values.iter().map(|v| v.identifier()));
                 contents
             }

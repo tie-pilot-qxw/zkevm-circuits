@@ -1,12 +1,13 @@
 // Code generated - COULD HAVE BUGS!
 // This file is a generated execution gadget definition.
 
+use crate::arithmetic_circuit::operation;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, copy, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -29,6 +30,8 @@ const START_COL_IDX: usize = 22;
 /// ZLL means zero copy length, one column,
 /// CLLIN  means copy length's multiplicative inverse;
 /// ZLLIN means zero length's multiplicative inverse  
+/// SIN means size's multiplicative inverse;
+/// ARITH(5) means memory expansion arithmetic lookup, 5 cols
 /// STATE means state table lookup,
 /// STATE0 means account address,
 /// STATE1 means memOffset
@@ -40,7 +43,7 @@ const START_COL_IDX: usize = 22;
 /// +---+-------+-------+------------------------+----------+
 /// |cnt| 8 col | 8 col |              8 col     | not used |
 /// +---+-------+-------+------------------------+----------+
-/// | 2 | COPY   | ZEROCOPY|CLL|CLLIN|ZLL|ZLLIN|            |
+/// | 2 | COPY   | ZEROCOPY|CLL|CLLIN|ZLL|ZLLIN|SIN|ARITH(5)|
 /// | 1 | STATE0| STATE1|        STATE2          | STATE3   |
 /// | 0 | DYNA_SELECTOR   |                  AUX            |
 /// +---+-------+-------+------------------------+----------+
@@ -76,19 +79,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(copy, copy_entry.clone());
         let (_, _, _, _, _, _, _, _, _, copy_padding_lookup_len, _) =
             extract_lookup_expression!(copy, padding_entry.clone());
-        let auxiliary_delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(
-                STATE_STAMP_DELTA.expr()
-                    + copy_lookup_len.clone()
-                    + copy_padding_lookup_len.clone(),
-            ),
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            ..Default::default()
-        };
-        // auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
+
         let mut copy_operands = vec![];
         let mut copy_code_stamp_start = 0.expr();
+        let mut constraints = vec![];
+
         // stack constraints
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
@@ -189,6 +184,57 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // ),
         ]);
 
+        // Extract the tag and arithmetic operands from the arithmetic lookup expression.
+        // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
+        let (tag, [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
+
+        let length = copy_operands[3][1].clone();
+        let length_inv = meta.query_advice(config.vers[START_COL_IDX + 4], Rotation(-2));
+
+        // constraint that length_inv is length's inverse
+        let is_zero_len = SimpleIsZero::new(&length, &length_inv, String::from("length_lo"));
+        constraints.extend(is_zero_len.get_constraints());
+
+        // constraint for arithmetic operand
+        constraints.push((
+            "offset_bound in arithmetic = (mem_off + length) * (1 - is_zero_len.expr()) in state lookup"
+                .into(),
+            (copy_operands[1][1].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - offset_bound.clone(),
+        ));
+
+        constraints.push((
+            "memory_chunk_prev in arithmetic = in auxiliary".into(),
+            memory_chunk_prev.clone()
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        // Add constraints for arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            tag.clone() - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ));
+
+        let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
+            + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
+
+        let auxiliary_delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr()
+                    + copy_lookup_len.clone()
+                    + copy_padding_lookup_len.clone(),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            ..Default::default()
+        };
+        // auxiliary constraints
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta));
+
         constraints
     }
     fn get_lookups(
@@ -205,6 +251,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
         let padding_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
 
+        let arithmetic = query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 5));
+
         vec![
             ("stack pop account address".into(), stack_lookup_0),
             ("stack pop mem offset".into(), stack_lookup_1),
@@ -212,6 +260,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("stack pop length".into(), stack_lookup_3),
             ("copy look up".into(), copy_lookup),
             ("padding look up".into(), padding_copy_lookup),
+            ("arithmetic tiny lookup".into(), arithmetic),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -260,13 +309,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .to_repr()
                 .as_ref(),
         );
+        let size_inv = U256::from_little_endian(
+            F::from(size.low_u64())
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+
         let column_values = [
             U256::from(code_copy_length),
             code_copy_len_lo_inv,
             U256::from(padding_length),
             padding_copy_len_lo_inv,
+            size_inv,
         ];
-        for i in 0..4 {
+        for i in 0..5 {
             assign_or_panic!(core_row_2[i + START_COL_IDX], column_values[i]);
         }
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
@@ -283,10 +341,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         if mem_rows.len() > 0 {
             state_vec.extend(mem_rows);
         }
+
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let offset_bound = if size.is_zero() {
+            U256::zero()
+        } else {
+            mem_offset + size
+        };
+
+        let (arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+        core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
+
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_vec,
+            arithmetic: arith_mem,
             ..Default::default()
         }
     }
@@ -336,6 +408,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
+            memory_chunk: (((words[0] + words[2]).as_u64()) + 31) / 32,
             ..WitnessExecHelper::new()
         };
         let mut code_vec = vec![];

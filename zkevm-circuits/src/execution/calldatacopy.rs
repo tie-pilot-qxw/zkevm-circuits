@@ -1,9 +1,10 @@
+use crate::arithmetic_circuit::operation;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{copy, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -17,18 +18,20 @@ const PC_DELTA: usize = 1;
 const STATE_STAMP_DELTA: usize = 3;
 const STACK_POINTER_DELTA: i32 = -3;
 const LEN_LO_INV_COL_IDX: usize = 24;
+
 /// CALLDATACOPY copy message data from calldata to memory in EVM.
 ///
 /// CALLDATACOPY Execution State layout is as follows
 /// where COPY means copy table lookup (dst_offset, src_offset, length),
 /// LENGTH means retrieve data length from calldata,
+/// ARITH means memory expansion arithmatic lookup
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | not used |
 /// +---+-------+-------+-------+----------+
-/// | 2 | COPY   |       |       |         |
+/// | 2 | COPY   |       |       | ARITH(5)|
 /// | 1 | STATE | STATE | STATE |          |
 /// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
@@ -62,24 +65,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-        let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(
-                // 因为copy的数据写了2份，所以需要len*2，同时记录了三个state状态
-                STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
-            ),
-            // 弹出了三个操作数
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            ..Default::default()
-        };
-        // 添加辅助列的约束，约束上下相邻指令的状态
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        // 约束pc、tx_id等状态
-        let delta = CoreSinglePurposeOutcome {
-            // 因为pc向后移动1，该指令下同一笔交易中其它状态不变
-            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
-        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
+
+        let mut constraints = vec![];
 
         let mut stack_pop_values = vec![];
         // calldatacopy has three operand.
@@ -99,9 +86,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             constraints.extend([(format!("value_high_{} = 0", i), value_hi.expr())])
         }
 
+        let length = stack_pop_values[2].clone();
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation::prev());
-        let is_zero_len =
-            SimpleIsZero::new(&stack_pop_values[2], &len_lo_inv, String::from("length_lo"));
+        let is_zero_len = SimpleIsZero::new(&length, &len_lo_inv, String::from("length_lo"));
         let (_, stamp, ..) = extract_lookup_expression!(state, config.get_state_lookup(meta, 2));
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut is_zero_len.get_constraints());
@@ -125,6 +112,57 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             "opcode".into(),
             opcode_advice - OpcodeId::CALLDATACOPY.as_u64().expr(),
         )]);
+
+        // Extract the tag and arithmetic operands from the arithmetic lookup expression.
+        // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
+        let (tag, [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
+
+        // constraint for arithmetic operand
+        constraints.push((
+            "offset_bound in arithmetic = (mem_off + length) * (1 - is_zero_len.expr()) in state lookup"
+                .into(),
+            (stack_pop_values[0].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - offset_bound.clone(),
+        ));
+
+        constraints.push((
+            "memory_chunk_prev in arithmetic = in auxiliary".into(),
+            memory_chunk_prev.clone()
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        // Add constraints for arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            tag.clone() - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ));
+        let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
+            + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
+
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                // 因为copy的数据写了2份，所以需要len*2，同时记录了三个state状态
+                STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
+            ),
+            // 弹出了三个操作数
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            ..Default::default()
+        };
+        // 添加辅助列的约束，约束上下相邻指令的状态
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+        // 约束pc、tx_id等状态
+        let delta = CoreSinglePurposeOutcome {
+            // 因为pc向后移动1，该指令下同一笔交易中其它状态不变
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
+
         constraints
     }
 
@@ -139,6 +177,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
         // 从core电路中读取copy 的状态，与copy电路进行lookup约束
         let calldata_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
+        let arithmetic_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 5));
 
         vec![
             (
@@ -151,6 +191,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("state lookup, stack top2 length".into(), stack_lookup_2),
             ("copy lookup".into(), calldata_copy_lookup),
+            ("arithmetic tiny lookup".into(), arithmetic_lookup),
         ]
     }
 
@@ -192,12 +233,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let offset_bound = if length.is_zero() {
+            U256::zero()
+        } else {
+            dst_offset + length
+        };
+
+        let (arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+
+        core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
+
         // generate witness for coredataload instruct
         state_rows.extend(vec![stack_pop_0, stack_pop_1, stack_pop_2]);
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],
             state: state_rows,
+            arithmetic: arith_mem,
             ..Default::default()
         }
     }
@@ -223,6 +278,8 @@ mod test {
 
         let mut current_state = WitnessExecHelper {
             stack_top: None,
+            memory_chunk: 1,
+            memory_chunk_prev: 0,
             ..WitnessExecHelper::new()
         };
         current_state.stack_pointer = stack.0.len();
@@ -237,6 +294,8 @@ mod test {
 
         let mut current_state = WitnessExecHelper {
             stack_top: None,
+            memory_chunk: 2,
+            memory_chunk_prev: 0,
             ..WitnessExecHelper::new()
         };
         current_state.stack_pointer = stack.0.len();

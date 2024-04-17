@@ -1,4 +1,4 @@
-use crate::arithmetic_circuit::operation::{self, u64overflow};
+use crate::arithmetic_circuit::operation;
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -19,16 +19,13 @@ const STATE_STAMP_DELTA: u64 = 5;
 const STACK_POINTER_DELTA: i32 = -3;
 const PC_DELTA: u64 = 1;
 const LEN_LO_INV_COL_IDX: usize = 9;
-const OVERFLOW_COL_IDX: usize = 30;
 
 /// ReturnDataCopy Execution State layout is as follows
 /// where RSSTATE means return data size state table lookup
 /// STATE means state table lookup(call_context read returndata_call_id, stack pop dst_offset, stack_pop offset, stack_pop length),
 /// ARITH(9) means return data size - (offset+length)
+/// ARITH(5) means memory expansion
 /// LI(1) means length lo inv
-/// OAF(4) means arithmetic overflow of offset
-/// OLF(4) means arithmetic overflow of sum(offset , length)
-/// OF(1) means return data size - (offset+length) >= 0
 /// Copy(CP) means byte table lookup (full mode),
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -37,7 +34,7 @@ const OVERFLOW_COL_IDX: usize = 30;
 /// |cnt| 8 col |           8 col       | 8 col |  8col   |
 /// +---+-------+-----------------------+-------+---------+
 /// | 3 |RSSTATE|                       |       |         |
-/// | 2 |ARITH(9) |LI(1)|     |CP(11) |OAF(4)|OLF(4)|OF(1)|
+/// | 2 |ARITH(9) |LI(1)|                        |ARITH(5)|
 /// | 1 | STATE |        STATE          | STATE | STATE   |
 /// | 0 |       DYNA_SELECTOR             | AUX           |
 /// +---+-------+-----------------------+-------+---------+
@@ -70,29 +67,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta, 1);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
-        // get arithmetic lookup
-        let less_arithmetic_entry = config.get_arithmetic_lookup(meta, 0);
-        let (less_arithmetic_tag, less_arithmetic_operands_full) =
-            extract_lookup_expression!(arithmetic, less_arithmetic_entry.clone());
-        // get arithmetic overflow lookup
-        let overflow_entry = config.get_arithmetic_u64overflow_lookup(meta, 0);
-        let [overflow_value_hi, overflow_value_lo, overflow, overflow_inv] =
-            extract_lookup_expression!(arithmetic_u64, overflow_entry.clone());
-        // get offset plus length overflow lookup
-        let offset_plus_length_overflow_entry = config.get_arithmetic_u64overflow_lookup(meta, 1);
-        let [offset_plus_length_value_hi, offset_plus_length_value_lo, offset_plus_length_overflow, offset_plus_length_overflow_inv] =
-            extract_lookup_expression!(arithmetic_u64, offset_plus_length_overflow_entry.clone());
-        // code_copy will increase the stamp automatically
-        // state_stamp_delta = STATE_STAMP_DELTA + copy_lookup_len(copied code)
-        let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(
-                STATE_STAMP_DELTA.expr() + (len.clone() * 2.expr()),
-            ),
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            ..Default::default()
-        };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        // get length arithmetic lookup
+        let length_arithmetic_entry = config.get_arithmetic_lookup(meta, 0);
+        let (length_arithmetic_tag, length_arithmetic_operands_full) =
+            extract_lookup_expression!(arithmetic, length_arithmetic_entry.clone());
+
+        let mut constraints = vec![];
 
         // index0: dst_offset, index1: offset, index2: copy_lookup_len,
         let mut top2_stamp = 0.expr();
@@ -141,82 +122,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, returndata_size_hi, returndata_size_lo, _, _, _, _) =
             extract_lookup_expression!(state, returndata_size_entry);
 
-        // offset overflow constraints
-        let not_overflow =
-            SimpleIsZero::new(&overflow, &overflow_inv, "offset u64 overflow".into());
-        constraints.extend([
-            ("not overflow".into(), not_overflow.expr() - 1.expr()),
-            ("overflow value hi = 0".into(), overflow_value_hi),
-            (
-                "overflow value lo = state_values[2]".into(),
-                overflow_value_lo - state_values[2].clone(),
-            ),
-        ]);
-        // offset plus length overflow constraints
-        let offset_plus_length_not_overflow = SimpleIsZero::new(
-            &offset_plus_length_overflow,
-            &offset_plus_length_overflow_inv,
-            "offset plus length u64 overflow".into(),
-        );
-        constraints.extend([
-            (
-                "offset plus length not overflow".into(),
-                offset_plus_length_not_overflow.expr() - 1.expr(),
-            ),
-            (
-                "offset plus length hi = 0".into(),
-                offset_plus_length_value_hi,
-            ),
-            (
-                "offset plus length lo = state_values[2] + state_values[3]".into(),
-                offset_plus_length_value_lo - state_values[2].clone() - state_values[3].clone(),
-            ),
-        ]);
+        let length = state_values[3].clone();
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
-        let is_zero_len =
-            SimpleIsZero::new(&state_values[3], &len_lo_inv, String::from("length_lo"));
+        let is_zero_len = SimpleIsZero::new(&length, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
-
-        let offset_plus_length = state_values[3].clone() + state_values[2].clone();
-        let overflow_flag = meta.query_advice(config.vers[OVERFLOW_COL_IDX], Rotation(-2));
-        // length + offset <= return_data_size
-        // arithmetic constraints
-        // arithmetic_operands_full[0] = return_data_size_hi
-        // arithmetic_operands_full[1] = return_data_size_lo
-        // arithmetic_operands_full[2] = 0
-        // arithmetic_operands_full[3] = offset_plus_length
-        // arithmetic_operands_full[6] = 0
-        // arithmetic_operands_full[7] = overflow_flag
-        constraints.extend([
-            (
-                "arithmetic tag is sub".into(),
-                less_arithmetic_tag - (arithmetic::Tag::Sub as u8).expr(),
-            ),
-            (
-                "arithmetic_operands_full[0] = return_data_size_hi".into(),
-                less_arithmetic_operands_full[0].clone() - returndata_size_hi.clone(),
-            ),
-            (
-                "arithmetic_operands_full[1] = return_data_size_lo".into(),
-                less_arithmetic_operands_full[1].clone() - returndata_size_lo.clone(),
-            ),
-            (
-                "arithmetic_operands_full[2] = 0".into(),
-                less_arithmetic_operands_full[2].clone(),
-            ),
-            (
-                "arithmetic_operands_full[3] = offset_plus_length".into(),
-                less_arithmetic_operands_full[3].clone() - offset_plus_length,
-            ),
-            (
-                "arithmetic_operands_full[6] = overflow_flag".into(),
-                less_arithmetic_operands_full[6].clone() - overflow_flag,
-            ),
-            (
-                "arithmetic_operands_full[7] = 0".into(),
-                less_arithmetic_operands_full[7].clone(),
-            ),
-        ]);
 
         let returndata_call_id = state_values[0].clone();
         constraints.append(&mut config.get_copy_constraints(
@@ -227,9 +136,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy::Tag::Memory,
             call_id,
             state_values[1].clone(),
-            top2_stamp + state_values[3].clone() + 2.expr(),
+            top2_stamp + length.clone() + 2.expr(),
             None,
-            state_values[3].clone(),
+            length.clone(),
             is_zero_len.expr(),
             None,
             copy_entry,
@@ -247,6 +156,78 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 ..Default::default()
             },
         ));
+
+        // constraint return data size hi must be 0
+        constraints.push(("returndata_size_hi = 0".into(), returndata_size_hi.clone()));
+
+        // constraints value from length arithmetic lookup
+        constraints.extend([
+            (
+                "offset = state_values[2]".into(),
+                length_arithmetic_operands_full[0].clone() - state_values[2].clone(),
+            ),
+            (
+                "length = state_values[3]".into(),
+                length_arithmetic_operands_full[1].clone() - length.clone(),
+            ),
+            (
+                "size = returndata_size_lo".into(),
+                length_arithmetic_operands_full[2].clone() - returndata_size_lo.clone(),
+            ),
+            (
+                "offset + length <= returnda_size".into(),
+                length_arithmetic_operands_full[3].clone(),
+            ),
+        ]);
+
+        // Add constraints for length arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            length_arithmetic_tag.clone() - (arithmetic::Tag::Length as u8).expr(),
+        ));
+
+        // Extract the tag and arithmetic operands from the arithmetic lookup expression.
+        // arithmetic_operands_full has 4 elements: [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]
+        let (mem_tag, [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size]) =
+            extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
+
+        // constraint for arithmetic operand
+        constraints.push((
+            "offset_bound in arithmetic = (mem_off + length) * (1 - is_zero_len.expr()) in state lookup"
+                .into(),
+            (state_values[1].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - offset_bound.clone(),
+        ));
+
+        constraints.push((
+            "memory_chunk_prev in arithmetic = in auxiliary".into(),
+            memory_chunk_prev.clone()
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        // Add constraints for arithmetic tag.
+        constraints.push((
+            "arithmetic tag".into(),
+            mem_tag.clone() - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+        ));
+        let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
+            + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
+
+        // code_copy will increase the stamp automatically
+        // state_stamp_delta = STATE_STAMP_DELTA + copy_lookup_len(copied code)
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(
+                STATE_STAMP_DELTA.expr() + (len.clone() * 2.expr()),
+            ),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            ..Default::default()
+        };
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+
         constraints
     }
     fn get_lookups(
@@ -261,14 +242,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let returndata_size_lookup =
             query_expression(meta, |meta| config.get_returndata_size_state_lookup(meta));
         let code_copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 1));
-        let less_arithmetic_lookup =
+
+        let arith_length_lookup =
             query_expression(meta, |meta| config.get_arithmetic_lookup(meta, 0));
-        let overflow_arithmetic_lookup = query_expression(meta, |meta| {
-            config.get_arithmetic_u64overflow_lookup(meta, 0)
-        });
-        let offset_plus_length_overflow_arithmetic_lookup = query_expression(meta, |meta| {
-            config.get_arithmetic_u64overflow_lookup(meta, 1)
-        });
+        let arith_mem_lookup =
+            query_expression(meta, |meta| config.get_arithmetic_tiny_lookup(meta, 5));
+
         vec![
             (
                 "state lookup, call_context read returndata_call_id".into(),
@@ -284,15 +263,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_lookup_2,
             ),
             ("returndata copy lookup".into(), code_copy_lookup),
-            ("arithmetic less sub lookup".into(), less_arithmetic_lookup),
-            (
-                "arithmetic overflow lookup".into(),
-                overflow_arithmetic_lookup,
-            ),
-            (
-                "offset plus length overflow lookup".into(),
-                offset_plus_length_overflow_arithmetic_lookup,
-            ),
+            ("arithmetic length lookup".into(), arith_length_lookup),
+            ("arithmetic tiny lookup".into(), arith_mem_lookup),
             (
                 "return data size lookup at Rotation(-3)".into(),
                 returndata_size_lookup,
@@ -304,7 +276,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assert_eq!(trace.op, OpcodeId::RETURNDATACOPY);
         //get call_context read returndata_call_id row
         let call_context_read = current_state.get_returndata_call_id_row(false);
-
         // get dstOffset、offset、length from stack top
         let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
@@ -342,25 +313,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         } else {
             core_row_2.insert_copy_lookup(1, &copy_rows[0]);
         }
-        // insert offset overflow arithmetic
-        let (mut dest_offset_overflow_arith, _) = u64overflow::gen_witness::<F>(vec![offset]);
-        core_row_2.insert_arithmetic_u64overflow_lookup(0, &dest_offset_overflow_arith);
-        // insert offset + length overflow arithmetic
-        let (mut offset_plus_length_overflow_arith, _) =
-            u64overflow::gen_witness::<F>(vec![offset + length]);
-        core_row_2.insert_arithmetic_u64overflow_lookup(1, &offset_plus_length_overflow_arith);
+
         let len_lo = F::from_u128(length.low_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        //lenlo_inv
+        //len_lo_inv
         assign_or_panic!(core_row_2[LEN_LO_INV_COL_IDX], len_lo_inv);
 
         // 若不满足,应该在trace中有ErrReturnDataOutOfBounds
         assert!(offset + length <= returndata_size);
-        let (mut less_arithmetic_rows, arithmetic_result) =
-            operation::sub::gen_witness(vec![returndata_size, offset + length]);
-        core_row_2.insert_arithmetic_lookup(0, &less_arithmetic_rows);
-        assign_or_panic!(core_row_2[OVERFLOW_COL_IDX], arithmetic_result[1]);
+
+        let (mut arith_length, arith_length_result) =
+            operation::length::gen_witness::<F>(vec![offset, length, returndata_size]);
+        assert_eq!(arith_length_result[0], U256::zero());
+
+        core_row_2.insert_arithmetic_lookup(0, &arith_length);
+
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let offset_bound = if length.is_zero() {
+            U256::zero()
+        } else {
+            dst_offset + length
+        };
+        let (mut arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+
+        core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         // insert lookUp: Core ---> State
@@ -386,10 +365,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_context_returndata_size,
         ];
         state_rows.extend(copy_state_rows);
+
         let mut arithmetic_rows = vec![];
-        arithmetic_rows.append(&mut dest_offset_overflow_arith);
-        arithmetic_rows.append(&mut offset_plus_length_overflow_arith);
-        arithmetic_rows.append(&mut less_arithmetic_rows);
+        arithmetic_rows.append(&mut arith_length);
+        arithmetic_rows.append(&mut arith_mem);
+
         Witness {
             core: vec![core_row_3, core_row_2, core_row_1, core_row_0],
             state: state_rows,

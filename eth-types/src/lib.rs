@@ -384,7 +384,7 @@ impl fmt::Debug for GethExecStep {
             .field("depth", &self.depth)
             .field("error", &self.error)
             .field("stack", &self.stack)
-            // .field("memory", &self.memory)
+            .field("memory", &self.memory)
             .field("storage", &self.storage)
             .finish()
     }

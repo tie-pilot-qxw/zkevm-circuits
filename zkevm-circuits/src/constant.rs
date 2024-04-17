@@ -83,9 +83,9 @@ pub(crate) const STORAGE_COLUMN_WIDTH: usize = 12;
 pub(crate) const BYTECODE_COLUMN_START_IDX: usize = 24;
 
 /// arithmetic u64 overflow lookup column start
-pub(crate) const U64_OVERFLOW_START_IDX: usize = 22;
+pub(crate) const ARITHMETIC_TINY_START_IDX: usize = 2;
 /// arithmetic u64 overflow lookup column width
-pub(crate) const U64_OVERFLOW_COLUMN_WIDTH: usize = 4;
+pub(crate) const ARITHMETIC_TINY_COLUMN_WIDTH: usize = 5;
 
 /// arithmetic lookup column width
 pub(crate) const ARITHMETIC_COLUMN_WIDTH: usize = 9;
