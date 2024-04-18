@@ -267,8 +267,6 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     generate_execution_gadget_test_circuit!();
-    #[ignore = "remove ignore after arithmetic is finished"]
-
     fn run(opcode: OpcodeId, stack: Stack, stack_top: U256) {
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {

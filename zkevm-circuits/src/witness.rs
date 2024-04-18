@@ -803,50 +803,69 @@ impl WitnessExecHelper {
         self.state_stamp += 1;
         res
     }
-
+    // get_code_copy_rows
+    // @input
+    //  address: code address
+    //  src_offset: copy from where
+    //  dst_offset: copy to where (in memory)
+    //  copy_length: copy length
+    // @return
+    //  copy rows contains real copy rows and padding rows
+    //  state rows contains memory rows
+    //  arithmetic length rows contains rows of src_offset + copy_length - code_length
+    //  arithmetic u64overflow rows contains rows of u64overflow of src_offset
+    //  public rows contains code size
+    //  real copy length
+    //  padding length
     pub fn get_code_copy_rows<F: Field>(
         &mut self,
         address: U256,
-        dst: U256,
-        src: U256,
-        len: U256,
-    ) -> (Vec<copy::Row>, Vec<state::Row>, u64, u64, u64) {
-        let mut copy_rows = vec![];
-        let mut state_rows = vec![];
+        src_offset: U256,
+        dst_offset: U256,
+        copy_length: U256,
+    ) -> (
+        Vec<copy::Row>,
+        Vec<state::Row>,
+        Vec<arithmetic::Row>,
+        Vec<arithmetic::Row>,
+        public::Row,
+        u64,
+        u64,
+    ) {
+        let dst_offset = dst_offset.low_u64();
+        // src offset check
+        let (arith_src_overflow_rows, arith_src_overflow_values) =
+            operation::u64overflow::gen_witness::<F>(vec![src_offset]);
+        let src_offset = if arith_src_overflow_values[0].is_zero() {
+            src_offset
+        } else {
+            u64::MAX.into()
+        };
+
+        // get code length
+        let code = self.bytecode.get(&address).unwrap();
+        let code_size = U256::from(code.code.len());
+        let public_code_size_row = self.get_public_code_size_row(address, code_size);
+        // calc real_length and zero_length
+        let (arith_length_rows, _) =
+            operation::length::gen_witness::<F>(vec![src_offset, copy_length, code_size]);
+        let real_length = arith_length_rows[1].operand_0_hi;
+        let zero_length = arith_length_rows[1].operand_0_lo;
+
         // way of processing address and src and len, reference go-ethereum's method
         // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L373
-        // src offset check
-        let src_offset = if uint64_with_overflow(&src) {
-            u64::MAX
-        } else {
-            // it's guaranteed by caller that it is in range u64
-            src.as_u64()
-        };
-        let dst_offset = dst.low_u64();
-        let length = len.low_u64();
+        let real_length = real_length.low_u64();
+        let zero_length = zero_length.low_u64();
+
+        let mut copy_rows = vec![];
+        let mut state_rows = vec![];
         let codecopy_stamp = self.state_stamp;
-        let code = self.bytecode.get(&address).unwrap();
-        let code_length = code.code.len() as u64;
-        let mut padding_length: u64 = 0;
-        let mut code_copy_length: u64 = 0;
-        if length > 0 {
-            if src_offset >= code_length {
-                padding_length = length;
-            } else {
-                if length > code_length - src_offset {
-                    padding_length = length - (code_length - src_offset);
-                    code_copy_length = code_length - src_offset;
-                } else {
-                    code_copy_length = length;
-                }
-            }
-        }
-        if code_copy_length > 0 {
+        if real_length > 0 {
             let mut acc_pre = U256::from(0);
             let temp_256_f = F::from(256);
-            for i in 0..code_copy_length {
+            for i in 0..real_length {
                 let code = self.bytecode.get(&address).unwrap();
-                let byte = code.get((src_offset + i) as usize).unwrap().value;
+                let byte = code.get(src_offset.as_usize() + i as usize).unwrap().value;
 
                 // calc acc
                 let acc: U256 = if i == 0 {
@@ -870,19 +889,20 @@ impl WitnessExecHelper {
                     dst_pointer: dst_offset.into(),
                     dst_stamp: codecopy_stamp.into(),
                     cnt: i.into(),
-                    len: code_copy_length.into(),
+                    len: real_length.into(),
                     acc,
                 });
                 // it's guaranteed by Ethereum that dst + i doesn't overflow, reference: https://github.com/ethereum/go-ethereum/blob/master/core/vm/memory_table.go#L31
-                state_rows.push(self.get_memory_write_row(dst + i, byte));
+                state_rows.push(self.get_memory_write_row(U256::from(dst_offset + i), byte));
             }
         }
+
         let codecopy_padding_stamp = self.state_stamp;
-        if padding_length > 0 {
-            for i in 0..padding_length {
+        if zero_length > 0 {
+            for i in 0..zero_length {
                 state_rows.push(self.get_memory_write_row(
                     // in the same way, dst + code_copy_length + i doesn't overflow
-                    dst + code_copy_length + i,
+                    U256::from(dst_offset + real_length + i),
                     0u8,
                 ));
                 copy_rows.push(copy::Row {
@@ -893,10 +913,10 @@ impl WitnessExecHelper {
                     src_stamp: 0.into(),
                     dst_type: copy::Tag::Memory,
                     dst_id: self.call_id.into(),
-                    dst_pointer: (dst_offset + code_copy_length).into(),
+                    dst_pointer: (dst_offset + real_length).into(),
                     dst_stamp: codecopy_padding_stamp.into(),
                     cnt: i.into(),
-                    len: U256::from(padding_length),
+                    len: U256::from(zero_length),
                     acc: 0.into(),
                 })
             }
@@ -905,9 +925,11 @@ impl WitnessExecHelper {
         (
             copy_rows,
             state_rows,
-            length,
-            padding_length,
-            code_copy_length,
+            arith_length_rows,
+            arith_src_overflow_rows,
+            public_code_size_row,
+            real_length,
+            zero_length,
         )
     }
 
@@ -2502,7 +2524,6 @@ impl core::Row {
     pub fn insert_arithmetic_lookup(&mut self, index: usize, arithmetic: &[arithmetic::Row]) {
         // this lookup must be in the row with this cnt
         assert!(index < 3);
-        assert_eq!(self.cnt, 2.into());
         let len = arithmetic.len();
         assert!(len >= 2);
         let row_1 = &arithmetic[len - 2];

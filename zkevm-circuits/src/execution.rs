@@ -448,14 +448,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
         index: usize,
     ) -> LookupEntry<F> {
+        self.get_public_lookup_with_rotation(meta, index, Rotation(-2))
+    }
+
+    pub(crate) fn get_public_lookup_with_rotation(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+        at: Rotation,
+    ) -> LookupEntry<F> {
         let start_idx = PUBLIC_COLUMN_START_IDX - index * PUBLIC_COLUMN_WIDTH;
         let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
-            meta.query_advice(self.vers[start_idx], Rotation(-2)),
-            meta.query_advice(self.vers[start_idx + 1], Rotation(-2)),
-            meta.query_advice(self.vers[start_idx + 2], Rotation(-2)),
-            meta.query_advice(self.vers[start_idx + 3], Rotation(-2)),
-            meta.query_advice(self.vers[start_idx + 4], Rotation(-2)),
-            meta.query_advice(self.vers[start_idx + 5], Rotation(-2)),
+            meta.query_advice(self.vers[start_idx], at),
+            meta.query_advice(self.vers[start_idx + 1], at),
+            meta.query_advice(self.vers[start_idx + 2], at),
+            meta.query_advice(self.vers[start_idx + 3], at),
+            meta.query_advice(self.vers[start_idx + 4], at),
+            meta.query_advice(self.vers[start_idx + 5], at),
         );
 
         let values = [value_0, value_1, value_2, value_3];
@@ -1013,17 +1022,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
         index: usize,
     ) -> LookupEntry<F> {
+        self.get_arithmetic_lookup_with_rotation(meta, index, Rotation(-2))
+    }
+
+    pub(crate) fn get_arithmetic_lookup_with_rotation(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+        at: Rotation,
+    ) -> LookupEntry<F> {
         assert!(index < 3);
         let (hi_0, lo_0, hi_1, lo_1, hi_2, lo_2, hi_3, lo_3, tag) = (
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 0], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 1], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 2], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 3], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 4], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 5], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 6], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 7], Rotation(-2)),
-            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 8], Rotation(-2)),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 0], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 1], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 2], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 3], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 4], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 5], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 6], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 7], at),
+            meta.query_advice(self.vers[index * ARITHMETIC_COLUMN_WIDTH + 8], at),
         );
         LookupEntry::Arithmetic {
             tag,

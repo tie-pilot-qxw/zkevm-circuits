@@ -233,7 +233,7 @@ mod test {
     }
 
     #[test]
-    fn test_code_size1() {
+    fn test_code_size_empty_code() {
         let stack = Stack::from_slice(&[]);
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
@@ -245,7 +245,7 @@ mod test {
     }
 
     #[test]
-    fn test_code_size2() {
+    fn test_code_size() {
         // PUSH29 0x0000000000000000000000000000000000000000000000000000000000
         // POP
         // CODESIZE
