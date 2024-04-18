@@ -97,11 +97,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-
-        let storage_gas_cal = StorageGasCost::build(config, meta);
+        let storage_gas_cal = StorageGasCost::build(config, meta, &mut constraints);
         let sload_gas_cost = storage_gas_cal.sload_gas_cost();
         let sstore_gas_cost = storage_gas_cal.sstore_gas_cost(config, meta, &mut constraints);
-        let sstore_tx_refund = storage_gas_cal.sstore_tx_refund();
+        let sstore_tx_refund = storage_gas_cal.sstore_tx_refund(config, meta, &mut constraints);
 
         // append auxiliary constraints
         let is_sload = OpcodeId::SSTORE.as_u8().expr() - opcode.clone();
@@ -113,10 +112,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 STACK_POINTER_DELTA_SLOAD.expr() * is_sload.clone()
                     + STACK_POINTER_DELTA_SSTORE.expr() * is_sstore.clone(),
             ), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
+            // before degree 16
+            // now degree max 9
             gas_left: ExpressionOutcome::Delta(
                 sload_gas_cost.clone() * is_sload.clone()
                     + sstore_gas_cost.clone() * is_sstore.clone(),
             ),
+            // before degree 14
+            // now degree max 9
             refund: ExpressionOutcome::Delta(is_sstore.clone() * sstore_tx_refund.clone()),
             ..Default::default()
         };
@@ -460,6 +463,51 @@ fn get_core_row_3<F: Field>(
     core_row_3[STORAGE_COLUMN_WIDTH + 7] = Some(committed_eq_value_inv_hi);
     core_row_3[STORAGE_COLUMN_WIDTH + 8] = Some(committed_eq_value_inv_lo);
 
+    // 8.1 lower degree -- gas
+    let value_is_eq_prev = storage_value == value_prev;
+    let committed_value_is_eq_prev = committed_value == value_prev;
+    let committed_value_is_eq_value = committed_value == storage_value;
+    let slot_gas = if committed_value_is_eq_prev {
+        if committed_value == U256::zero() {
+            GasCost::SSTORE_SET
+        } else {
+            GasCost::SSTORE_RESET
+        }
+    } else {
+        GasCost::WARM_ACCESS
+    };
+    let warm_case_gas = if value_is_eq_prev {
+        GasCost::WARM_ACCESS
+    } else {
+        slot_gas
+    };
+    core_row_3[STORAGE_COLUMN_WIDTH + 9] = Some(U256::from(value_is_eq_prev as u8));
+    core_row_3[STORAGE_COLUMN_WIDTH + 10] = Some(U256::from(committed_value_is_eq_prev as u8));
+    core_row_3[STORAGE_COLUMN_WIDTH + 11] = Some(U256::from(committed_value_is_eq_value as u8));
+    core_row_3[STORAGE_COLUMN_WIDTH + 12] = Some(U256::from(slot_gas));
+    core_row_3[STORAGE_COLUMN_WIDTH + 13] = Some(U256::from(warm_case_gas));
+
+    // 8.2 lower degree -- refund
+    let refund_part_1 = (1 - (committed_value == U256::zero()) as u64)
+        * ((value_prev == U256::zero()) as u64)
+        * GasCost::SSTORE_CLEARS_SCHEDULE;
+    let refund_part_2 = (1 - (committed_value == U256::zero()) as u64)
+        * ((storage_value == U256::zero()) as u64)
+        * GasCost::SSTORE_CLEARS_SCHEDULE;
+    let refund_part_3 = (committed_value_is_eq_value as u64)
+        * ((committed_value == U256::zero()) as u64)
+        * (GasCost::SSTORE_SET - GasCost::WARM_ACCESS);
+    let refund_part_4 = (committed_value_is_eq_value as u64)
+        * (1 - (committed_value == U256::zero()) as u64)
+        * (GasCost::SSTORE_RESET - GasCost::WARM_ACCESS);
+    let refund_part_5 = committed_value_is_eq_prev && (storage_value == U256::zero());
+
+    core_row_3[STORAGE_COLUMN_WIDTH + 14] = Some(U256::from(refund_part_1));
+    core_row_3[STORAGE_COLUMN_WIDTH + 15] = Some(U256::from(refund_part_2));
+    core_row_3[STORAGE_COLUMN_WIDTH + 16] = Some(U256::from(refund_part_3));
+    core_row_3[STORAGE_COLUMN_WIDTH + 17] = Some(U256::from(refund_part_4));
+    core_row_3[STORAGE_COLUMN_WIDTH + 18] = Some(U256::from(refund_part_5 as u8));
+
     (core_row_3, vec![storage_write_row])
 }
 
@@ -479,6 +527,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn build(
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
+        constraints: &mut Vec<(String, Expression<F>)>,
     ) -> Self {
         let entry = config.get_storage_lookup(meta, 0, Rotation(-3));
         let (
@@ -528,7 +577,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &prev_eq_value_inv_lo,
             "value_eq_prev_lo".into(),
         );
+
         let value_eq_prev = and::expr([is_zero_hi.expr(), is_zero_lo.expr()]);
+        let value_is_eq_prev =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 9], Rotation(-3));
+
+        constraints.extend([(
+            "value_is_eq_prev == is_zero_hi * is_zero_lo".into(),
+            value_is_eq_prev.clone() - value_eq_prev.clone(),
+        )]);
 
         // 5.committed_value == value_prev
         let is_zero_hi = SimpleIsZero::new(
@@ -541,7 +598,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &committed_eq_prev_inv_lo,
             "committed_eq_prev_lo".into(),
         );
+        // degree 9
         let committed_eq_prev = and::expr([is_zero_hi.expr(), is_zero_lo.expr()]);
+        let committed_value_is_eq_prev =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 10], Rotation(-3));
+
+        constraints.extend([(
+            "committed_eq_prev == is_zero_hi * is_zero_lo".into(),
+            committed_value_is_eq_prev.clone() - committed_eq_prev.clone(),
+        )]);
 
         // 6.committed_value =? 0
         let committed_is_zero = SimpleIsZero::new(
@@ -578,11 +643,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let committed_eq_value = and::expr([is_zero_hi.expr(), is_zero_lo.expr()]);
+        let committed_value_is_eq_value =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 11], Rotation(-3));
+
+        constraints.extend([(
+            "committed_value_is_eq_value == is_zero_hi * is_zero_lo".into(),
+            committed_value_is_eq_value.clone() - committed_eq_value.clone(),
+        )]);
 
         Self {
-            value_eq_prev,
-            committed_eq_value,
-            committed_eq_prev,
+            value_eq_prev: value_is_eq_prev,
+            committed_eq_prev: committed_value_is_eq_prev,
+            committed_eq_value: committed_value_is_eq_value,
             is_warm: is_warm.expr(),
             committed_is_zero: committed_is_zero.expr(),
             value_is_zero: value_is_zero.expr(),
@@ -628,24 +700,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([("SSTORE_SENTRY < gas_left".into(), 1.expr() - is_lt.expr())]);
 
         // 2.gas_cost
+        let set_slot_gas = select::expr(
+            self.committed_eq_prev.clone(),
+            select::expr(
+                self.committed_is_zero.clone(),
+                GasCost::SSTORE_SET.expr(),
+                GasCost::SSTORE_RESET.expr(),
+            ),
+            GasCost::WARM_ACCESS.expr(),
+        );
+
+        let slot_gas = meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 12], Rotation(-3));
+
+        constraints.extend([(
+            "slot gas constraint".into(),
+            set_slot_gas.clone() - slot_gas.clone(),
+        )]);
+
         let warm_case_gas = select::expr(
             self.value_eq_prev.clone(),
             GasCost::WARM_ACCESS.expr(),
-            select::expr(
-                self.committed_eq_prev.clone(),
-                select::expr(
-                    self.committed_is_zero.clone(),
-                    GasCost::SSTORE_SET.expr(),
-                    GasCost::SSTORE_RESET.expr(),
-                ),
-                GasCost::WARM_ACCESS.expr(),
-            ),
+            slot_gas,
         );
+
+        let warm_gas = meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 13], Rotation(-3));
+
+        constraints.extend([(
+            "warm case gas constraint".into(),
+            warm_case_gas.clone() - warm_gas.clone(),
+        )]);
 
         select::expr(
             self.is_warm.clone(),
-            warm_case_gas.clone(),
-            warm_case_gas + GasCost::COLD_SLOAD.expr(),
+            warm_gas.clone(),
+            warm_gas + GasCost::COLD_SLOAD.expr(),
         )
     }
 
@@ -668,34 +756,81 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ///         }
     ///     }
     /// }
-    fn sstore_tx_refund(&self) -> Expression<F> {
+
+    fn sstore_tx_refund(
+        &self,
+        config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        meta: &mut VirtualCells<F>,
+        constraints: &mut Vec<(String, Expression<F>)>,
+    ) -> Expression<F> {
         // 1. commit != 0 && value_pre == 0
         let refund_part_1 = (1.expr() - self.committed_is_zero.clone())
             * self.value_pre_is_zero.clone()
             * GasCost::SSTORE_CLEARS_SCHEDULE.expr();
+
+        let query_refund_part_1 =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 14], Rotation(-3));
+        constraints.extend([(
+            "refund_part_1".into(),
+            refund_part_1.clone() - query_refund_part_1.clone(),
+        )]);
 
         // 2. commit != 0 && value == 0
         let refund_part_2 = (1.expr() - self.committed_is_zero.clone())
             * self.value_is_zero.clone()
             * GasCost::SSTORE_CLEARS_SCHEDULE.expr();
 
+        let query_refund_part_2 =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 15], Rotation(-3));
+        constraints.extend([(
+            "refund_part_2".into(),
+            refund_part_2.clone() - query_refund_part_2.clone(),
+        )]);
+
         // 3. commit == value && commit == 0
         let refund_part_3 = self.committed_eq_value.clone()
             * self.committed_is_zero.clone()
             * (GasCost::SSTORE_SET.expr() - GasCost::WARM_ACCESS.expr());
+
+        let query_refund_part_3 =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 16], Rotation(-3));
+        constraints.extend([(
+            "refund_part_3".into(),
+            refund_part_3.clone() - query_refund_part_3.clone(),
+        )]);
 
         // 4. commit == value && commit != 0
         let refund_part_4 = self.committed_eq_value.clone()
             * (1.expr() - self.committed_is_zero.clone())
             * (GasCost::SSTORE_RESET.expr() - GasCost::WARM_ACCESS.expr());
 
+        let query_refund_part_4 =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 17], Rotation(-3));
+        constraints.extend([(
+            "refund_part_4".into(),
+            refund_part_4.clone() - query_refund_part_4.clone(),
+        )]);
+
+        // 5. commit == prev && value == 0
+        let refund_part_5 = self.committed_eq_prev.clone() * self.value_is_zero.clone();
+
+        let query_refund_part_5 =
+            meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 18], Rotation(-3));
+        constraints.extend([(
+            "refund_part_5".into(),
+            refund_part_5.clone() - query_refund_part_5.clone(),
+        )]);
+
         select::expr(
             self.value_eq_prev.clone(),
             0.expr(),
             select::expr(
-                self.committed_eq_prev.clone() * self.value_is_zero.clone(),
+                query_refund_part_5,
                 GasCost::SSTORE_CLEARS_SCHEDULE.expr(),
-                -refund_part_1 + refund_part_2 + refund_part_3 + refund_part_4,
+                -query_refund_part_1
+                    + query_refund_part_2
+                    + query_refund_part_3
+                    + query_refund_part_4,
             ),
         )
     }
