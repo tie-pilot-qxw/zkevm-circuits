@@ -152,7 +152,6 @@ use crate::constant::{
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
-use crate::witness::public::Tag::TxGasLimit;
 pub(crate) use get_every_execution_gadgets;
 
 #[allow(unused)]
