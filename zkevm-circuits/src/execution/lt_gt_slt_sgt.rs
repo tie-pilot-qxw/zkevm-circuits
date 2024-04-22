@@ -56,6 +56,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            // LT, GT, SLT, SGT gas cost is FASTEST,
+            // Only one of the representatives is used here
             gas_left: ExpressionOutcome::Delta(OpcodeId::LT.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
@@ -269,7 +271,7 @@ mod test {
             gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let gas_left_before_exec = current_state.gas_left + OpcodeId::LT.constant_gas_cost();
+        let gas_left_before_exec = current_state.gas_left + opcode.constant_gas_cost();
         let mut trace = prepare_trace_step!(0, opcode, stack);
         trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {

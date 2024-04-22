@@ -327,7 +327,7 @@ impl WitnessExecHelper {
                 // 由于CALL指令gas计算比较复杂，CALL_5的gas_left不能直接用call_step_store.gas - call_step_store.gas_cost，
                 // 所以没有采用在CALL_5中单独修改gas_left。
                 // 因此对于下面的self.gas_left = step.gas - step.gas_cost操作没有放在update_from_next_step中，
-                // 因为在执行到PUSH1时，我们需要PUSH1的gas_left = step.gas - step.gas_cost.
+                // 因为在执行到PUSH1(4)时，我们需要PUSH1(4)的gas_left = step.gas - step.gas_cost.
                 self.gas_left = step.gas;
                 res.append(
                     execution_gadgets_map

@@ -255,7 +255,6 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
-    use crate::execution::ExecutionState::GAS;
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
