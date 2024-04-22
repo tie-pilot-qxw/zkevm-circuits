@@ -3,6 +3,7 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::Witness;
 use crate::witness::WitnessExecHelper;
+use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
@@ -59,9 +60,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            // PUSH1-PUSH32 gas cost is FASTEST,
+            // Only one of the representatives is used here
+            gas_left: ExpressionOutcome::Delta(OpcodeId::PUSH1.constant_gas_cost().expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        // todo PUSH暂时先注释掉，CALL的gas实现后再调试
+        // constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
             meta,
@@ -140,7 +148,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -154,9 +162,12 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xcc.into()),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack);
+        let gas_left_before_exec = current_state.gas_left + OpcodeId::PUSH1.constant_gas_cost();
+        let mut trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack);
+        trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -166,6 +177,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row
         };
         let padding_end_row = |current_state| {

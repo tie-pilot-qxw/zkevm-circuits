@@ -3,7 +3,7 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::Tag;
 use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
+use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_seletor::SimpleSelector;
@@ -68,10 +68,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let auxiliary_delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            // COINBASE, TIMESTAMP, NUMBER, GASLIMIT, CHAINID, BASEFEE gas cost == QUICK,
+            // Only one of the representatives is used here
+            gas_left: ExpressionOutcome::Delta(OpcodeId::TIMESTAMP.constant_gas_cost().expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         // auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
+        let mut constraints =
+            config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, auxiliary_delta));
+
         // core single constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(1.expr()),
@@ -172,12 +179,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let value_lo = next_stack_top_value.low_u128();
         // get public_tag by trace.op
         let (public_tag, tag) = match trace.op {
-            OpcodeId::TIMESTAMP => (Tag::BlockTimestamp, 0usize),
-            OpcodeId::NUMBER => (Tag::BlockNumber, 1),
-            OpcodeId::COINBASE => (Tag::BlockCoinbase, 2),
-            OpcodeId::GASLIMIT => (Tag::BlockGasLimit, 3),
-            OpcodeId::CHAINID => (Tag::ChainId, 4),
-            OpcodeId::BASEFEE => (Tag::BlockBaseFee, 5),
+            OpcodeId::TIMESTAMP => (Tag::BlockTimestamp, 0usize), // GasQuickStep
+            OpcodeId::NUMBER => (Tag::BlockNumber, 1),            // GasQuickStep
+            OpcodeId::COINBASE => (Tag::BlockCoinbase, 2),        // GasQuickStep
+            OpcodeId::GASLIMIT => (Tag::BlockGasLimit, 3),        // GasQuickStep
+            OpcodeId::CHAINID => (Tag::ChainId, 4),               // GasQuickStep
+            OpcodeId::BASEFEE => (Tag::BlockBaseFee, 5),          // GasQuickStep
             _ => panic!("not PUBLIC_CONTEXT op"),
         };
         // core_row_2
@@ -228,7 +235,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -240,9 +247,12 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, op_code, stack);
+        let gas_left_before_exec = current_state.gas_left + OpcodeId::TIMESTAMP.constant_gas_cost();
+        let mut trace = prepare_trace_step!(0, op_code, stack);
+        trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -252,6 +262,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row
         };
         let padding_end_row = |current_state| {
