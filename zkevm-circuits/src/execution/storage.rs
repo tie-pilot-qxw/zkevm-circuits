@@ -60,15 +60,15 @@ const PC_DELTA: u64 = 1;
 ///     value_pre_inv: value_pre == 0, 1 column
 ///     committed_eq_value_inv_hi: committed_value_hi == value_hi, 1 column
 ///     committed_eq_value_inv_lo: committed_value_lo == value_lo, 1 column
-/// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
-/// | cnt |                                    |                                      |                           |                               |                               |                              |                |                  |                                |                                |
-/// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
-/// | 3   | STATE7(0..11)                      | prev_eq_value_inv_hi(12)             | prev_eq_value_inv_lo(13)  | committed_eq_prev_inv_hi(14)  | committed_eq_prev_inv_lo(15)  | committed_value_inv(16)      | value_inv(17)  | value_pre_inv(18)| committed_eq_value_inv_hi(19) | committed_eq_value_inv_lo(20) |
-/// | 2   | STATE5(0..11)                      | STATE6(12..23)                       | lt(24)                    |   diff(25)                    |                               | U64(27..31)                                                                                                                        |
-/// | 1   | STATE1(0..7)                       | STATE2(8..15)                        | STATE3(16..23)             | STATE4(24..31)                |                               |                              |                |                  |                                |                                |
-/// | 0   | dynamic_selector (0..17)           | AUX(18..24)                          |                           |                               |                               |                              |                |                  |                                |                                |
-/// +-----+------------------------------------+--------------------------------------+---------------------------+-------------------------------+-------------------------------+------------------------------+----------------+------------------+--------------------------------+--------------------------------+
-///
+///     cnt == 3, 21-30 columns is an intermediate variable needed to reduce degree
+/// +-----+-------------------------------------+------------------------------------+--------------------------+---------------------------------+---------------------------------+---------------------------+----------------+-------------------+---------------------------------+---------------------------------+--------------------------+----------------------------------+-----------------------------------+--------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+
+/// | cnt |                                     |                                    |                          |                                 |                                 |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
+/// +-----+-------------------------------------+------------------------------------+--------------------------+---------------------------------+---------------------------------+---------------------------+----------------+-------------------+---------------------------------+---------------------------------+--------------------------+----------------------------------+-----------------------------------+--------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+
+/// | 3   | get_storage_value_write(0..11)      | prev_eq_value_inv_hi(12)           | prev_eq_value_inv_lo(13) | committed_eq_prev_inv_hi(14)    | committed_eq_prev_inv_lo(15)    | committed_value_inv(16)   | value_inv(17)  | value_pre_inv(18) | committed_eq_value_inv_hi(19)   | committed_eq_value_inv_lo(20)   | value_is_eq_prev(21)    | committed_value_is_eq_prev(22)   | committed_value_is_eq_value(23)  | slot_gas(24) | warm_case_gas(25) | refund_part_1(26) | refund_part_2(27) | refund_part_3(28) | refund_part_4(29) | refund_part_5(30) |
+/// | 2   | get_slot_access_list_read(0..11)    | get_slot_access_list_write(12..23) | U64(24..27)              | lt(28)                         | diff(29)                       |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
+/// | 1   | STATE1(0..7)                        | STATE2(8..15)                      | STATE3(16..23)           | STATE4(24..31)                 |                                 |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
+/// | 0   | dynamic_selector (0..17)            | AUX(18..24)                        |                          |                                 |                                 |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
+/// +-----+-------------------------------------+------------------------------------+--------------------------+---------------------------------+---------------------------------+---------------------------+----------------+-------------------+---------------------------------+---------------------------------+--------------------------+----------------------------------+-----------------------------------+--------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+
 /// Note:
 ///     1. In STATE3 of SLOAD and STATE4 of SSTORE, contract_addr is value hi,lo of STATE1 and pointer hi,lo is value hi,lo of STATE2.
 ///     2. STATE4's value hi,lo equals to value hi,lo of STATE3
@@ -572,20 +572,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &prev_eq_value_inv_hi,
             "value_eq_prev_hi".into(),
         );
+        constraints.extend(is_zero_hi.get_constraints());
+
         let is_zero_lo = SimpleIsZero::new(
             &(value_pre_lo.clone() - value_lo.clone()),
             &prev_eq_value_inv_lo,
             "value_eq_prev_lo".into(),
         );
+        constraints.extend(is_zero_lo.get_constraints());
 
         let value_eq_prev = and::expr([is_zero_hi.expr(), is_zero_lo.expr()]);
         let value_is_eq_prev =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 9], Rotation(-3));
 
-        constraints.extend([(
+        constraints.push((
             "value_is_eq_prev == is_zero_hi * is_zero_lo".into(),
             value_is_eq_prev.clone() - value_eq_prev.clone(),
-        )]);
+        ));
 
         // 5.committed_value == value_prev
         let is_zero_hi = SimpleIsZero::new(
@@ -593,20 +596,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &committed_eq_prev_inv_hi,
             "committed_eq_prev_hi".into(),
         );
+        constraints.extend(is_zero_hi.get_constraints());
+
         let is_zero_lo = SimpleIsZero::new(
             &(committed_value_lo.clone() - value_pre_lo.clone()),
             &committed_eq_prev_inv_lo,
             "committed_eq_prev_lo".into(),
         );
+        constraints.extend(is_zero_lo.get_constraints());
+
         // degree 9
         let committed_eq_prev = and::expr([is_zero_hi.expr(), is_zero_lo.expr()]);
         let committed_value_is_eq_prev =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 10], Rotation(-3));
 
-        constraints.extend([(
+        constraints.push((
             "committed_eq_prev == is_zero_hi * is_zero_lo".into(),
             committed_value_is_eq_prev.clone() - committed_eq_prev.clone(),
-        )]);
+        ));
 
         // 6.committed_value =? 0
         let committed_is_zero = SimpleIsZero::new(
@@ -614,6 +621,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &committed_value_inv,
             "committed_eq_zero".into(),
         );
+        constraints.extend(committed_is_zero.get_constraints());
 
         // 7.value == 0
         let value_is_zero = SimpleIsZero::new(
@@ -621,6 +629,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &value_inv,
             "value_is_zero".into(),
         );
+        constraints.extend(value_is_zero.get_constraints());
 
         // 8. value_pre == 0
         let value_pre_is_zero = SimpleIsZero::new(
@@ -628,6 +637,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &value_pre_inv,
             "value_pre_is_zero".into(),
         );
+        constraints.extend(value_pre_is_zero.get_constraints());
 
         // 9. committed_value == value
         let is_zero_hi = SimpleIsZero::new(
@@ -635,21 +645,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &committed_eq_value_inv_hi,
             "committed_eq_value_hi".into(),
         );
+        constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
             &(committed_value_lo.clone() - value_lo.clone()),
             &committed_eq_value_inv_lo,
             "committed_eq_value_lo".into(),
         );
+        constraints.extend(is_zero_lo.get_constraints());
 
         let committed_eq_value = and::expr([is_zero_hi.expr(), is_zero_lo.expr()]);
         let committed_value_is_eq_value =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 11], Rotation(-3));
 
-        constraints.extend([(
+        constraints.push((
             "committed_value_is_eq_value == is_zero_hi * is_zero_lo".into(),
             committed_value_is_eq_value.clone() - committed_eq_value.clone(),
-        )]);
+        ));
 
         Self {
             value_eq_prev: value_is_eq_prev,
@@ -697,7 +709,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_lt: SimpleLtGadget<F, 8> =
             SimpleLtGadget::new(&GasCost::SSTORE_SENTRY.expr(), &gas_left, &lt, &diff);
         constraints.extend(is_lt.get_constraints());
-        constraints.extend([("SSTORE_SENTRY < gas_left".into(), 1.expr() - is_lt.expr())]);
+        constraints.push(("SSTORE_SENTRY < gas_left".into(), 1.expr() - is_lt.expr()));
 
         // 2.gas_cost
         let set_slot_gas = select::expr(
@@ -712,10 +724,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let slot_gas = meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 12], Rotation(-3));
 
-        constraints.extend([(
+        constraints.push((
             "slot gas constraint".into(),
             set_slot_gas.clone() - slot_gas.clone(),
-        )]);
+        ));
 
         let warm_case_gas = select::expr(
             self.value_eq_prev.clone(),
@@ -725,10 +737,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let warm_gas = meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 13], Rotation(-3));
 
-        constraints.extend([(
+        constraints.push((
             "warm case gas constraint".into(),
             warm_case_gas.clone() - warm_gas.clone(),
-        )]);
+        ));
 
         select::expr(
             self.is_warm.clone(),
@@ -770,10 +782,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let query_refund_part_1 =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 14], Rotation(-3));
-        constraints.extend([(
+        constraints.push((
             "refund_part_1".into(),
             refund_part_1.clone() - query_refund_part_1.clone(),
-        )]);
+        ));
 
         // 2. commit != 0 && value == 0
         let refund_part_2 = (1.expr() - self.committed_is_zero.clone())
@@ -782,10 +794,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let query_refund_part_2 =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 15], Rotation(-3));
-        constraints.extend([(
+        constraints.push((
             "refund_part_2".into(),
             refund_part_2.clone() - query_refund_part_2.clone(),
-        )]);
+        ));
 
         // 3. commit == value && commit == 0
         let refund_part_3 = self.committed_eq_value.clone()
@@ -794,10 +806,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let query_refund_part_3 =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 16], Rotation(-3));
-        constraints.extend([(
+        constraints.push((
             "refund_part_3".into(),
             refund_part_3.clone() - query_refund_part_3.clone(),
-        )]);
+        ));
 
         // 4. commit == value && commit != 0
         let refund_part_4 = self.committed_eq_value.clone()
@@ -806,20 +818,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let query_refund_part_4 =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 17], Rotation(-3));
-        constraints.extend([(
+        constraints.push((
             "refund_part_4".into(),
             refund_part_4.clone() - query_refund_part_4.clone(),
-        )]);
+        ));
 
         // 5. commit == prev && value == 0
         let refund_part_5 = self.committed_eq_prev.clone() * self.value_is_zero.clone();
 
         let query_refund_part_5 =
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 18], Rotation(-3));
-        constraints.extend([(
+        constraints.push((
             "refund_part_5".into(),
             refund_part_5.clone() - query_refund_part_5.clone(),
-        )]);
+        ));
 
         select::expr(
             self.value_eq_prev.clone(),
