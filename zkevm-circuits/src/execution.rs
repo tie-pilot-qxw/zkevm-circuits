@@ -21,12 +21,11 @@ pub mod end_block;
 pub mod end_call;
 pub mod end_padding;
 pub mod end_tx;
-pub mod eq;
 pub mod exp;
 pub mod extcodecopy;
 pub mod extcodesize;
 pub mod gas;
-pub mod iszero;
+pub mod iszero_eq;
 pub mod jump;
 pub mod jumpdest;
 pub mod jumpi;
@@ -89,7 +88,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::stop::new(),
             crate::execution::begin_block::new(),
             crate::execution::end_block::new(),
-            crate::execution::iszero::new(),
             crate::execution::and_or_xor::new(),
             crate::execution::not::new(),
             crate::execution::jump::new(),
@@ -104,7 +102,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::call_context::new(),
             crate::execution::calldataload::new(),
             crate::execution::calldatacopy::new(),
-            crate::execution::eq::new(),
             crate::execution::lt_gt_slt_sgt::new(),
             crate::execution::byte::new(),
             crate::execution::dup::new(),
@@ -140,6 +137,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::gas::new(),
             crate::execution::codesize::new(),
             crate::execution::extcodesize::new(),
+            crate::execution::iszero_eq::new(),
         ]
     }};
 }
@@ -658,6 +656,68 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 format!("is_write[{}]", index),
                 is_write - (write as u8).expr(),
+            ),
+        ]
+    }
+
+    pub(crate) fn get_stack_constraints_with_state_default(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        stack_pointer_delta: Expression<F>, // compare to that of previous state
+        state_stamp_delta: Expression<F>,
+        is_default: Expression<F>,
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
+            extract_lookup_expression!(state, entry);
+        let Auxiliary {
+            state_stamp,
+            stack_pointer,
+            ..
+        } = self.get_auxiliary();
+        vec![
+            (
+                format!("state lookup tag[{}] = stack", index),
+                is_default.clone() * tag.clone()
+                    + (1.expr() - is_default.clone()) * (tag - (state::Tag::Stack as u8).expr()),
+            ),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                is_default.clone() * stamp.clone()
+                    + (1.expr() - is_default.clone())
+                        * (stamp
+                            - meta.query_advice(
+                                state_stamp,
+                                Rotation(-1 * prev_exec_state_row as i32),
+                            )
+                            - state_stamp_delta),
+            ),
+            (
+                format!("state lookup call id[{}]", index),
+                is_default.clone() * call_id_contract_addr.clone()
+                    + (1.expr() - is_default.clone())
+                        * (call_id_contract_addr
+                            - meta.query_advice(self.call_id, Rotation::cur())),
+            ),
+            (format!("pointer_hi (stack pointer)[{}]", index), pointer_hi),
+            (
+                format!("pointer_lo (stack pointer)[{}]", index),
+                is_default.clone() * pointer_lo.clone()
+                    + (1.expr() - is_default.clone())
+                        * (pointer_lo.clone()
+                            - meta.query_advice(
+                                stack_pointer,
+                                Rotation(-1 * prev_exec_state_row as i32),
+                            )
+                            - stack_pointer_delta),
+            ),
+            (
+                format!("is_write[{}]", index),
+                is_default.clone() * is_write.clone()
+                    + (1.expr() - is_default) * (is_write - (write as u8).expr()),
             ),
         ]
     }
@@ -2106,6 +2166,7 @@ pub enum ExecutionState {
     GAS,
     CODESIZE,
     EXTCODESIZE,
+    ISZERO_EQ,
 }
 
 impl ExecutionState {
@@ -2128,8 +2189,7 @@ impl ExecutionState {
             OpcodeId::LT | OpcodeId::GT | OpcodeId::SLT | OpcodeId::SGT => {
                 vec![Self::LT_GT_SLT_SGT]
             }
-            OpcodeId::EQ => vec![Self::EQ],
-            OpcodeId::ISZERO => vec![Self::ISZERO],
+            OpcodeId::EQ | OpcodeId::ISZERO => vec![Self::ISZERO_EQ],
             OpcodeId::AND | OpcodeId::OR | OpcodeId::XOR => vec![Self::AND_OR_XOR],
             OpcodeId::NOT => vec![Self::NOT],
             OpcodeId::BYTE => vec![Self::BYTE],
