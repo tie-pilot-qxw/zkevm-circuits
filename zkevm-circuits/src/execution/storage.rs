@@ -97,11 +97,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let storage_gas_cal = StorageGasCost::build(config, meta, &mut constraints);
+        let (storage_gas_cal, build_constraints) = StorageGasCost::build(config, meta);
         let sload_gas_cost = storage_gas_cal.sload_gas_cost();
-        let sstore_gas_cost = storage_gas_cal.sstore_gas_cost(config, meta, &mut constraints);
-        let sstore_tx_refund = storage_gas_cal.sstore_tx_refund(config, meta, &mut constraints);
+        let (sstore_gas_cost, sstore_gas_cost_constraints) =
+            storage_gas_cal.sstore_gas_cost(config, meta);
+        let (sstore_tx_refund, tx_refund_constraints) =
+            storage_gas_cal.sstore_tx_refund(config, meta);
 
+        constraints.extend(build_constraints);
+        constraints.extend(sstore_gas_cost_constraints);
+        constraints.extend(tx_refund_constraints);
         // append auxiliary constraints
         let is_sload = OpcodeId::SSTORE.as_u8().expr() - opcode.clone();
         let is_sstore = opcode.clone() - OpcodeId::SLOAD.as_u8().expr();
@@ -527,8 +532,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn build(
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
-        constraints: &mut Vec<(String, Expression<F>)>,
-    ) -> Self {
+    ) -> (Self, Vec<(String, Expression<F>)>) {
         let entry = config.get_storage_lookup(meta, 0, Rotation(-3));
         let (
             _,
@@ -567,6 +571,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(config.vers[STORAGE_COLUMN_WIDTH + 8], Rotation(-3));
 
         // 2. value_prev == value
+        let mut constraints = vec![];
         let is_zero_hi = SimpleIsZero::new(
             &(value_pre_hi.clone() - value_hi.clone()),
             &prev_eq_value_inv_hi,
@@ -663,15 +668,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             committed_value_is_eq_value.clone() - committed_eq_value.clone(),
         ));
 
-        Self {
-            value_eq_prev: value_is_eq_prev,
-            committed_eq_prev: committed_value_is_eq_prev,
-            committed_eq_value: committed_value_is_eq_value,
-            is_warm: is_warm.expr(),
-            committed_is_zero: committed_is_zero.expr(),
-            value_is_zero: value_is_zero.expr(),
-            value_pre_is_zero: value_pre_is_zero.expr(),
-        }
+        (
+            Self {
+                value_eq_prev: value_is_eq_prev,
+                committed_eq_prev: committed_value_is_eq_prev,
+                committed_eq_value: committed_value_is_eq_value,
+                is_warm: is_warm.expr(),
+                committed_is_zero: committed_is_zero.expr(),
+                value_is_zero: value_is_zero.expr(),
+                value_pre_is_zero: value_pre_is_zero.expr(),
+            },
+            constraints,
+        )
     }
 
     /// 1.warm case select:
@@ -699,8 +707,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
-        constraints: &mut Vec<(String, Expression<F>)>,
-    ) -> Expression<F> {
+    ) -> (Expression<F>, Vec<(String, Expression<F>)>) {
         // 1. SstoreSentryGasEIP2200 < gas_left
         let lt = meta.query_advice(config.vers[2 * STORAGE_COLUMN_WIDTH], Rotation(-2));
         let diff = meta.query_advice(config.vers[2 * STORAGE_COLUMN_WIDTH + 1], Rotation(-2));
@@ -708,7 +715,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let gas_left = meta.query_advice(gas_left, Rotation(-1 * NUM_ROW as i32));
         let is_lt: SimpleLtGadget<F, 8> =
             SimpleLtGadget::new(&GasCost::SSTORE_SENTRY.expr(), &gas_left, &lt, &diff);
-        constraints.extend(is_lt.get_constraints());
+        let mut constraints = is_lt.get_constraints();
         constraints.push(("SSTORE_SENTRY < gas_left".into(), 1.expr() - is_lt.expr()));
 
         // 2.gas_cost
@@ -742,10 +749,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             warm_case_gas.clone() - warm_gas.clone(),
         ));
 
-        select::expr(
-            self.is_warm.clone(),
-            warm_gas.clone(),
-            warm_gas + GasCost::COLD_SLOAD.expr(),
+        (
+            select::expr(
+                self.is_warm.clone(),
+                warm_gas.clone(),
+                warm_gas + GasCost::COLD_SLOAD.expr(),
+            ),
+            constraints,
         )
     }
 
@@ -773,8 +783,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         &self,
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
-        constraints: &mut Vec<(String, Expression<F>)>,
-    ) -> Expression<F> {
+    ) -> (Expression<F>, Vec<(String, Expression<F>)>) {
+        let mut constraints = vec![];
         // 1. commit != 0 && value_pre == 0
         let refund_part_1 = (1.expr() - self.committed_is_zero.clone())
             * self.value_pre_is_zero.clone()
@@ -833,17 +843,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund_part_5.clone() - query_refund_part_5.clone(),
         ));
 
-        select::expr(
-            self.value_eq_prev.clone(),
-            0.expr(),
+        (
             select::expr(
-                query_refund_part_5,
-                GasCost::SSTORE_CLEARS_SCHEDULE.expr(),
-                -query_refund_part_1
-                    + query_refund_part_2
-                    + query_refund_part_3
-                    + query_refund_part_4,
+                self.value_eq_prev.clone(),
+                0.expr(),
+                select::expr(
+                    query_refund_part_5,
+                    GasCost::SSTORE_CLEARS_SCHEDULE.expr(),
+                    -query_refund_part_1
+                        + query_refund_part_2
+                        + query_refund_part_3
+                        + query_refund_part_4,
+                ),
             ),
+            constraints,
         )
     }
 
