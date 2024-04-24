@@ -41,8 +41,8 @@ pub enum Tag {
     TxFromValue,
     // combine To and CallDataLength together to reduce number of lookups
     TxToCallDataSize,
-    // TxIsCreate :  contract creation transaction
-    TxIsCreate,
+    // TxIsCreateCallDataGasCost :  include tx is create and call data gas cost
+    TxIsCreateCallDataGasCost,
     TxGasLimit,
     TxGasPrice, // tx gas price
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
@@ -263,12 +263,10 @@ impl Row {
                 ..Default::default()
             });
             // | TxIsCreate | tx_idx  | 1/0(if create contract is 1,else 0) | call data gas cost | call data size | 0 |
-            let call_data_gas_cost = tx
-                .input
-                .iter()
-                .fold(0, |acc, byte| acc + if *byte == 0 { 4 } else { 16 });
+            let call_data_gas_cost =
+                eth_types::geth_types::Transaction::from(tx).call_data_gas_cost();
             result.push(Row {
-                tag: Tag::TxIsCreate,
+                tag: Tag::TxIsCreateCallDataGasCost,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
                 value_0: Some((tx.to.is_none() as u8).into()),
                 // if isCreate 1 ,else 0

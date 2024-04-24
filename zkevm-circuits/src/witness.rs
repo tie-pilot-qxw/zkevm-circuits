@@ -66,6 +66,8 @@ pub struct WitnessExecHelper {
     pub parent_stack_pointer: HashMap<u64, usize>,
     // 记录CALL对应的calldata；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应的calldata
     pub call_data: HashMap<u64, Vec<u8>>,
+    // 记录CALL对应的call_data_gas_cost, 与call_data插入数据时机相同，提前计算并保存，不需要每次调用循环计算
+    pub call_data_gas_cost: HashMap<u64, u64>,
     // 记录CALL对应的calldata大小；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应操作数args_length，
     // 也是执行的CALL指令的calldata size
     pub call_data_size: HashMap<u64, U256>,
@@ -156,6 +158,7 @@ impl WitnessExecHelper {
             next_exec_state: None,
             state_db: StateDB::new(),
             is_create: false,
+            call_data_gas_cost: HashMap::new(),
         }
     }
 
@@ -167,12 +170,7 @@ impl WitnessExecHelper {
 
     /// 计算call_data花费的gas，byte为0时是4， 非0 为16
     pub fn call_data_gas_cost(&self) -> u64 {
-        match self.call_data.get(&self.call_id) {
-            None => 0,
-            Some(call_data) => call_data
-                .iter()
-                .fold(0, |acc, byte| acc + if *byte == 0 { 4 } else { 16 }),
-        }
+        *self.call_data_gas_cost.get(&self.call_id).unwrap_or(&0)
     }
 
     /// stack_pointer decrease
@@ -255,6 +253,10 @@ impl WitnessExecHelper {
         // add calldata to current_state
         self.call_data.insert(call_id, tx.input.to_vec());
         self.call_data_size.insert(call_id, tx.input.len().into());
+        self.call_data_gas_cost.insert(
+            call_id,
+            eth_types::geth_types::Transaction::from(tx).call_data_gas_cost(),
+        );
 
         self.value.insert(call_id, tx.value);
         self.tx_value = tx.value;
@@ -1910,7 +1912,7 @@ impl WitnessExecHelper {
         comments.insert(format!("vers_{}", 25), "none".into());
 
         let public_row = public::Row {
-            tag: public::Tag::TxIsCreate,
+            tag: public::Tag::TxIsCreateCallDataGasCost,
             tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
             value_0: Some((self.is_create as u8).into()),
             value_1: Some(self.call_data_gas_cost().into()),

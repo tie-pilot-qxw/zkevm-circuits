@@ -31,7 +31,7 @@ pub struct BeginTx3Gadget<F: Field> {
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// PUBLIC Tag is TXIsCreate, include is create, call data gas cost
+/// PUBLIC Tag is TxIsCreateCallDataGasCost, include is create, call data gas cost
 /// Arithmetic_tiny is ((call_data_length + 31) / 32)
 /// +-----+-----------------------+-------------------------+
 /// | cnt |                       |                         |
@@ -67,7 +67,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
         // auxiliary and single purpose constraints
-        let gas_cost = get_intrinsic_gas_cost(config, meta, tx_id.clone(), &mut constraints);
+        let (gas_cost, gas_constraints) = get_intrinsic_gas_cost(config, meta, tx_id.clone());
+        constraints.extend(gas_constraints);
         // auxiliary and single purpose constraints
         let delta = AuxiliaryOutcome {
             // 记录了2个state状态
@@ -204,8 +205,8 @@ fn get_intrinsic_gas_cost<
     config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     meta: &mut VirtualCells<F>,
     tx_id_or_number_diff: Expression<F>,
-    constraints: &mut Vec<(String, Expression<F>)>,
-) -> Expression<F> {
+) -> (Expression<F>, Vec<(String, Expression<F>)>) {
+    let mut constraints = vec![];
     let public_entry = config.get_public_lookup(meta, 0);
     let (public_tag, tx_id, [is_create, call_data_gas_cost, _, _]) =
         extract_lookup_expression!(public, public_entry);
@@ -217,7 +218,7 @@ fn get_intrinsic_gas_cost<
     constraints.extend([
         (
             "public tag = TxIsCreate".into(),
-            public_tag - (public::Tag::TxIsCreate as u8).expr(),
+            public_tag - (public::Tag::TxIsCreateCallDataGasCost as u8).expr(),
         ),
         ("tx_id = tx_id".into(), tx_id - tx_id_or_number_diff),
         (
@@ -239,7 +240,7 @@ fn get_intrinsic_gas_cost<
     ) + call_data_gas_cost
         + init_code_gas_cost;
 
-    intrinsic_gas_cost
+    (intrinsic_gas_cost, constraints)
 }
 
 pub fn intrinsic_gas_cost(current_state: &mut WitnessExecHelper, call_data_len: U256) -> u64 {
