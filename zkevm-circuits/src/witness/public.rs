@@ -41,8 +41,8 @@ pub enum Tag {
     TxFromValue,
     // combine To and CallDataLength together to reduce number of lookups
     TxToCallDataSize,
-    // TxIsCreate :  contract creation transaction
-    TxIsCreate,
+    // TxIsCreateCallDataGasCost :  include tx is create and call data gas cost
+    TxIsCreateCallDataGasCost,
     TxGasLimit,
     TxGasPrice, // tx gas price
     TxCalldata, //TODO make sure this equals copy tag PublicCalldata
@@ -262,18 +262,22 @@ impl Row {
                 .collect(),
                 ..Default::default()
             });
-            // | TxIsCreate | tx_idx  | 0 | 1/0(if create contract is 1,else 0) | 0 | 0 |
+            // | TxIsCreate | tx_idx  | 1/0(if create contract is 1,else 0) | call data gas cost | call data size | 0 |
+            let call_data_gas_cost =
+                eth_types::geth_types::Transaction::from(tx).call_data_gas_cost();
             result.push(Row {
-                tag: Tag::TxIsCreate,
+                tag: Tag::TxIsCreateCallDataGasCost,
                 tx_idx_or_number_diff: Some(tx_idx.into()),
-                value_0: Some(0.into()),
+                value_0: Some((tx.to.is_none() as u8).into()),
                 // if isCreate 1 ,else 0
-                value_1: Some((tx.to.is_none() as u8).into()),
+                value_1: Some(call_data_gas_cost.into()),
+                value_2: Some(tx.input.len().into()),
                 comments: [
                     ("tag".into(), "TxIsCreate".into()),
                     ("tx_idx_or_number_diff".into(), format!("tx_idx{}", tx_idx)),
-                    ("value_0".into(), "0".into()),
-                    ("value_1".into(), "tx.to.is_none".into()),
+                    ("value_0".into(), "tx.to.is_none".into()),
+                    ("value_1".into(), "call data gas cost".into()),
+                    ("value_2".into(), "call data size".into()),
                 ]
                 .into_iter()
                 .collect(),

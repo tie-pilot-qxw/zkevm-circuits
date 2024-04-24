@@ -7,7 +7,7 @@ use eth_types::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -131,88 +131,44 @@ struct JsonResultOpString {
     stack: Vec<String>,
 }
 
-pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
-    let cmd_string = if calldata.is_empty() {
-        format!(
-            "./evm --code {} --json  --nomemory=false run",
-            hex::encode(bytecode)
-        )
-        .to_string()
+pub fn compute_first_step_gas(calldata: &[u8]) -> u64 {
+    let result = if calldata.is_empty() {
+        // Our default initial gas is 0x2540be400, so the first_step in the trace should be 0x2540be400 - intrinsic_gas
+        // call_data is empty, so intrinsic_gas = 21000
+        0x2540be400 - 21000
     } else {
-        format!(
-            "./evm --code {} --input {} --json  --nomemory=false run",
-            hex::encode(bytecode),
-            hex::encode(calldata)
-        )
-        .to_string()
+        let call_data_gas_cost = calldata
+            .iter()
+            .fold(0, |acc, byte| acc + if *byte == 0 { 4 } else { 16 });
+        0x2540be400 - (21000 + call_data_gas_cost)
     };
-    let res = Command::new("sh")
-        .arg("-c")
-        .arg(cmd_string)
-        .output()
-        .expect("error");
-    if !res.status.success() {
-        panic!("Tracing machine code FAILURE")
-    }
-    let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
-
-    let mut struct_logs: Vec<GethExecStep> = vec![];
-    for line in s {
-        let result = serde_json::from_str::<EVMExecStep>(line);
-        if let Ok(step) = result {
-            struct_logs.push(step.into());
-            continue;
-        }
-        let result = serde_json::from_str::<EVMExecResult>(line);
-        if let Ok(result) = result {
-            return GethExecTrace {
-                gas: result.gas_used.as_u64(),
-                failed: result.error.is_some(),
-                return_value: result.output.to_string(),
-                struct_logs,
-            };
-        } else {
-            unreachable!("function trace_program cannot reach here")
-        }
-    }
-    unreachable!("function trace_program cannot reach here")
+    result
 }
 
-pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrace, ReceiptLog) {
-    let cmd_string = if calldata.is_empty() {
-        format!(
-            "./evm --code {} --debug --json  --nomemory=false run",
-            hex::encode(bytecode)
-        )
-        .to_string()
-    } else {
-        format!(
-            "./evm --code {} --input {} --debug --json  --nomemory=false run",
-            hex::encode(bytecode),
-            hex::encode(calldata)
-        )
-        .to_string()
-    };
-    let res = Command::new("sh")
-        .arg("-c")
-        .arg(cmd_string)
-        .output()
-        .expect("error");
-    if !res.status.success() {
-        panic!("Tracing machine code FAILURE")
-    }
+pub fn get_geth_exec_trace(res: &Output) -> GethExecTrace {
     let mut geth_exec_trace = GethExecTrace {
         gas: 0,
         failed: false,
         return_value: "".into(),
         struct_logs: vec![],
     };
-    let mut receipt_log = ReceiptLog::default();
+
     let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
     let mut struct_logs: Vec<GethExecStep> = vec![];
+    let mut is_gas_limit = false;
     for line in s {
         let result = serde_json::from_str::<EVMExecStep>(line);
-        if let Ok(step) = result {
+        if let Ok(mut step) = result {
+            // 如果碰到了gasLimit指令，那么is_gas_limit置为true
+            // 在下一轮循环时，就会将stack最后一个值改为./evm的默认gas值，也即block.gasLimit
+            if step.op_name == OpcodeId::GASLIMIT {
+                is_gas_limit = true;
+            }
+            if is_gas_limit {
+                if let Some(last) = step.stack.last_mut() {
+                    *last = U256::from(0x2540be400u64);
+                }
+            }
             struct_logs.push(step.into());
             continue;
         }
@@ -229,6 +185,66 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
             unreachable!("function trace_program cannot reach here")
         }
     }
+
+    geth_exec_trace
+}
+pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
+    let gas = compute_first_step_gas(calldata);
+    let cmd_string = if calldata.is_empty() {
+        format!(
+            "./evm --code {} --json  --nomemory=false run --gas {}",
+            hex::encode(bytecode),
+            gas
+        )
+        .to_string()
+    } else {
+        format!(
+            "./evm --code {} --input {} --debug --json  --nomemory=false run --gas {}",
+            hex::encode(bytecode),
+            hex::encode(calldata),
+            gas
+        )
+        .to_string()
+    };
+    let res = Command::new("sh")
+        .arg("-c")
+        .arg(cmd_string)
+        .output()
+        .expect("error");
+    if !res.status.success() {
+        panic!("Tracing machine code FAILURE")
+    }
+    get_geth_exec_trace(&res)
+}
+
+pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrace, ReceiptLog) {
+    let gas = compute_first_step_gas(calldata);
+    let cmd_string = if calldata.is_empty() {
+        format!(
+            "./evm --code {} --debug --json  --nomemory=false run --gas {}",
+            hex::encode(bytecode),
+            gas
+        )
+        .to_string()
+    } else {
+        format!(
+            "./evm --code {} --input {} --debug --json  --nomemory=false run  --gas {}",
+            hex::encode(bytecode),
+            hex::encode(calldata),
+            gas
+        )
+        .to_string()
+    };
+    let res = Command::new("sh")
+        .arg("-c")
+        .arg(cmd_string)
+        .output()
+        .expect("error");
+    if !res.status.success() {
+        panic!("Tracing machine code FAILURE")
+    }
+    let mut receipt_log = ReceiptLog::default();
+    let mut geth_exec_trace = get_geth_exec_trace(&res);
     // parse log from stderr
     if !res.stderr.is_empty() {
         let mut lines = std::str::from_utf8(&res.stderr).unwrap().split('\n');

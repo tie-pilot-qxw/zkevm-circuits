@@ -258,6 +258,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
+            gas_left: 0x254023,
             call_id,
             value,
             sender,

@@ -66,6 +66,8 @@ pub struct WitnessExecHelper {
     pub parent_stack_pointer: HashMap<u64, usize>,
     // 记录CALL对应的calldata；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应的calldata
     pub call_data: HashMap<u64, Vec<u8>>,
+    // 记录CALL对应的call_data_gas_cost, 与call_data插入数据时机相同，提前计算并保存，不需要每次调用循环计算
+    pub call_data_gas_cost: HashMap<u64, u64>,
     // 记录CALL对应的calldata大小；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应操作数args_length，
     // 也是执行的CALL指令的calldata size
     pub call_data_size: HashMap<u64, U256>,
@@ -114,6 +116,7 @@ pub struct WitnessExecHelper {
     // 存储CALL指令的父环境PC值，如在CALL调用中，key==即将执行的CALL_ID，value=父环境的PC值
     pub parent_pc: HashMap<u64, u64>,
     pub state_db: StateDB,
+    pub is_create: bool,
     // 存储下一个指令的第一个状态
     pub next_exec_state: Option<ExecutionState>,
 }
@@ -154,6 +157,8 @@ impl WitnessExecHelper {
             parent_pc: HashMap::new(),
             next_exec_state: None,
             state_db: StateDB::new(),
+            is_create: false,
+            call_data_gas_cost: HashMap::new(),
         }
     }
 
@@ -161,6 +166,11 @@ impl WitnessExecHelper {
         self.stack_top = trace.stack.0.last().cloned();
         // 更新一下下一个指令的第一个状态
         self.next_exec_state = ExecutionState::from_opcode(trace.op).first().copied();
+    }
+
+    /// 计算call_data花费的gas，byte为0时是4， 非0 为16
+    pub fn call_data_gas_cost(&self) -> u64 {
+        *self.call_data_gas_cost.get(&self.call_id).unwrap_or(&0)
     }
 
     /// stack_pointer decrease
@@ -228,6 +238,7 @@ impl WitnessExecHelper {
             tx_idx, self.tx_idx,
             "the tx idx should match that in current_state"
         );
+
         // due to we decide to start idx at 1 in witness
         // if contract-create tx, calculate `to`, else convert `to`
         let to = tx.to.map_or_else(
@@ -242,6 +253,10 @@ impl WitnessExecHelper {
         // add calldata to current_state
         self.call_data.insert(call_id, tx.input.to_vec());
         self.call_data_size.insert(call_id, tx.input.len().into());
+        self.call_data_gas_cost.insert(
+            call_id,
+            eth_types::geth_types::Transaction::from(tx).call_data_gas_cost(),
+        );
 
         self.value.insert(call_id, tx.value);
         self.tx_value = tx.value;
@@ -249,13 +264,13 @@ impl WitnessExecHelper {
         self.code_addr = to;
         self.storage_contract_addr.insert(call_id, to);
         self.bytecode = bytecode;
+        self.gas_left = tx.gas.as_u64();
+        self.is_create = tx.to.is_none();
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
         let last_step = trace.last().unwrap(); // not actually used in END_CALL and END_TX
         self.next_exec_state = Some(ExecutionState::BEGIN_TX_2);
-        // todo 这个不能直接赋值为first_step gas，要赋值tx.gas然后再计算，在基础gas计算的mr中修复
-        self.gas_left = first_step.gas;
         res.append(
             execution_gadgets_map
                 .get(&ExecutionState::BEGIN_TX_1)
@@ -1887,6 +1902,32 @@ impl WitnessExecHelper {
         public_row
     }
 
+    pub fn get_public_tx_is_create_row(&self) -> public::Row {
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 20), format!("tag={}", "TxIsCreate"));
+        comments.insert(format!("vers_{}", 21), "tx_idx".into());
+        comments.insert(format!("vers_{}", 22), "is_create".into());
+        comments.insert(format!("vers_{}", 23), "call_data_gas_cost".into());
+        comments.insert(format!("vers_{}", 24), "call_data_length".into());
+        comments.insert(format!("vers_{}", 25), "none".into());
+
+        let public_row = public::Row {
+            tag: public::Tag::TxIsCreateCallDataGasCost,
+            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            value_0: Some((self.is_create as u8).into()),
+            value_1: Some(self.call_data_gas_cost().into()),
+            value_2: Some(
+                self.call_data_size
+                    .get(&self.call_id)
+                    .unwrap_or(&U256::zero())
+                    .into(),
+            ),
+            value_3: None,
+            comments,
+        };
+
+        public_row
+    }
     pub fn get_public_code_size_row(&self, code_addr: U256, code_size: U256) -> public::Row {
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "CodeSize"));
