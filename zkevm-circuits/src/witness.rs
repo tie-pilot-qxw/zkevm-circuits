@@ -834,12 +834,14 @@ impl WitnessExecHelper {
     ) {
         let dst_offset = dst_offset.low_u64();
         // src offset check
+        // if src offset is greater than u64::max, then set src offset is max code size,
+        // for code size can not succeed code size
         let (arith_src_overflow_rows, arith_src_overflow_values) =
             operation::u64overflow::gen_witness::<F>(vec![src_offset]);
         let src_offset = if arith_src_overflow_values[0].is_zero() {
             src_offset
         } else {
-            u64::MAX.into()
+            MAX_CODESIZE.into()
         };
 
         // get code length
@@ -847,10 +849,11 @@ impl WitnessExecHelper {
         let code_size = U256::from(code.code.len());
         let public_code_size_row = self.get_public_code_size_row(address, code_size);
         // calc real_length and zero_length
-        let (arith_length_rows, _) =
+        // arith_results: [overflow,real_length,zero_length]
+        let (arith_length_rows, arith_results) =
             operation::length::gen_witness::<F>(vec![src_offset, copy_length, code_size]);
-        let real_length = arith_length_rows[1].operand_0_hi;
-        let zero_length = arith_length_rows[1].operand_0_lo;
+        let real_length = arith_results[1];
+        let zero_length = arith_results[2];
 
         // way of processing address and src and len, reference go-ethereum's method
         // https://github.com/ethereum/go-ethereum/blob/master/core/vm/instructions.go#L373

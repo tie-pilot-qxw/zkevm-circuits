@@ -2,7 +2,7 @@
 // This file is a generated execution gadget definition.
 
 use crate::arithmetic_circuit::operation;
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{MAX_CODESIZE, NUM_AUXILIARY};
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -58,7 +58,6 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 4;
 const STATE_STAMP_DELTA: u64 = 3;
 const STACK_POINTER_DELTA: i32 = -3;
-const START_COL_IDX: usize = 22;
 pub struct CodecopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -171,10 +170,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_pop_values[0][0].clone(),
             ),
             (
-                "stack top1 value_hi = 0".into(),
-                stack_pop_values[1][0].clone(),
-            ),
-            (
                 "stack top2 value_hi = 0".into(),
                 stack_pop_values[2][0].clone(),
             ),
@@ -185,7 +180,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &src_overflow_inv,
             "src offset overflow".into(),
         );
-        constraints.extend(src_not_overflow.get_constraints());
         constraints.extend([
             (
                 "src_offset_hi = stack top1 value_hi".into(),
@@ -196,9 +190,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_pop_values[1][1].clone() - src_offset_lo.clone(),
             ),
             (
-                "offset in length arithmetic = src_not_overflow * stack top1 value + src_overflow * u64::Max".into(),
+                "offset in length arithmetic = src_not_overflow * stack top1 value + src_overflow * MAX_CODESIZE".into(),
                 src_not_overflow.expr() * (stack_pop_values[1][0].clone() * pow_of_two::<F>(128)+  stack_pop_values[1][1].clone())
-                    + (1.expr() - src_not_overflow.expr()) * (u64::MAX).expr()
+                    + (1.expr() - src_not_overflow.expr()) * (MAX_CODESIZE).expr()
                     - arith_offset.clone(),
             ),
         ]);
@@ -505,6 +499,11 @@ mod test {
         run_prover(&[2.into(), 0.into(), 0.into()]);
     }
 
+    #[test]
+    fn assign_and_constraint_src_overflow_only_padding() {
+        // code size is 3 , only padding
+        run_prover(&[2.into(), U256::MAX, 0.into()]);
+    }
     #[test]
     fn assign_and_constraint_copy_padding() {
         run_prover(&[5.into(), 0.into(), 0.into()]);

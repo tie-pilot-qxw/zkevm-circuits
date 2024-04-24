@@ -2,7 +2,7 @@
 // This file is a generated execution gadget definition.
 
 use crate::arithmetic_circuit::operation;
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{MAX_CODESIZE, NUM_AUXILIARY};
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -96,7 +96,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             [public_code_addr_hi, public_code_addr_lo, public_code_size_hi, public_code_size_lo],
         ) = extract_lookup_expression!(public, public_code_size_entry);
 
-        let mut copy_operands = vec![];
+        let mut stack_operands = vec![];
         let mut copy_code_stamp_start = 0.expr();
         let mut constraints = vec![];
 
@@ -116,18 +116,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             if i == 3 {
                 copy_code_stamp_start = tmp_stamp.clone();
             }
-            copy_operands.push([value_hi, value_lo]);
+            stack_operands.push([value_hi, value_lo]);
         }
 
         // code copy constraints
         constraints.extend(config.get_copy_constraints(
             copy::Tag::Bytecode,
-            copy_operands[0][0].clone() * pow_of_two::<F>(128) + copy_operands[0][1].clone(),
-            copy_operands[2][1].clone(),
+            stack_operands[0][0].clone() * pow_of_two::<F>(128) + stack_operands[0][1].clone(),
+            stack_operands[2][1].clone(),
             0.expr(),
             copy::Tag::Memory,
             call_id.clone(),
-            copy_operands[1][1].clone(),
+            stack_operands[1][1].clone(),
             copy_code_stamp_start.clone() + 1.expr(),
             None,
             arith_real_len,
@@ -144,7 +144,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0.expr(),
             copy::Tag::Memory,
             call_id.clone(),
-            copy_operands[1][1].clone() + copy_lookup_len.clone(),
+            stack_operands[1][1].clone() + copy_lookup_len.clone(),
             copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
             None,
             arith_zero_len,
@@ -155,15 +155,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "stack top1 value_hi = 0".into(),
-                copy_operands[1][0].clone() - 0.expr(),
-            ),
-            (
-                "stack top2 value_hi = 0".into(),
-                copy_operands[2][0].clone() - 0.expr(),
+                stack_operands[1][0].clone() - 0.expr(),
             ),
             (
                 "stack top3 value_hi = 0".into(),
-                copy_operands[3][0].clone() - 0.expr(),
+                stack_operands[3][0].clone() - 0.expr(),
             ),
         ]);
         // src offset u64 overflow constraints
@@ -172,20 +168,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &src_overflow_inv,
             "src offset overflow".into(),
         );
-        constraints.extend(src_not_overflow.get_constraints());
         constraints.extend([
             (
                 "src_offset_hi = stack top2 value_hi".into(),
-                copy_operands[2][0].clone() - src_offset_hi.clone(),
+                stack_operands[2][0].clone() - src_offset_hi.clone(),
             ),
             (
                 "src_offset_lo = stack top2 value_lo".into(),
-                copy_operands[2][1].clone() - src_offset_lo.clone(),
+                stack_operands[2][1].clone() - src_offset_lo.clone(),
             ),
             (
-                "offset in length arithmetic = src_not_overflow * stack top2 value + src_overflow * u64::Max".into(),
-                src_not_overflow.expr() * (copy_operands[2][0].clone() * pow_of_two::<F>(128)+  copy_operands[2][1].clone())
-                    + (1.expr() - src_not_overflow.expr()) * (u64::MAX).expr()
+                "offset in length arithmetic = src_not_overflow * stack top2 value + src_overflow * MAX_CODESIZE".into(),
+                src_not_overflow.expr() * (stack_operands[2][0].clone() * pow_of_two::<F>(128)+  stack_operands[2][1].clone())
+                    + (1.expr() - src_not_overflow.expr()) * MAX_CODESIZE.expr()
                     - arith_offset.clone(),
             ),
         ]);
@@ -193,8 +188,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([(
             "arith length = stack top3 value".into(),
             arith_length.clone()
-                - (copy_operands[3][0].clone() * pow_of_two::<F>(128)
-                    + copy_operands[3][1].clone()),
+                - (stack_operands[3][0].clone() * pow_of_two::<F>(128)
+                    + stack_operands[3][1].clone()),
         )]);
         // public code size constraints
         constraints.extend([
@@ -203,12 +198,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_codesize_tag - (public::Tag::CodeSize as u8).expr(),
             ),
             (
-                "public code address hi = copy_operands[0][0]".into(),
-                public_code_addr_hi.clone() - copy_operands[0][0].clone(),
+                "public code address hi = stack_operands[0][0]".into(),
+                public_code_addr_hi.clone() - stack_operands[0][0].clone(),
             ),
             (
-                "public code address lo = copy_operands[0][1]".into(),
-                public_code_addr_lo.clone() - copy_operands[0][1].clone(),
+                "public code address lo = stack_operands[0][1]".into(),
+                public_code_addr_lo.clone() - stack_operands[0][1].clone(),
             ),
             // code size must <= u64::MAX
             (
@@ -229,7 +224,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             [offset_bound, memory_chunk_prev, expansion_tag, access_memory_size],
         ) = extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
 
-        let length = copy_operands[3][1].clone();
+        let length = stack_operands[3][1].clone();
         let length_inv = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
@@ -243,7 +238,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.push((
             "offset_bound in arithmetic = (mem_off + length) * (1 - length_is_zero.expr()) in state lookup"
                 .into(),
-            (copy_operands[1][1].clone() + length.clone()) * (1.expr() - length_is_zero.expr())
+            (stack_operands[1][1].clone() + length.clone()) * (1.expr() - length_is_zero.expr())
                 - offset_bound.clone(),
         ));
 
@@ -461,7 +456,6 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     use eth_types::Word;
-    use std::fs::File;
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint_copy_no_padding() {
@@ -469,6 +463,11 @@ mod test {
         run_prover(&[2.into(), 0.into(), 0.into(), 0xaa.into()]);
     }
 
+    #[test]
+    fn assign_and_constraint_src_overflow_only_padding() {
+        // code size is 3 , only padding
+        run_prover(&[2.into(), U256::MAX, 0.into(), 0xaa.into()]);
+    }
     #[test]
     fn assign_and_constraint_copy_padding() {
         // code size is 3 ,mock copy and padding
