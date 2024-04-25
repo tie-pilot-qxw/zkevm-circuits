@@ -3,7 +3,7 @@ use crate::arithmetic_circuit::operation::{
 };
 
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToLittleEndian, U256};
+use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::util::Expr;
@@ -16,17 +16,16 @@ pub(crate) struct LengthGadget<F>(PhantomData<F>);
 
 /// The length algorithm is mainly used to determine
 /// whether the length of the code to be copied is correct when copying data.
-/// It is currently still in the design stage.
 /// Length circuit function:
 //    Inputs: offset, length, size
-//    Returns: real_len, zero_len, overflow, real_len_is_zero, zero_len_is_zero (to be determined)
-//     offset, length, size, need u64_overflow constraint
+//    Returns: real_len, zero_len, overflow, real_len_is_zero, zero_len_is_zero
 //     Determine if offset + length > size
 //     Three cases (regardless of whether length is 0), need to return (real_len, zero_len):
 //        a. If offset + length <= size, return (length, 0)
 //        b. If offset + length > size, there are two sub-cases:
 //            i. If offset < size, return (size - offset, offset + length - size)
 //            ii. If offset >= size, return (0, length)
+//  The offset, length, size and offset + length, all need u64_overflow constraint.
 impl<F: Field> OperationGadget<F> for LengthGadget<F> {
     // arithmetic name
     fn name(&self) -> &'static str {
@@ -151,88 +150,95 @@ impl<F: Field> OperationGadget<F> for LengthGadget<F> {
 /// | offset       | length       | size             | overflow         | 0   | offset    | length           |
 /// +--------------+--------------+------------------+------------------+-----+-----------+------------------+
 /// It is called during core circuit's gen_witness
-/// input[offset, length, size]
+/// Input ([offset, length, size])
+/// Output ([row_2, row_1, row_0], [overflow, real_len, zero_len])
+/// The three input parameters above and (offset + length) must be in the range of u64.
 pub(crate) fn gen_witness<F: Field>(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     // Assert that the number of operands is 3
     assert_eq!(3, operands.len());
 
-    let offset = operands[0];
-    let length = operands[1];
-    let size = operands[2];
+    // Get the three operands, and panic if the three operands or (offset + length) are not in the range of u64.
+    let offset = operands[0].as_u64();
+    let length = operands[1].as_u64();
+    let size = operands[2].as_u64();
+    let offset_bound = offset
+        .checked_add(length)
+        .expect("offset + length overflow");
 
-    let len_lo = F::from_u128(length.low_u128());
-    let len_lo_inv =
-        U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
+    let length_inv = U256::from_little_endian(
+        F::from(length)
+            .invert()
+            .unwrap_or(F::ZERO)
+            .to_repr()
+            .as_ref(),
+    );
 
-    let (real_len_inv, zero_len_inv) = if offset + length <= size {
-        (len_lo_inv, U256::zero())
+    // Calculate real_len, zero_len and their inverse values.
+    let (real_len, real_len_inv, zero_len, zero_len_inv) = if offset + length <= size {
+        (length.into(), length_inv, U256::zero(), U256::zero())
     } else if offset < size {
-        let r_tmp = F::from_u128((size - offset).low_u128());
-        let z_tmp = F::from_u128((offset + length - size).low_u128());
         (
-            U256::from_little_endian(r_tmp.invert().unwrap_or(F::ZERO).to_repr().as_ref()),
-            U256::from_little_endian(z_tmp.invert().unwrap_or(F::ZERO).to_repr().as_ref()),
+            (size - offset).into(),
+            U256::from_little_endian(
+                F::from(size - offset)
+                    .invert()
+                    .unwrap_or(F::ZERO)
+                    .to_repr()
+                    .as_ref(),
+            ),
+            (offset + length - size).into(),
+            U256::from_little_endian(
+                F::from(offset + length - size)
+                    .invert()
+                    .unwrap_or(F::ZERO)
+                    .to_repr()
+                    .as_ref(),
+            ),
         )
     } else {
-        (U256::zero(), len_lo_inv)
+        (U256::zero(), U256::zero(), length.into(), length_inv)
     };
-
-    let offset_bound = offset.saturating_add(length);
 
     let mut offset_u16s: Vec<u16> = offset
         .to_le_bytes()
-        .split_at(8)
-        .0
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
-    assert_eq!(4, offset_u16s.len());
 
     let length_u16s: Vec<u16> = length
         .to_le_bytes()
-        .split_at(8)
-        .0
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
-    assert_eq!(4, length_u16s.len());
 
     let offset_bound_u16s: Vec<u16> = offset_bound
         .to_le_bytes()
-        .split_at(8)
-        .0
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
-    assert_eq!(4, offset_bound_u16s.len());
 
     let mut size_u16s: Vec<u16> = size
         .to_le_bytes()
-        .split_at(8)
-        .0
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
-    assert_eq!(4, size_u16s.len());
 
-    let (overflow, _, mut diff_u16s) =
-        get_lt_operations(&size, &offset_bound, &U256::from(2).pow(U256::from(64)));
+    let (overflow, _, mut diff_u16s) = get_lt_operations(
+        &size.into(),
+        &offset_bound.into(),
+        &U256::from(2).pow(U256::from(64)),
+    );
 
-    let (lt_offset_size, _, mut diff_offset_size_u16s) =
-        get_lt_operations(&offset, &size, &U256::from(2).pow(U256::from(64)));
-
-    let (real_len, zero_len) = if offset_bound <= size {
-        (length, U256::zero())
-    } else if offset < size {
-        (size - offset, offset_bound - size)
-    } else {
-        (U256::zero(), length)
-    };
+    let (lt_offset_size, _, mut diff_offset_size_u16s) = get_lt_operations(
+        &offset.into(),
+        &size.into(),
+        &U256::from(2).pow(U256::from(64)),
+    );
 
     offset_u16s.extend(length_u16s);
     let row_0 = get_row(
-        [offset, length],
-        [size, U256::from(overflow as u8)],
+        [offset.into(), length.into()],
+        [size.into(), U256::from(overflow as u8)],
         offset_u16s,
         0,
         Tag::Length,
@@ -262,7 +268,10 @@ pub(crate) fn gen_witness<F: Field>(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>
         Tag::Length,
     );
 
-    (vec![row_2, row_1, row_0], vec![U256::from(overflow as u8)])
+    (
+        vec![row_2, row_1, row_0],
+        vec![U256::from(overflow as u8), real_len, zero_len],
+    )
 }
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {

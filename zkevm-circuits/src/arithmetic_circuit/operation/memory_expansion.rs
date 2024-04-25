@@ -2,7 +2,7 @@ use crate::arithmetic_circuit::operation::{
     get_lt_operations, get_row, get_u16s, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToLittleEndian, U256};
+use eth_types::{Field, U256};
 use gadgets::simple_binary_number::SimpleBinaryNumber;
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::util::Expr;
@@ -110,52 +110,47 @@ impl<F: Field> OperationGadget<F> for MemoryExpansionGadget<F> {
 // | r0           |                   |               |                    | 1   | diff         | r1|r2|r3|r4        |
 // | offset_bound | memory_chunk_prev | expansion_tag | access_memory_size | 0   | offset_bound | access_memory_size |
 // +--------------+-------------------+---------------+--------------------+-----+--------------+--------------------+
-
+// Input: offset_bound, memory_chunk_prev
+// The two input parameters above must be in the range of u64.
 pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     // Assert that the number of operands is 2
     assert_eq!(2, operands.len());
 
-    let offset_bound = operands[0];
-    let memory_chunk_prev = operands[1];
+    let offset_bound = operands[0].as_u64();
+    let memory_chunk_prev = operands[1].as_u64();
+    let access_memory_size = (offset_bound + 31) / 32;
+    let remainder = (offset_bound + 31) % 32;
 
     let mut offset_bound_u16s: Vec<u16> = offset_bound
         .to_le_bytes()
-        .split_at(8)
-        .0
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
     assert_eq!(4, offset_bound_u16s.len());
 
-    let (access_memory_size, remainder) = (offset_bound + U256::from(31)).div_mod(U256::from(32));
-    assert!(remainder < U256::from(32));
-
     let access_memory_size_u16s: Vec<u16> = access_memory_size
         .to_le_bytes()
-        .split_at(8)
-        .0
         .chunks(2)
         .map(|x| x[0] as u16 + x[1] as u16 * 256)
         .collect();
-    assert_eq!(4, access_memory_size_u16s.len());
 
     let mut remainder_bits = [0; 5];
-    let mut r = remainder.as_usize() as u16;
+    let mut r = remainder as u16;
     for i in 0..5 {
         remainder_bits[i] = r % 2;
         r /= 2;
     }
 
     let (expansion_tag, _, mut diff_u16s) = get_lt_operations(
-        &memory_chunk_prev,
-        &access_memory_size,
+        &memory_chunk_prev.into(),
+        &access_memory_size.into(),
         &U256::from(2).pow(U256::from(64)),
     );
 
     offset_bound_u16s.extend(access_memory_size_u16s);
     let row0 = get_row(
-        [offset_bound, memory_chunk_prev],
-        [U256::from(expansion_tag as u8), access_memory_size],
+        [offset_bound.into(), memory_chunk_prev.into()],
+        [U256::from(expansion_tag as u8), access_memory_size.into()],
         offset_bound_u16s,
         0,
         Tag::MemoryExpansion,
@@ -176,7 +171,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
 
     (
         vec![row1, row0],
-        vec![U256::from(expansion_tag as u8), access_memory_size],
+        vec![U256::from(expansion_tag as u8), access_memory_size.into()],
     )
 }
 
