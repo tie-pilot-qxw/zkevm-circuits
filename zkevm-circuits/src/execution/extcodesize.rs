@@ -8,7 +8,6 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;

@@ -26,8 +26,7 @@ use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionSt
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, uint64_with_overflow,
-    SubCircuit,
+    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, SubCircuit,
 };
 use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
@@ -2076,7 +2075,6 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // d_lo set core_row_0.vers_28
     // sign_bit_is_zero_inv set core_row_0.vers_29;
     for (i, value) in (0..5).zip(signextend_result_vec) {
-        assert!(core_rows0[i + START_COL_IDX].is_none());
         assign_or_panic!(core_rows0[i + START_COL_IDX], value);
     }
     // Construct Witness object
@@ -2271,17 +2269,38 @@ impl core::Row {
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
         for (j, state_row) in state_rows.into_iter().enumerate() {
-            for i in 0..8 {
-                assert!(self[i + j * STATE_COLUMN_WIDTH].is_none());
-            }
-            self[0 + j * STATE_COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
-            self[1 + j * STATE_COLUMN_WIDTH] = state_row.stamp;
-            self[2 + j * STATE_COLUMN_WIDTH] = state_row.value_hi;
-            self[3 + j * STATE_COLUMN_WIDTH] = state_row.value_lo;
-            self[4 + j * STATE_COLUMN_WIDTH] = state_row.call_id_contract_addr;
-            self[5 + j * STATE_COLUMN_WIDTH] = state_row.pointer_hi;
-            self[6 + j * STATE_COLUMN_WIDTH] = state_row.pointer_lo;
-            self[7 + j * STATE_COLUMN_WIDTH] = state_row.is_write;
+            assign_or_panic!(
+                self[0 + j * STATE_COLUMN_WIDTH],
+                (state_row.tag.unwrap_or_default() as u8).into()
+            );
+            assign_or_panic!(
+                self[1 + j * STATE_COLUMN_WIDTH],
+                state_row.stamp.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[2 + j * STATE_COLUMN_WIDTH],
+                state_row.value_hi.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[3 + j * STATE_COLUMN_WIDTH],
+                state_row.value_lo.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[4 + j * STATE_COLUMN_WIDTH],
+                state_row.call_id_contract_addr.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[5 + j * STATE_COLUMN_WIDTH],
+                state_row.pointer_hi.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[6 + j * STATE_COLUMN_WIDTH],
+                state_row.pointer_lo.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[7 + j * STATE_COLUMN_WIDTH],
+                state_row.is_write.unwrap_or_default()
+            );
             self.comments.extend([
                 (
                     format!("vers_{}", j * STATE_COLUMN_WIDTH),
@@ -2321,17 +2340,14 @@ impl core::Row {
     // insert returndata size in cnt =3 row , fill column ranging from 0 to 7
     pub fn insert_returndata_size_state_lookup(&mut self, state_row: &state::Row) {
         assert_eq!(self.cnt, 3.into());
-        for i in 0..8 {
-            assert!(self[i].is_none());
-        }
-        self[0] = state_row.tag.map(|tag| (tag as u8).into());
-        self[1] = state_row.stamp;
-        self[2] = state_row.value_hi;
-        self[3] = state_row.value_lo;
-        self[4] = state_row.call_id_contract_addr;
-        self[5] = state_row.pointer_hi;
-        self[6] = state_row.pointer_lo;
-        self[7] = state_row.is_write;
+        assign_or_panic!(self[0], (state_row.tag.unwrap_or_default() as u8).into());
+        assign_or_panic!(self[1], state_row.stamp.unwrap_or_default());
+        assign_or_panic!(self[2], state_row.value_hi.unwrap_or_default());
+        assign_or_panic!(self[3], state_row.value_lo.unwrap_or_default());
+        assign_or_panic!(self[4], state_row.call_id_contract_addr.unwrap_or_default());
+        assign_or_panic!(self[5], state_row.pointer_hi.unwrap_or_default());
+        assign_or_panic!(self[6], state_row.pointer_lo.unwrap_or_default());
+        assign_or_panic!(self[7], state_row.is_write.unwrap_or_default());
         self.comments.extend([
             (format!("vers_{}", 0), format!("tag={:?}", state_row.tag)),
             (format!("vers_{}", 1), "stamp".into()),
@@ -2351,21 +2367,54 @@ impl core::Row {
         assert!(NUM_LOOKUP < 3);
         assert!(NUM_LOOKUP > 0);
         for (j, state_row) in state_rows.into_iter().enumerate() {
-            for i in 0..11 {
-                assert!(self[i + j * STORAGE_COLUMN_WIDTH].is_none());
-            }
-            self[0 + j * STORAGE_COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
-            self[1 + j * STORAGE_COLUMN_WIDTH] = state_row.stamp;
-            self[2 + j * STORAGE_COLUMN_WIDTH] = state_row.value_hi;
-            self[3 + j * STORAGE_COLUMN_WIDTH] = state_row.value_lo;
-            self[4 + j * STORAGE_COLUMN_WIDTH] = state_row.call_id_contract_addr;
-            self[5 + j * STORAGE_COLUMN_WIDTH] = state_row.pointer_hi;
-            self[6 + j * STORAGE_COLUMN_WIDTH] = state_row.pointer_lo;
-            self[7 + j * STORAGE_COLUMN_WIDTH] = state_row.is_write;
-            self[8 + j * STORAGE_COLUMN_WIDTH] = state_row.value_pre_hi;
-            self[9 + j * STORAGE_COLUMN_WIDTH] = state_row.value_pre_lo;
-            self[10 + j * STORAGE_COLUMN_WIDTH] = state_row.committed_value_hi;
-            self[11 + j * STORAGE_COLUMN_WIDTH] = state_row.committed_value_lo;
+            assign_or_panic!(
+                self[0 + j * STORAGE_COLUMN_WIDTH],
+                (state_row.tag.unwrap_or_default() as u8).into()
+            );
+            assign_or_panic!(
+                self[1 + j * STORAGE_COLUMN_WIDTH],
+                state_row.stamp.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[2 + j * STORAGE_COLUMN_WIDTH],
+                state_row.value_hi.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[3 + j * STORAGE_COLUMN_WIDTH],
+                state_row.value_lo.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[4 + j * STORAGE_COLUMN_WIDTH],
+                state_row.call_id_contract_addr.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[5 + j * STORAGE_COLUMN_WIDTH],
+                state_row.pointer_hi.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[6 + j * STORAGE_COLUMN_WIDTH],
+                state_row.pointer_lo.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[7 + j * STORAGE_COLUMN_WIDTH],
+                state_row.is_write.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[8 + j * STORAGE_COLUMN_WIDTH],
+                state_row.value_pre_hi.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[9 + j * STORAGE_COLUMN_WIDTH],
+                state_row.value_pre_lo.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[10 + j * STORAGE_COLUMN_WIDTH],
+                state_row.committed_value_hi.unwrap_or_default()
+            );
+            assign_or_panic!(
+                self[11 + j * STORAGE_COLUMN_WIDTH],
+                state_row.committed_value_lo.unwrap_or_default()
+            );
             self.comments.extend([
                 (
                     format!("vers_{}", j * STORAGE_COLUMN_WIDTH),
@@ -2446,17 +2495,16 @@ impl core::Row {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
         for (i, value) in (0..8).zip([
-            Some(code_addr),
-            Some(pc.into()),
-            Some(opcode.as_u8().into()),
-            Some(0.into()), // non_code must be 0
-            push_value.map(|x| (x >> 128).as_u128().into()),
-            push_value.map(|x| (x.low_u128().into())),
-            Some(opcode.data_len().into()),
-            Some((opcode.is_push() as u8).into()),
+            code_addr,
+            pc.into(),
+            opcode.as_u8().into(),
+            U256::zero(), // non_code must be 0
+            push_value.map_or(U256::zero(), |x| (x >> 128)),
+            push_value.map_or(U256::zero(), |x| (x.low_u128().into())),
+            opcode.data_len().into(),
+            (opcode.is_push() as u8).into(),
         ]) {
-            assert!(self[BYTECODE_COLUMN_START_IDX + i].is_none());
-            self[BYTECODE_COLUMN_START_IDX + i] = value;
+            assign_or_panic!(self[BYTECODE_COLUMN_START_IDX + i], value);
         }
         #[rustfmt::skip]
         self.comments.extend([

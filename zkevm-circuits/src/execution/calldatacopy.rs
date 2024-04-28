@@ -4,7 +4,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{arithmetic, copy, Witness, WitnessExecHelper};
+use crate::witness::{arithmetic, assign_or_panic, copy, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -223,7 +223,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo = F::from_u128(length.low_u128());
         let lenlo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        core_row_1[LEN_LO_INV_COL_IDX] = Some(lenlo_inv);
+        assign_or_panic!(core_row_1[LEN_LO_INV_COL_IDX], lenlo_inv);
 
         // 插入执行指令的flag
         let core_row_0 = ExecutionState::CALLDATACOPY.into_exec_state_core_row(
