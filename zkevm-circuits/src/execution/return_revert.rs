@@ -1,6 +1,3 @@
-// Code generated - COULD HAVE BUGS!
-// This file is a generated execution gadget definition.
-
 use crate::arithmetic_circuit::operation;
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{

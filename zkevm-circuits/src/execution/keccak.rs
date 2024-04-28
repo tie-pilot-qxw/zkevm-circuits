@@ -1,6 +1,3 @@
-// Code generated - COULD HAVE BUGS!
-// This file is a generated execution gadget definition.
-
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
