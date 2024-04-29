@@ -822,6 +822,7 @@ impl WitnessExecHelper {
         src_offset: U256,
         dst_offset: U256,
         copy_length: U256,
+        is_extcodecopy: bool,
     ) -> (
         Vec<copy::Row>,
         Vec<state::Row>,
@@ -830,6 +831,7 @@ impl WitnessExecHelper {
         public::Row,
         u64,
         u64,
+        U256,
     ) {
         let dst_offset = dst_offset.low_u64();
         // src offset check
@@ -844,9 +846,14 @@ impl WitnessExecHelper {
         };
 
         // get code length
-        let code = self.bytecode.get(&address).unwrap();
-        let code_size = U256::from(code.code.len());
+        let code = self.bytecode.get(&address);
+        let (code_size, addr_exists) = if code.is_none() && is_extcodecopy {
+            (U256::zero(), U256::zero())
+        } else {
+            (U256::from(code.unwrap().code.len()), U256::one())
+        };
         let public_code_size_row = self.get_public_code_size_row(address, code_size);
+
         // calc real_length and zero_length
         // arith_results: [overflow,real_length,zero_length]
         let (arith_length_rows, arith_results) =
@@ -932,6 +939,7 @@ impl WitnessExecHelper {
             public_code_size_row,
             real_length,
             zero_length,
+            addr_exists,
         )
     }
 

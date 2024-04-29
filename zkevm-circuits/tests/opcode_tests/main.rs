@@ -12,7 +12,7 @@ mod codecopy; //39
 mod div; //04
 mod eq; //14
 mod exp; //0A
-         // mod extcodecopy; Requires CREATE to be implemented
+mod extcodecopy; //3B
 mod gasprice; //3A
 mod gt; //11
 mod iszero; //15
