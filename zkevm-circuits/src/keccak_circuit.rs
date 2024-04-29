@@ -1,4 +1,5 @@
 //! The keccak circuit implementation.
+#![allow(dead_code, unused_imports)]
 mod cell_manager;
 /// Keccak packed multi
 pub mod keccak_packed_multi;

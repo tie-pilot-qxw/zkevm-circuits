@@ -23,6 +23,7 @@ use crate::constant::{
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
+use crate::exp_circuit::ExpCircuit;
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
@@ -38,7 +39,7 @@ use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 
 #[derive(Debug, Default, Clone)]
@@ -2010,8 +2011,8 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
     shift: U256,
     value: U256,
     op: OpcodeId,
-    core_rows1: &mut core::Row,
-    core_rows2: &mut core::Row,
+    core_row_1: &mut core::Row,
+    core_row_2: &mut core::Row,
 ) -> (Vec<arithmetic::Row>, Vec<exp::Row>) {
     // 255 - a
     // the main purpose is to determine whether shift is greater than or equal to 256
@@ -2020,7 +2021,7 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
         operation::sub::gen_witness(vec![BIT_SHIFT_MAX_IDX.into(), shift]);
 
     // mul_div_num = 2<<stack_shift
-    let (mul_div_num, exp_rows, exp_arith_mul_rows) = Row::from_operands(U256::from(2), shift);
+    let (mul_div_num, exp_rows, exp_arith_mul_rows) = exp::Row::from_operands(U256::from(2), shift);
 
     // if Opcode is SHL, then result is stack_value * mul_div_num
     // if Opcode is SHR, then result is stack_value / mul_div_num
@@ -2031,12 +2032,12 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
     };
 
     // insert arithmetic-sub in lookup
-    core_rows2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
+    core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
     // insert arithmetic-mul_div in lookup
-    core_rows2.insert_arithmetic_lookup(1, &arithmetic_mul_div_rows);
+    core_row_2.insert_arithmetic_lookup(1, &arithmetic_mul_div_rows);
 
     // insert exp lookup
-    core_rows1.insert_exp_lookup(U256::from(2), shift, mul_div_num);
+    core_row_1.insert_exp_lookup(U256::from(2), shift, mul_div_num);
 
     let mut arithmetic_rows = vec![];
     arithmetic_rows.extend(arithmetic_sub_rows);
@@ -2049,9 +2050,9 @@ pub fn get_and_insert_shl_shr_rows<F: Field>(
 pub fn get_and_insert_signextend_rows<F: Field>(
     signextend_operands: [U256; 2],
     arithmetic_operands: [U256; 2],
-    core_rows0: &mut core::Row,
-    _core_rows1: &mut core::Row,
-    core_rows2: &mut core::Row,
+    core_row_0: &mut core::Row,
+    _core_row_1: &mut core::Row,
+    core_row_2: &mut core::Row,
 ) -> (Vec<bitwise::Row>, Vec<arithmetic::Row>) {
     // get arithmetic rows
     let (arithmetic_sub_rows, _) =
@@ -2064,10 +2065,10 @@ pub fn get_and_insert_signextend_rows<F: Field>(
 
     // insert bitwise lookup
     for (i, bitwise_lookup) in bitwise_rows_vec.iter().enumerate() {
-        core_rows2.insert_bitwise_lookups(i, bitwise_lookup.last().unwrap());
+        core_row_2.insert_bitwise_lookups(i, bitwise_lookup.last().unwrap());
     }
     // insert arithmetic lookup to core_row_2
-    core_rows2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
+    core_row_2.insert_arithmetic_lookup(0, &arithmetic_sub_rows);
 
     // a_hi set core_row_0.vers_25;
     // a_lo set core_row_0.vers_26;
@@ -2075,7 +2076,7 @@ pub fn get_and_insert_signextend_rows<F: Field>(
     // d_lo set core_row_0.vers_28
     // sign_bit_is_zero_inv set core_row_0.vers_29;
     for (i, value) in (0..5).zip(signextend_result_vec) {
-        assign_or_panic!(core_rows0[i + START_COL_IDX], value);
+        assign_or_panic!(core_row_0[i + START_COL_IDX], value);
     }
     // Construct Witness object
     let bitwise_rows = bitwise_rows_vec
@@ -2196,10 +2197,6 @@ macro_rules! assign_or_panic {
         }
     };
 }
-
-use crate::exp_circuit::ExpCircuit;
-use crate::keccak_circuit::keccak_packed_multi::decode::value;
-use crate::witness::exp::Row;
 pub(crate) use assign_or_panic;
 
 impl core::Row {

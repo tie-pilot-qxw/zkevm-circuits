@@ -17,8 +17,6 @@ use gadgets::util::{expr_from_u16s, split_u256_hi_lo, split_u256_limb64};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 
-pub(crate) const SLTSGTRHS: u64 = 2 << 14;
-
 ///The maximum value of a 16-bit signed positive number
 pub(crate) const S_MAX: u64 = (2 << 14) - 1;
 pub(crate) const SLT_N_BYTES: usize = 2;
@@ -28,14 +26,16 @@ macro_rules! get_every_operation_gadgets {
     () => {{
         vec![
             crate::arithmetic_circuit::operation::add::new(),
-            crate::arithmetic_circuit::operation::sub::new(),
-            crate::arithmetic_circuit::operation::mul::new(),
-            crate::arithmetic_circuit::operation::slt_sgt::new(),
+            crate::arithmetic_circuit::operation::addmod::new(),
             crate::arithmetic_circuit::operation::div_mod::new(),
             crate::arithmetic_circuit::operation::length::new(),
+            crate::arithmetic_circuit::operation::memory_expansion::new(),
+            crate::arithmetic_circuit::operation::mul::new(),
             crate::arithmetic_circuit::operation::mulmod::new(),
-            crate::arithmetic_circuit::operation::u64overflow::new(),
             crate::arithmetic_circuit::operation::sdiv_smod::new(),
+            crate::arithmetic_circuit::operation::slt_sgt::new(),
+            crate::arithmetic_circuit::operation::sub::new(),
+            crate::arithmetic_circuit::operation::u64overflow::new(),
         ]
     }};
 }
