@@ -399,6 +399,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::util::log2_ceil;
     use crate::witness::Witness;
     use eth_types::U256;
@@ -408,7 +409,11 @@ mod test {
     use halo2_proofs::plonk::Circuit;
     use serde::Serialize;
 
+    #[cfg(feature = "no_fixed_lookup")]
     const TEST_SIZE: usize = 50;
+
+    #[cfg(not(feature = "no_fixed_lookup"))]
+    const TEST_SIZE: usize = 200000;
 
     // used to test whether the function of Bitwise circuit Lookup is correct
     // Bitwise lookup, src: BitwiseTestCircuit  target: Bitwise circuit
@@ -425,6 +430,7 @@ mod test {
     pub struct BitwiseTestCircuitConfig<F: Field> {
         q_enable: Selector,
         pub bitwise_circuit: BitwiseCircuitConfig<F>,
+        pub fixed_circuit: FixedCircuitConfig<F>,
         pub tag: Column<Advice>,
         pub acc_0: Column<Advice>,
         pub acc_1: Column<Advice>,
@@ -451,9 +457,13 @@ mod test {
                 },
             );
 
+            let fixed_circuit =
+                FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
+
             BitwiseTestCircuitConfig {
                 q_enable,
                 bitwise_circuit,
+                fixed_circuit,
                 tag: meta.advice_column(),
                 acc_0: meta.advice_column(),
                 acc_1: meta.advice_column(),
@@ -489,6 +499,7 @@ mod test {
     #[derive(Clone, Default, Debug)]
     pub struct BitwiseTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
+        pub fixed_circuit: FixedCircuit<F>,
         pub rows: Vec<BitwiseTestRow>,
     }
 
@@ -526,7 +537,7 @@ mod test {
 
                 let q_enable = meta.query_selector(config.q_enable);
                 vec![
-                    (bitwise_entry_tag, bitwise_circuit_tag),
+                    (q_enable.clone() * bitwise_entry_tag, bitwise_circuit_tag),
                     (
                         q_enable.clone() * bitwise_entry_acc_0,
                         bitwise_circuit_acc_0,
@@ -557,6 +568,11 @@ mod test {
                 &challenges,
             )?;
 
+            // when feature `no_fixed_lookup` is on, we don't do synthesize
+            #[cfg(not(feature = "no_fixed_lookup"))]
+            self.fixed_circuit
+                .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
+
             layouter.assign_region(
                 || "bitwise circuit test",
                 |mut region| {
@@ -574,12 +590,14 @@ mod test {
         pub fn new(witness: Witness, rows: Vec<BitwiseTestRow>) -> Self {
             Self {
                 bitwise_circuit: BitwiseCircuit::new_from_witness(&witness),
+                fixed_circuit: FixedCircuit::new_from_witness(&witness),
                 rows,
             }
         }
         pub fn instance(&self) -> Vec<Vec<F>> {
             let mut vec = Vec::new();
             vec.extend(self.bitwise_circuit.instance());
+            vec.extend(self.fixed_circuit.instance());
             vec
         }
     }
