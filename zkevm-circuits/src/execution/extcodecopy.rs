@@ -356,7 +356,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             public_code_size_row,
             code_copy_length,
             padding_length,
-        ) = current_state.get_code_copy_rows::<F>(address, code_offset, mem_offset, size);
+            addr_exists,
+        ) = current_state.get_code_copy_rows::<F>(address, code_offset, mem_offset, size, true);
 
         let mut copy_row = &Default::default();
         if code_copy_length > 0 {
@@ -431,11 +432,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut state_vec = vec![stack_pop_0, stack_pop_1, stack_pop_2, stack_pop_3];
         state_vec.extend(state_memory_rows);
 
+        let public_rows = if addr_exists.is_zero() {
+            vec![public_code_size_row]
+        } else {
+            vec![]
+        };
         Witness {
             copy: copy_rows,
             core: vec![core_row_3, core_row_2, core_row_1, core_row_0],
             state: state_vec,
             arithmetic: arith_rows,
+            public: public_rows,
             ..Default::default()
         }
     }

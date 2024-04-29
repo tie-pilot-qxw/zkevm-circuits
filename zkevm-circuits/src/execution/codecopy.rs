@@ -374,11 +374,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             public_code_size_row,
             real_length,
             zero_length,
+            _,
         ) = current_state.get_code_copy_rows::<F>(
             current_state.code_addr,
             code_offset,
             mem_offset,
             length,
+            false,
         );
 
         let mut copy_row = &Default::default();
