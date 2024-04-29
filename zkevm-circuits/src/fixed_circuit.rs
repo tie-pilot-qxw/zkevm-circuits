@@ -268,6 +268,7 @@ mod test {
         }
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let _dummy = meta.advice_column(); // dummy column in first phase to make challenge not panic
             let challenges = Challenges::construct(meta);
             let fixed_table = FixedTable::construct(meta);
             let config = FixedTestCircuitConfig {
