@@ -5,11 +5,14 @@ use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+
+use super::CoreSinglePurposeOutcome;
 
 const NUM_ROW: usize = 2;
 const EQ_STATE_STAMP_DELTA: u64 = 3;
@@ -58,8 +61,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let selector = SimpleSelector::new(&[
             meta.query_advice(
                 config.vers[START_COL_IDX + INV_EQ_AUX_WIDTH],
@@ -98,6 +99,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         for i in 0..3 {
             let entry = config.get_state_lookup(meta, i);
             if i == 1 {
+                // todo
+                // 能不能用get_stack_constraints_with_selector
+                // 以及再写一个get_default_constraints_with_selector函数。
+                // 这两组约束，分别append。
                 constraints.append(&mut config.get_stack_constraints_with_state_default(
                     meta,
                     entry.clone(),
@@ -132,39 +137,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let lo_inv = meta.query_advice(config.vers[START_COL_IDX + 1], Rotation::prev());
         let hi_eq = meta.query_advice(config.vers[START_COL_IDX + 2], Rotation::prev());
         let lo_eq = meta.query_advice(config.vers[START_COL_IDX + 3], Rotation::prev());
+        // a_hi - b_hi
+        let a_hi_sub_b_hi = a[0].clone() - b[0].clone();
+        // a_hi = b_hi
+        let a_hi_sub_b_hi_is_zero =
+            SimpleIsZero::new(&a_hi_sub_b_hi, &hi_inv, "a_hi equal b_hi".into());
+        constraints.extend(a_hi_sub_b_hi_is_zero.get_constraints());
+        // a_lo - b_lo
+        let a_lo_sub_b_lo = a[1].clone() - b[1].clone();
+        // a_lo = b_lo
+        let a_lo_sub_b_lo_is_zero =
+            SimpleIsZero::new(&a_lo_sub_b_lo, &lo_inv, "a_lo equal b_lo".into());
+        constraints.extend(a_lo_sub_b_lo_is_zero.get_constraints());
         constraints.extend([
-            (
-                "hi_inv".into(),
-                (a[0].clone() - b[0].clone())
-                    * (1.expr() - (a[0].clone() - b[0].clone()) * hi_inv.clone()),
-            ),
-            (
-                "lo_inv".into(),
-                (a[1].clone() - b[1].clone())
-                    * (1.expr() - (a[1].clone() - b[1].clone()) * lo_inv.clone()),
-            ),
-            (
-                "hi_eq".into(),
-                1.expr() - (a[0].clone() - b[0].clone()) * hi_inv - hi_eq.clone(),
-            ),
-            (
-                "lo_eq".into(),
-                1.expr() - (a[1].clone() - b[1].clone()) * lo_inv - lo_eq.clone(),
-            ),
+            // hi_eq constraint
+            ("hi_eq".into(), a_hi_sub_b_hi_is_zero.expr() - hi_eq.clone()),
+            // lo_eq constraint
+            ("lo_eq".into(), a_lo_sub_b_lo_is_zero.expr() - lo_eq.clone()),
+            // result hi constraint
             ("c_hi".into(), c[0].clone()),
+            // result lo constraint
             ("c_lo".into(), c[1].clone() - hi_eq * lo_eq),
         ]);
-
-        constraints.extend([
-            (
-                "opcode".into(),
-                selector.select(&[
-                    opcode.clone() - OpcodeId::ISZERO.as_u8().expr(),
-                    opcode.clone() - OpcodeId::EQ.as_u8().expr(),
-                ]),
-            ),
-            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
-        ]);
+        // opcode constraint
+        constraints.push((
+            "opcode".into(),
+            selector.select(&[
+                opcode.clone() - OpcodeId::ISZERO.as_u8().expr(),
+                opcode.clone() - OpcodeId::EQ.as_u8().expr(),
+            ]),
+        ));
+        // append core single constraints
+        constraints.append(&mut config.get_next_single_purpose_constraints(
+            meta,
+            CoreSinglePurposeOutcome {
+                pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+                ..Default::default()
+            },
+        ));
         constraints
     }
     fn get_lookups(
