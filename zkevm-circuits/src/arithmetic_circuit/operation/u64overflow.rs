@@ -1,10 +1,9 @@
 use crate::arithmetic_circuit::operation::{get_row, get_u16s, OperationConfig, OperationGadget};
 use crate::util::convert_u256_to_64_bytes;
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToBigEndian, ToLittleEndian, U256};
+use eth_types::{Field, ToLittleEndian, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::util::{pow_of_two, split_u256_hi_lo, Expr};
-use halo2_proofs::halo2curves::ff::{FromUniformBytes, PrimeField};
+use gadgets::util::{pow_of_two, split_u256_hi_lo};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;

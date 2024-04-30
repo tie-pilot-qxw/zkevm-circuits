@@ -563,23 +563,6 @@ impl MulModCalculator {
     }
 }
 
-/// input a, n.
-/// if n == 0, return a == 0
-/// Setup. a/n = k1 (r) a_remainder
-/// if n == 0, then a == 0;
-/// we assume that when `n==0`, we set the input `a == 0`
-/// in order to optimize subsequent calculations and constraints.
-/// we will make constant for this special case at execution.
-fn get_real_value(operands: Vec<U256>) -> [U256; 2] {
-    assert_eq!(operands.len(), 2);
-    let a = if operands[1] == U256::zero() {
-        [U256::zero(), U256::zero()]
-    } else {
-        split_u256_hi_lo(&operands[0])
-    };
-    a
-}
-
 #[cfg(test)]
 mod test {
     use super::gen_witness;

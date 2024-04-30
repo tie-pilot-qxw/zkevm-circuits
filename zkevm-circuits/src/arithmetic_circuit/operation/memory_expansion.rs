@@ -48,7 +48,7 @@ impl<F: Field> OperationGadget<F> for MemoryExpansionGadget<F> {
         let (_, offset_bound_u16s, access_memory_size_u16s) =
             get_u16s(config, meta, Rotation::cur());
         let (_, diff, _) = get_u16s(config, meta, Rotation::prev());
-        let mut remainder_bits: Vec<_> = (4..7)
+        let mut remainder_bits: Vec<_> = (4..8)
             .map(|i| config.get_u16(i, Rotation::prev())(meta))
             .collect();
         remainder_bits.insert(0, remainder_0);
@@ -137,7 +137,7 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let mut remainder_bits = [0; 5];
     let mut r = remainder as u16;
     for i in 0..5 {
-        remainder_bits[i] = r % 2;
+        remainder_bits[4 - i] = r % 2;
         r /= 2;
     }
 

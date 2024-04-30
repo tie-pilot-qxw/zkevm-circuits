@@ -177,11 +177,11 @@ impl<F: Field> OperationGadget<F> for AddModGadget<F> {
                 - (a_plus_b_hi_carry.clone() * pow_of_two::<F>(128)),
         ));
 
-        // NOTE: When n = 0, r is equal to b;
-        //       When n != 0, r is less than b.
+        // NOTE: When n = 0, r is equal to n;
+        //       When n != 0, r is less than n.
         //       Therefore, the expression r_lt_n is equivalent to n = 0 expression.
         // When n = 0, n_is_zero = 1, otherwise n_is_zero = 0.
-        let n_is_zero = r_lt_n.expr();
+        let n_is_zero = 1.expr() - r_lt_n.expr();
 
         // When n != 0, we should constrain
         // t0 + t1 * 2^64 + r_lo = a_plus_b_lo + carry_0 * 2^128
