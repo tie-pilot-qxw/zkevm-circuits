@@ -2,22 +2,22 @@ use crate::{run_benchmark, DEFAULT_BENCH_ROUND};
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW};
 use zkevm_circuits::util::get_geth_data;
 
-#[cfg(feature = "k_9")]
+#[cfg(feature = "k_10")]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = 21000;
-#[cfg(feature = "k_9")]
+#[cfg(feature = "k_10")]
 const DEPLOY_MAX_CODE_SIZE_FOR_TEST: usize = 7000;
-#[cfg(feature = "k_9")]
+#[cfg(feature = "k_10")]
 const CALL_MAX_NUM_ROW_FOR_TEST: usize = 6000;
-#[cfg(feature = "k_9")]
+#[cfg(feature = "k_10")]
 const CALL_MAX_CODE_SIZE_FOR_TEST: usize = 5000;
 
-#[cfg(not(feature = "k_9"))]
+#[cfg(not(feature = "k_10"))]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = MAX_NUM_ROW;
-#[cfg(not(feature = "k_9"))]
+#[cfg(not(feature = "k_10"))]
 const DEPLOY_MAX_CODE_SIZE_FOR_TEST: usize = MAX_CODESIZE;
-#[cfg(not(feature = "k_9"))]
+#[cfg(not(feature = "k_10"))]
 const CALL_MAX_NUM_ROW_FOR_TEST: usize = MAX_NUM_ROW;
-#[cfg(not(feature = "k_9"))]
+#[cfg(not(feature = "k_10"))]
 const CALL_MAX_CODE_SIZE_FOR_TEST: usize = MAX_CODESIZE;
 
 #[test]
