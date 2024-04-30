@@ -5,6 +5,9 @@ use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{get_multi_trace_geth_data, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
+#[cfg(not(feature = "fast_test"))]
+const MAX_NUM_ROW: usize = 262200;
+#[cfg(feature = "fast_test")]
 const MAX_NUM_ROW: usize = 10200;
 const MAX_CODESIZE: usize = 6900;
 
