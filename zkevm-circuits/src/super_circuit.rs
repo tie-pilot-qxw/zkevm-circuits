@@ -350,9 +350,6 @@ mod tests {
     use halo2_proofs::halo2curves::bn256::{Fr, G1};
     use std::fs::File;
 
-    #[cfg(feature = "plot")]
-    use plotters::prelude::*;
-
     fn test_super_circuit(
         witness: Witness,
     ) -> (
@@ -388,39 +385,6 @@ mod tests {
         witness.write_html(&mut buf);
         let (_k, _circuit, prover) = test_super_circuit(witness);
         prover.assert_satisfied_par();
-    }
-
-    #[test]
-    #[ignore]
-    #[cfg(feature = "plot")]
-    fn test_draw() {
-        let machine_code = trace_parser::assemble_file("test_data/1.txt");
-        let trace = trace_parser::trace_program(&machine_code, &[]);
-        let witness = Witness::new(&geth_data_test(
-            trace,
-            &machine_code,
-            &[],
-            false,
-            Default::default(),
-        ));
-
-        let (k, circuit, prover) = test_super_circuit(witness);
-        // draw picture
-        let root = BitMapBackend::new("layout_100x340.png", (1600, 900)).into_drawing_area();
-        root.fill(&WHITE).unwrap();
-        let root = root
-            .titled("Example Circuit Layout", ("sans-serif", 60))
-            .unwrap();
-
-        halo2_proofs::dev::CircuitLayout::default()
-            .view_width(0..340)
-            .view_height(0..100)
-            // You can hide labels, which can be useful with smaller areas.
-            .show_labels(true)
-            // Render the circuit onto your area!
-            // The first argument is the size parameter for the circuit.
-            .render(k, &circuit, &root)
-            .unwrap();
     }
 
     #[test]

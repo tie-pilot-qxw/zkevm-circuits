@@ -16,7 +16,6 @@ rand_chacha = "0.3"
 sha3 = "0.10"
 log = "0.4.17"
 gadgets = { path = "../gadgets" }
-plotters = { version = "0.3.4", optional = true }
 anyhow = "1.0"
 lazy_static = "1.4"
 trace-parser = { path = "../trace-parser" }
@@ -36,10 +35,9 @@ hex = "0.4.3"
 
 [features]
 default = ["fast_test"]
-plot = ["dep:plotters", "halo2_proofs/dev-graph"]
 gen_code = ["dep:genco", "dep:convert_case", "dep:proc-macro2"]
-k_9 = []
+k_10 = []
 no_fixed_lookup = []
 no_lookup_merge = []
-fast_test = ["k_9", "no_fixed_lookup"]
+fast_test = ["k_10", "no_fixed_lookup"]
 benches = []

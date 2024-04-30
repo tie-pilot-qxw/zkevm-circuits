@@ -4,10 +4,10 @@ use zkevm_circuits::util::get_geth_data;
 
 use crate::{run_benchmark, DEFAULT_BENCH_ROUND};
 
-#[cfg(feature = "k_9")]
+#[cfg(feature = "k_10")]
 const MAX_CODESIZE_FOR_CALL_TRACE: usize = 4220;
 
-#[cfg(not(feature = "k_9"))]
+#[cfg(not(feature = "k_10"))]
 const MAX_CODESIZE_FOR_CALL_TRACE: usize = MAX_CODESIZE;
 
 #[test]
