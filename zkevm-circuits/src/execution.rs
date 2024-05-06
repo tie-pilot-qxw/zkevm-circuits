@@ -799,8 +799,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 }
             }
             LookupEntry::Exp { .. } => self.exp_table.get_lookup_vector(meta, lookup),
-            //TODO config还未添加其它table
-            // 所以此处如果有其它类型的entry应该panic。
+            // 此处如果有其它类型的entry应该panic。
             _ => unreachable!(),
         };
         v.into_iter()
