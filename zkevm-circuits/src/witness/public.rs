@@ -45,7 +45,7 @@ pub enum Tag {
     TxIsCreateCallDataGasCost,
     TxGasLimit,
     TxGasPrice, // tx gas price
-    TxCalldata, //TODO make sure this equals copy tag PublicCalldata
+    TxCalldata,
     TxLog,
     TxLogSize,
     // bytecode size
