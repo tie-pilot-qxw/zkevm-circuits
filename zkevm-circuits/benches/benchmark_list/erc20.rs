@@ -1,4 +1,4 @@
-use crate::{run_benchmark, DEFAULT_BENCH_ROUND};
+use crate::run_benchmark;
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW};
 use zkevm_circuits::util::get_geth_data;
 
@@ -27,7 +27,7 @@ fn t01_a_deploy_erc20() {
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_info.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_debug_trace.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t01_a_deploy_erc20/bytecode.json",
     );
 
     let degree: u32 = 15;
@@ -38,7 +38,6 @@ fn t01_a_deploy_erc20() {
         "t01_a_deploy_erc20",
         geth_data,
         degree,
-        DEFAULT_BENCH_ROUND,
     );
 }
 #[test]
@@ -48,7 +47,7 @@ fn t02_a_transfer_b_200() {
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_info.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_debug_trace.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t02_a_transfer_b_200/bytecode.json",
     );
 
     let degree: u32 = 13;
@@ -59,7 +58,6 @@ fn t02_a_transfer_b_200() {
         "t02_a_transfer_b_200",
         geth_data,
         degree,
-        DEFAULT_BENCH_ROUND,
     );
 }
 
@@ -70,7 +68,7 @@ fn t03_a_approve_c_200() {
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_info.json",
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_debug_trace.json",
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t03_a_approve_c_200/bytecode.json",
     );
 
     let degree: u32 = 13;
@@ -81,7 +79,6 @@ fn t03_a_approve_c_200() {
         "t03_a_approve_c_200",
         geth_data,
         degree,
-        DEFAULT_BENCH_ROUND,
     );
 }
 
@@ -92,7 +89,7 @@ fn t04_c_transfer_from_a_b_200() {
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_info.json",
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_debug_trace.json",
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_receipt.json",
-        "test_data/erc20_test/trace/bytecode.json",
+        "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/bytecode.json",
     );
 
     let degree: u32 = 13;
@@ -103,6 +100,5 @@ fn t04_c_transfer_from_a_b_200() {
         "t04_c_transfer_from_a_b_200 benchmark",
         geth_data,
         degree,
-        DEFAULT_BENCH_ROUND,
     );
 }

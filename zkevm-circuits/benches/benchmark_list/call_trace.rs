@@ -2,7 +2,7 @@
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW};
 use zkevm_circuits::util::get_geth_data;
 
-use crate::{run_benchmark, DEFAULT_BENCH_ROUND};
+use crate::run_benchmark;
 
 #[cfg(feature = "k_10")]
 const MAX_CODESIZE_FOR_CALL_TRACE: usize = 4220;
@@ -23,10 +23,5 @@ fn bench_call_trace() {
         "test_data/call_test/trace/tx_receipt.json",
         "test_data/call_test/trace/bytecode.json",
     );
-    run_benchmark::<MAX_NUM_ROW, MAX_CODESIZE_FOR_CALL_TRACE>(
-        "call_trace",
-        geth_data,
-        degree,
-        DEFAULT_BENCH_ROUND,
-    );
+    run_benchmark::<MAX_NUM_ROW, MAX_CODESIZE_FOR_CALL_TRACE>("call_trace", geth_data, degree);
 }
