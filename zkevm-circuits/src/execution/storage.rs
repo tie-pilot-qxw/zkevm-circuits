@@ -49,7 +49,8 @@ const PC_DELTA: u64 = 1;
 ///     STATE5:  State lookup(slot in access list read), src: Core circuit, target: State circuit table, 12 columns
 ///     STATE6:  State lookup(slot in access list write), src: Core circuit, target: State circuit table, 12 columns
 ///     STATE7:  State lookup(get_value_prev_storage_write_row), src: Core circuit, target: State circuit table, 12 columns
-///     U64: arithemetic tiny lookup, gas_left u64 constraint, src: Core circuit, target: Arithemetic circuit table, 5 columns
+///     U64Overflow0: arithemetic tiny lookup, diff u64 constraint, src: Core circuit, target: Arithemetic circuit table, 5 columns
+///     U64Overflow1: arithemetic tiny lookup, gas_left u64 constraint, src: Core circuit, target: Arithemetic circuit table, 5 columns
 ///     lt, diff: SstoreSentryGasEIP2200 < gas_left, lt constraint, 1 column
 ///     prev_eq_value_inv_hi: value_hi == value_pre_hi, 1 column
 ///     prev_eq_value_inv_lo: value_lo == value_pre_lo, 1 column
@@ -61,14 +62,15 @@ const PC_DELTA: u64 = 1;
 ///     committed_eq_value_inv_hi: committed_value_hi == value_hi, 1 column
 ///     committed_eq_value_inv_lo: committed_value_lo == value_lo, 1 column
 ///     cnt == 3, 21-30 columns is an intermediate variable needed to reduce degree
-/// +-----+-------------------------------------+------------------------------------+--------------------------+---------------------------------+---------------------------------+---------------------------+----------------+-------------------+---------------------------------+---------------------------------+--------------------------+----------------------------------+-----------------------------------+--------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+
-/// | cnt |                                     |                                    |                          |                                 |                                 |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
-/// +-----+-------------------------------------+------------------------------------+--------------------------+---------------------------------+---------------------------------+---------------------------+----------------+-------------------+---------------------------------+---------------------------------+--------------------------+----------------------------------+-----------------------------------+--------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+
-/// | 3   | get_storage_value_write(0..11)      | prev_eq_value_inv_hi(12)           | prev_eq_value_inv_lo(13) | committed_eq_prev_inv_hi(14)    | committed_eq_prev_inv_lo(15)    | committed_value_inv(16)   | value_inv(17)  | value_pre_inv(18) | committed_eq_value_inv_hi(19)   | committed_eq_value_inv_lo(20)   | value_is_eq_prev(21)    | committed_value_is_eq_prev(22)   | committed_value_is_eq_value(23)  | slot_gas(24) | warm_case_gas(25) | refund_part_1(26) | refund_part_2(27) | refund_part_3(28) | refund_part_4(29) | refund_part_5(30) |
-/// | 2   | get_slot_access_list_read(0..11)    | get_slot_access_list_write(12..23) | U64(24..27)              | lt(28)                         | diff(29)                       |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
-/// | 1   | STATE1(0..7)                        | STATE2(8..15)                      | STATE3(16..23)           | STATE4(24..31)                 |                                 |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
-/// | 0   | dynamic_selector (0..17)            | AUX(18..24)                        |                          |                                 |                                 |                           |                |                   |                                 |                                 |                          |                                  |                                   |              |                   |                   |                   |                   |                   |                   |
-/// +-----+-------------------------------------+------------------------------------+--------------------------+---------------------------------+---------------------------------+---------------------------+----------------+-------------------+---------------------------------+---------------------------------+--------------------------+----------------------------------+-----------------------------------+--------------+-------------------+-------------------+-------------------+-------------------+-------------------+-------------------+
+/// +-----+--------------------------------+----------------------------------+-----------------+------------------+------------------------+------------------------+----------------------------+----------------------------+-----------------------+-------------+-----------------+-----------------------------+-----------------------------+--------------------+------------------------------+-------------------------------+------------+-----------------+-----------------+-----------------+-----------------+-----------------+-----------------+
+/// | cnt |                                |                                |                 |                  |                        |                        |                            |                            |                       |             |                 |                             |                             |                    |                              |                               |            |                 |                 |                 |                 |                 |                 |
+/// +-----+--------------------------------+----------------------------------+-----------------+------------------+------------------------+------------------------+----------------------------+----------------------------+-----------------------+-------------+-----------------+-----------------------------+-----------------------------+--------------------+------------------------------+-------------------------------+------------+-----------------+-----------------+-----------------+-----------------+-----------------+-----------------+
+/// | 4   | STATE7(0..11)                  |                                |                 |                  |                        |                        |                            |                            |                       |             |                 |                             |                             |                    |                              |                               |            |                 |                 |                 |                 |                 |                 |
+/// | 3   | STATE5(0..11)                  | STATE6(12..23)                  |                 |                  |                        |                        |                            |                            |                       |             |                 |                             |                             |                    |                              |                               |            |                 |                 |                 |                 |                 |                 |
+/// | 2   | lt(0)                          | diff(1)                        | U64Overflow0(2..6) | U64Overflow1(7..11) | prev_eq_value_inv_hi(12) | prev_eq_value_inv_lo(13) | committed_eq_prev_inv_hi(14) | committed_eq_prev_inv_lo(15) | committed_value_inv(16) | value_inv(17) | value_pre_inv(18) | committed_eq_value_inv_hi(19) | committed_eq_value_inv_lo(20) | value_is_eq_prev(21) | committed_value_is_eq_prev(22) | committed_value_is_eq_value(23) | slot_gas(24) | warm_case_gas(25) | refund_part_1(26) | refund_part_2(27) | refund_part_3(28) | refund_part_4(29) | refund_part_5(30) |
+/// | 1   | STATE1(0..7)                   | STATE2(8..15)                  | STATE3(16..23)  | STATE4(24..31)   |                        |                        |                            |                            |                       |             |                 |                             |                             |                    |                              |                               |            |                 |                 |                 |                 |                 |                 |
+/// | 0   | dynamic_selector(0..17)        | AUX(18..24)                    |                 |                  |                        |                        |                            |                            |                       |             |                 |                             |                             |                    |                              |                               |            |                 |                 |                 |                 |                 |                 |
+/// +-----+--------------------------------+----------------------------------+-----------------+------------------+------------------------+------------------------+----------------------------+----------------------------+-----------------------+-------------+-----------------+-----------------------------+-----------------------------+--------------------+------------------------------+-------------------------------+------------+-----------------+-----------------+-----------------+-----------------+-----------------+-----------------+
 /// Note:
 ///     1. In STATE3 of SLOAD and STATE4 of SSTORE, contract_addr is value hi,lo of STATE1 and pointer hi,lo is value hi,lo of STATE2.
 ///     2. STATE4's value hi,lo equals to value hi,lo of STATE3
@@ -330,8 +332,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &storage_or_stack_1,
         ]);
 
-        let (core_row_2, arithmetic) =
-            get_core_row_2::<F>(trace, current_state, storage_key, storage_value);
+        let (core_row_2, arithmetic) = get_core_row_2::<F>(
+            trace,
+            current_state,
+            storage_key,
+            storage_value,
+            storage_contract_addr,
+        );
 
         let (core_row_3, is_warm_rows) =
             get_core_row_3(trace, current_state, storage_key, storage_contract_addr);
@@ -352,7 +359,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         if trace.op == OpcodeId::SSTORE {
-            current_state.insert_dirty_storage(current_state.code_addr, storage_key, storage_value);
+            current_state.insert_dirty_storage(storage_contract_addr, storage_key, storage_value);
         }
 
         let mut state = vec![
@@ -378,6 +385,7 @@ fn get_core_row_2<F: Field>(
     current_state: &mut WitnessExecHelper,
     storage_key: U256,
     storage_value: U256,
+    contract_addr: U256,
 ) -> (Row, Vec<arithmetic::Row>) {
     let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
 
@@ -406,12 +414,9 @@ fn get_core_row_2<F: Field>(
 
     // 3. Insert intermediate variables required for gas calculation
     let (_, value_prev) =
-        current_state.get_dirty_value(&current_state.code_addr, &storage_key, current_state.tx_idx);
-    let (_, committed_value) = current_state.get_committed_value(
-        &current_state.code_addr,
-        &storage_key,
-        current_state.tx_idx,
-    );
+        current_state.get_dirty_value(&contract_addr, &storage_key, current_state.tx_idx);
+    let (_, committed_value) =
+        current_state.get_committed_value(&contract_addr, &storage_key, current_state.tx_idx);
 
     let value_prev_hi = value_prev >> 128;
     let value_prev_lo = U256::from(value_prev.low_u128());
@@ -580,12 +585,9 @@ fn get_core_row_4(
     contract_addr: U256,
 ) -> (Row, Vec<state::Row>) {
     let (_, value_prev) =
-        current_state.get_dirty_value(&current_state.code_addr, &storage_key, current_state.tx_idx);
-    let (_, committed_value) = current_state.get_committed_value(
-        &current_state.code_addr,
-        &storage_key,
-        current_state.tx_idx,
-    );
+        current_state.get_dirty_value(&contract_addr, &storage_key, current_state.tx_idx);
+    let (_, committed_value) =
+        current_state.get_committed_value(&contract_addr, &storage_key, current_state.tx_idx);
 
     let mut core_row_4 = current_state.get_core_row_without_versatile(&trace, 4);
     let storage_write_row = current_state.get_storage_full_write_row(
