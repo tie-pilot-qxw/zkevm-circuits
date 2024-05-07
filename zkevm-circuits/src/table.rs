@@ -785,7 +785,13 @@ pub struct KeccakTable {
     /// Byte array input length
     pub input_len: Column<Advice>,
     /// RLC of the hash result
+    /// We replace it with output_hi, lo. It is not used anymore.
     pub output_rlc: Column<Advice>, // RLC of hash of input bytes
+    // new columns to hold hash hi and lo 128 bits without RLC
+    /// High 128 bits of the hash result
+    pub output_hi: Column<Advice>,
+    /// Low 128 bits of the hash result
+    pub output_lo: Column<Advice>,
 }
 
 impl KeccakTable {
@@ -795,6 +801,8 @@ impl KeccakTable {
             input_len: meta.advice_column(),
             input_rlc: meta.advice_column_in(SecondPhase),
             output_rlc: meta.advice_column_in(SecondPhase),
+            output_hi: meta.advice_column(),
+            output_lo: meta.advice_column(),
         }
     }
 
@@ -805,17 +813,20 @@ impl KeccakTable {
     ) -> Vec<(Expression<F>, Expression<F>)> {
         let table_input_rlc = meta.query_advice(self.input_rlc, Rotation::cur());
         let table_input_len = meta.query_advice(self.input_len, Rotation::cur());
-        let table_output_rlc = meta.query_advice(self.output_rlc, Rotation::cur());
+        let table_output_hi = meta.query_advice(self.output_hi, Rotation::cur());
+        let table_output_lo = meta.query_advice(self.output_lo, Rotation::cur());
         match entry {
             LookupEntry::Keccak {
                 input_rlc,
                 input_len,
-                output_rlc,
+                output_hi,
+                output_lo,
             } => {
                 vec![
                     (input_rlc, table_input_rlc),
                     (input_len, table_input_len),
-                    (output_rlc, table_output_rlc),
+                    (output_hi, table_output_hi),
+                    (output_lo, table_output_lo),
                 ]
             }
             _ => panic!("Not keccak lookup!"),
@@ -996,8 +1007,10 @@ pub enum LookupEntry<F> {
         input_rlc: Expression<F>,
         /// Byte array input length
         input_len: Expression<F>,
-        /// RLC of the hash result
-        output_rlc: Expression<F>,
+        /// High 128 bits of the hash result
+        output_hi: Expression<F>,
+        /// Low 128 bits of the hash result
+        output_lo: Expression<F>,
     },
 }
 
