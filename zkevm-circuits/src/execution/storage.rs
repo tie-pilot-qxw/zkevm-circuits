@@ -625,7 +625,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
 
         let lookups = [
-            (0, Rotation(-4), 6, true, state::Tag::Storage), // storage_full
             (
                 0,
                 Rotation(-3),
@@ -640,6 +639,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 true,
                 state::Tag::SlotInAccessListStorage,
             ), // is_warm write
+            (0, Rotation(-4), 6, true, state::Tag::Storage), // storage_full
         ];
 
         for &(num, rotation, index, is_write, tag) in &lookups {
@@ -658,12 +658,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ));
             let extracted = extract_lookup_expression!(storage, entry);
             if index == 4 {
-                values.push([extracted.2.clone(), extracted.3.clone()]); // 30, 31 is_warm
+                values.push([extracted.2.clone(), extracted.3.clone()]); // 00, 01 is_warm
             }
             if index == 6 {
-                values.push([extracted.2.clone(), extracted.3.clone()]); // 00-value_hi, 01-value_lo
-                values.push([extracted.8.clone(), extracted.9.clone()]); // 10-value_pre_hi, 11-value_pre_lo
-                values.push([extracted.10.clone(), extracted.11.clone()]); // 20-committed_value_hi, 21-committed_value_lo,
+                values.push([extracted.2.clone(), extracted.3.clone()]); // 10-value_hi, 11-value_lo
+                values.push([extracted.8.clone(), extracted.9.clone()]); // 20-value_pre_hi, 21-value_pre_lo
+                values.push([extracted.10.clone(), extracted.11.clone()]); // 30-committed_value_hi, 31-committed_value_lo,
             }
         }
 
@@ -707,14 +707,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 2. value_prev == value
         let is_zero_hi = SimpleIsZero::new(
-            &(values[1][0].clone() - values[0][0].clone()),
+            &(values[2][0].clone() - values[1][0].clone()),
             &prev_eq_value_inv_hi,
             "value_eq_prev_hi".into(),
         );
         constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
-            &(values[1][1].clone() - values[0][1].clone()),
+            &(values[2][1].clone() - values[1][1].clone()),
             &prev_eq_value_inv_lo,
             "value_eq_prev_lo".into(),
         );
@@ -733,14 +733,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 5.committed_value == value_prev
         let is_zero_hi = SimpleIsZero::new(
-            &(values[2][0].clone() - values[1][0].clone()),
+            &(values[3][0].clone() - values[2][0].clone()),
             &committed_eq_prev_inv_hi,
             "committed_eq_prev_hi".into(),
         );
         constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
-            &(values[2][1].clone() - values[1][1].clone()),
+            &(values[3][1].clone() - values[2][1].clone()),
             &committed_eq_prev_inv_lo,
             "committed_eq_prev_lo".into(),
         );
@@ -760,7 +760,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 6.committed_value =? 0
         let committed_is_zero = SimpleIsZero::new(
-            &(values[2][0].clone() + values[2][1].clone()),
+            &(values[3][0].clone() + values[3][1].clone()),
             &committed_value_inv,
             "committed_eq_zero".into(),
         );
@@ -768,7 +768,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 7.value == 0
         let value_is_zero = SimpleIsZero::new(
-            &(values[0][0].clone() + values[0][1].clone()),
+            &(values[1][0].clone() + values[1][1].clone()),
             &value_inv,
             "value_is_zero".into(),
         );
@@ -776,7 +776,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 8. value_pre == 0
         let value_pre_is_zero = SimpleIsZero::new(
-            &(values[1][0].clone() + values[1][1].clone()),
+            &(values[2][0].clone() + values[2][1].clone()),
             &value_pre_inv,
             "value_pre_is_zero".into(),
         );
@@ -784,14 +784,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 9. committed_value == value
         let is_zero_hi = SimpleIsZero::new(
-            &(values[2][0].clone() - values[0][0].clone()),
+            &(values[3][0].clone() - values[1][0].clone()),
             &committed_eq_value_inv_hi,
             "committed_eq_value_hi".into(),
         );
         constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
-            &(values[2][1].clone() - values[0][1].clone()),
+            &(values[3][1].clone() - values[1][1].clone()),
             &committed_eq_value_inv_lo,
             "committed_eq_value_lo".into(),
         );
@@ -813,7 +813,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 value_eq_prev: value_is_eq_prev,
                 committed_eq_prev: committed_value_is_eq_prev,
                 committed_eq_value: committed_value_is_eq_value,
-                is_warm: values[3][1].expr(),
+                is_warm: values[0][1].expr(),
                 committed_is_zero: committed_is_zero.expr(),
                 value_is_zero: value_is_zero.expr(),
                 value_pre_is_zero: value_pre_is_zero.expr(),
