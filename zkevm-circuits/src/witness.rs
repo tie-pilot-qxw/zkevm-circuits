@@ -689,7 +689,7 @@ impl WitnessExecHelper {
     ) -> (state::Row, bool) {
         let is_warm = self
             .state_db
-            .slot_in_access_list(&self.code_addr, &storage_key);
+            .slot_in_access_list(&contract_addr, &storage_key);
 
         let res = state::Row {
             tag: Some(Tag::SlotInAccessListStorage),
@@ -716,7 +716,7 @@ impl WitnessExecHelper {
     ) -> state::Row {
         // 在read完以后这个值实际上已经变为了true
         self.state_db
-            .insert_slot_access_list(self.code_addr, storage_key);
+            .insert_slot_access_list(contract_addr, storage_key);
 
         let res = state::Row {
             tag: Some(Tag::SlotInAccessListStorage),

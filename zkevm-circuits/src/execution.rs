@@ -854,6 +854,54 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
 
+    pub(crate) fn get_storage_full_constraints_with_tag(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        storage_contract_addr_hi: Expression<F>,
+        storage_contract_addr_lo: Expression<F>,
+        storage_key_hi: Expression<F>,
+        storage_key_lo: Expression<F>,
+        state_tag: state::Tag,
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
+            extract_lookup_expression!(storage, entry);
+        let Auxiliary { state_stamp, .. } = self.get_auxiliary();
+        vec![
+            (
+                format!("state lookup tag[{}] = Storage", index),
+                tag - (state_tag as u8).expr(),
+            ),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                stamp
+                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                    - index.expr(),
+            ),
+            (
+                format!("state lookup contract addr[{}]", index),
+                call_id_contract_addr
+                    - storage_contract_addr_hi * pow_of_two::<F>(128)
+                    - storage_contract_addr_lo,
+            ),
+            (
+                format!("pointer_hi (storage key)[{}]", index),
+                pointer_hi - storage_key_hi,
+            ),
+            (
+                format!("pointer_lo (storage key)[{}]", index),
+                pointer_lo - storage_key_lo,
+            ),
+            (
+                format!("is_write[{}]", index),
+                is_write - (write as u8).expr(),
+            ),
+        ]
+    }
+
     ///generate stack lookup's constraints which are controlled by the selector (enabled when selector != 0.expr() and disabled when selector == 0.expr())
     pub(crate) fn get_stack_constraints_with_selector(
         &self,
