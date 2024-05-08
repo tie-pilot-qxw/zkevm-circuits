@@ -99,43 +99,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let (storage_gas_cal, build_constraints) = StorageGasCost::build(config, meta);
-        let sload_gas_cost = storage_gas_cal.sload_gas_cost();
-        let (sstore_gas_cost, sstore_gas_cost_constraints) =
-            storage_gas_cal.sstore_gas_cost(config, meta);
-        let (sstore_tx_refund, tx_refund_constraints) =
-            storage_gas_cal.sstore_tx_refund(config, meta);
-
-        constraints.extend(build_constraints);
-        constraints.extend(sstore_gas_cost_constraints);
-        constraints.extend(tx_refund_constraints);
-        // append auxiliary constraints
-        let is_sload = OpcodeId::SSTORE.as_u8().expr() - opcode.clone();
-        let is_sstore = opcode.clone() - OpcodeId::SLOAD.as_u8().expr();
-
-        let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            stack_pointer: ExpressionOutcome::Delta(
-                STACK_POINTER_DELTA_SLOAD.expr() * is_sload.clone()
-                    + STACK_POINTER_DELTA_SSTORE.expr() * is_sstore.clone(),
-            ), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
-            // before degree 16
-            // now degree max 9
-            gas_left: ExpressionOutcome::Delta(
-                sload_gas_cost.clone() * is_sload.clone()
-                    + sstore_gas_cost.clone() * is_sstore.clone(),
-            ),
-            // before degree 14
-            // now degree max 9
-            refund: ExpressionOutcome::Delta(is_sstore.clone() * sstore_tx_refund.clone()),
-            ..Default::default()
-        };
-
-        // todo 所有模块实现完tx_refund以及gas计算后，删除这个约束
-        // must： 1. gas, refund delta
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta.clone()));
-
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         // append stack constraints, call_context constraints and storage constrains
         let mut operands: Vec<[Expression<F>; 2]> = vec![];
         for i in 0..4 {
@@ -195,6 +158,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
+
+        let (storage_gas_cal, build_constraints) =
+            StorageGasCost::build(config, operands.clone(), meta);
+        let sload_gas_cost = storage_gas_cal.sload_gas_cost();
+        let (sstore_gas_cost, sstore_gas_cost_constraints) =
+            storage_gas_cal.sstore_gas_cost(config, meta);
+        let (sstore_tx_refund, tx_refund_constraints) =
+            storage_gas_cal.sstore_tx_refund(config, meta);
+
+        constraints.extend(build_constraints);
+        constraints.extend(sstore_gas_cost_constraints);
+        constraints.extend(tx_refund_constraints);
+        // append auxiliary constraints
+        let is_sload = OpcodeId::SSTORE.as_u8().expr() - opcode.clone();
+        let is_sstore = opcode.clone() - OpcodeId::SLOAD.as_u8().expr();
+
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(
+                STACK_POINTER_DELTA_SLOAD.expr() * is_sload.clone()
+                    + STACK_POINTER_DELTA_SSTORE.expr() * is_sstore.clone(),
+            ), //the property OpcodeId::SSTORE - OpcodeId::SLOAD == 1 is used
+            // before degree 16
+            // now degree max 9
+            gas_left: ExpressionOutcome::Delta(
+                sload_gas_cost.clone() * is_sload.clone()
+                    + sstore_gas_cost.clone() * is_sstore.clone(),
+            ),
+            // before degree 14
+            // now degree max 9
+            refund: ExpressionOutcome::Delta(is_sstore.clone() * sstore_tx_refund.clone()),
+            ..Default::default()
+        };
+
+        // todo 所有模块实现完tx_refund以及gas计算后，删除这个约束
+        // must： 1. gas, refund delta
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // option: 1. is_warm read and write
         let storage_read_stack_pop = operands[2].clone();
@@ -617,26 +618,54 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 {
     fn build(
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        operands: Vec<[Expression<F>; 2]>,
         meta: &mut VirtualCells<F>,
     ) -> (Self, Vec<(String, Expression<F>)>) {
-        let entry = config.get_storage_lookup(meta, 0, Rotation(-4));
-        let (
-            _,
-            _,
-            value_hi,
-            value_lo,
-            _,
-            _,
-            _,
-            _,
-            value_pre_hi,
-            value_pre_lo,
-            committed_value_hi,
-            committed_value_lo,
-        ) = extract_lookup_expression!(storage, entry);
+        let mut values: Vec<[Expression<F>; 2]> = vec![];
+        let mut constraints = vec![];
 
-        let entry = config.get_storage_lookup(meta, 0, Rotation(-3));
-        let (_, _, _, is_warm, ..) = extract_lookup_expression!(storage, entry);
+        let lookups = [
+            (0, Rotation(-4), 6, true, state::Tag::Storage), // storage_full
+            (
+                0,
+                Rotation(-3),
+                4,
+                false,
+                state::Tag::SlotInAccessListStorage,
+            ), // is_warm read
+            (
+                1,
+                Rotation(-3),
+                5,
+                true,
+                state::Tag::SlotInAccessListStorage,
+            ), // is_warm write
+        ];
+
+        for &(num, rotation, index, is_write, tag) in &lookups {
+            let entry = config.get_storage_lookup(meta, num, rotation);
+            constraints.extend(config.get_storage_full_constraints_with_tag(
+                meta,
+                entry.clone(),
+                index,
+                NUM_ROW,
+                operands[0][0].clone(),
+                operands[0][1].clone(),
+                operands[1][0].clone(),
+                operands[1][1].clone(),
+                tag,
+                is_write,
+            ));
+            let extracted = extract_lookup_expression!(storage, entry);
+            if index == 4 {
+                values.push([extracted.2.clone(), extracted.3.clone()]); // 30, 31 is_warm
+            }
+            if index == 6 {
+                values.push([extracted.2.clone(), extracted.3.clone()]); // 00-value_hi, 01-value_lo
+                values.push([extracted.8.clone(), extracted.9.clone()]); // 10-value_pre_hi, 11-value_pre_lo
+                values.push([extracted.10.clone(), extracted.11.clone()]); // 20-committed_value_hi, 21-committed_value_lo,
+            }
+        }
 
         let prev_eq_value_inv_hi = meta.query_advice(
             config.vers[2 * ARITHMETIC_TINY_COLUMN_WIDTH + ARITHMETIC_TINY_START_IDX],
@@ -677,16 +706,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // 2. value_prev == value
-        let mut constraints = vec![];
         let is_zero_hi = SimpleIsZero::new(
-            &(value_pre_hi.clone() - value_hi.clone()),
+            &(values[1][0].clone() - values[0][0].clone()),
             &prev_eq_value_inv_hi,
             "value_eq_prev_hi".into(),
         );
         constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
-            &(value_pre_lo.clone() - value_lo.clone()),
+            &(values[1][1].clone() - values[0][1].clone()),
             &prev_eq_value_inv_lo,
             "value_eq_prev_lo".into(),
         );
@@ -705,14 +733,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 5.committed_value == value_prev
         let is_zero_hi = SimpleIsZero::new(
-            &(committed_value_hi.clone() - value_pre_hi.clone()),
+            &(values[2][0].clone() - values[1][0].clone()),
             &committed_eq_prev_inv_hi,
             "committed_eq_prev_hi".into(),
         );
         constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
-            &(committed_value_lo.clone() - value_pre_lo.clone()),
+            &(values[2][1].clone() - values[1][1].clone()),
             &committed_eq_prev_inv_lo,
             "committed_eq_prev_lo".into(),
         );
@@ -732,7 +760,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 6.committed_value =? 0
         let committed_is_zero = SimpleIsZero::new(
-            &(committed_value_hi.clone() + committed_value_lo.clone()),
+            &(values[2][0].clone() + values[2][1].clone()),
             &committed_value_inv,
             "committed_eq_zero".into(),
         );
@@ -740,7 +768,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 7.value == 0
         let value_is_zero = SimpleIsZero::new(
-            &(value_hi.clone() + value_lo.clone()),
+            &(values[0][0].clone() + values[0][1].clone()),
             &value_inv,
             "value_is_zero".into(),
         );
@@ -748,7 +776,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 8. value_pre == 0
         let value_pre_is_zero = SimpleIsZero::new(
-            &(value_pre_hi.clone() + value_pre_lo.clone()),
+            &(values[1][0].clone() + values[1][1].clone()),
             &value_pre_inv,
             "value_pre_is_zero".into(),
         );
@@ -756,14 +784,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 9. committed_value == value
         let is_zero_hi = SimpleIsZero::new(
-            &(committed_value_hi.clone() - value_hi.clone()),
+            &(values[2][0].clone() - values[0][0].clone()),
             &committed_eq_value_inv_hi,
             "committed_eq_value_hi".into(),
         );
         constraints.extend(is_zero_hi.get_constraints());
 
         let is_zero_lo = SimpleIsZero::new(
-            &(committed_value_lo.clone() - value_lo.clone()),
+            &(values[2][1].clone() - values[0][1].clone()),
             &committed_eq_value_inv_lo,
             "committed_eq_value_lo".into(),
         );
@@ -785,7 +813,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 value_eq_prev: value_is_eq_prev,
                 committed_eq_prev: committed_value_is_eq_prev,
                 committed_eq_value: committed_value_is_eq_value,
-                is_warm: is_warm.expr(),
+                is_warm: values[3][1].expr(),
                 committed_is_zero: committed_is_zero.expr(),
                 value_is_zero: value_is_zero.expr(),
                 value_pre_is_zero: value_pre_is_zero.expr(),
