@@ -34,7 +34,7 @@ use crate::{
     witness,
 };
 use eth_types::Field;
-use gadgets::util::{and, not, select, sum, Expr};
+use gadgets::util::{and, expr_from_bytes, not, select, sum, Expr};
 use halo2_proofs::plonk::{Advice, Selector};
 use halo2_proofs::{
     circuit::{Layouter, Region, Value},
@@ -62,6 +62,10 @@ pub struct KeccakCircuitConfig<F> {
     pub input_len: Column<Advice>,
     /// RLC of the hash result
     pub output_rlc: Column<Advice>, // RLC of hash of input bytes
+    // rlc not used now
+    // new columns to hold hash hi and lo 128 bits without RLC
+    pub output_hi: Column<Advice>,
+    pub output_lo: Column<Advice>,
     cell_manager: CellManager<F>,
     round_cst: Column<Fixed>,
     normalize_3: [TableColumn; 2],
@@ -108,6 +112,8 @@ impl<F: Field> SubCircuitConfig<F> for KeccakCircuitConfig<F> {
         let length = keccak_table.input_len;
         let data_rlc = keccak_table.input_rlc;
         let hash_rlc = keccak_table.output_rlc;
+        let hash_hi = keccak_table.output_hi;
+        let hash_lo = keccak_table.output_lo;
 
         let normalize_3 = std::array::from_fn(|_| meta.lookup_table_column());
         let normalize_4 = std::array::from_fn(|_| meta.lookup_table_column());
@@ -572,12 +578,27 @@ impl<F: Field> SubCircuitConfig<F> for KeccakCircuitConfig<F> {
                 });
             }
             let hash_bytes_le = hash_bytes.into_iter().rev().collect::<Vec<_>>();
+            // below vector, [0] is lo, [1] is hi
+            let lo_hi_vec: Vec<Expression<F>> = hash_bytes_le
+                .chunks_exact(16)
+                .map(|x| expr_from_bytes(x))
+                .collect();
             let rlc = compose_rlc::expr(&hash_bytes_le, challenges_expr.evm_word());
             cb.condition(start_new_hash, |cb| {
                 cb.require_equal(
                     "hash rlc check",
                     rlc,
                     meta.query_advice(hash_rlc, Rotation::cur()),
+                );
+                cb.require_equal(
+                    "hash hi check",
+                    lo_hi_vec[1].clone(),
+                    meta.query_advice(hash_hi, Rotation::cur()),
+                );
+                cb.require_equal(
+                    "hash lo check",
+                    lo_hi_vec[0].clone(),
+                    meta.query_advice(hash_lo, Rotation::cur()),
                 );
             });
             cb.gate(meta.query_fixed(q_round_last, Rotation::cur()))
@@ -859,6 +880,8 @@ impl<F: Field> SubCircuitConfig<F> for KeccakCircuitConfig<F> {
             input_rlc: data_rlc,
             input_len: length,
             output_rlc: hash_rlc,
+            output_hi: hash_hi,
+            output_lo: hash_lo,
             cell_manager,
             round_cst,
             normalize_3,
@@ -930,6 +953,8 @@ impl<F: Field> KeccakCircuitConfig<F> {
                 Value::known(F::from(row.length as u64)),
             ),
             ("output_rlc", self.output_rlc, row.hash_rlc),
+            ("output_hi", self.output_hi, Value::known(row.hash_hi)),
+            ("output_lo", self.output_lo, Value::known(row.hash_lo)),
         ] {
             region.assign_advice(
                 || format!("assign {} {}", name, offset),
@@ -990,6 +1015,8 @@ impl<F: Field> KeccakCircuitConfig<F> {
         region.name_column(|| "KECCAK_input_rlc", self.input_rlc);
         region.name_column(|| "KECCAK_input_len", self.input_len);
         region.name_column(|| "KECCAK_output_rlc", self.output_rlc);
+        region.name_column(|| "KECCAK_output_hi", self.output_hi);
+        region.name_column(|| "KECCAK_output_lo", self.output_lo);
     }
 }
 
@@ -1060,7 +1087,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> KeccakCircuit<F, MAX_NUM_ROW> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::keccak_circuit::keccak_packed_multi::calc_keccak_with_rlc;
+    use crate::keccak_circuit::keccak_packed_multi::{calc_keccak_hi_lo, calc_keccak_with_rlc};
     use crate::util::log2_ceil;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -1072,6 +1099,8 @@ mod test {
         pub input_len: Value<F>,
         pub input_rlc: Value<F>,
         pub output_rlc: Value<F>,
+        pub output_hi: Value<F>,
+        pub output_lo: Value<F>,
     }
 
     #[derive(Clone)]
@@ -1083,6 +1112,8 @@ mod test {
         pub input_len: Column<Advice>,
         pub challenges: Challenges,
 
+        pub output_hi: Column<Advice>,
+        pub output_lo: Column<Advice>,
         // Second phase
         pub input_rlc: Column<Advice>,
         pub output_rlc: Column<Advice>,
@@ -1110,6 +1141,8 @@ mod test {
                 input_rlc: meta.advice_column_in(SecondPhase),
                 output_rlc: meta.advice_column_in(SecondPhase),
                 challenges,
+                output_hi: meta.advice_column(),
+                output_lo: meta.advice_column(),
             }
         }
     }
@@ -1128,6 +1161,8 @@ mod test {
                 // Second phase
                 ("input_rlc", self.input_rlc, row.input_rlc),
                 ("output_rlc", self.output_rlc, row.output_rlc),
+                ("output_hi", self.output_hi, row.output_hi),
+                ("output_lo", self.output_lo, row.output_lo),
             ] {
                 region.assign_advice(
                     || format!("assign {} {}", name, offset),
@@ -1165,6 +1200,8 @@ mod test {
                 let input_rlc = meta.query_advice(config.input_rlc, Rotation::cur());
                 let input_len = meta.query_advice(config.input_len, Rotation::cur());
                 let output_rlc = meta.query_advice(config.output_rlc, Rotation::cur());
+                let output_hi = meta.query_advice(config.output_hi, Rotation::cur());
+                let output_lo = meta.query_advice(config.output_lo, Rotation::cur());
 
                 // get the value of the specified Column in BitwiseCircuit
                 let keccak_circuit_input_rlc =
@@ -1173,12 +1210,18 @@ mod test {
                     meta.query_advice(config.keccak_circuit.input_len, Rotation::cur());
                 let keccak_circuit_output_rlc =
                     meta.query_advice(config.keccak_circuit.output_rlc, Rotation::cur());
+                let keccak_circuit_output_hi =
+                    meta.query_advice(config.keccak_circuit.output_hi, Rotation::cur());
+                let keccak_circuit_output_lo =
+                    meta.query_advice(config.keccak_circuit.output_lo, Rotation::cur());
 
                 let q_enable = meta.query_selector(config.q_enable);
                 vec![
                     (q_enable.clone() * input_rlc, keccak_circuit_input_rlc),
                     (q_enable.clone() * input_len, keccak_circuit_input_len),
                     (q_enable.clone() * output_rlc, keccak_circuit_output_rlc),
+                    (q_enable.clone() * output_hi, keccak_circuit_output_hi),
+                    (q_enable.clone() * output_lo, keccak_circuit_output_lo),
                 ]
             });
 
@@ -1230,11 +1273,13 @@ mod test {
             for input in self.witness.keccak.iter() {
                 let (input_len, input_rlc, output_rlc) =
                     calc_keccak_with_rlc::<F>(input.as_slice(), &challenges);
-                // [input_rlc, Value::known(input_len), output_rlc]
+                let (output_hi, output_lo) = calc_keccak_hi_lo::<F>(input.as_slice());
                 keccak_test_rows.push(KeccakTestRow {
                     input_len,
                     input_rlc,
                     output_rlc,
+                    output_hi,
+                    output_lo,
                 });
             }
 

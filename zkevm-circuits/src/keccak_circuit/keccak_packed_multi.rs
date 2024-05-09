@@ -69,6 +69,9 @@ pub(crate) struct KeccakRow<F: Field> {
     pub(crate) length: usize,
     pub(crate) data_rlc: Value<F>,
     pub(crate) hash_rlc: Value<F>,
+    // New values for hash hi and lo value (without rlc)
+    pub(crate) hash_hi: F,
+    pub(crate) hash_lo: F,
 }
 /// Part
 #[derive(Clone, Debug)]
@@ -529,6 +532,8 @@ pub(crate) fn keccak<F: Field>(
         let mut regions = Vec::new();
 
         let mut hash_rlc: Value<F> = Value::known(F::ZERO);
+        let mut hash_hi = F::ZERO;
+        let mut hash_lo = F::ZERO;
         let mut round_lengths = Vec::new();
         let mut round_data_rlcs = Vec::new();
         for round in 0..NUM_ROUNDS + 1 {
@@ -754,6 +759,12 @@ pub(crate) fn keccak<F: Field>(
                     .flat_map(|a| to_bytes::value(&unpack(a[0])))
                     .rev()
                     .collect::<Vec<_>>();
+                let lo_hi_vec: Vec<u128> = hash_bytes_le
+                    .chunks_exact(16)
+                    .map(|x| x.iter().rev().fold(0, |acc, x| acc * 256 + (*x as u128)))
+                    .collect();
+                hash_lo = F::from_u128(lo_hi_vec[0]);
+                hash_hi = F::from_u128(lo_hi_vec[1]);
                 challenges
                     .evm_word()
                     .map(|challenge_value| rlc::value(&hash_bytes_le, challenge_value))
@@ -801,6 +812,8 @@ pub(crate) fn keccak<F: Field>(
                     length: round_lengths[round],
                     data_rlc: round_data_rlcs[round][row_idx].clone(),
                     hash_rlc: hash_rlc.clone(),
+                    hash_hi,
+                    hash_lo,
                     cell_values: regions[round].rows[row_idx].clone(),
                 });
             }
@@ -846,6 +859,20 @@ pub(crate) fn calc_keccak_with_rlc<F: Field>(
     (Value::known(input_len), input_rlc, output_rlc)
 }
 
+pub(crate) fn calc_keccak_hi_lo<F: Field>(input: &[u8]) -> (Value<F>, Value<F>) {
+    let mut keccak = Keccak::default();
+    keccak.update(input);
+    let output = keccak.digest();
+    let hi_lo_vec: Vec<u128> = output
+        .chunks_exact(16)
+        .map(|x| x.iter().fold(0, |acc, x| acc * 256 + (*x as u128)))
+        .collect();
+    (
+        Value::known(F::from_u128(hi_lo_vec[0])),
+        Value::known(F::from_u128(hi_lo_vec[1])),
+    )
+}
+
 pub(crate) fn multi_keccak<F: Field>(
     bytes: &[Vec<u8>],
     challenges: Challenges<Value<F>>,
@@ -867,6 +894,8 @@ pub(crate) fn multi_keccak<F: Field>(
             length: 0usize,
             data_rlc: Value::known(F::ZERO),
             hash_rlc: Value::known(F::ZERO),
+            hash_hi: F::ZERO,
+            hash_lo: F::ZERO,
             cell_values: Vec::new(),
         });
     }
