@@ -355,44 +355,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_state_lookup_2(
-        &self,
-        meta: &mut VirtualCells<F>,
-        num: usize,
-        at: Rotation,
-    ) -> LookupEntry<F> {
-        assert!(num < 4);
-        let (
-            tag,
-            stamp,
-            value_hi,
-            value_lo,
-            call_id_contract_addr,
-            pointer_hi,
-            pointer_lo,
-            is_write,
-        ) = (
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 0], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 1], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 2], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 3], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 4], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 5], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 6], at),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 7], at),
-        );
-        LookupEntry::State {
-            tag,
-            stamp,
-            value_hi,
-            value_lo,
-            call_id_contract_addr,
-            pointer_hi,
-            pointer_lo,
-            is_write,
-        }
-    }
-
     pub(crate) fn get_returndata_size_state_lookup(
         &self,
         meta: &mut VirtualCells<F>,

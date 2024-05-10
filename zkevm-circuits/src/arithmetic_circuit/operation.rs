@@ -36,8 +36,8 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::sdiv_smod::new(),
             crate::arithmetic_circuit::operation::slt_sgt::new(),
             crate::arithmetic_circuit::operation::sub::new(),
-            crate::arithmetic_circuit::operation::u64overflow::new(),
             crate::arithmetic_circuit::operation::u64div::new(),
+            crate::arithmetic_circuit::operation::u64overflow::new(),
         ]
     }};
 }

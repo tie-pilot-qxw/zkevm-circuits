@@ -689,7 +689,7 @@ impl WitnessExecHelper {
         let is_warm = self.state_db.address_in_access_list(&contract_addr);
 
         let res = state::Row {
-            tag: Some(Tag::SlotInAccessListStorage),
+            tag: Some(Tag::AddrInAccessListStorage),
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
             value_lo: Some((is_warm.clone() as u8).into()),
@@ -736,7 +736,7 @@ impl WitnessExecHelper {
         self.state_db.insert_access_list(contract_addr);
 
         let res = state::Row {
-            tag: Some(Tag::SlotInAccessListStorage),
+            tag: Some(Tag::AddrInAccessListStorage),
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
             value_lo: Some((value as u8).into()),
@@ -2385,61 +2385,6 @@ impl core::Row {
         }
     }
 
-    pub fn insert_state_lookups_2<const NUM_LOOKUP: usize>(
-        &mut self,
-        state_rows: [&state::Row; NUM_LOOKUP],
-    ) {
-        // this lookup must be in the row with this cnt
-        assert!(NUM_LOOKUP <= 4);
-        assert!(NUM_LOOKUP > 0);
-        for (j, state_row) in state_rows.into_iter().enumerate() {
-            for i in 0..8 {
-                assert!(self[i + j * STATE_COLUMN_WIDTH].is_none());
-            }
-            self[0 + j * STATE_COLUMN_WIDTH] = state_row.tag.map(|tag| (tag as u8).into());
-            self[1 + j * STATE_COLUMN_WIDTH] = state_row.stamp;
-            self[2 + j * STATE_COLUMN_WIDTH] = state_row.value_hi;
-            self[3 + j * STATE_COLUMN_WIDTH] = state_row.value_lo;
-            self[4 + j * STATE_COLUMN_WIDTH] = state_row.call_id_contract_addr;
-            self[5 + j * STATE_COLUMN_WIDTH] = state_row.pointer_hi;
-            self[6 + j * STATE_COLUMN_WIDTH] = state_row.pointer_lo;
-            self[7 + j * STATE_COLUMN_WIDTH] = state_row.is_write;
-            self.comments.extend([
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH),
-                    format!("tag={:?}", state_row.tag),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 1),
-                    "stamp".into(),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 2),
-                    "value_hi".into(),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 3),
-                    "value_lo".into(),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 4),
-                    "call_id".into(),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 5),
-                    "not used".into(),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 6),
-                    "stack pointer".into(),
-                ),
-                (
-                    format!("vers_{}", j * STATE_COLUMN_WIDTH + 7),
-                    "is_write: read=0, write=1".into(),
-                ),
-            ]);
-        }
-    }
     // insert returndata size in cnt =3 row , fill column ranging from 0 to 7
     pub fn insert_returndata_size_state_lookup(&mut self, state_row: &state::Row) {
         assert_eq!(self.cnt, 3.into());

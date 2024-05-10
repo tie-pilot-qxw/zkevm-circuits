@@ -22,7 +22,8 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::arithmetic::Tag::{MemoryExpansion, U64Div, U64Overflow};
-use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
+use crate::witness::state::Tag::AddrInAccessListStorage;
+use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 
 pub(super) const NUM_ROW: usize = 4;
 const STATE_STAMP_DELTA: usize = 5;
@@ -98,8 +99,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
 
-        let storage_entry = config.get_storage_lookup(meta, 0, Rotation(-3));
-        let (_, _, _, is_warm, ..) = extract_lookup_expression!(storage, storage_entry);
+        let mut is_warm: Expression<F> = 0.expr();
+        let lookups = [
+            (0, Rotation(-3), 3, false), // is_warm read
+            (1, Rotation(-3), 4, true),  // is_warm write
+        ];
+
+        for &(num, rotation, index, is_write) in &lookups {
+            let entry = config.get_storage_lookup(meta, num, rotation);
+            constraints.extend(config.get_storage_full_constraints_with_tag(
+                meta,
+                entry.clone(),
+                index,
+                NUM_ROW,
+                operands[1][0].clone(),
+                operands[1][1].clone(),
+                0.expr(),
+                0.expr(),
+                AddrInAccessListStorage,
+                is_write,
+            ));
+            let extracted = extract_lookup_expression!(storage, entry);
+            if num == 0 {
+                is_warm = extracted.3;
+            }
+        }
 
         let value_inv = meta.query_advice(config.vers[2 * STORAGE_COLUMN_WIDTH], Rotation(-3));
         let value_is_zero = SimpleIsZero::new(
