@@ -7,11 +7,9 @@ use halo2_proofs::poly::Rotation;
 use eth_types::evm_types::{GasCost, OpcodeId, GAS_STIPEND_CALL_WITH_VALUE};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::util::{select, Expr};
 
 use crate::arithmetic_circuit::operation;
-use crate::arithmetic_circuit::operation::{get_lt_operations, SLT_N_BYTES};
 use crate::constant::{NUM_AUXILIARY, STORAGE_COLUMN_WIDTH};
 use crate::execution::storage::get_multi_inverse;
 use crate::execution::ExecutionState::CALL_4;
@@ -23,7 +21,7 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::arithmetic::Tag::{MemoryExpansion, U64Div, U64Overflow};
 use crate::witness::state::Tag::AddrInAccessListStorage;
-use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 
 pub(super) const NUM_ROW: usize = 4;
 const STATE_STAMP_DELTA: usize = 5;
@@ -112,10 +110,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 entry.clone(),
                 index,
                 NUM_ROW,
+                0.expr(),
+                0.expr(),
                 operands[1][0].clone(),
                 operands[1][1].clone(),
-                0.expr(),
-                0.expr(),
                 AddrInAccessListStorage,
                 is_write,
             ));

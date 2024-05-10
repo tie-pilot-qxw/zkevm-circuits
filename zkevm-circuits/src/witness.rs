@@ -691,9 +691,10 @@ impl WitnessExecHelper {
         let res = state::Row {
             tag: Some(Tag::AddrInAccessListStorage),
             stamp: Some(self.state_stamp.into()),
+            pointer_hi: Some(contract_addr >> 128),
+            pointer_lo: Some(contract_addr.low_u128().into()),
             value_hi: None,
             value_lo: Some((is_warm.clone() as u8).into()),
-            call_id_contract_addr: Some(contract_addr),
             is_write: Some(0.into()),
             ..Default::default()
         };
@@ -740,7 +741,8 @@ impl WitnessExecHelper {
             stamp: Some(self.state_stamp.into()),
             value_hi: None,
             value_lo: Some((value as u8).into()),
-            call_id_contract_addr: Some(contract_addr),
+            pointer_hi: Some(contract_addr >> 128),
+            pointer_lo: Some(contract_addr.low_u128().into()),
             is_write: Some(1.into()),
             value_pre_hi: None,
             value_pre_lo: Some((value_pre as u8).into()),
