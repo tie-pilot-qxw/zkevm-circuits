@@ -16,10 +16,10 @@ use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 3;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 const LEN_LO_INV_COL_IDX: usize = 24;
 
-/// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// call_1..call_6为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
 /// call_1 读取argsOffset，argsLength操作数；并生成新CALL的call_id
 /// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
@@ -96,13 +96,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // 读取CALL指令调用需要的args，因为相同的args写了两份，所以需要len*2
             // 第一次args: 记录从memory读取数据
             // 第二次args: 记录数据写入calldata
-            gas_left: ExpressionOutcome::Delta(0.expr()), // 此处的gas_left值与CALL1-3保持一致
-            refund: ExpressionOutcome::Delta(0.expr()),
             state_stamp: ExpressionOutcome::Delta(
                 STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             ),
             // 未进行出栈操作，约束当前stack pointer与上个gadget相同
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            // 此处的gas_left值与CALL1-3保持一致
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         // append auxiliary constraints
@@ -304,7 +305,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
             current_state.memory_chunk_prev.into()
         );
-        // CALL1到POST_MEMORY_GAS时还未进行gas计算，此时gas_left为trace.gas
+        // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas
         core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
 
         state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);

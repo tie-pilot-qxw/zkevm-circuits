@@ -102,9 +102,9 @@ pub(crate) const STAMP_CNT_COLUMN_START_IDX: usize = 0;
 /// The index of column to store 1 , if next state is end_tx;other wise set 0
 ///  (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)
 pub(crate) const END_CALL_NEXT_IS_END_TX: usize = 3;
-/// The index of column to store 1 , if next state is call5; other wise set 0
+/// The index of column to store 1 , if next state is POST_CALL; other wise set 0
 ///  (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)
-pub(crate) const END_CALL_NEXT_IS_CALL5: usize = 4;
+pub(crate) const END_CALL_NEXT_IS_POST_CALL: usize = 4;
 
 /// The index of column to store 1, if next state is begin_tx_1;other wise set 0
 ///  (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)

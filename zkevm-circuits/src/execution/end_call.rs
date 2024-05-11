@@ -1,6 +1,6 @@
-use crate::constant::{END_CALL_NEXT_IS_CALL5, END_CALL_NEXT_IS_END_TX, NUM_AUXILIARY};
+use crate::constant::{END_CALL_NEXT_IS_END_TX, END_CALL_NEXT_IS_POST_CALL, NUM_AUXILIARY};
 use crate::execution::{
-    call_5, end_tx, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+    end_tx, post_call, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -34,9 +34,9 @@ pub(crate) const RETURNDATA_SIZE_COL_IDX: usize = 2;
 ///     2. State lookup(call_context read parent_pc), src: Core circuit, target: State circuit table, 8 columns
 ///     3. State lookup(call_context read parent_stack_pointer), src: Core circuit, target: State circuit table, 8 columns
 ///     4. State lookup(call_context read parent_code_addr), src: Core circuit, target: State circuit table, 8 columns
-///     5. SUCCESS, indicating whether the execution succeed and used by the next state (only when the next state is CALL5), 1 column
+///     5. SUCCESS, indicating whether the execution succeed and used by the next state (only when the next state is POST_CALL), 1 column
 ///     6. PARENT_CALL_ID_INV, the inverse of parent_call_id used to determine whether parent_call_id ==0, 1 column
-///     7. RETURNDATA_SIZE, the record of returndata_size used by the next state (only when the next state is CALL5)
+///     7. RETURNDATA_SIZE, the record of returndata_size used by the next state (only when the next state is POST_CALL)
 ///
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col | 8 col    |
@@ -60,7 +60,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, call_5::NUM_ROW)
+        (NUM_ROW, post_call::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -152,7 +152,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
         // 非root call时约束call_id，pc，code_addr 为父状态，因为CALL调用结束后恢复
         // 这些状态至父状态； tx_id不变，因为此时还处于一个执行过程中；
-        // 如：当call 为root call时，下一个状态为END_TX，否则为CALL_5
+        // 如：当call 为root call时，下一个状态为END_TX，否则为POST_CALL
         let core_single_delta = CoreSinglePurposeOutcome {
             call_id: ExpressionOutcome::To(parent_call_id.clone()),
             pc: ExpressionOutcome::To(parent_pc),
@@ -186,13 +186,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_END_TX],
             Rotation::cur(),
         );
-        let next_is_call5 = meta.query_advice(
+        let next_is_post_call = meta.query_advice(
             config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_CALL5],
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_POST_CALL],
             Rotation::cur(),
         );
         // prev state is RETURN_REVERT or STOP
-        // next state is END_TX or CALL_5
+        // next state is END_TX or POST_CALL
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -205,9 +205,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                         end_tx::NUM_ROW,
                         Some(next_is_end_tx),
                     ),
-                    // 当为一笔交易的中间合约调用，非root call时，约束下一个状态为CALL_5
-                    // CALL_5处理CALL调用的执行结果以及对应的栈上操作数清理
-                    (ExecutionState::CALL_5, call_5::NUM_ROW, Some(next_is_call5)),
+                    // 当为一笔交易的中间合约调用，非root call时，约束下一个状态为POST_CALL
+                    // POST_CALL处理CALL调用的执行结果以及对应的栈上操作数清理
+                    (
+                        ExecutionState::POST_CALL,
+                        post_call::NUM_ROW,
+                        Some(next_is_post_call),
+                    ),
                 ],
                 Some(vec![
                     parent_call_id_is_zero.expr(),
@@ -324,14 +328,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
             current_state.returndata_size
         );
-        // 根据next exec state 填充core row0 的 下一个状态是Call5(列29)还是EndTx(列28),分别在对应的列置为1
+        // 根据next exec state 填充core row0 的 下一个状态是POST_CALL(列29)还是EndTx(列28),分别在对应的列置为1
         match current_state.next_exec_state {
-            Some(ExecutionState::CALL_5) => {
+            Some(ExecutionState::POST_CALL) => {
                 assign_or_panic!(
                     core_row_0[NUM_STATE_HI_COL
                         + NUM_STATE_LO_COL
                         + NUM_AUXILIARY
-                        + END_CALL_NEXT_IS_CALL5],
+                        + END_CALL_NEXT_IS_POST_CALL],
                     U256::one()
                 );
             }
@@ -415,7 +419,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::CALL_5.into_exec_state_core_row(
+            let mut row = ExecutionState::POST_CALL.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
@@ -424,7 +428,7 @@ mod test {
             row.pc = 100.into();
             row
         };
-        current_state.next_exec_state = Some(ExecutionState::CALL_5);
+        current_state.next_exec_state = Some(ExecutionState::POST_CALL);
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();

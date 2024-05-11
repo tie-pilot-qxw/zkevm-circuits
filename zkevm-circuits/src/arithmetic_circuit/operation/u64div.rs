@@ -9,6 +9,9 @@ use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
+/// formula: numerator / denominator = quotient (r) remainder.
+/// numerator, denominator, quotient, remainder is u64 range.
+/// denominator is usually a constant value, such as 32, 64, 512, etc.
 pub(crate) struct MemoryExpansionGadget<F>(PhantomData<F>);
 
 impl<F: Field> OperationGadget<F> for MemoryExpansionGadget<F> {
@@ -74,9 +77,9 @@ impl<F: Field> OperationGadget<F> for MemoryExpansionGadget<F> {
         ));
 
         // Constrain remainder < denominator
-        let is_expansion: SimpleLtGadget<F, 8> =
-            SimpleLtGadget::new(&remainder, &denominator, &lt, &diff);
-        constraints.extend(is_expansion.get_constraints());
+        let less: SimpleLtGadget<F, 8> =
+            SimpleLtGadget::new(&remainder, &denominator, &1.expr(), &diff);
+        constraints.extend(less.get_constraints());
 
         constraints
     }
@@ -102,31 +105,13 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
     let (quotient, remainder) = numerator.div_mod(denominator);
     assert!(remainder < denominator);
 
-    let mut numerator_u16s: Vec<u16> = numerator
-        .to_le_bytes()
-        .split_at(8)
-        .0
-        .chunks(2)
-        .map(|x| x[0] as u16 + x[1] as u16 * 256)
-        .collect();
+    let mut numerator_u16s: Vec<u16> = u64_to_u16s(numerator);
     assert_eq!(4, numerator_u16s.len());
 
-    let mut denominator_u16s: Vec<u16> = denominator
-        .to_le_bytes()
-        .split_at(8)
-        .0
-        .chunks(2)
-        .map(|x| x[0] as u16 + x[1] as u16 * 256)
-        .collect();
+    let mut denominator_u16s: Vec<u16> = u64_to_u16s(denominator);
     assert_eq!(4, denominator_u16s.len());
 
-    let mut quotient_u16s: Vec<u16> = quotient
-        .to_le_bytes()
-        .split_at(8)
-        .0
-        .chunks(2)
-        .map(|x| x[0] as u16 + x[1] as u16 * 256)
-        .collect();
+    let mut quotient_u16s: Vec<u16> = u64_to_u16s(quotient);
     assert_eq!(4, quotient_u16s.len());
     numerator_u16s.extend(denominator_u16s);
 
@@ -157,6 +142,14 @@ pub(crate) fn gen_witness(operands: Vec<U256>) -> (Vec<Row>, Vec<U256>) {
 
 pub(crate) fn new<F: Field>() -> Box<dyn OperationGadget<F>> {
     Box::new(MemoryExpansionGadget(PhantomData))
+}
+
+fn u64_to_u16s(num: U256) -> Vec<u16> {
+    num.as_u64()
+        .to_le_bytes()
+        .chunks(2)
+        .map(|x| x[0] as u16 + x[1] as u16 * 256)
+        .collect()
 }
 
 #[cfg(test)]

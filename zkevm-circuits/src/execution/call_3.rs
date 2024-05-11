@@ -1,7 +1,7 @@
 use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
 use crate::execution::{
-    call_4, post_call_memory_gas, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome,
-    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    call_4, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+    ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -15,9 +15,9 @@ use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 
-/// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// call_1..call_6为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
 /// call_3负责存储call的父调用环境，不读取任何CALL指令操作数；
 /// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
@@ -49,7 +49,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for Call3Gadget<F>
 {
     fn name(&self) -> &'static str {
-        "CALL3"
+        "CALL_3"
     }
     fn execution_state(&self) -> ExecutionState {
         ExecutionState::CALL_3
@@ -58,7 +58,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, post_call_memory_gas::NUM_ROW)
+        (NUM_ROW, call_4::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -190,17 +190,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
         constraints
             .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
-        // prev state is CALL_2, next state is POST_CALL_MEMORY_GAS
+        // prev state is CALL_2, next state is CALL_4
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
                 vec![ExecutionState::CALL_2],
                 NUM_ROW,
-                vec![(
-                    ExecutionState::POST_CALL_MEMORY_GAS,
-                    post_call_memory_gas::NUM_ROW,
-                    None,
-                )],
+                vec![(ExecutionState::CALL_4, call_4::NUM_ROW, None)],
                 None,
             ),
         ));
@@ -293,7 +289,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
             current_state.memory_chunk_prev.into()
         );
-        // CALL1到POST_MEMORY_GAS时还未进行gas计算，此时gas_left为trace.gas
+        // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas
         core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
 
         Witness {
@@ -361,7 +357,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let row = ExecutionState::POST_CALL_MEMORY_GAS.into_exec_state_core_row(
+            let row = ExecutionState::CALL_4.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
