@@ -119,6 +119,8 @@ pub struct WitnessExecHelper {
     pub is_create: bool,
     // 存储下一个指令的第一个状态
     pub next_exec_state: Option<ExecutionState>,
+    // 暂存call指令的memory_gas_cost
+    pub memory_gas_cost: u64,
 }
 
 impl WitnessExecHelper {
@@ -159,6 +161,7 @@ impl WitnessExecHelper {
             state_db: StateDB::new(),
             is_create: false,
             call_data_gas_cost: HashMap::new(),
+            memory_gas_cost: 0,
         }
     }
 
@@ -324,13 +327,13 @@ impl WitnessExecHelper {
                 if self.parent_call_id[&self.call_id] == 0 {
                     self.next_exec_state = Some(ExecutionState::END_TX)
                 } else {
-                    self.next_exec_state = Some(ExecutionState::CALL_5);
+                    self.next_exec_state = Some(ExecutionState::POST_CALL);
                 }
             }
             if prev_is_return_revert_or_stop {
-                // append CALL5 when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append CALL5 at the end of the top-level call, because the total for-loop has ended)
+                // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
-                // 如果调用到CALL5,说明在CALL的流程并准备结束，此时CALL5的gas应该与CALL opcode时的gas保持一致，也即step.gas
+                // 如果调用到POST_CALL,说明在CALL的流程并准备结束，此时POST_CALL的gas应该与CALL opcode时的gas保持一致，也即step.gas
                 // 假设trace操作为：
                 // CALL --------- (1)
                 // PUSH1 1 ------ (2)
@@ -338,21 +341,21 @@ impl WitnessExecHelper {
                 // PUSH1 2 ------ (4)
                 // 当CALL指令时，call_step_store push CALL此时的step；
                 // 当STOP指令时，call_step_store pop CALL此时的step，即(1)时的状态；
-                // 当执行到(4)时，实际上会先进入到CALL_5，我们希望CALL_5的gas_left应该为(4)的gas，也即step.gas
-                // 由于CALL指令gas计算比较复杂，CALL_5的gas_left不能直接用call_step_store.gas - call_step_store.gas_cost，
-                // 所以没有采用在CALL_5中单独修改gas_left。
+                // 当执行到(4)时，实际上会先进入到POST_CALL，我们希望POST_CALL的gas_left应该为(4)的gas，也即step.gas
+                // 由于CALL指令gas计算比较复杂，POST_CALL的gas_left不能直接用call_step_store.gas - call_step_store.gas_cost，
+                // 所以没有采用在POST_CALL中单独修改gas_left。
                 // 因此对于下面的self.gas_left = step.gas - step.gas_cost操作没有放在update_from_next_step中，
                 // 因为在执行到PUSH1(4)时，我们需要PUSH1(4)的gas_left = step.gas - step.gas_cost.
                 self.gas_left = step.gas;
                 res.append(
                     execution_gadgets_map
-                        .get(&ExecutionState::CALL_5)
+                        .get(&ExecutionState::POST_CALL)
                         .unwrap()
                         .gen_witness(call_trace_step, self),
                 );
                 prev_is_return_revert_or_stop = false;
             }
-            // 执行状态后的gas计算下移，不放在update_from_next中，因为在CALL5中会改变这个值
+            // 执行状态后的gas计算下移，不放在update_from_next中，因为在POST_CALL中会改变这个值
             // 这里self.gas_left没有直接赋值为next_step.gas的原因是CALL里STOP时的gas_left应该为cur_gas - cur_gas_cost，而不是next_step.gas
             self.gas_left = step.gas - step.gas_cost;
             res.append(self.generate_execution_witness(step, &execution_gadgets_map));
@@ -682,6 +685,23 @@ impl WitnessExecHelper {
         res
     }
 
+    pub fn get_addr_access_list_read_row(&mut self, contract_addr: U256) -> (state::Row, bool) {
+        let is_warm = self.state_db.address_in_access_list(&contract_addr);
+
+        let res = state::Row {
+            tag: Some(Tag::AddrInAccessListStorage),
+            stamp: Some(self.state_stamp.into()),
+            pointer_hi: Some(contract_addr >> 128),
+            pointer_lo: Some(contract_addr.low_u128().into()),
+            value_hi: None,
+            value_lo: Some((is_warm.clone() as u8).into()),
+            is_write: Some(0.into()),
+            ..Default::default()
+        };
+        self.state_stamp += 1;
+
+        (res, is_warm)
+    }
     pub fn get_slot_access_list_read_row(
         &mut self,
         contract_addr: U256,
@@ -707,6 +727,30 @@ impl WitnessExecHelper {
         (res, is_warm)
     }
 
+    pub fn get_addr_access_list_write_row(
+        &mut self,
+        contract_addr: U256,
+        value: bool,
+        value_pre: bool,
+    ) -> state::Row {
+        // 在read完以后这个值实际上已经变为了true
+        self.state_db.insert_access_list(contract_addr);
+
+        let res = state::Row {
+            tag: Some(Tag::AddrInAccessListStorage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: None,
+            value_lo: Some((value as u8).into()),
+            pointer_hi: Some(contract_addr >> 128),
+            pointer_lo: Some(contract_addr.low_u128().into()),
+            is_write: Some(1.into()),
+            value_pre_hi: None,
+            value_pre_lo: Some((value_pre as u8).into()),
+            ..Default::default()
+        };
+        self.state_stamp += 1;
+        res
+    }
     pub fn get_slot_access_list_write_row(
         &mut self,
         contract_addr: U256,
@@ -2342,6 +2386,7 @@ impl core::Row {
             ]);
         }
     }
+
     // insert returndata size in cnt =3 row , fill column ranging from 0 to 7
     pub fn insert_returndata_size_state_lookup(&mut self, state_row: &state::Row) {
         assert_eq!(self.cnt, 3.into());
@@ -2564,6 +2609,14 @@ impl core::Row {
                     (format!("vers_{}", offset + 1), "memory_chunk_prev".into()),
                     (format!("vers_{}", offset + 2), "expansion_tag".into()),
                     (format!("vers_{}", offset + 3), "access_memory_size".into()),
+                ]);
+            }
+            arithmetic::Tag::U64Div => {
+                self.comments.extend([
+                    (format!("vers_{}", offset), "numerator".into()),
+                    (format!("vers_{}", offset + 1), "denominator".into()),
+                    (format!("vers_{}", offset + 2), "quotient".into()),
+                    (format!("vers_{}", offset + 3), "remainder".into()),
                 ]);
             }
             _ => (),

@@ -1053,7 +1053,7 @@ fn get_diff_inv<F: Field>(lhs: &U256, rhs: &U256) -> U256 {
 
     U256::from_little_endian(eq.to_repr().as_ref())
 }
-fn get_multi_inverse<F: Field>(a: U256) -> U256 {
+pub fn get_multi_inverse<F: Field>(a: U256) -> U256 {
     let a_hi = F::from_u128((a >> 128).as_u128());
     let a_lo = F::from_u128(a.low_u128());
 

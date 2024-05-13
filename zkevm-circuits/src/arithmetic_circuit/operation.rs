@@ -8,6 +8,7 @@ pub(crate) mod mulmod;
 pub(crate) mod sdiv_smod;
 pub(crate) mod slt_sgt;
 pub(crate) mod sub;
+pub(crate) mod u64div;
 pub(crate) mod u64overflow;
 
 use crate::arithmetic_circuit::ArithmeticCircuitConfig;
@@ -35,6 +36,7 @@ macro_rules! get_every_operation_gadgets {
             crate::arithmetic_circuit::operation::sdiv_smod::new(),
             crate::arithmetic_circuit::operation::slt_sgt::new(),
             crate::arithmetic_circuit::operation::sub::new(),
+            crate::arithmetic_circuit::operation::u64div::new(),
             crate::arithmetic_circuit::operation::u64overflow::new(),
         ]
     }};

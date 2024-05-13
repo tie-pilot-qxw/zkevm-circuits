@@ -1,4 +1,4 @@
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
 use crate::execution::{
     call_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -16,10 +16,10 @@ use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 3;
-const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at call5
+const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 const LEN_LO_INV_COL_IDX: usize = 24;
 
-/// call_1..call_4为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// call_1..call_6为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
 /// call_1 读取argsOffset，argsLength操作数；并生成新CALL的call_id
 /// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
@@ -71,12 +71,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id_cur = meta.query_advice(config.call_id, Rotation::cur());
-        let Auxiliary { state_stamp, .. } = config.get_auxiliary();
+        let Auxiliary {
+            state_stamp,
+            memory_chunk,
+            ..
+        } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
         let stamp_init_for_next_gadget = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
+        let memory_chunk_prev_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            Rotation::cur(),
+        );
+        let memory_chunk_prev = meta.query_advice(memory_chunk, Rotation(-1 * NUM_ROW as i32));
+
         let call_id_new = state_stamp_prev.clone() + 1.expr();
 
         let copy_entry = config.get_copy_lookup(meta, 0);
@@ -91,10 +101,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             // 未进行出栈操作，约束当前stack pointer与上个gadget相同
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            // 此处的gas_left值与CALL1-3保持一致
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         // append auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..3 {
@@ -170,11 +184,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy_entry,
         ));
         // append opcode constraint
-        constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
-        constraints.extend([(
-            "state_init_for_next_gadget correct".into(),
-            stamp_init_for_next_gadget - state_stamp_prev,
-        )]);
+        constraints.extend([
+            ("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr()),
+            (
+                "state_init_for_next_gadget correct".into(),
+                stamp_init_for_next_gadget - state_stamp_prev,
+            ),
+            (
+                "memory_chunk_prev_for_next correct".into(),
+                memory_chunk_prev_for_next - memory_chunk_prev,
+            ),
+        ]);
+
         // append core single purpose constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome {
             ..Default::default()
@@ -279,6 +300,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             stamp_init.into()
         );
+        // core_row_0写入memory_chunk_prev, 向下传至memory gas计算部分
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            current_state.memory_chunk_prev.into()
+        );
+        // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+
         state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);
         Witness {
             copy: copy_rows,
@@ -338,6 +367,8 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+
             row
         };
         let padding_end_row = |current_state| {

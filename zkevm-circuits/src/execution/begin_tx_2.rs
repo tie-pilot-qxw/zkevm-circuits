@@ -1,3 +1,11 @@
+use std::marker::PhantomData;
+
+use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
+
+use eth_types::{Field, GethExecStep};
+use gadgets::util::Expr;
+
 use crate::execution::{
     begin_tx_3, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
     ExecutionState,
@@ -6,11 +14,6 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{public, WitnessExecHelper};
 use crate::witness::{state::CallContextTag, Witness};
-use eth_types::{Field, GethExecStep};
-use gadgets::util::Expr;
-use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
-use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
@@ -240,11 +243,13 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
-    use std::collections::HashMap;
+
     generate_execution_gadget_test_circuit!();
 
     #[test]
