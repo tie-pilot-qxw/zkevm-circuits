@@ -266,7 +266,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         )]);
 
         let delta = AuxiliaryOutcome {
-            // 上面约束过gas_left，这里就不需要再约束了
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),

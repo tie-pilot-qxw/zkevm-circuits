@@ -22,7 +22,7 @@ const STATE_STAMP_DELTA: usize = 4;
 /// ret_offset, ret_length操作数等CALL执行完成后再进行操作
 /// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
 ///
-/// Call6 is the fourth step of opcode CALL.
+/// Call6 is the sixth step of opcode CALL.
 /// After Call6, there should be execution states of the callee.
 /// Algorithm overview:
 ///     1. read gas, addr from stack (temporarily not popped)
