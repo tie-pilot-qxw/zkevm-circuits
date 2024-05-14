@@ -121,6 +121,10 @@ pub struct WitnessExecHelper {
     pub next_exec_state: Option<ExecutionState>,
     // 暂存call指令的memory_gas_cost
     pub memory_gas_cost: u64,
+    // 存储父环境的trace.gas
+    pub parent_trace_gas: HashMap<u64, u64>,
+    // 存储父环境的trace.gas_cost
+    pub parent_trace_gas_cost: HashMap<u64, u64>,
 }
 
 impl WitnessExecHelper {
@@ -162,6 +166,8 @@ impl WitnessExecHelper {
             is_create: false,
             call_data_gas_cost: HashMap::new(),
             memory_gas_cost: 0,
+            parent_trace_gas: HashMap::new(),
+            parent_trace_gas_cost: HashMap::new(),
         }
     }
 
@@ -327,7 +333,7 @@ impl WitnessExecHelper {
                 if self.parent_call_id[&self.call_id] == 0 {
                     self.next_exec_state = Some(ExecutionState::END_TX)
                 } else {
-                    self.next_exec_state = Some(ExecutionState::POST_CALL);
+                    self.next_exec_state = Some(ExecutionState::POST_CALL_1);
                 }
             }
             if prev_is_return_revert_or_stop {
@@ -349,7 +355,13 @@ impl WitnessExecHelper {
                 self.gas_left = step.gas;
                 res.append(
                     execution_gadgets_map
-                        .get(&ExecutionState::POST_CALL)
+                        .get(&ExecutionState::POST_CALL_1)
+                        .unwrap()
+                        .gen_witness(call_trace_step, self),
+                );
+                res.append(
+                    execution_gadgets_map
+                        .get(&ExecutionState::POST_CALL_2)
                         .unwrap()
                         .gen_witness(call_trace_step, self),
                 );

@@ -23,7 +23,7 @@ const PC_DELTA: u64 = 1;
 const START_COL_IDX: usize = 11;
 
 /// 当evm CALL指令调用结束后，正常返回或异常出错时（如：REVERT，STOP）时，调用当前 gadget
-/// post_call is the last step of opcode CALL, which is
+/// post_call_2 is the last step of opcode CALL, which is
 /// located after the callee's all execution states.
 ///
 /// Algorithn overview:
@@ -52,17 +52,17 @@ const START_COL_IDX: usize = 11;
 /// Note:
 ///     1. The actual number of bytes copied might be smaller than ret_len, and we use length arithmetic to handle the problem.
 ///     2. According to Ethereum, the exceeding parts won't be padded with 0, so we don't need ZERO_COPY lookup.
-pub struct PostCallGadget<F: Field> {
+pub struct PostCall2Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PostCallGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PostCall2Gadget<F>
 {
     fn name(&self) -> &'static str {
-        "POST_CALL"
+        "POST_CALL_2"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::POST_CALL
+        ExecutionState::POST_CALL_2
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -95,10 +95,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             // 弹出7个栈上元素，push 1个栈上元素，所以栈帧相差6
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
@@ -169,7 +172,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // prev state is END_CALL
         constraints.extend(config.get_exec_state_constraints(
             meta,
-            ExecStateTransition::new(vec![ExecutionState::END_CALL], NUM_ROW, vec![], None),
+            ExecStateTransition::new(vec![ExecutionState::POST_CALL_1], NUM_ROW, vec![], None),
         ));
         // append opcode constraint
         constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
@@ -311,7 +314,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &call_context_read_row,
             &stack_write_row,
         ]);
-        let core_row_0 = ExecutionState::POST_CALL.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::POST_CALL_2.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -343,7 +346,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(PostCallGadget {
+    Box::new(PostCall2Gadget {
         _marker: PhantomData,
     })
 }
@@ -382,7 +385,7 @@ mod test {
         let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_CALL.into_exec_state_core_row(
+            let mut row = ExecutionState::POST_CALL_1.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

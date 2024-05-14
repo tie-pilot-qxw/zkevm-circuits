@@ -12,6 +12,7 @@ pub mod call_3;
 pub mod call_4;
 pub mod call_5;
 pub mod call_6;
+pub mod call_7;
 pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
@@ -41,7 +42,8 @@ pub mod mstore8;
 pub mod mulmod;
 pub mod not;
 pub mod pop;
-pub mod post_call;
+pub mod post_call_1;
+pub mod post_call_2;
 pub mod public_context;
 pub mod push;
 pub mod return_revert;
@@ -98,7 +100,9 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::call_4::new(),
             crate::execution::call_5::new(),
             crate::execution::call_6::new(),
-            crate::execution::post_call::new(),
+            crate::execution::call_7::new(),
+            crate::execution::post_call_1::new(),
+            crate::execution::post_call_2::new(),
             crate::execution::call_context::new(),
             crate::execution::calldatacopy::new(),
             crate::execution::calldataload::new(),
@@ -2213,7 +2217,9 @@ pub enum ExecutionState {
     CALL_4,
     CALL_5,
     CALL_6,
-    POST_CALL,
+    CALL_7,
+    POST_CALL_1,
+    POST_CALL_2,
     END_CALL,
     END_TX,
     SDIV_SMOD,
@@ -2437,6 +2443,7 @@ impl ExecutionState {
                     Self::CALL_4,
                     Self::CALL_5,
                     Self::CALL_6,
+                    Self::CALL_7,
                 ]
             }
             OpcodeId::CALLCODE => {

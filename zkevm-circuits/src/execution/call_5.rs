@@ -27,7 +27,7 @@ pub(super) const NUM_ROW: usize = 4;
 const STATE_STAMP_DELTA: usize = 5;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 
-/// call_5 前一个指令为call_4,后一个指令为call_6
+/// call_5 前一个指令为call_4,后一个指令为call_6， call_5用于计算call最终的gas费用
 /// call_5 需要参数为三个栈元素，一个存储元素：
 /// - gas: 用于计算callGas;
 /// - addr: 用于判断访问地址是否为空账户（暂时未实现）；
@@ -35,6 +35,7 @@ const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 /// - is_warm: EIP2929增加的计费规则;
 ///
 /// Table layout:
+///     cnt = 0, trace gas and trace gas cost for next gadget;
 ///     cnt = 1, STATE0, STATE1, STATE2 represent gas, addr, and value respectively.
 ///     cnt = 2:
 ///         1. U64Div is available_gas / 64;
@@ -47,14 +48,14 @@ const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 ///         3. value_inv is `value == zero` required parameters;
 ///         4. capped_gas_left is lower degree required parameters;
 ///         
-/// +-----+-------------------+---------------------+---------------------+------------------------+
-/// | cnt |                   |                     |                     |                        |
-/// +-----+-------------------+---------------------+---------------------+------------------------+
-/// | 3   | STORAGE_READ(0..11)| STORAGE_WRITE(12..23)| value_inv(24)     | capped_gas_left(25)    |
-/// | 2   | U64Div(2..6)      | U64Overflow(7..11)  | U64Overflow(12..16) | MemoryExpansion(17..21)|
-/// | 1   | STATE0(0..7)      | STATE1(8..15)       | STATE2(16..23)      |                        |
-/// | 0   | dynamic(0..17)    | AUX(18..24)         |                     |                        |
-/// +-----+-------------------+---------------------+---------------------+------------------------+
+/// +-----+-------------------+---------------------+---------------------+------------------------+---------------+
+/// | cnt |                   |                     |                     |                        |               |
+/// +-----+-------------------+---------------------+---------------------+------------------------|----------+----+
+/// | 3   | STORAGE_READ(0..11)| STORAGE_WRITE(12..23)| value_inv(24)     | capped_gas_left(25)    |               |
+/// | 2   | U64Div(2..6)      | U64Overflow(7..11)  | U64Overflow(12..16) | MemoryExpansion(17..21)|               |
+/// | 1   | STATE0(0..7)      | STATE1(8..15)       | STATE2(16..23)      |                        |               |
+/// | 0   | dynamic(0..17)    | AUX(18..24)         |   STAMP_INIT(25)    | TRACE_GAS(26) | TRACE_GAS_COST(27)     |
+/// +-----+-------------------+---------------------+---------------------+---------------|-------------------+----+
 
 pub struct Call5Gadget<F: Field> {
     _marker: PhantomData<F>,
@@ -147,7 +148,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let Auxiliary { gas_left, .. } = config.get_auxiliary();
         let gas_left_before_exec = meta.query_advice(gas_left, Rotation(-1 * NUM_ROW as i32));
-        let available_gas = gas_left_before_exec - base_gas - memory_gas_cost;
+        let available_gas =
+            gas_left_before_exec.clone() - base_gas.clone() - memory_gas_cost.clone();
 
         let (tag, [one_64th_numerator, one_64th_denominator, available_gas_one_64th, _]) =
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 0));
@@ -259,11 +261,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
-        // append constraint for the next execution state's stamp_init
-        constraints.extend([(
-            "state_init_for_next_gadget correct".into(),
-            stamp_init_for_next_gadget - state_stamp_init,
-        )]);
+
+        let trace_gas_for_next_gadget = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            Rotation::cur(),
+        );
+        let trace_gas_cost_for_next_gadget = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            Rotation::cur(),
+        );
+
+        let gas_cost = base_gas + memory_gas_cost + call_gas.clone();
+        constraints.extend([
+            (
+                // append constraint for the next execution state's stamp_init
+                "state_init_for_next_gadget correct".into(),
+                stamp_init_for_next_gadget - state_stamp_init,
+            ),
+            // trace.gas and trace.gas_cost for next
+            (
+                "trace_gas_for_next_gadget correct".into(),
+                trace_gas_for_next_gadget - gas_left_before_exec,
+            ),
+            (
+                "trace_gas_cost_for_next_gadget correct".into(),
+                trace_gas_cost_for_next_gadget - gas_cost,
+            ),
+        ]);
 
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
@@ -458,6 +482,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             stamp_init.into()
         );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            trace.gas.into()
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            trace.gas_cost.into()
+        );
         let state_rows = vec![
             stack_read_0,
             stack_read_1,
@@ -533,6 +565,8 @@ mod test {
 
         let mut trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
         trace.gas = 0x254023;
+        // 此测试用例计算出的gas_cost
+        trace.gas_cost = 0x2D57;
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::CALL_4.into_exec_state_core_row(

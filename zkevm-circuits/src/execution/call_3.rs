@@ -17,7 +17,7 @@ pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 
-/// call_1..call_6为 CALL指令调用之前的操作，即此时仍在父CALL环境，
+/// call_1..call_7为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
 /// call_3负责存储call的父调用环境，不读取任何CALL指令操作数；
 /// |gas | addr | value | argsOffset | argsLength | retOffset | retLength
