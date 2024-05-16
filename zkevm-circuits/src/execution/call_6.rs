@@ -82,9 +82,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     NUM_ROW,
                     true,
                     if i == 0 {
-                        state::CallContextTag::ParentTraceGas as u8
+                        state::CallContextTag::ParentGas as u8
                     } else {
-                        state::CallContextTag::ParentTraceGasCost as u8
+                        state::CallContextTag::ParentGasCost as u8
                     }
                     .expr(),
                     call_id.clone(),
@@ -181,22 +181,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 这是因为我们在计算post_call_1获取gas值时，此时已经恢复到父环境了，call_id也是父环境的
         // 在call_7时，call_id会被赋值为call_id_new, 在end_call时，会重新赋值为父环境的call_id
         let call_context_write_0 = current_state.get_call_context_write_row(
-            state::CallContextTag::ParentTraceGas,
+            state::CallContextTag::ParentGas,
             trace.gas.into(),
             current_state.call_id.into(),
         );
 
         let call_context_write_1 = current_state.get_call_context_write_row(
-            state::CallContextTag::ParentTraceGasCost,
+            state::CallContextTag::ParentGasCost,
             trace.gas_cost.into(),
             current_state.call_id.into(),
         );
 
         current_state
-            .parent_trace_gas
+            .parent_gas
             .insert(current_state.call_id, trace.gas);
         current_state
-            .parent_trace_gas_cost
+            .parent_gas_cost
             .insert(current_state.call_id, trace.gas_cost);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);

@@ -23,7 +23,7 @@ const STATE_STAMP_DELTA: usize = 2;
 /// POST_CALL_1 用于处理gas相关的call_context操作，在call_6时write trace.gas 和 trace.gas_cost
 /// 在POST_CALL_1时read call_context, 从而完成 POST_CALL_1的gas约束
 ///
-/// post_call_1 is the last step of opcode CALL, which is
+/// post_call_1 is one of the last steps of opcode CALL, which is
 /// located after the callee's all execution states.
 /// Table layout:
 ///     cnt == 0: RETURN_SUCCESS, RETURNDATA_SIZE for next gadget
@@ -74,9 +74,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     NUM_ROW,
                     false,
                     if i == 0 {
-                        state::CallContextTag::ParentTraceGas as u8
+                        state::CallContextTag::ParentGas as u8
                     } else {
-                        state::CallContextTag::ParentTraceGasCost as u8
+                        state::CallContextTag::ParentGasCost as u8
                     }
                     .expr(),
                     call_id.clone(),
@@ -169,17 +169,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let parent_trace_gas = current_state.parent_trace_gas[&current_state.call_id];
-        let parent_trace_gas_cost = current_state.parent_trace_gas_cost[&current_state.call_id];
+        let parent_trace_gas = current_state.parent_gas[&current_state.call_id];
+        let parent_trace_gas_cost = current_state.parent_gas_cost[&current_state.call_id];
 
         let call_context_read_0 = current_state.get_call_context_read_row_with_arbitrary_tag(
-            state::CallContextTag::ParentTraceGas,
+            state::CallContextTag::ParentGas,
             parent_trace_gas.into(),
             current_state.call_id.into(),
         );
 
         let call_context_read_1 = current_state.get_call_context_read_row_with_arbitrary_tag(
-            state::CallContextTag::ParentTraceGasCost,
+            state::CallContextTag::ParentGasCost,
             parent_trace_gas_cost.into(),
             current_state.call_id.into(),
         );
@@ -247,10 +247,10 @@ mod test {
         current_state.state_stamp = state_stamp_init + 3 + 2 * 0x04 + 2 + 4;
         current_state.call_id_new = state_stamp_init + 1;
         current_state
-            .parent_trace_gas
+            .parent_gas
             .insert(current_state.call_id, 0u64.into());
         current_state
-            .parent_trace_gas_cost
+            .parent_gas_cost
             .insert(current_state.call_id, 0u64.into());
 
         let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);

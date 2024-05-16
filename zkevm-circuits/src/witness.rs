@@ -122,9 +122,9 @@ pub struct WitnessExecHelper {
     // 暂存call指令的memory_gas_cost
     pub memory_gas_cost: u64,
     // 存储父环境的trace.gas
-    pub parent_trace_gas: HashMap<u64, u64>,
+    pub parent_gas: HashMap<u64, u64>,
     // 存储父环境的trace.gas_cost
-    pub parent_trace_gas_cost: HashMap<u64, u64>,
+    pub parent_gas_cost: HashMap<u64, u64>,
 }
 
 impl WitnessExecHelper {
@@ -166,8 +166,8 @@ impl WitnessExecHelper {
             is_create: false,
             call_data_gas_cost: HashMap::new(),
             memory_gas_cost: 0,
-            parent_trace_gas: HashMap::new(),
-            parent_trace_gas_cost: HashMap::new(),
+            parent_gas: HashMap::new(),
+            parent_gas_cost: HashMap::new(),
         }
     }
 

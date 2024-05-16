@@ -23,7 +23,7 @@ const PC_DELTA: u64 = 1;
 const START_COL_IDX: usize = 11;
 
 /// 当evm CALL指令调用结束后，正常返回或异常出错时（如：REVERT，STOP）时，调用当前 gadget
-/// post_call_2 is the last step of opcode CALL, which is
+/// post_call_2 is one of the last steps of opcode CALL, which is
 /// located after the callee's all execution states.
 ///
 /// Algorithn overview:
