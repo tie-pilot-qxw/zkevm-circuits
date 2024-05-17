@@ -1,7 +1,7 @@
 use crate::constant::{END_CALL_NEXT_IS_END_TX, END_CALL_NEXT_IS_POST_CALL, NUM_AUXILIARY};
 use crate::execution::{
-    end_tx, post_call, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
+    end_tx, post_call_1, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome,
+    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -59,8 +59,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn num_row(&self) -> usize {
         NUM_ROW
     }
+    // 最大向下延伸3行，所以这里是end_tx::NUM_ROW
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, post_call::NUM_ROW)
+        (NUM_ROW, end_tx::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -125,10 +126,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pointer: ExpressionOutcome::Delta(
                 parent_call_id.clone() * (parent_stack_pointer - stack_pointer_prev),
             ),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
 
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
         //constraint success is either 0 or 1
         let success = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
@@ -208,8 +212,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     // 当为一笔交易的中间合约调用，非root call时，约束下一个状态为POST_CALL
                     // POST_CALL处理CALL调用的执行结果以及对应的栈上操作数清理
                     (
-                        ExecutionState::POST_CALL,
-                        post_call::NUM_ROW,
+                        ExecutionState::POST_CALL_1,
+                        post_call_1::NUM_ROW,
                         Some(next_is_post_call),
                     ),
                 ],
@@ -330,7 +334,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // 根据next exec state 填充core row0 的 下一个状态是POST_CALL(列29)还是EndTx(列28),分别在对应的列置为1
         match current_state.next_exec_state {
-            Some(ExecutionState::POST_CALL) => {
+            Some(ExecutionState::POST_CALL_1) => {
                 assign_or_panic!(
                     core_row_0[NUM_STATE_HI_COL
                         + NUM_STATE_LO_COL
@@ -419,7 +423,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::POST_CALL.into_exec_state_core_row(
+            let mut row = ExecutionState::POST_CALL_1.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
@@ -428,7 +432,7 @@ mod test {
             row.pc = 100.into();
             row
         };
-        current_state.next_exec_state = Some(ExecutionState::POST_CALL);
+        current_state.next_exec_state = Some(ExecutionState::POST_CALL_1);
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();

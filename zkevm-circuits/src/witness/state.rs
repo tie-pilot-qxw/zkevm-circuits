@@ -62,6 +62,8 @@ pub enum CallContextTag {
     ParentCodeContractAddr,
     ParentProgramCounter,
     ParentStackPointer,
+    ParentGas,
+    ParentGasCost,
     StorageContractAddr,
     SenderAddr,
     Value,

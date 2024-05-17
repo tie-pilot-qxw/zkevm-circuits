@@ -27,7 +27,7 @@ pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = 0;
 
-/// call_4 前一个指令为call_3, 后一个指令为call_5
+/// call_4 前一个指令为call_3, 后一个指令为call_5， call_4用于计算call的memory gas cost
 /// call_4 需要4个栈元素：
 /// - args_offset, args_length, ret_offset, ret_length: 计算读取的数据位置
 ///
@@ -46,7 +46,7 @@ const STACK_POINTER_DELTA: i32 = 0;
 /// +-----+----------------+-------------------------+-------------------------+----------------+---------------------+------------------+-----------------+
 /// | 2   | U64Div(2..6)   | MemoryExpansion(7..11)  | MemoryExpansion(12..16) | U64Div(17..21) | U64Div(22..26)      | args_len_inv(27) | ret_len_inv(28) |
 /// | 1   | STATE0(0..7)   | STATE1(8..15)           | STATE2(16..23)          | STATE3(24..31) |                     |                  |                 |
-/// | 0   | DYNAMIC(0..17) | AUX(18..24)             | STATE_STAMP_INIT(24)    | MEMORY_GAS(26) |                     |                  |                 |
+/// | 0   | DYNAMIC(0..17) | AUX(18..24)             | STATE_STAMP_INIT(25)    | MEMORY_GAS(26) |                     |                  |                 |
 /// +-----+----------------+-------------------------+-------------------------+----------------+---------------------+------------------+-----------------+
 
 pub struct Call4Gadget<F: Field> {
