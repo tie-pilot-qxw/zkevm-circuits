@@ -1,4 +1,4 @@
-use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
+use crate::constant::{GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NUM_AUXILIARY};
 use crate::execution::{
     call_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -82,7 +82,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation::cur(),
         );
         let memory_chunk_prev_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             Rotation::cur(),
         );
         let memory_chunk_prev = meta.query_advice(memory_chunk, Rotation(-1 * NUM_ROW as i32));
@@ -302,7 +303,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // core_row_0写入memory_chunk_prev, 向下传至memory gas计算部分
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             current_state.memory_chunk_prev.into()
         );
         // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas

@@ -10,7 +10,8 @@ use gadgets::util::{select, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::constant::{
-    ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX, GAS_LEFT_IDX, NUM_AUXILIARY,
+    ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX, GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX,
+    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
 };
 use crate::execution::storage::get_multi_inverse;
 use crate::execution::ExecutionState::CALL_5;
@@ -112,7 +113,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // Max(cur_memory_word_size, max_word_size) = next_word_size
         // input: [cur_memory_size * 32, max_word_size]
         let memory_chunk_prev = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -257,7 +259,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             * (next_word_size - memory_chunk_prev)
             + (next_quad_memory_cost - curr_quad_memory_cost);
         let memory_gas_cost = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation::cur(),
         );
         constraints.push(("gas cost".to_string(), gas_cost - memory_gas_cost));
@@ -456,7 +461,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // 给后续的计算提前规划好位置
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            core_row_0[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             gas_cost
         );
 

@@ -38,7 +38,7 @@ pub mod log_topic_num_addr;
 pub mod lt_gt_slt_sgt;
 pub mod memory;
 pub mod memory_copier_gas;
-pub mod memory_gas_cost;
+pub mod memory_gas;
 pub mod msize;
 pub mod mstore8;
 pub mod mulmod;
@@ -149,7 +149,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::storage::new(),
             crate::execution::swap::new(),
             crate::execution::tx_context::new(),
-            crate::execution::memory_gas_cost::new(),
+            crate::execution::memory_gas::new(),
             crate::execution::memory_copier_gas::new(),
         ]
     }};

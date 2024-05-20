@@ -1,9 +1,12 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::{GAS_LEFT_IDX, MAX_CODESIZE, NUM_AUXILIARY};
+use crate::constant::{
+    GAS_LEFT_IDX, LENGTH_IDX, MAX_CODESIZE, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX,
+    NUM_AUXILIARY, WARM_IDX,
+};
 use crate::execution::ExecutionState::MEMORY_GAS;
 use crate::execution::{
-    memory_gas_cost, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
+    memory_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -71,7 +74,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, memory_gas_cost::NUM_ROW)
+        (NUM_ROW, memory_gas::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -117,68 +120,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (-1 * i as i32).expr(),
                 false,
             ));
-            let (_, tmp_stamp, value_hi, value_lo, _, _, _, _) =
-                extract_lookup_expression!(state, entry);
-            if i == 3 {
-                copy_code_stamp_start = tmp_stamp.clone();
-            }
+            let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             stack_operands.push([value_hi, value_lo]);
         }
-
-        // code copy constraints
-        constraints.extend(config.get_copy_constraints(
-            copy::Tag::Bytecode,
-            stack_operands[0][0].clone() * pow_of_two::<F>(128) + stack_operands[0][1].clone(),
-            stack_operands[2][1].clone(),
-            0.expr(),
-            copy::Tag::Memory,
-            call_id.clone(),
-            stack_operands[1][1].clone(),
-            // +3 是因为新增了is_warm，导致state_stamp在原来的基础上又加了2
-            copy_code_stamp_start.clone() + 3.expr(),
-            None,
-            arith_real_len,
-            arith_real_len_is_zero,
-            None,
-            copy_entry.clone(),
-        ));
-
-        // padding copy constraints
-        constraints.extend(config.get_copy_constraints(
-            copy::Tag::Zero,
-            0.expr(),
-            0.expr(),
-            0.expr(),
-            copy::Tag::Memory,
-            call_id.clone(),
-            stack_operands[1][1].clone() + copy_lookup_len.clone(),
-            copy_code_stamp_start.clone() + copy_lookup_len.clone() + 3.expr(),
-            None,
-            arith_zero_len,
-            arith_zero_len_is_zero,
-            None,
-            padding_entry.clone(),
-        ));
-        constraints.extend([
-            (
-                "stack top1 value_hi = 0".into(),
-                stack_operands[1][0].clone() - 0.expr(),
-            ),
-            (
-                "stack top3 value_hi = 0".into(),
-                stack_operands[3][0].clone() - 0.expr(),
-            ),
-        ]);
 
         // warm case gas cost constraints
         let mut is_warm = 0.expr();
         for i in 0..2 {
             let entry = config.get_storage_lookup(meta, i, Rotation(-4));
-            let mut is_write = true;
-            if i == 0 {
+            let mut is_write = false;
+            if i == 1 {
+                // i == 1时，因为是写操作，所以需要提取is_warm_prev
                 let extracted = extract_lookup_expression!(storage, entry.clone());
-                is_warm = extracted.3;
-                is_write = false;
+                copy_code_stamp_start = extracted.1;
+                is_warm = extracted.9;
+                is_write = true;
             }
             constraints.append(&mut config.get_storage_full_constraints_with_tag(
                 meta,
@@ -200,10 +156,54 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             GasCost::COLD_ACCOUNT_ACCESS.expr(),
         );
         let warm_gas_in_table = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 4],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + WARM_IDX],
             Rotation::cur(),
         );
         constraints.push(("warm_gas correct".into(), warm_gas - warm_gas_in_table));
+
+        // code copy constraints
+        constraints.extend(config.get_copy_constraints(
+            copy::Tag::Bytecode,
+            stack_operands[0][0].clone() * pow_of_two::<F>(128) + stack_operands[0][1].clone(),
+            stack_operands[2][1].clone(),
+            0.expr(),
+            copy::Tag::Memory,
+            call_id.clone(),
+            stack_operands[1][1].clone(),
+            copy_code_stamp_start.clone() + 1.expr(),
+            None,
+            arith_real_len,
+            arith_real_len_is_zero,
+            None,
+            copy_entry.clone(),
+        ));
+
+        // padding copy constraints
+        constraints.extend(config.get_copy_constraints(
+            copy::Tag::Zero,
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            copy::Tag::Memory,
+            call_id.clone(),
+            stack_operands[1][1].clone() + copy_lookup_len.clone(),
+            copy_code_stamp_start.clone() + copy_lookup_len.clone() + 1.expr(),
+            None,
+            arith_zero_len,
+            arith_zero_len_is_zero,
+            None,
+            padding_entry.clone(),
+        ));
+        constraints.extend([
+            (
+                "stack top1 value_hi = 0".into(),
+                stack_operands[1][0].clone() - 0.expr(),
+            ),
+            (
+                "stack top3 value_hi = 0".into(),
+                stack_operands[3][0].clone() - 0.expr(),
+            ),
+        ]);
 
         // src offset u64 overflow constraints
         let src_not_overflow = SimpleIsZero::new(
@@ -335,7 +335,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // next state constraints
         let memory_size_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation::cur(),
         );
         constraints.push((
@@ -345,7 +348,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         let memory_chunk_prev_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             Rotation::cur(),
         );
         constraints.push((
@@ -358,7 +362,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         let length_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
             Rotation::cur(),
         );
         constraints.push((
@@ -376,7 +380,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(
                 vec![],
                 NUM_ROW,
-                vec![(MEMORY_GAS, memory_gas_cost::NUM_ROW, None)],
+                vec![(MEMORY_GAS, memory_gas::NUM_ROW, None)],
                 None,
             ),
         ));
@@ -538,26 +542,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // 根据栈里的输入记录length和memory_size
-        current_state.length_in_stack = size.as_u64();
-        current_state.new_memory_size = offset_bound.as_u64();
+        current_state.length_in_stack = Some(size.as_u64());
+        current_state.new_memory_size = Some(offset_bound.as_u64());
 
+        // 在外部gen_witness时，我们将current.gas_left预处理为trace.gas - trace.gas_cost
+        // 但是某些复杂的gas计算里，真正的gas计算是在执行状态的最后一步，此时我们需要保证这里的gas_left与
+        // 上一个状态的gas_left一致，也即trace.gas。
+        // 在生成core_row_0时我们没有改变current.gas_left是因为这样做会导致重复的代码。
         core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
 
         // 固定的预分配位置
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            core_row_0[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             offset_bound
         );
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             current_state.memory_chunk_prev.into()
         );
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
             size.into()
         );
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 4],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + WARM_IDX],
             warm_gas.into()
         );
 

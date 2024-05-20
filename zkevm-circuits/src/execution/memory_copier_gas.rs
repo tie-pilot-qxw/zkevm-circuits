@@ -9,9 +9,11 @@ use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 
 use crate::arithmetic_circuit::operation;
-use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY, NUM_VERS};
+use crate::constant::{
+    GAS_LEFT_IDX, LENGTH_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, NUM_VERS, WARM_IDX,
+};
 use crate::execution::{
-    memory_gas_cost, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+    memory_gas, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -54,7 +56,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW + memory_gas_cost::NUM_ROW, 1)
+        (NUM_ROW + memory_gas::NUM_ROW, 1)
     }
     fn get_constraints(
         &self,
@@ -64,8 +66,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
 
         let length = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
-            Rotation(-1 * NUM_ROW as i32 - 1 * memory_gas_cost::NUM_ROW as i32),
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
+            Rotation(-1 * NUM_ROW as i32 - 1 * memory_gas::NUM_ROW as i32),
         );
         let (length_tag, [length_input, denominator, quotient, _]) = extract_lookup_expression!(
             arithmetic_tiny,
@@ -83,7 +85,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("denominator == 32".into(), denominator - 32.expr()),
         ]);
         let memory_gas_cost = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -118,8 +123,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 只用于计算extcodecopy
         // 其他opcode向上查找时不参与gas计算
         let warm_gas = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 4],
-            Rotation(-1 * NUM_ROW as i32 - 1 * memory_gas_cost::NUM_ROW as i32),
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + WARM_IDX],
+            Rotation(-1 * NUM_ROW as i32 - 1 * memory_gas::NUM_ROW as i32),
         );
         let is_extcodecopy = meta.query_advice(config.vers[NUM_VERS - 1], Rotation::prev());
         let gas_cost = memory_gas_cost
@@ -190,8 +195,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let length = current_state.length_in_stack;
-        current_state.length_in_stack = 0;
+        let length = current_state.length_in_stack.unwrap();
+        current_state.length_in_stack = None;
         let (length_row, _) =
             operation::u64div::gen_witness(vec![U256::from(length + 31), U256::from(32)]);
 
@@ -233,7 +238,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{LENGTH_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -250,7 +255,7 @@ mod test {
             stack_top: None,
             memory_chunk: 1,
             memory_chunk_prev: 0,
-            length_in_stack: length.into(),
+            length_in_stack: Some(length),
             ..WitnessExecHelper::new()
         };
         current_state.stack_pointer = stack.0.len();
@@ -266,7 +271,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3] = Some(length.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX] =
+                Some(length.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             // memory gas == 1(length_word) * 3 + constant(3)= 6

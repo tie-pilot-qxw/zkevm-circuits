@@ -8,7 +8,9 @@ use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::{select, Expr};
 
 use crate::arithmetic_circuit::operation;
-use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
+use crate::constant::{
+    GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+};
 use crate::execution::ExecutionState::MEMORY_COPIER_GAS;
 use crate::execution::{
     memory_copier_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
@@ -66,13 +68,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
         let memory_size = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
         // Max(cur_memory_word_size, max_word_size) = next_word_size
         // input: [cur_memory_size * 32, max_word_size]
         let memory_chunk_prev = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -166,7 +172,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             * (next_word_size - memory_chunk_prev)
             + (next_quad_memory_cost - curr_quad_memory_cost);
         let memory_gas_cost = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation::cur(),
         );
         constraints.push(("gas cost".to_string(), gas_cost - memory_gas_cost));
@@ -246,9 +255,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let memory_size = U256::from(current_state.new_memory_size);
+        let memory_size = U256::from(current_state.new_memory_size.unwrap());
         // 取值后重置，该值为上一步计算后的值，例如extcodecopy、callcodecopy等
-        current_state.new_memory_size = 0;
+        current_state.new_memory_size = None;
         // next_word_size = Max(cur_memory_size, memory_size)
         // res[0] == 1, curr_memory_word_size < res[1] = memory_size = memory_size + 31 / 32
         // res[0] == 0, curr_memory_word_size >= res[1]
@@ -296,11 +305,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 给后续的计算提前规划好位置
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            core_row_0[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             gas_cost
         );
 
-        // 与上一个状态保持一致
+        // 在外部gen_witness时，我们将current.gas_left预处理为trace.gas - trace.gas_cost
+        // 但是某些复杂的gas计算里，真正的gas计算是在执行状态的最后一步，此时我们需要保证这里的gas_left与
+        // 上一个状态的gas_left一致，也即trace.gas。
+        // 在生成core_row_0时我们没有改变current.gas_left是因为这样做会导致重复的代码。
         core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
 
         let mut arithmetic = vec![];
@@ -356,6 +371,7 @@ mod test {
         let state_stamp_init = 3;
         current_state.state_stamp = state_stamp_init + 3 + 2 * 0x04 + 2 + 4;
         current_state.call_id_new = state_stamp_init + 1;
+        current_state.new_memory_size = Some(0);
         let code_addr = U256::from_str_radix("0x1234", 16).unwrap();
         let mut bytecode = HashMap::new();
         // 32 byte

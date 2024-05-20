@@ -1,9 +1,11 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::{GAS_LEFT_IDX, NUM_AUXILIARY};
-use crate::execution::ExecutionState::{MEMORY_COPIER_GAS, MEMORY_GAS};
+use crate::constant::{
+    GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+};
+use crate::execution::ExecutionState::MEMORY_GAS;
 use crate::execution::{
-    memory_copier_gas, memory_gas_cost, AuxiliaryOutcome, CoreSinglePurposeOutcome,
-    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    memory_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -14,6 +16,7 @@ use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
+use serde::de::Unexpected::Option;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
@@ -58,7 +61,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, memory_gas_cost::NUM_ROW)
+        (NUM_ROW, memory_gas::NUM_ROW)
     }
 
     fn get_constraints(
@@ -122,7 +125,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // next state constraints
         let memory_size_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation::cur(),
         );
         constraints.push((
@@ -132,7 +138,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         let memory_chunk_prev_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             Rotation::cur(),
         );
         constraints.push((
@@ -145,7 +152,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         let length_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
             Rotation::cur(),
         );
         constraints.push((
@@ -207,7 +214,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(
                 vec![],
                 NUM_ROW,
-                vec![(MEMORY_GAS, memory_gas_cost::NUM_ROW, None)],
+                vec![(MEMORY_GAS, memory_gas::NUM_ROW, None)],
                 None,
             ),
         ));
@@ -294,22 +301,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // 根据栈里的输入记录length和memory_size
-        current_state.length_in_stack = length.as_u64();
-        current_state.new_memory_size = offset_bound.as_u64();
+        current_state.length_in_stack = Some(length.as_u64());
+        current_state.new_memory_size = Some(offset_bound.as_u64());
 
+        // 在外部gen_witness时，我们将current.gas_left预处理为trace.gas - trace.gas_cost
+        // 但是某些复杂的gas计算里，真正的gas计算是在执行状态的最后一步，此时我们需要保证这里的gas_left与
+        // 上一个状态的gas_left一致，也即trace.gas。
+        // 在生成core_row_0时我们没有改变current.gas_left是因为这样做会导致重复的代码。
         core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
 
         // 固定的预分配位置
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            core_row_0[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             offset_bound
         );
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
             current_state.memory_chunk_prev.into()
         );
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 3],
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
             length.into()
         );
 

@@ -125,10 +125,10 @@ pub struct WitnessExecHelper {
     pub parent_gas: HashMap<u64, u64>,
     // 存储父环境的trace.gas_cost
     pub parent_gas_cost: HashMap<u64, u64>,
-    // 暂存上一步的memory_size, 对应EVM中的memoryFunc的传参，是由stack中的值决定的
-    pub new_memory_size: u64,
-    // 暂存上一步stack中的length值，针对copy等指令
-    pub length_in_stack: u64,
+    // 暂存上一步的memory_size, 对应EVM中的memoryFunc的传参，是由stack中的值决定的，用于memory gas计算
+    pub new_memory_size: Option<u64>,
+    // 暂存上一步stack中的length值，用于memory gas计算
+    pub length_in_stack: Option<u64>,
 }
 
 impl WitnessExecHelper {
@@ -172,8 +172,8 @@ impl WitnessExecHelper {
             memory_gas_cost: 0,
             parent_gas: HashMap::new(),
             parent_gas_cost: HashMap::new(),
-            new_memory_size: 0,
-            length_in_stack: 0,
+            new_memory_size: None,
+            length_in_stack: None,
         }
     }
 
