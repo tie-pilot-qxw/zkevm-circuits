@@ -1324,6 +1324,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 )
                 .map(|expr| ("read only cur - prev - delta".into(), expr)),
         );
+        // memory chunk constraint
+        constraints.extend(
+            delta
+                .memory_chunk
+                .into_constraint(
+                    meta.query_advice(memory_chunk, Rotation::cur()),
+                    meta.query_advice(memory_chunk, Rotation(-1 * prev_exec_state_row as i32)),
+                )
+                .map(|expr| ("memory chunk cur - prev - delta".into(), expr)),
+        );
         // todo 全部gas和refund实现完成后再取消注释
         // (
         //     "gas left prev - cur - delta".into(),

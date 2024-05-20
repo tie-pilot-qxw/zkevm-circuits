@@ -37,13 +37,13 @@ const LEN_LO_INV_COL_IDX: usize = 24;
 ///     COPY:   Copy lookup(copy args_len bytes from memory to calldata), src:Core circuit, target:Copy circuit table, 11 columns
 ///     LEN_INV: the inverse of copy lookup's len, used to check whether copy lookup's len == 0
 ///     STATE_STAMP_INIT: the state stamp just before the execution of opcode CALL, which will be used by the next execution states
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
-/// +---+-------+-------+-------+----------+
-/// | 2 | COPY  |                          |
-/// | 1 | STATE1| STATE2| STATE3|LEN_INV(1)|
+/// +---+-------+-------+-------+---------------------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col               |
+/// +---+-------+-------+-------+---------------------+
+/// | 2 | COPY  |                                     |
+/// | 1 | STATE1| STATE2| STATE3|LEN_INV(1)           |
 /// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
-/// +---+-------+-------+-------+----------+
+/// +---+-------+-------+-------+---------------------+
 ///
 /// Note: call_context write's call_id should be callee's
 pub struct Call1Gadget<F: Field> {

@@ -2,19 +2,22 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{get_geth_data, log2_ceil, SubCircuit};
+use zkevm_circuits::util::{get_geth_data, log2_ceil, preprocess_trace, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 #[test]
 fn test_call_trace() {
     // gen witness
-    let witness = Witness::new(&get_geth_data(
+    let mut geth_data = get_geth_data(
         "test_data/call_test/trace/block_info.json",
         "test_data/call_test/trace/tx_info.json",
         "test_data/call_test/trace/tx_debug_trace.json",
         "test_data/call_test/trace/tx_receipt.json",
         "test_data/call_test/trace/bytecode.json",
-    ));
+    );
+    preprocess_trace(&mut geth_data.geth_traces[0]);
+    let witness = Witness::new(&geth_data);
+
     //print witness
     //witness.print_csv();
     #[cfg(not(feature = "fast_test"))]

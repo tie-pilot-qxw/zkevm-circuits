@@ -120,8 +120,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 5));
         // constraint for arithmetic operand
         constraints.push((
-            "offset in arithmetic = in state lookup + 8".into(),
-            offset_bound.clone() - operands[0][1].clone() - 8.expr(),
+            "offset in arithmetic = in state lookup + 1".into(),
+            offset_bound.clone() - operands[0][1].clone() - 1.expr(),
         ));
         constraints.push((
             "memory_chunk_prev in arithmetic = in auxiliary".into(),
@@ -215,10 +215,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
-        let (arith_mem, result) = operation::memory_expansion::gen_witness(vec![
-            offset + U256::from(8),
-            memory_chunk_prev,
-        ]);
+        let (arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset + U256::one(), memory_chunk_prev]);
         assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
 
         core_row_2.insert_arithmetic_tiny_lookup(5, &arith_mem);
@@ -259,7 +257,7 @@ mod test {
 
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            memory_chunk: 0x801,
+            memory_chunk: 0x800,
             ..WitnessExecHelper::new()
         };
 
