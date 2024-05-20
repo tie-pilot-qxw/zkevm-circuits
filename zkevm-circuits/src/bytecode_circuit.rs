@@ -1,18 +1,19 @@
-use crate::table::{BytecodeTable, FixedTable};
+use crate::table::{BytecodeTable, FixedTable, KeccakTable, PublicTable};
 use crate::util::{
-    assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges, SubCircuit,
-    SubCircuitConfig,
+    assign_advice_or_fixed_with_u256, assign_advice_or_fixed_with_value, convert_u256_to_64_bytes,
+    Challenges, SubCircuit, SubCircuitConfig,
 };
 use crate::witness::bytecode::Row;
-use crate::witness::Witness;
+use crate::witness::{public, Witness};
 use eth_types::{Field, U256};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Instance, Selector};
+use halo2_proofs::plonk::{
+    Advice, Column, ConstraintSystem, Error, Instance, SecondPhase, Selector,
+};
 use halo2_proofs::poly::Rotation;
-use std::iter::zip;
 use std::marker::PhantomData;
 
 /// Overview:
@@ -26,9 +27,9 @@ use std::marker::PhantomData;
 ///    2. Opcode (PUSH): PUSH1~PUSH32, and Byte of PUSH
 ///
 /// Table layout:
-/// +-------------+-------------------+------+----+----------+----------+----------+--------+--------+-----+---------+--------------+-----------+---------------+--------------+
-/// |instance_addr| instance_bytecode | addr | pc | bytecode | value_hi | value_lo | acc_hi | acc_lo | cnt | is_high | cnt_is_zero  | cnt_is_15 | addr_unchange | addr_is_zero |
-/// +-------------+-------------------+------+----+----------+----------+----------+--------+-------+-----+---------+--------------+------------+---------------+--------------+
+/// +------+----+----------+----------+----------+--------+--------+-----+---------+--------------+-----------+---------------+--------------+
+/// | addr | pc | bytecode | value_hi | value_lo | acc_hi | acc_lo | cnt | is_high | cnt_is_zero  | cnt_is_15 | addr_unchange | addr_is_zero |
+/// +------+----+----------+----------+----------+--------+-------+-----+---------+--------------+------------+---------------+--------------+
 ///  For the meaning of the columns, please refer to the comments of the BytecodeCircuitConfig structure code below.
 /// cnt: if it is a non-PUSH Opcode, cnt=0. For the PUSH instruction, cnt is the number of bytes of PUSH.
 ///      for example, PUSH1 --> cnt=1, PUSH2 --> cnt=2, PUSH31 --> cnt=31, PUSH32 --> cnt=32.
@@ -54,10 +55,6 @@ use std::marker::PhantomData;
 #[derive(Clone)]
 pub struct BytecodeCircuitConfig<F> {
     q_enable: Selector,
-    /// the contract address of the bytecodes. public input
-    instance_addr: Column<Instance>,
-    /// bytecode, operation code or pushed value. public input
-    instance_bytecode: Column<Instance>,
     /// the contract address of the bytecodes (need to copy from public input)
     addr: Column<Advice>,
     /// the index that program counter points to
@@ -76,24 +73,37 @@ pub struct BytecodeCircuitConfig<F> {
     cnt: Column<Advice>,
     /// whether count is equal or larger than 16
     is_high: Column<Advice>,
+    /// the last line of the contract will store the hash value of the contract bytecode
+    /// for rlc of bytecodes, used for keccak hash lookup; second phase column
+    rlc_acc: Column<Advice>,
+    /// High 128 bits of the contract bytecode hash result
+    hash_hi: Column<Advice>,
+    /// Low 128 bits of the contract bytecode hash result
+    hash_lo: Column<Advice>,
     /// for chip to determine whether cnt is 0
     cnt_is_zero: IsZeroWithRotationConfig<F>,
     /// for chip to determine whether cnt is 15
     cnt_is_15: IsZeroConfig<F>,
     /// for chip to check if addr is changed from previous row
     addr_unchange: IsZeroConfig<F>,
+    /// for chip to check if addr is changed from next row
+    addr_unchange_next: IsZeroConfig<F>,
     /// for chip to check if addr is zero, which means the row is padding
     addr_is_zero: IsZeroWithRotationConfig<F>,
     // table used for lookup
     fixed_table: FixedTable,
+    keccak_table: KeccakTable,
+    public_table: PublicTable,
 }
 
 pub struct BytecodeCircuitConfigArgs<F> {
     pub q_enable: Selector,
     pub bytecode_table: BytecodeTable<F>,
     pub fixed_table: FixedTable,
-    pub instance_addr: Column<Instance>,
-    pub instance_bytecode: Column<Instance>,
+    pub keccak_table: KeccakTable,
+    pub public_table: PublicTable,
+    /// Challenges
+    pub challenges: Challenges,
 }
 
 impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
@@ -105,8 +115,9 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             q_enable,
             bytecode_table,
             fixed_table,
-            instance_addr,
-            instance_bytecode,
+            keccak_table,
+            public_table,
+            challenges,
         }: Self::ConfigArgs,
     ) -> Self {
         let BytecodeTable {
@@ -119,9 +130,14 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             cnt_is_zero,
         } = bytecode_table;
 
+        let challenges_expr = challenges.exprs(meta);
+
         // initialize columns
+        let hash_hi = meta.advice_column();
+        let hash_lo = meta.advice_column();
         let acc_hi = meta.advice_column();
         let acc_lo = meta.advice_column();
+        let rlc_acc = meta.advice_column_in(SecondPhase);
         let is_high = meta.advice_column();
         let _cnt_minus_15_inv = meta.advice_column();
         let cnt_is_15 = IsZeroChip::configure(
@@ -144,23 +160,27 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             },
             _addr_diff_inv,
         );
+
+        let _addr_next_diff_inv = meta.advice_column();
+        let addr_unchange_next = IsZeroChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            |meta| {
+                let addr_next = meta.query_advice(addr, Rotation::next());
+                let addr_cur = meta.query_advice(addr, Rotation::cur());
+                addr_next - addr_cur
+            },
+            _addr_next_diff_inv,
+        );
         let addr_is_zero = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
             addr,
             None,
         );
-        // we need to copy (equality) from public input to advice column
-        meta.enable_equality(instance_addr);
-        meta.enable_equality(addr);
-        meta.enable_equality(instance_bytecode);
-        meta.enable_equality(bytecode);
-
         // construct config object
         let config = Self {
             q_enable,
-            instance_addr,
-            instance_bytecode,
             addr,
             pc,
             bytecode,
@@ -170,11 +190,17 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             acc_lo,
             cnt,
             is_high,
+            rlc_acc,
+            hash_hi,
+            hash_lo,
             cnt_is_zero,
             cnt_is_15,
             addr_unchange,
+            addr_unchange_next,
             addr_is_zero,
             fixed_table,
+            keccak_table,
+            public_table,
         };
 
         // constrain pc
@@ -187,11 +213,10 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let pc_prev = meta.query_advice(config.pc, Rotation::prev());
             let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
             vec![
-                q_enable
-                    * ((1.expr() - addr_unchange.clone()) * pc_cur.clone()
-                        + addr_unchange
-                            * (1.expr() - addr_is_zero) // this row is not padding
-                            * (pc_cur - pc_prev - 1.expr())),
+                q_enable.clone() * (1.expr() - addr_unchange.clone()) * pc_cur.clone(),
+                q_enable * addr_unchange
+                     * (1.expr() - addr_is_zero) // this row is not padding
+                     * (pc_cur - pc_prev - 1.expr()),
             ]
         });
 
@@ -209,6 +234,9 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
             let is_high = meta.query_advice(config.is_high, Rotation::cur());
+            let rlc_acc = meta.query_advice(config.rlc_acc, Rotation::cur());
+            let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
+            let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
             vec![
                 q_enable.clone() * addr_is_zero.clone() * addr,
                 q_enable.clone() * addr_is_zero.clone() * pc,
@@ -218,7 +246,10 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                 q_enable.clone() * addr_is_zero.clone() * acc_hi,
                 q_enable.clone() * addr_is_zero.clone() * acc_lo,
                 q_enable.clone() * addr_is_zero.clone() * cnt,
-                q_enable * addr_is_zero * is_high,
+                q_enable.clone() * addr_is_zero.clone() * is_high,
+                q_enable.clone() * addr_is_zero.clone() * rlc_acc,
+                q_enable.clone() * addr_is_zero.clone() * hash_hi,
+                q_enable.clone() * addr_is_zero.clone() * hash_lo,
             ]
         });
 
@@ -327,9 +358,52 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             ]
         });
 
+        // constrain rlc_acc
+        // 1. if addr changes, it means this is a new contract and rlc_acc must equal bytecode
+        // 2. if addr has not changed, indicating that it is the same contract. The value of rlc_acc is `rlc_acc_prev * challenge + bytecode`
+        meta.create_gate("BYTECODE_rlc_acc", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let addr_unchange = config.addr_unchange.expr();
+            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
+            let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
+            let rlc_acc = meta.query_advice(config.rlc_acc, Rotation::cur());
+            let rlc_acc_prev = meta.query_advice(config.rlc_acc, Rotation::prev());
+            let challenge = challenges_expr.keccak_input();
+
+            vec![
+                q_enable.clone()
+                    * (1.expr() - addr_unchange.clone())
+                    * (rlc_acc.clone() - bytecode.clone()),
+                q_enable.clone()
+                    * addr_unchange
+                    * (1.expr() - addr_is_zero)
+                    * (rlc_acc - (rlc_acc_prev * challenge + bytecode)),
+            ]
+        });
+
+        // constrain hash
+        // If the addr of the next line changes from the addr of the current line, it means that the
+        // current line is the last bytecode of the current contract code, that is, the current line record has a hash value.
+        // If the addr of the next row does not change from the addr of the current row, the hash field value of the current row is 0.
+        meta.create_gate("BYTECODE_hash", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
+            let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
+            let addr_unchange_next = config.addr_unchange_next.expr();
+            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
+            let addr_is_not_zero = 1.expr() - addr_is_zero;
+
+            vec![
+                q_enable.clone() * addr_is_not_zero.clone() * addr_unchange_next.clone() * hash_hi,
+                q_enable.clone() * addr_is_not_zero.clone() * addr_unchange_next.clone() * hash_lo,
+            ]
+        });
+
         // add all lookup constraints here
         // config.push_byte_range_lookup(meta, "BYTECODE_PUSH_BYTE_RANGE_LOOKUP");
-        config.bytecode_lookup(meta, "BYTECODE_LOOKUP");
+        config.bytecode_lookup(meta, "BYTECODE_LOOKUP_FIXED");
+        config.keccak_lookup(meta, "BYTECODE_LOOKUP_KECCAK_HASH");
+        config.public_lookup(meta, "BYTECODE_LOOKUP_PUBLIC_CODE_HASH");
 
         config
     }
@@ -343,12 +417,36 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         offset: usize,
         row_cur: &Row,
         row_prev: Option<&Row>,
+        row_next: Option<&Row>,
+        rlc_acc: Value<F>,
     ) -> Result<(), Error> {
         let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
         let cnt_is_15 = IsZeroChip::construct(self.cnt_is_15.clone());
         let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
+        let addr_unchange_next = IsZeroChip::construct(self.addr_unchange_next.clone());
         let addr_is_zero = IsZeroWithRotationChip::construct(self.addr_is_zero.clone());
 
+        let prev_row_addr_value = row_prev
+            .map(|x| x.addr.unwrap_or_default())
+            .unwrap_or_default();
+        let cur_row_addr_value = row_cur.addr.unwrap_or_default();
+        let next_row_addr_value = row_next
+            .map(|x| x.addr.unwrap_or_default())
+            .unwrap_or_default();
+
+        // assign value
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row_cur.bytecode.unwrap_or_default(),
+            self.bytecode,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row_cur.addr.unwrap_or_default(),
+            self.addr,
+        )?;
         assign_advice_or_fixed_with_u256(region, offset, &row_cur.pc.unwrap_or_default(), self.pc)?;
         assign_advice_or_fixed_with_u256(
             region,
@@ -386,6 +484,18 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             &row_cur.is_high.unwrap_or_default(),
             self.is_high,
         )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row_cur.hash_hi.unwrap_or_default(),
+            self.hash_hi,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row_cur.hash_lo.unwrap_or_default(),
+            self.hash_lo,
+        )?;
         cnt_is_zero.assign(
             region,
             offset,
@@ -405,21 +515,26 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             region,
             offset,
             Value::known(
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.addr.unwrap_or_default()))
-                    - F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                        &row_prev
-                            .map(|x| x.addr.unwrap_or_default())
-                            .unwrap_or_default(),
-                    )),
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&cur_row_addr_value))
+                    - F::from_uniform_bytes(&convert_u256_to_64_bytes(&prev_row_addr_value)),
+            ),
+        )?;
+        addr_unchange_next.assign(
+            region,
+            offset,
+            Value::known(
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&next_row_addr_value))
+                    - F::from_uniform_bytes(&convert_u256_to_64_bytes(&cur_row_addr_value)),
             ),
         )?;
         addr_is_zero.assign(
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                &row_cur.addr.unwrap_or_default(),
+                &cur_row_addr_value,
             ))),
         )?;
+        assign_advice_or_fixed_with_value(region, offset, rlc_acc, self.rlc_acc)?;
         Ok(())
     }
 
@@ -427,75 +542,78 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     pub fn assign_with_region(
         &self,
         region: &mut Region<'_, F>,
+        challenges: &Challenges<Value<F>>,
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
-        // assign the first row
-        self.assign_row(
-            region,
-            0,
-            witness
-                .bytecode
-                .first()
-                .expect("bytecode must have first row"),
-            None,
-        )?;
-        // assign the rest rows
-        for (offset, (row_cur, row_prev)) in
-            zip(witness.bytecode.iter().skip(1), witness.bytecode.iter()).enumerate()
-        {
-            let offset = offset + 1;
-            self.assign_row(region, offset, row_cur, Some(row_prev))?;
-        }
-        // pad the first row
-        self.assign_row(
-            region,
-            witness.bytecode.len(),
-            &Default::default(),
-            witness.bytecode.last(),
-        )?;
-        // pad the rest rows
-        for offset in witness.bytecode.len() + 1..num_row_incl_padding {
-            self.assign_row(region, offset, &Default::default(), None)?;
-        }
-        Ok(())
-    }
+        let challenge = challenges.keccak_input();
 
-    /// assign values copied from instance
-    pub fn assign_from_instance_with_region(
-        &self,
-        region: &mut Region<'_, F>,
-        num_padding_begin: usize,
-        max_codesize: usize,
-        num_row_incl_padding: usize,
-    ) -> Result<(), Error> {
-        // assign padding rows
-        for offset in 0..num_padding_begin {
-            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.addr)?;
-            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.bytecode)?;
-        }
-        // use permutation to copy bytecode from instance to advice
-        for offset in 0..max_codesize {
-            // not padding, we use permutation constraint to copy addr and bytecode from instance
-            // although this is inside synthesize(), this add constraints to the system
-            region.assign_advice_from_instance(
-                || "addr",
-                self.instance_addr,
+        // assign the rest rows
+        let mut rlc_acc_prev: Value<F> = Value::known(F::ZERO);
+        let bytecode_len = witness.bytecode.len();
+        let default_row = Default::default();
+        for offset in 0..bytecode_len {
+            let row_prev = if offset == 0 {
+                &default_row
+            } else {
+                &witness.bytecode[offset - 1]
+            };
+            let row_cur = &witness.bytecode[offset];
+            let row_next = if offset == bytecode_len - 1 {
+                &default_row
+            } else {
+                &witness.bytecode[offset + 1]
+            };
+
+            // calc rlc_acc
+            // if the `cur_row_addr_value - prev_row_addr_value` is 0, it means addr has not changed.
+            // if the `cur_row_addr_value - prev_row_addr_value` is not 0, it means addr has changed, and it is a new contract.
+            let row_cur_addr_value = row_cur.addr.unwrap_or_default();
+            let row_prev_addr_value = row_prev.addr.unwrap_or_default();
+            let addr_unchange_flag = row_cur_addr_value.cmp(&row_prev_addr_value).is_eq();
+            let addr_is_zero_flag = row_cur_addr_value.is_zero();
+
+            // 1. if addr changes, it means this is a new contract and rlc_acc must equal bytecode
+            // 2. if addr has not changed, indicating that it is the same contract. The value of rlc_acc is `rlc_acc_prev * challenge + bytecode`
+            let bytecode_value = Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &row_cur.bytecode.unwrap_or_default(),
+            )));
+            let rlc_acc: Value<F> = if !addr_unchange_flag {
+                bytecode_value
+            } else if addr_unchange_flag && !addr_is_zero_flag {
+                rlc_acc_prev * challenge + bytecode_value
+            } else {
+                Value::known(F::ZERO)
+            };
+            rlc_acc_prev = rlc_acc;
+
+            // assign_row
+            self.assign_row(
+                region,
                 offset,
-                self.addr,
-                num_padding_begin + offset,
-            )?;
-            region.assign_advice_from_instance(
-                || "bytecode",
-                self.instance_bytecode,
-                offset,
-                self.bytecode,
-                num_padding_begin + offset,
+                row_cur,
+                Some(row_prev),
+                Some(row_next),
+                rlc_acc,
             )?;
         }
-        for offset in num_padding_begin + max_codesize..num_row_incl_padding {
-            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.addr)?;
-            assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.bytecode)?;
+
+        // pad the rest rows
+        let rlc_acc_default = Value::known(F::ZERO);
+        for offset in witness.bytecode.len()..num_row_incl_padding {
+            let row_prev = if offset == witness.bytecode.len() {
+                witness.bytecode.last()
+            } else {
+                None
+            };
+            self.assign_row(
+                region,
+                offset,
+                &Default::default(),
+                row_prev,
+                None,
+                rlc_acc_default,
+            )?;
         }
         Ok(())
     }
@@ -511,6 +629,9 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         region.name_column(|| "BYTECODE_acc_lo", self.acc_lo);
         region.name_column(|| "BYTECODE_cnt", self.cnt);
         region.name_column(|| "BYTECODE_is_high", self.is_high);
+        region.name_column(|| "BYTECODE_rlc_acc", self.rlc_acc);
+        region.name_column(|| "BYTECODE_hash_hi", self.hash_hi);
+        region.name_column(|| "BYTECODE_hash_lo", self.hash_lo);
         self.cnt_is_zero
             .annotate_columns_in_region(region, "BYTECODE_cnt_is_zero");
         self.cnt_is_15
@@ -586,6 +707,80 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 .collect()
         });
     }
+
+    pub fn keccak_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
+        meta.lookup_any(name, |meta| {
+            use crate::table::LookupEntry;
+            use halo2_proofs::plonk::Expression;
+            let q_enable = meta.query_selector(self.q_enable);
+            let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
+            let addr_unchange_next = self.addr_unchange_next.expr();
+            let addr_change_next = 1.expr() - addr_unchange_next;
+            let addr_is_not_zero = 1.expr() - addr_is_zero;
+
+            let keecak_entry = LookupEntry::Keccak {
+                input_len: meta.query_advice(self.pc, Rotation::cur()) + 1.expr(),
+                input_rlc: meta.query_advice(self.rlc_acc, Rotation::cur()),
+                output_hi: meta.query_advice(self.hash_hi, Rotation::cur()),
+                output_lo: meta.query_advice(self.hash_lo, Rotation::cur()),
+            };
+
+            let keecak_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self
+                .keccak_table
+                .get_lookup_vector(meta, keecak_entry.clone());
+
+            keecak_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    (
+                        q_enable.clone()
+                            * addr_is_not_zero.clone()
+                            * addr_change_next.clone()
+                            * left,
+                        right,
+                    )
+                })
+                .collect()
+        });
+    }
+    pub fn public_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
+        meta.lookup_any(name, |meta| {
+            use crate::table::LookupEntry;
+            use halo2_proofs::plonk::Expression;
+            let q_enable = meta.query_selector(self.q_enable);
+            let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
+            let addr_unchange_next = self.addr_unchange_next.expr();
+            let addr_change_next = 1.expr() - addr_unchange_next;
+            let addr_is_not_zero = 1.expr() - addr_is_zero;
+
+            let public_entry = LookupEntry::PublicMergeAddr {
+                tag: (public::Tag::CodeHash as u8).expr(),
+                tx_idx_or_number_diff: 0.expr(),
+                addr: meta.query_advice(self.addr, Rotation::cur()),
+                values: [
+                    meta.query_advice(self.hash_hi, Rotation::cur()),
+                    meta.query_advice(self.hash_lo, Rotation::cur()),
+                ],
+            };
+
+            let public_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self
+                .public_table
+                .get_lookup_vector(meta, public_entry.clone());
+
+            public_lookup_vec
+                .into_iter()
+                .map(|(left, right)| {
+                    (
+                        q_enable.clone()
+                            * addr_is_not_zero.clone()
+                            * addr_change_next.clone()
+                            * left,
+                        right,
+                    )
+                })
+                .collect()
+        });
+    }
 }
 
 #[derive(Clone, Default, Debug)]
@@ -609,38 +804,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
     }
 
     fn instance(&self) -> Vec<Vec<F>> {
-        let (num_padding_begin, _num_padding_end) = Self::unusable_rows();
-        let mut vec_addr: Vec<F> = self
-            .witness
-            .bytecode
-            .iter()
-            .skip(num_padding_begin)
-            .map(|row| {
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.addr.unwrap_or_default()))
-            })
-            .collect();
-        let mut vec_bytecode: Vec<F> = self
-            .witness
-            .bytecode
-            .iter()
-            .skip(num_padding_begin)
-            .map(|row| {
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.bytecode.unwrap_or_default()))
-            })
-            .collect();
-        if vec_bytecode.len() > MAX_CODESIZE {
-            panic!(
-                "bytecode instance length {} > MAX_CODESIZE {} (consider increase parameter MAX_CODESIZE)",
-                vec_bytecode.len(),
-                MAX_CODESIZE
-            );
-        }
-        // padding 0 to the end
-        for _ in vec_bytecode.len()..MAX_CODESIZE {
-            vec_addr.push(F::ZERO);
-            vec_bytecode.push(F::ZERO);
-        }
-        vec![vec_addr, vec_bytecode]
+        vec![]
     }
 
     /// populate circuit data
@@ -648,9 +812,10 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
         &self,
         config: &Self::Config,
         layouter: &mut impl Layouter<F>,
-        _challenges: &Challenges<Value<F>>,
+        challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
+
         layouter.assign_region(
             || "bytecode circuit",
             |mut region| {
@@ -658,13 +823,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
                 config.annotate_circuit_in_region(&mut region);
 
                 // assign circuit table value
-                config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
-                config.assign_from_instance_with_region(
-                    &mut region,
-                    num_padding_begin,
-                    MAX_CODESIZE,
-                    MAX_NUM_ROW,
-                )?;
+                config.assign_with_region(&mut region, challenges, &self.witness, MAX_NUM_ROW)?;
 
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
@@ -677,7 +836,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 
     fn unusable_rows() -> (usize, usize) {
         // Rotation in constrains has prev and but doesn't have next, so return 1,0
-        (1, 0)
+        (1, 1)
     }
 
     fn num_rows(_witness: &Witness) -> usize {
@@ -703,17 +862,24 @@ mod test {
     use super::*;
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
+    use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
+    use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
+    use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::util::{geth_data_test, log2_ceil};
+    use crate::witness::public::Tag;
     use eth_types::evm_types::OpcodeId;
     use eth_types::Bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::{CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::plonk::Circuit;
+    use std::fs::File;
 
     #[derive(Clone)]
     pub struct BytecodeTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
+        pub keccak_circuit: KeccakCircuitConfig<F>,
+        pub public_circuit: PublicCircuitConfig,
         // used to verify Lookup(src: Bytecode circuit, target: Fixed circuit table)
         pub fixed_circuit: FixedCircuitConfig<F>,
         pub challenges: Challenges,
@@ -727,8 +893,8 @@ mod test {
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let fixed_table = FixedTable::construct(meta);
-            let (instance_addr, instance_bytecode) =
-                BytecodeTable::construct_addr_bytecode_instance_column(meta);
+            let keccak_table = KeccakTable::construct(meta);
+            let public_table = PublicTable::construct(meta);
             // challenge
             let challenges = Challenges::construct(meta);
             // construct fixed circuit
@@ -742,15 +908,29 @@ mod test {
                     q_enable: q_enable_bytecode,
                     bytecode_table,
                     fixed_table,
-                    instance_addr,
-                    instance_bytecode,
+                    keccak_table,
+                    public_table,
+                    challenges,
                 },
             );
+
+            let keccak_circuit = KeccakCircuitConfig::new(
+                meta,
+                KeccakCircuitConfigArgs {
+                    keccak_table,
+                    challenges,
+                },
+            );
+
+            let public_circuit =
+                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
             // construct BytecodeTestCircuitConfig
             Self {
                 fixed_circuit,
                 bytecode_circuit,
+                keccak_circuit,
+                public_circuit,
                 challenges,
             }
         }
@@ -761,6 +941,8 @@ mod test {
     pub struct BytecodeTestCircuit<F: Field> {
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub fixed_circuit: FixedCircuit<F>,
+        pub public_circuit: PublicCircuit<F>,
+        pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
     }
 
     impl<F: Field> Circuit<F> for BytecodeTestCircuit<F> {
@@ -793,6 +975,18 @@ mod test {
             self.fixed_circuit
                 .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
 
+            self.keccak_circuit.synthesize_sub(
+                &config.keccak_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
+
+            self.public_circuit.synthesize_sub(
+                &config.public_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
+
             Ok(())
         }
     }
@@ -803,6 +997,8 @@ mod test {
             Self {
                 bytecode_circuit: BytecodeCircuit::new_from_witness(&witness),
                 fixed_circuit: FixedCircuit::new_from_witness(&witness),
+                keccak_circuit: KeccakCircuit::new_from_witness(&witness),
+                public_circuit: PublicCircuit::new_from_witness(&witness),
             }
         }
 
@@ -810,6 +1006,8 @@ mod test {
             let mut vec = Vec::new();
             vec.extend(self.bytecode_circuit.instance());
             vec.extend(self.fixed_circuit.instance());
+            vec.extend(self.keccak_circuit.instance());
+            vec.extend(self.public_circuit.instance());
             vec
         }
     }
@@ -833,49 +1031,114 @@ mod test {
     /// use simple bytecode to verify the correctness of Bytecode circuit constraints
     #[test]
     fn two_simple_contract() {
+        // addr: 0x25556666, bytecode: 0x6001600100
+        // bytecode:
+        // PUSH1 0x00
+        // PUSH1 0x00
+        // STOP
+
+        // addr: 0x66668888, bytecode: 00
+        // bytecode:
+        // STOP
+        let addr1 = "0x25556666";
+        let addr2 = "0x66668888";
+        let contract1_bytecode = hex::decode("6000600000").unwrap();
+        let contract2_bytecode = hex::decode("00").unwrap();
+
+        let (contract1_bytecode_hash_hi, contract1_bytecode_hash_lo) =
+            calc_keccak_hi_lo(contract1_bytecode.as_slice());
+        let (contract2_bytecode_hash_hi, contract2_bytecode_hash_lo) =
+            calc_keccak_hi_lo(contract2_bytecode.as_slice());
+
         // construct Bytecode table row
         let row1 = Row {
-            addr: Some("0x25556666".into()),
+            addr: Some(addr1.into()),
             bytecode: Some(OpcodeId::PUSH1.as_u8().into()),
             cnt: Some(1.into()),
             ..Default::default()
         };
         let row2 = Row {
-            addr: Some("0x25556666".into()),
+            addr: Some(addr1.into()),
             pc: Some(1.into()),
             ..Default::default()
         };
         let row3 = Row {
-            addr: Some("0x25556666".into()),
+            addr: Some(addr1.into()),
             pc: Some(2.into()),
             bytecode: Some(OpcodeId::PUSH1.as_u8().into()),
             cnt: Some(1.into()),
             ..Default::default()
         };
         let row4 = Row {
-            addr: Some("0x25556666".into()),
+            addr: Some(addr1.into()),
             pc: Some(3.into()),
             ..Default::default()
         };
         let row5 = Row {
-            addr: Some("0x25556666".into()),
+            addr: Some(addr1.into()),
             pc: Some(4.into()),
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
+            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
+            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
             ..Default::default()
         };
+
         let row6 = Row {
-            addr: Some("0x66668888".into()),
+            addr: Some(addr2.into()),
             pc: Some(0.into()),
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
+            hash_hi: Some(U256::from(contract2_bytecode_hash_hi)),
+            hash_lo: Some(U256::from(contract2_bytecode_hash_lo)),
+            ..Default::default()
+        };
+
+        let addr1_u256: U256 = addr1.into();
+        let addr2_u256: U256 = addr2.into();
+        let addr1_hi = addr1_u256 >> 128;
+        let addr1_lo = U256::from(addr1_u256.low_u128());
+        let addr2_hi = addr2_u256 >> 128;
+        let addr2_lo = U256::from(addr2_u256.low_u128());
+
+        let public_row1 = public::Row {
+            tag: Tag::CodeHash,
+            value_0: Some(addr1_hi),
+            value_1: Some(addr1_lo),
+            value_2: Some(U256::from(contract1_bytecode_hash_hi)),
+            value_3: Some(U256::from(contract1_bytecode_hash_lo)),
+            comments: [
+                ("tag".into(), "CodeSize".into()),
+                ("tx_idx_or_number_diff".into(), "code addr".into()),
+                ("value_0".into(), "code_hash".into()),
+                ("value_1".into(), "address_lo".into()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        let public_row2 = public::Row {
+            tag: Tag::CodeHash,
+            value_0: Some(addr2_hi),
+            value_1: Some(addr2_lo),
+            value_2: Some(U256::from(contract2_bytecode_hash_hi)),
+            value_3: Some(U256::from(contract2_bytecode_hash_lo)),
+            comments: [
+                ("tag".into(), "CodeSize".into()),
+                ("tx_idx_or_number_diff".into(), "code addr".into()),
+                ("value_0".into(), "code_hash".into()),
+                ("value_1".into(), "address_lo".into()),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         };
 
         // construct Witness object
         let witness = Witness {
             bytecode: vec![row1, row2, row3, row4, row5, row6],
+            keccak: vec![contract1_bytecode, contract2_bytecode],
+            public: vec![public_row1, public_row2],
             ..Default::default()
         };
-
         // verification circuit
         let prover = test_bytecode_circuit(witness);
         prover.assert_satisfied_par();

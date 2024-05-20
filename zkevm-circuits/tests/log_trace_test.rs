@@ -20,7 +20,7 @@ fn test_log_trace() {
     #[cfg(not(feature = "fast_test"))]
     const MAX_NUM_ROW_FOR_TEST: usize = 262200;
     #[cfg(feature = "fast_test")]
-    const MAX_NUM_ROW_FOR_TEST: usize = 2400;
+    const MAX_NUM_ROW_FOR_TEST: usize = 4000;
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 1400, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();

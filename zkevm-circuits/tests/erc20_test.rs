@@ -52,7 +52,7 @@ fn test_erc20_t02_a_transfer_b_200() {
     #[cfg(not(feature = "fast_test"))]
     const MAX_NUM_ROW_FOR_TEST: usize = 262200;
     #[cfg(feature = "fast_test")]
-    const MAX_NUM_ROW_FOR_TEST: usize = 6000;
+    const MAX_NUM_ROW_FOR_TEST: usize = 16384; // k=14
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
@@ -77,7 +77,7 @@ fn test_erc20_t03_a_approve_c_200() {
     #[cfg(not(feature = "fast_test"))]
     const MAX_NUM_ROW_FOR_TEST: usize = 262200;
     #[cfg(feature = "fast_test")]
-    const MAX_NUM_ROW_FOR_TEST: usize = 6000;
+    const MAX_NUM_ROW_FOR_TEST: usize = 16384; // k=14
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
@@ -108,7 +108,7 @@ fn test_erc20_t04_c_transfer_from_a_b_200() {
     #[cfg(not(feature = "fast_test"))]
     const MAX_NUM_ROW_FOR_TEST: usize = 262200;
     #[cfg(feature = "fast_test")]
-    const MAX_NUM_ROW_FOR_TEST: usize = 6000;
+    const MAX_NUM_ROW_FOR_TEST: usize = 16384; // k=14
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);

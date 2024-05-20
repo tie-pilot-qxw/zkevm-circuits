@@ -859,9 +859,10 @@ mod test {
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::copy_circuit::CopyCircuit;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
+    use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-    use crate::table::FixedTable;
+    use crate::table::{FixedTable, KeccakTable};
     use crate::util::{geth_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::{bytecode, U256};
@@ -874,6 +875,7 @@ mod test {
     #[derive(Clone)]
     pub struct CopyTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
+        pub keccak_circuit: KeccakCircuitConfig<F>,
         pub public_circuit: PublicCircuitConfig,
         pub copy_circuit: CopyCircuitConfig<F>,
         pub state_circuit: StateCircuitConfig<F>,
@@ -887,12 +889,11 @@ mod test {
             // initialize columns
             let q_enable_bytecode = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
-            let (instance_addr, instance_bytecode) =
-                BytecodeTable::construct_addr_bytecode_instance_column(meta);
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
             let public_table = PublicTable::construct(meta);
             let fixed_table = FixedTable::construct(meta);
+            let keccak_table = KeccakTable::construct(meta);
             let q_enable_copy = meta.complex_selector();
             let copy_table = CopyTable::construct(meta, q_enable_copy);
             let challenges = Challenges::construct(meta);
@@ -902,8 +903,9 @@ mod test {
                     q_enable: q_enable_bytecode,
                     bytecode_table,
                     fixed_table,
-                    instance_addr,
-                    instance_bytecode,
+                    keccak_table,
+                    public_table,
+                    challenges,
                 },
             );
             let state_circuit = StateCircuitConfig::new(
@@ -929,10 +931,18 @@ mod test {
                     challenges,
                 },
             );
+            let keccak_circuit = KeccakCircuitConfig::new(
+                meta,
+                KeccakCircuitConfigArgs {
+                    keccak_table,
+                    challenges,
+                },
+            );
             let fixed_circuit =
                 FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
             CopyTestCircuitConfig {
                 bytecode_circuit,
+                keccak_circuit,
                 public_circuit,
                 copy_circuit,
                 state_circuit,
@@ -947,6 +957,7 @@ mod test {
     pub struct CopyTestCircuit<F: Field> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+        pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
         pub public_circuit: PublicCircuit<F>,
         pub fixed_circuit: FixedCircuit<F>,
@@ -985,6 +996,12 @@ mod test {
             #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit
                 .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
+
+            self.keccak_circuit.synthesize_sub(
+                &config.keccak_circuit,
+                &mut layouter,
+                &challenges,
+            )?;
             Ok(())
         }
     }
@@ -997,12 +1014,14 @@ mod test {
                 copy_circuit: CopyCircuit::new_from_witness(&witness),
                 state_circuit: StateCircuit::new_from_witness(&witness),
                 fixed_circuit: FixedCircuit::new_from_witness(&witness),
+                keccak_circuit: KeccakCircuit::new_from_witness(&witness),
             }
         }
         pub fn instance(&self) -> Vec<Vec<F>> {
             let mut vec = Vec::new();
             vec.extend(self.bytecode_circuit.instance());
             vec.extend(self.public_circuit.instance());
+            vec.extend(self.keccak_circuit.instance());
             vec
         }
     }
@@ -1050,7 +1069,7 @@ mod test {
             false,
             Default::default(),
         ));
-        witness.print_csv();
+        //witness.print_csv();
 
         // execution circuit
         let prover = test_simple_copy_circuit(witness);

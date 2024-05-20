@@ -859,7 +859,7 @@ pub(crate) fn calc_keccak_with_rlc<F: Field>(
     (Value::known(input_len), input_rlc, output_rlc)
 }
 
-pub(crate) fn calc_keccak_hi_lo<F: Field>(input: &[u8]) -> (Value<F>, Value<F>) {
+pub(crate) fn calc_keccak_hi_lo(input: &[u8]) -> (u128, u128) {
     let mut keccak = Keccak::default();
     keccak.update(input);
     let output = keccak.digest();
@@ -867,16 +867,29 @@ pub(crate) fn calc_keccak_hi_lo<F: Field>(input: &[u8]) -> (Value<F>, Value<F>) 
         .chunks_exact(16)
         .map(|x| x.iter().fold(0, |acc, x| acc * 256 + (*x as u128)))
         .collect();
-    (
-        Value::known(F::from_u128(hi_lo_vec[0])),
-        Value::known(F::from_u128(hi_lo_vec[1])),
-    )
+
+    (hi_lo_vec[0], hi_lo_vec[1])
 }
+
+// pub(crate) fn calc_keccak_hi_lo<F: Field>(input: &[u8]) -> (Value<F>, Value<F>) {
+//     let mut keccak = Keccak::default();
+//     keccak.update(input);
+//     let output = keccak.digest();
+//     let hi_lo_vec: Vec<u128> = output
+//         .chunks_exact(16)
+//         .map(|x| x.iter().fold(0, |acc, x| acc * 256 + (*x as u128)))
+//         .collect();
+//
+//     (
+//         Value::known(F::from_u128(hi_lo_vec[0])),
+//         Value::known(F::from_u128(hi_lo_vec[1])),
+//     )
+// }
 
 pub(crate) fn multi_keccak<F: Field>(
     bytes: &[Vec<u8>],
     challenges: Challenges<Value<F>>,
-    max_num_row: usize,
+    capacity: Option<usize>,
 ) -> Result<Vec<KeccakRow<F>>, Error> {
     let mut rows: Vec<KeccakRow<F>> = Vec::new();
     // Dummy first row so that the initial data is absorbed
@@ -904,22 +917,25 @@ pub(crate) fn multi_keccak<F: Field>(
         keccak(&mut rows, bytes, challenges);
     }
 
-    // if max_num_row > 0 {
-    //     // The number of keccak_f's that can be done in this circuit
-    //     let max_capacity = max_num_row / ((NUM_ROUNDS + 1) * get_num_rows_per_round()) - 2;
-    //     let padding_rows = {
-    //         let mut rows = Vec::new();
-    //         keccak(&mut rows, &[], challenges);
-    //         rows
-    //     };
-    //     // Pad with no data hashes to the expected capacity
-    //     while rows.len() < (1 + max_capacity * (NUM_ROUNDS + 1)) * get_num_rows_per_round() {
-    //         rows.extend(padding_rows.clone());
-    //     }
-    //     // Check that we are not over capacity
-    //     if rows.len() > (1 + max_capacity * (NUM_ROUNDS + 1)) * get_num_rows_per_round() {
-    //         return Err(Error::BoundsFailure);
-    //     }
-    // }
+    if let Some(capacity) = capacity {
+        let padding_rows = {
+            let mut rows = Vec::new();
+            keccak(&mut rows, &[], challenges);
+            rows
+        };
+        // Pad with no data hashes to the expected capacity
+        while rows.len() < (1 + capacity * (NUM_ROUNDS + 1)) * get_num_rows_per_round() {
+            rows.extend(padding_rows.clone());
+        }
+        // Check that we are not over capacity
+        if rows.len() > (1 + capacity * (NUM_ROUNDS + 1)) * get_num_rows_per_round() {
+            log::error!(
+                "Keccack inputs exceed capacity.  needed_rows = {}, available_rows = {}",
+                rows.len(),
+                (1 + capacity * (NUM_ROUNDS + 1)) * get_num_rows_per_round()
+            );
+            return Err(Error::BoundsFailure);
+        }
+    }
     Ok(rows)
 }
