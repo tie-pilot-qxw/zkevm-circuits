@@ -6,6 +6,7 @@ use halo2_proofs::poly::Rotation;
 use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 
 use crate::arithmetic_circuit::operation;
@@ -25,6 +26,8 @@ const PC_DELTA: usize = 1;
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 0;
 
+const CORE_ROW_1_START_COL_IDX: usize = 12;
+
 /// memory_copier_gas 前一个指令为memory_gas
 /// 对应的opcode: CALLDATACOPY, CODECOPY, EXTCODECOPY, RETURNDATACOPY
 ///
@@ -32,11 +35,12 @@ const STATE_STAMP_DELTA: usize = 0;
 ///     cnt = 1:
 ///         1. U64DIV is `(length_in_stack + 31) / 32`;
 ///         2. U64OVERFLOW is `gas_left u64 constraints`.
+///         3. SELECTOR is opcode selector.
 ///
 /// +-----+--------------+--------------+---------------------+
 /// | cnt |              |              |                     |
 /// +-----+--------------+--------------+---------------------+
-/// | 1   | U64DIV       | U64OVERFLOW  | is_extcodecopy (31) |
+/// | 1   | U64DIV       | U64OVERFLOW  | SELECTOR(12..15)    |
 /// | 0   | DYNAMIC(0..17) | AUX(18..24)|                     |
 /// +-----+--------------+--------------+---------------------+
 
@@ -122,15 +126,35 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // core constraints
         // 只用于计算extcodecopy
         // 其他opcode向上查找时不参与gas计算
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev()),
+        ]);
+        constraints.extend(selector.get_constraints());
+        constraints.push((
+            "opcode is correct".into(),
+            selector.select(&[
+                opcode.clone() - OpcodeId::CALLDATACOPY.as_u8().expr(),
+                opcode.clone() - OpcodeId::CODECOPY.as_u8().expr(),
+                opcode.clone() - OpcodeId::RETURNDATACOPY.as_u8().expr(),
+                opcode.clone() - OpcodeId::EXTCODECOPY.as_u8().expr(),
+            ]),
+        ));
+
         let warm_gas = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + WARM_IDX],
             Rotation(-1 * NUM_ROW as i32 - 1 * memory_gas::NUM_ROW as i32),
         );
-        let is_extcodecopy = meta.query_advice(config.vers[NUM_VERS - 1], Rotation::prev());
-        let gas_cost = memory_gas_cost
-            + quotient * GasCost::COPY.expr()
-            + (1.expr() - is_extcodecopy.clone()) * OpcodeId::CALLDATACOPY.constant_gas_cost().expr() // CALLDATACOPY, CODECOPY, RETURNDATACOPY 固定常数gas是一样的，这里取其中一个
-            + warm_gas.clone() * is_extcodecopy.clone();
+        let base_gas = memory_gas_cost + quotient * GasCost::COPY.expr();
+        let gas_cost = selector.select(&[
+            base_gas.clone() + OpcodeId::CALLDATACOPY.constant_gas_cost().expr(),
+            base_gas.clone() + OpcodeId::CODECOPY.constant_gas_cost().expr(),
+            base_gas.clone() + OpcodeId::RETURNDATACOPY.constant_gas_cost().expr(),
+            base_gas.clone() + warm_gas.clone(),
+        ]);
 
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
@@ -141,20 +165,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
         constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        constraints.extend([
-            (
-                "opcode".into(),
-                (opcode.clone() - OpcodeId::CALLDATACOPY.as_u8().expr())
-                    * (opcode.clone() - OpcodeId::CODECOPY.as_u8().expr())
-                    * (opcode.clone() - OpcodeId::RETURNDATACOPY.as_u8().expr())
-                    * (opcode.clone() - OpcodeId::EXTCODECOPY.as_u8().expr()),
-            ),
-            (
-                "is_extcodecopy correct".into(),
-                (opcode.clone() - OpcodeId::EXTCODECOPY.as_u8().expr()) * is_extcodecopy,
-            ),
-        ]);
         let prev_core_single_delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_cur_single_purpose_constraints(
             meta,
@@ -195,6 +205,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        let tag_selector_index = match trace.op {
+            OpcodeId::CALLDATACOPY => 0,
+            OpcodeId::CODECOPY => 1,
+            OpcodeId::RETURNDATACOPY => 2,
+            OpcodeId::EXTCODECOPY => 3,
+            _ => panic!("memory gas not supported opcode"),
+        };
+
         let length = current_state.length_in_stack.unwrap();
         current_state.length_in_stack = None;
         let (length_row, _) =
@@ -203,12 +221,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (overflow_rows, _) =
             operation::u64overflow::gen_witness::<F>(vec![U256::from(current_state.gas_left)]);
 
-        let is_extcodecopy = trace.op == OpcodeId::EXTCODECOPY;
-
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         core_row_1.insert_arithmetic_tiny_lookup(0, &length_row);
         core_row_1.insert_arithmetic_tiny_lookup(1, &overflow_rows);
-        assign_or_panic!(core_row_1[NUM_VERS - 1], (is_extcodecopy as u8).into());
+        // tag selector
+        simple_selector_assign(
+            &mut core_row_1,
+            [
+                CORE_ROW_1_START_COL_IDX,
+                CORE_ROW_1_START_COL_IDX + 1,
+                CORE_ROW_1_START_COL_IDX + 2,
+                CORE_ROW_1_START_COL_IDX + 3,
+            ],
+            tag_selector_index as usize,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
 
         let core_row_0 = ExecutionState::MEMORY_COPIER_GAS.into_exec_state_core_row(
             trace,
