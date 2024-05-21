@@ -274,6 +274,57 @@ pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
     prefix + tx.transaction_index.unwrap().as_usize()
 }
 
+// cal memory usage for each step
+pub fn preprocess_trace(trace: &mut GethExecTrace) {
+    let last_mem = trace
+        .struct_logs
+        .last()
+        .map(|v| v.memory.clone())
+        .unwrap_or_default();
+    let mut mem: Vec<Memory> = trace
+        .struct_logs
+        .iter()
+        .map(|step| step.memory.clone())
+        .chain(std::iter::once(last_mem))
+        .collect();
+    mem.remove(0);
+
+    for (i, step) in trace.struct_logs.iter_mut().enumerate() {
+        let mut mem_tmp = if i == 0 {
+            Memory::default()
+        } else {
+            mem[i - 1].clone()
+        };
+
+        step.memory = match step.op {
+            OpcodeId::RETURN => {
+                //calculate the correct mem usage of return
+                let dst_offset = step.stack.last().unwrap();
+                let length = step.stack.nth_last(1).unwrap();
+                mem_tmp.extend_at_least((dst_offset + length).as_usize());
+                mem_tmp
+            }
+            OpcodeId::STOP => {
+                // calculate the correct mem usage of stop
+                mem_tmp
+            }
+            OpcodeId::CALL => {
+                // calculate the correct mem usage of call
+                let args_offset = step.stack.nth_last(3).unwrap();
+                let args_size = step.stack.nth_last(4).unwrap();
+                let ret_offset = step.stack.nth_last(5).unwrap();
+                let ret_size = step.stack.nth_last(6).unwrap();
+
+                mem_tmp.extend_at_least((ret_offset + ret_size).as_usize());
+                mem_tmp.extend_at_least((args_offset + args_size).as_usize());
+                mem_tmp
+            }
+
+            _ => mem[i].clone(),
+        };
+    }
+}
+
 pub fn geth_data_test(
     trace: GethExecTrace,
     bytecode: &[u8],
@@ -311,34 +362,9 @@ pub fn geth_data_test(
         code: bytecode.to_vec().into(),
         ..Default::default()
     };
+
     let mut trace_new = trace.clone();
-
-    let last_mem = trace
-        .struct_logs
-        .last()
-        .map(|v| {
-            if v.op == OpcodeId::RETURN {
-                // calculate the correct mem usage of the last return
-                let mut mem_tmp = v.memory.clone();
-                let dst_offset = v.stack.last().unwrap();
-                let length = v.stack.nth_last(1).unwrap();
-                mem_tmp.extend_at_least((dst_offset + length).as_usize());
-                mem_tmp
-            } else {
-                v.memory.clone()
-            }
-        })
-        .unwrap_or_default();
-    let mem: Vec<Memory> = trace
-        .struct_logs
-        .iter()
-        .map(|step| step.memory.clone())
-        .chain(std::iter::once(last_mem))
-        .collect();
-
-    for (i, step) in trace_new.struct_logs.iter_mut().enumerate() {
-        step.memory = mem[i + 1].clone();
-    }
+    preprocess_trace(&mut trace_new);
 
     GethData {
         chain_id: 1337.into(),

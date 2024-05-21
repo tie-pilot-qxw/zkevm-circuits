@@ -87,6 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             // stack pointer will become 0 after 6
             stack_pointer: ExpressionOutcome::Delta(-stack_pointer_prev.expr()),
+            memory_chunk: ExpressionOutcome::To(0.expr()),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
@@ -244,6 +245,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &call_context_write_row_0,
             &call_context_write_row_1,
         ]);
+        current_state.memory_chunk = 0;
+
         let core_row_0 = ExecutionState::CALL_7.into_exec_state_core_row(
             trace,
             current_state,

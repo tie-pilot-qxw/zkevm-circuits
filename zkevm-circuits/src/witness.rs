@@ -104,6 +104,7 @@ pub struct WitnessExecHelper {
     pub gas_left: u64,
     pub refund: u64,
     pub memory_chunk: u64,
+    pub parent_memory_chunk: HashMap<u64, u64>,
     pub memory_chunk_prev: u64,
     pub read_only: u64,
     pub bytecode: HashMap<U256, Bytecode>,
@@ -153,6 +154,7 @@ impl WitnessExecHelper {
             gas_left: 0,
             refund: 0,
             memory_chunk: 0,
+            parent_memory_chunk: HashMap::new(),
             memory_chunk_prev: 0,
             read_only: 0,
             bytecode: HashMap::new(),
@@ -275,6 +277,8 @@ impl WitnessExecHelper {
         self.bytecode = bytecode;
         self.gas_left = tx.gas.as_u64();
         self.is_create = tx.to.is_none();
+        self.memory_chunk = 0;
+        self.memory_chunk_prev = 0;
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
@@ -3263,6 +3267,14 @@ impl ExecutionState {
         let (selector_hi, selector_lo) = get_dynamic_selector_assignments(state, num_hi, num_lo);
         let mut row = current_state.get_core_row_without_versatile(&trace, 0);
         row.exec_state = Some(self);
+
+        let memory_chunk = match self {
+            ExecutionState::CALL_1 | ExecutionState::CALL_2 | ExecutionState::CALL_3 => {
+                current_state.memory_chunk_prev
+            }
+            _ => current_state.memory_chunk,
+        };
+
         for (i, value) in
             (0..NUM_VERS)
                 .into_iter()
@@ -3272,7 +3284,7 @@ impl ExecutionState {
                     current_state.log_stamp,
                     current_state.gas_left,
                     trace.refund,
-                    current_state.memory_chunk,
+                    memory_chunk,
                     current_state.read_only,
                 ]))
         {

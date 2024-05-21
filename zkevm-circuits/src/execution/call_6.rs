@@ -17,7 +17,7 @@ use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 
 pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 2;
+const STATE_STAMP_DELTA: usize = 3;
 
 /// CALL_6 用于处理gas相关的call_context操作，在call_6时write trace.gas 和 trace.gas_cost
 /// 在POST_CALL_1时read call_context, 从而完成 POST_CALL_1的gas约束
@@ -28,12 +28,12 @@ const STATE_STAMP_DELTA: usize = 2;
 ///     cnt == 1:
 ///         CALLCONTEXT_WRITE_0: write trace.gas
 ///         CALLCONTEXT_WRITE_1: write trace.gas_cost
-/// +-----+---------------------+---------------------+-----------------+
-/// | cnt |                     |                     |                 |
-/// +-----+---------------------+---------------------+-----------------+
-/// | 1   | CALLCONTEXT_WRITE_0 | CALLCONTEXT_WRITE_1 |                 |
-/// | 0   | DYNA_SELECTOR       | AUX                 | STAMP_INIT (25) |
-/// +-----+---------------------+---------------------+-----------------+
+/// +-----+---------------------+---------------------+-------------------+
+/// | cnt |                     |                     |                   |
+/// +-----+---------------------+---------------------+-------------------+
+/// | 1   | CALLCONTEXT_WRITE_0 | CALLCONTEXT_WRITE_1 |CALLCONTEXT_WRITE_2|
+/// | 0   | DYNA_SELECTOR       | AUX                 | STAMP_INIT (25)   |
+/// +-----+---------------------+---------------------+-------------------+
 pub struct Call6Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -71,7 +71,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
         let mut operands = vec![];
-        for i in 0..2 {
+        for i in 0..3 {
             // 约束填入core电路的state 状态值
             let entry = config.get_state_lookup(meta, i);
             constraints.append(
@@ -83,8 +83,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     true,
                     if i == 0 {
                         state::CallContextTag::ParentGas as u8
-                    } else {
+                    } else if i == 1 {
                         state::CallContextTag::ParentGasCost as u8
+                    } else {
+                        state::CallContextTag::ParentMemoryChunk as u8
                     }
                     .expr(),
                     call_id.clone(),
@@ -118,7 +120,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
 
-        // 4. trace.gas and trace.gas_cost constraints
+        // 4. memory_chunk, trace.gas and trace.gas_cost constraints
         let trace_gas = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
             Rotation(-1 * NUM_ROW as i32),
@@ -128,6 +130,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation(-1 * NUM_ROW as i32),
         );
 
+        let memory_chunk_aux =
+            meta.query_advice(config.get_auxiliary().memory_chunk, Rotation::cur());
         constraints.extend([
             (
                 "ParentTraceGas write lo".into(),
@@ -136,6 +140,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "ParentTraceGasCost write lo".into(),
                 trace_gas_cost - operands[1].clone(),
+            ),
+            (
+                "ParentMemoryChunk write lo".into(),
+                memory_chunk_aux - operands[2].clone(),
             ),
         ]);
 
@@ -169,11 +177,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let call_context_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
 
         // 将core 电路中数据在state电路中lookup
         vec![
             ("ParentTraceGas write".into(), call_context_lookup_0),
             ("ParentTraceGasCost write".into(), call_context_lookup_1),
+            ("ParentMemoryChunk write".into(), call_context_lookup_2),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -192,6 +202,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id.into(),
         );
 
+        let call_context_write_2 = current_state.get_call_context_write_row(
+            state::CallContextTag::ParentMemoryChunk,
+            current_state.memory_chunk.into(),
+            current_state.call_id.into(),
+        );
+
         current_state
             .parent_gas
             .insert(current_state.call_id, trace.gas);
@@ -199,8 +215,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .parent_gas_cost
             .insert(current_state.call_id, trace.gas_cost);
 
+        current_state
+            .parent_memory_chunk
+            .insert(current_state.call_id, current_state.memory_chunk);
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-        core_row_1.insert_state_lookups([&call_context_write_0, &call_context_write_1]);
+        core_row_1.insert_state_lookups([
+            &call_context_write_0,
+            &call_context_write_1,
+            &call_context_write_2,
+        ]);
 
         let mut core_row_0 = ExecutionState::CALL_6.into_exec_state_core_row(
             trace,
@@ -216,7 +240,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         Witness {
             core: vec![core_row_1, core_row_0],
-            state: vec![call_context_write_0, call_context_write_1],
+            state: vec![
+                call_context_write_0,
+                call_context_write_1,
+                call_context_write_2,
+            ],
             ..Default::default()
         }
     }

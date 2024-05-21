@@ -254,7 +254,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // gas_cost constraint
         let gas_cost = GasCost::MEMORY_EXPANSION_LINEAR_COEFF.expr()
-            * (next_word_size - memory_chunk_prev)
+            * (next_word_size.clone() - memory_chunk_prev)
             + (next_quad_memory_cost - curr_quad_memory_cost);
         let memory_gas_cost = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
@@ -282,6 +282,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: ExpressionOutcome::Delta(0.expr()),
             gas_left: ExpressionOutcome::Delta(0.expr()), // 此处的gas_left值与CALL1-3保持一致
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(next_word_size.clone()),
             ..Default::default()
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
@@ -300,7 +301,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // prev state is CALL_3
-        // next state is POST_CALL
+        // next state is CALL_5
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -352,8 +353,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_read_2, ret_offset) = current_state.get_peek_stack_row_value(trace, 6);
         let (stack_read_3, ret_length) = current_state.get_peek_stack_row_value(trace, 7);
 
-        let (args_len_inv) = get_multi_inverse::<F>(args_length);
-        let (ret_len_inv) = get_multi_inverse::<F>(ret_length);
+        let args_len_inv = get_multi_inverse::<F>(args_length);
+        let ret_len_inv = get_multi_inverse::<F>(ret_length);
 
         let args_size = if args_length.is_zero() {
             U256::zero()
@@ -514,6 +515,7 @@ mod test {
             stack_pointer,
             stack_top: None,
             gas_left: 0x254023,
+            memory_chunk: 0x112,
             ..WitnessExecHelper::new()
         };
         let state_stamp_init = 3;

@@ -64,6 +64,7 @@ pub enum CallContextTag {
     ParentStackPointer,
     ParentGas,
     ParentGasCost,
+    ParentMemoryChunk,
     StorageContractAddr,
     SenderAddr,
     Value,

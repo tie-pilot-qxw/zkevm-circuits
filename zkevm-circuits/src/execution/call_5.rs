@@ -369,7 +369,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_read_2, value) = current_state.get_peek_stack_row_value(trace, 3);
 
         let (storage_read, is_warm) = current_state.get_addr_access_list_read_row(addr);
-        let (storage_write) = current_state.get_addr_access_list_write_row(addr, true, is_warm);
+        let storage_write = current_state.get_addr_access_list_write_row(addr, true, is_warm);
 
         let value_inv = get_multi_inverse::<F>(value);
         let callee_code_length = current_state.bytecode.get(&addr).unwrap().code().len();

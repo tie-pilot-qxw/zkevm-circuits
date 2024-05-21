@@ -18,7 +18,7 @@ use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 
 pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 2;
+const STATE_STAMP_DELTA: usize = 3;
 
 /// POST_CALL_1 用于处理gas相关的call_context操作，在call_6时write trace.gas 和 trace.gas_cost
 /// 在POST_CALL_1时read call_context, 从而完成 POST_CALL_1的gas约束
@@ -33,7 +33,7 @@ const STATE_STAMP_DELTA: usize = 2;
 /// +-----+---------------------+---------------------+---------------------+----------------------+
 /// | cnt |                     |                     |                     |                      |
 /// +-----+---------------------+---------------------+---------------------+----------------------+
-/// | 1   | CALLCONTEXT_READ_0 | CALLCONTEXT_READ_1   |                     |                      |
+/// | 1   | CALLCONTEXT_READ_0 | CALLCONTEXT_READ_1   | CALLCONTEXT_READ_2  |                      |
 /// | 0   | DYNA_SELECTOR       | AUX                 | RETURN_SUCCESS (25) | RETURNDATA_SIZE (27) |
 /// +-----+---------------------+---------------------+---------------------+----------------------+
 pub struct PostCall1Gadget<F: Field> {
@@ -63,7 +63,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
         let mut operands = vec![];
-        for i in 0..2 {
+        for i in 0..3 {
             // 约束填入core电路的state 状态值
             let entry = config.get_state_lookup(meta, i);
             constraints.append(
@@ -75,8 +75,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     false,
                     if i == 0 {
                         state::CallContextTag::ParentGas as u8
-                    } else {
+                    } else if i == 1 {
                         state::CallContextTag::ParentGasCost as u8
+                    } else {
+                        state::CallContextTag::ParentMemoryChunk as u8
                     }
                     .expr(),
                     call_id.clone(),
@@ -97,6 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: ExpressionOutcome::Delta(0.expr()),
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(0.expr()),
+            memory_chunk: ExpressionOutcome::To(operands[2].clone()),
             ..Default::default()
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
@@ -161,16 +164,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let call_context_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
 
         // 将core 电路中数据在state电路中lookup
         vec![
             ("ParentTraceGas read".into(), call_context_lookup_0),
             ("ParentTraceGasCost read".into(), call_context_lookup_1),
+            ("ParentMemoryChunk read".into(), call_context_lookup_2),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let parent_trace_gas = current_state.parent_gas[&current_state.call_id];
         let parent_trace_gas_cost = current_state.parent_gas_cost[&current_state.call_id];
+        let parant_memory_chunk = current_state.parent_memory_chunk[&current_state.call_id];
 
         let call_context_read_0 = current_state.get_call_context_read_row_with_arbitrary_tag(
             state::CallContextTag::ParentGas,
@@ -184,8 +190,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id.into(),
         );
 
+        let call_context_read_2 = current_state.get_call_context_read_row_with_arbitrary_tag(
+            state::CallContextTag::ParentMemoryChunk,
+            parant_memory_chunk.into(),
+            current_state.call_id.into(),
+        );
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-        core_row_1.insert_state_lookups([&call_context_read_0, &call_context_read_1]);
+        core_row_1.insert_state_lookups([
+            &call_context_read_0,
+            &call_context_read_1,
+            &call_context_read_2,
+        ]);
 
         let mut core_row_0 = ExecutionState::POST_CALL_1.into_exec_state_core_row(
             trace,
@@ -206,7 +222,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         Witness {
             core: vec![core_row_1, core_row_0],
-            state: vec![call_context_read_0, call_context_read_1],
+            state: vec![
+                call_context_read_0,
+                call_context_read_1,
+                call_context_read_2,
+            ],
             ..Default::default()
         }
     }
@@ -220,7 +240,6 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -252,11 +271,14 @@ mod test {
         current_state
             .parent_gas_cost
             .insert(current_state.call_id, 0u64.into());
+        current_state
+            .parent_memory_chunk
+            .insert(current_state.call_id, 0u64.into());
 
         let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_CALL.into_exec_state_core_row(
+            let row = ExecutionState::END_CALL.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
