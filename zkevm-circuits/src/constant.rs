@@ -22,6 +22,9 @@ pub const LOG_STAMP_IDX: usize = 2;
 /// gas left index, cnt == 0, gas_left = NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX
 pub(crate) const GAS_LEFT_IDX: usize = 3;
 
+/// MEMORY_CHUNK_IDX in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + MEMORY_CHUNK_IDX
+pub(crate) const MEMORY_CHUNK_IDX: usize = 5;
+
 /// Number of versatile columns in core circuit
 pub const NUM_VERS: usize = 32;
 

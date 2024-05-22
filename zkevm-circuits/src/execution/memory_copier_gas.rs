@@ -265,7 +265,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 
 #[cfg(test)]
 mod test {
-    use crate::constant::{LENGTH_IDX, STACK_POINTER_IDX};
+    use crate::constant::{LENGTH_IDX, MEMORY_CHUNK_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -298,6 +298,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
+            // memory_chunk = 1
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + MEMORY_CHUNK_IDX] = Some(0x1.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX] =
                 Some(length.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
