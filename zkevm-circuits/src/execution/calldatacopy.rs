@@ -16,7 +16,6 @@ use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-use serde::de::Unexpected::Option;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
