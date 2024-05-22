@@ -37,6 +37,8 @@ pub mod log_topic;
 pub mod log_topic_num_addr;
 pub mod lt_gt_slt_sgt;
 pub mod memory;
+pub mod memory_copier_gas;
+pub mod memory_gas;
 pub mod msize;
 pub mod mstore8;
 pub mod mulmod;
@@ -147,6 +149,8 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::storage::new(),
             crate::execution::swap::new(),
             crate::execution::tx_context::new(),
+            crate::execution::memory_gas::new(),
+            crate::execution::memory_copier_gas::new(),
         ]
     }};
 }
@@ -1178,6 +1182,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(self.vers[offset + 2], Rotation(-2)),
             meta.query_advice(self.vers[offset + 3], Rotation(-2)),
             meta.query_advice(self.vers[offset + 4], Rotation(-2)),
+        );
+        LookupEntry::ArithmeticTiny {
+            tag,
+            values: [val_0, val_1, val_2, val_3],
+        }
+    }
+
+    pub(crate) fn get_arithmetic_tiny_lookup_with_rotation(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+        at: Rotation,
+    ) -> LookupEntry<F> {
+        let offset = ARITHMETIC_TINY_START_IDX + index * ARITHMETIC_TINY_COLUMN_WIDTH;
+
+        let (val_0, val_1, val_2, val_3, tag) = (
+            meta.query_advice(self.vers[offset + 0], at),
+            meta.query_advice(self.vers[offset + 1], at),
+            meta.query_advice(self.vers[offset + 2], at),
+            meta.query_advice(self.vers[offset + 3], at),
+            meta.query_advice(self.vers[offset + 4], at),
         );
         LookupEntry::ArithmeticTiny {
             tag,
@@ -2237,6 +2262,8 @@ pub enum ExecutionState {
     CODESIZE,
     EXTCODESIZE,
     ISZERO_EQ,
+    MEMORY_GAS,
+    MEMORY_COPIER_GAS,
 }
 
 impl ExecutionState {
@@ -2264,10 +2291,14 @@ impl ExecutionState {
             OpcodeId::NOT => vec![Self::NOT],
             OpcodeId::BYTE => vec![Self::BYTE],
             OpcodeId::CALLDATALOAD => vec![Self::CALLDATALOAD],
-            OpcodeId::CALLDATACOPY => vec![Self::CALLDATACOPY],
+            OpcodeId::CALLDATACOPY => vec![
+                Self::CALLDATACOPY,
+                Self::MEMORY_GAS,
+                Self::MEMORY_COPIER_GAS,
+            ],
             OpcodeId::CODESIZE => vec![Self::CODESIZE],
             OpcodeId::CODECOPY => {
-                vec![Self::CODECOPY]
+                vec![Self::CODECOPY, Self::MEMORY_GAS, Self::MEMORY_COPIER_GAS]
             }
             OpcodeId::SHL | OpcodeId::SHR => vec![Self::SHL_SHR],
             OpcodeId::SAR => {
@@ -2375,7 +2406,7 @@ impl ExecutionState {
 
             OpcodeId::EXTCODESIZE => vec![Self::EXTCODESIZE],
             OpcodeId::EXTCODECOPY => {
-                vec![Self::EXTCODECOPY]
+                vec![Self::EXTCODECOPY, Self::MEMORY_GAS, Self::MEMORY_COPIER_GAS]
             }
             OpcodeId::EXTCODEHASH => {
                 todo!()
@@ -2384,7 +2415,11 @@ impl ExecutionState {
                 vec![Self::RETURNDATASIZE]
             }
             OpcodeId::RETURNDATACOPY => {
-                vec![Self::RETURNDATACOPY]
+                vec![
+                    Self::RETURNDATACOPY,
+                    Self::MEMORY_GAS,
+                    Self::MEMORY_COPIER_GAS,
+                ]
             }
             OpcodeId::BLOCKHASH => {
                 todo!()

@@ -1,5 +1,12 @@
 use crate::arithmetic_circuit::operation;
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::constant::{
+    GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+};
+use crate::execution::ExecutionState::MEMORY_GAS;
+use crate::execution::{
+    memory_gas, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
+    ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::state::CallContextTag;
@@ -30,14 +37,17 @@ const LEN_LO_INV_COL_IDX: usize = 9;
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// +---+-------+-----------------------+-------+---------+
-/// |cnt| 8 col |           8 col       | 8 col |  8col   |
-/// +---+-------+-----------------------+-------+---------+
-/// | 3 |RSSTATE|                       |       |         |
-/// | 2 |ARITH(9) |LI(1)|                        |ARITH(5)|
-/// | 1 | STATE |        STATE          | STATE | STATE   |
-/// | 0 |       DYNA_SELECTOR             | AUX           |
-/// +---+-------+-----------------------+-------+---------+
+/// new_memory_size is `length + offset`
+/// memory_chunk_prev is the previous memory chunk
+/// length is the opcode input parameter
+/// +---+-------+-----------------------+-------+-------------------------------------------------------+
+/// |cnt| 8 col |           8 col       | 8 col |  8col                                                 |
+/// +---+-------+-----------------------+-------+-------------------------------------------------------+
+/// | 3 |RSSTATE|                       |       |                                                       |
+/// | 2 |ARITH(9) |LI(1)|                        |ARITH(5)                                              |
+/// | 1 | STATE |        STATE          | STATE | STATE                                                 |
+/// | 0 |       DYNA_SELECTOR             | AUX | new_memory_size(26) |memory_chunk_prev(27)|length(28) |
+/// +---+-------+-----------------------+-------+-------------------------------------------------------+
 pub struct ReturndatacopyGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -55,7 +65,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, 1)
+        (NUM_ROW, memory_gas::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -151,10 +161,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // pc, call_id,code_addr,tx_idx constraints
         constraints.append(&mut config.get_next_single_purpose_constraints(
             meta,
-            CoreSinglePurposeOutcome {
-                pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-                ..Default::default()
-            },
+            // 后移pc至memory copier gas
+            CoreSinglePurposeOutcome::default(),
         ));
 
         // constraint return data size hi must be 0
@@ -216,6 +224,43 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
             + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
 
+        // next state constraints
+        let memory_size_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "memory_size_for_next ==  (mem_off + length) * (1 - is_zero_len.expr()) in state lookup".into(),
+            (state_values[1].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - memory_size_for_next.clone(),
+        ));
+
+        let memory_chunk_prev_for_next = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "memory_chunk_prev_for_next == memory_chunk_prev in auxiliary".into(),
+            memory_chunk_prev_for_next
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        let length_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "length_for_next == length in state lookup".into(),
+            length_for_next - length.clone(),
+        ));
+
         // code_copy will increase the stamp automatically
         // state_stamp_delta = STATE_STAMP_DELTA + copy_lookup_len(copied code)
         let delta = AuxiliaryOutcome {
@@ -224,10 +269,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
-
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_exec_state_constraints(
+            meta,
+            ExecStateTransition::new(
+                vec![],
+                NUM_ROW,
+                vec![(MEMORY_GAS, memory_gas::NUM_ROW, None)],
+                None,
+            ),
+        ));
         constraints
     }
     fn get_lookups(
@@ -350,11 +406,38 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &stack_pop_length,
         ]);
 
-        let core_row_0 = ExecutionState::RETURNDATACOPY.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::RETURNDATACOPY.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
+        );
+
+        // 根据栈里的输入记录length和memory_size
+        current_state.length_in_stack = Some(length.as_u64());
+        current_state.new_memory_size = Some(offset_bound.as_u64());
+
+        // 在外部gen_witness时，我们将current.gas_left预处理为trace.gas - trace.gas_cost
+        // 但是某些复杂的gas计算里，真正的gas计算是在执行状态的最后一步，此时我们需要保证这里的gas_left与
+        // 上一个状态的gas_left一致，也即trace.gas。
+        // 在生成core_row_0时我们没有改变current.gas_left是因为这样做会导致重复的代码。
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+
+        // 固定的预分配位置
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
+            offset_bound
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            current_state.memory_chunk_prev.into()
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
+            length.into()
         );
 
         let mut state_rows = vec![
@@ -413,6 +496,7 @@ mod test {
             [&current_state.returndata_call_id]
             .len()
             .into();
+        current_state.gas_left = 100;
 
         let trace = prepare_trace_step!(0, OpcodeId::RETURNDATACOPY, stack);
         let padding_begin_row = |current_state| {
@@ -427,13 +511,12 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+            let mut row = ExecutionState::MEMORY_GAS.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row.pc = 1.into();
             row
         };
         let (witness, prover) =

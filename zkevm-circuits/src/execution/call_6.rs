@@ -7,7 +7,7 @@ use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{NUM_AUXILIARY, TRACE_GAS_COST_IDX, TRACE_GAS_IDX};
 use crate::execution::{
     call_7, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -122,11 +122,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 4. memory_chunk, trace.gas and trace.gas_cost constraints
         let trace_gas = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
         let trace_gas_cost = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_COST_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -299,8 +299,10 @@ mod test {
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY] =
                 Some(state_stamp_init.into());
             // 这两个值是prepare_trace_step!中预设的一个值
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1] = Some(100.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2] = Some(1.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_IDX] =
+                Some(100.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_COST_IDX] =
+                Some(1.into());
             row
         };
         let padding_end_row = |current_state| {

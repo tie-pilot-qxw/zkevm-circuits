@@ -10,7 +10,10 @@ use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::{select, Expr};
 
 use crate::arithmetic_circuit::operation;
-use crate::constant::{NUM_AUXILIARY, STORAGE_COLUMN_WIDTH};
+use crate::constant::{
+    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, STORAGE_COLUMN_WIDTH, TRACE_GAS_COST_IDX,
+    TRACE_GAS_IDX,
+};
 use crate::execution::storage::get_multi_inverse;
 use crate::execution::ExecutionState::{CALL_4, CALL_6};
 use crate::execution::{
@@ -142,7 +145,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             +  0.expr() * GasCost::NEW_ACCOUNT.expr());
 
         let memory_gas_cost = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -263,11 +269,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let trace_gas_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_IDX],
             Rotation::cur(),
         );
         let trace_gas_cost_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_COST_IDX],
             Rotation::cur(),
         );
 

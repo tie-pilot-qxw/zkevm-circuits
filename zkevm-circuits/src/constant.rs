@@ -112,3 +112,23 @@ pub(crate) const END_TX_NEXT_IS_BEGIN_TX1: usize = 0;
 /// The index of column to store 1, if next state is end_block;other wise set 0
 /// (needs to add NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY)
 pub(crate) const END_TX_NEXT_IS_END_BLOCK: usize = 1;
+
+/// NEW_MEMORY_SIZE_OR_GAS_COST_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + NEW_MEMORY_SIZE_OR_GAS_COST_IDX
+/// if new_memory_size, then `(1 - length_is_zero) * (length + offset)`
+pub(crate) const NEW_MEMORY_SIZE_OR_GAS_COST_IDX: usize = 1;
+
+/// MEMORY_CHUNK_PREV_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + MEMORY_CHUNK_PREV_IDX
+pub(crate) const MEMORY_CHUNK_PREV_IDX: usize = 2;
+
+/// LENGTH_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + LENGTH_IDX
+/// length is opcode input, stack element.
+pub(crate) const LENGTH_IDX: usize = 3;
+/// WARM_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + WARM_IDX
+/// warm is storage lookup element.
+pub(crate) const WARM_IDX: usize = 4;
+
+/// TRACE_GAS_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + WARM_IDX
+pub(crate) const TRACE_GAS_IDX: usize = 1;
+
+/// TRACE_GAS_COST_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + TRACE_GAS_COST_IDX
+pub(crate) const TRACE_GAS_COST_IDX: usize = 2;
