@@ -196,6 +196,7 @@ mod test {
         let mut current_state = WitnessExecHelper {
             state_stamp: 1,
             log_stamp: 1,
+            log_num_in_block: 1,
             ..WitnessExecHelper::new()
         };
         // prepare a trace
