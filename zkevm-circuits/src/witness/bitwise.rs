@@ -23,7 +23,7 @@ pub struct Row {
     pub sum_2: U256,
     /// The counter for one operation
     pub cnt: U256,
-    /// Operand 0 most significant byte index
+    /// Operand 2 most significant byte index
     pub index: U256,
 }
 
@@ -59,7 +59,7 @@ impl Row {
         // begin padding
         let mut byte_acc_pre_vec = vec![U256::zero(), U256::zero(), U256::zero()];
         let mut byte_2_sum_pre = U256::zero();
-        let mut index_perv = U256::zero();
+        let mut index_prev = U256::zero();
         let temp_256_f = F::from(256);
         for i in 0..16 {
             let mut byte_vec = vec![operand1_bytes[i].into(), operand2_bytes[i].into()];
@@ -99,7 +99,7 @@ impl Row {
                 let acc_2_not_zero = byte_acc_vec[2] != U256::zero();
                 let acc_2_not_zero_prev = byte_acc_pre_vec[2] != U256::zero();
                 index = if acc_2_not_zero_prev == acc_2_not_zero {
-                    index_perv
+                    index_prev
                 } else {
                     U256::from(16 - i)
                 }
@@ -109,7 +109,7 @@ impl Row {
             for i in 0..3 {
                 byte_acc_pre_vec[i] = byte_acc_vec[i];
             }
-            index_perv = index;
+            index_prev = index;
 
             let row = Row {
                 tag,

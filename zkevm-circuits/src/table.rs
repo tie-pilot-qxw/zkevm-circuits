@@ -163,7 +163,6 @@ macro_rules! extract_lookup_expression {
         }
     };
 }
-use crate::witness::bitwise::Tag;
 pub(crate) use extract_lookup_expression;
 
 /// The table shared between Core Circuit and Stack Circuit
@@ -735,7 +734,7 @@ impl BitwiseTable {
             }
             LookupEntry::MostSignificantByteLen { acc_2, index } => {
                 vec![
-                    ((Tag::Or as u8).expr(), table_tag),
+                    ((bitwise::Tag::Or as u8).expr(), table_tag),
                     (acc_2, table_acc_2),
                     (index, table_index),
                 ]

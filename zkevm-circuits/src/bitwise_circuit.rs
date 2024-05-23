@@ -70,9 +70,10 @@ pub struct BitwiseCircuitConfig<F: Field> {
     pub index: Column<Advice>,
     /// IsZero chip for column cnt
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
-    /// acc_2 not zero flag, if acc_2 != 0, acc_2_not_zero = 1
-    pub acc_2_not_zero: IsZeroWithRotationConfig<F>,
-    pub fixed_table: FixedTable,
+    /// acc_2 is zero flag
+    pub acc_2_is_zero: IsZeroWithRotationConfig<F>,
+    // table used for lookup
+    fixed_table: FixedTable,
     bitwise_table: BitwiseTable,
 }
 
@@ -127,7 +128,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             fixed_table,
             bitwise_table,
             index,
-            acc_2_not_zero,
+            acc_2_is_zero: acc_2_not_zero,
         };
 
         // Bitwise gate constraints
@@ -156,7 +157,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
             let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
             let tag_is_nil = config.tag.value_equals(Tag::Nil, Rotation::cur())(meta);
-            let acc_2_not_zero = 1.expr() - config.acc_2_not_zero.expr_at(meta, Rotation::cur());
+            let acc_2_not_zero = 1.expr() - config.acc_2_is_zero.expr_at(meta, Rotation::cur());
             let index = meta.query_advice(config.index, Rotation::cur());
 
             let tag_prev = config.tag.value(Rotation::prev())(meta);
@@ -167,7 +168,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             let cnt_prev = meta.query_advice(config.cnt, Rotation::prev());
             let cnt_next_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::next());
             let acc_2_not_zero_prev =
-                1.expr() - config.acc_2_not_zero.expr_at(meta, Rotation::prev());
+                1.expr() - config.acc_2_is_zero.expr_at(meta, Rotation::prev());
             let index_prev = meta.query_advice(config.index, Rotation::prev());
 
             // tag_is_not_nil, cnt=0 ---> acc_0=byte_0、acc_1=byte_1、acc_2=byte_2、sum_2=byte_2
@@ -297,7 +298,7 @@ impl<F: Field> BitwiseCircuitConfig<F> {
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
         let acc_2_not_zero: IsZeroWithRotationChip<F> =
-            IsZeroWithRotationChip::construct(self.acc_2_not_zero.clone());
+            IsZeroWithRotationChip::construct(self.acc_2_is_zero.clone());
 
         tag.assign(region, offset, &row.tag)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.byte_0, self.bytes[0])?;
