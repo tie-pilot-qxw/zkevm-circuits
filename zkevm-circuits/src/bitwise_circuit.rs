@@ -109,7 +109,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             cnt,
             None,
         );
-        let acc_2_not_zero = IsZeroWithRotationChip::configure(
+        let acc_2_is_zero = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
             acc_vec[2],
@@ -128,7 +128,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             fixed_table,
             bitwise_table,
             index,
-            acc_2_is_zero: acc_2_not_zero,
+            acc_2_is_zero,
         };
 
         // Bitwise gate constraints
@@ -297,7 +297,7 @@ impl<F: Field> BitwiseCircuitConfig<F> {
             BinaryNumberChip::construct(self.tag);
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
-        let acc_2_not_zero: IsZeroWithRotationChip<F> =
+        let acc_2_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.acc_2_is_zero.clone());
 
         tag.assign(region, offset, &row.tag)?;
@@ -317,7 +317,7 @@ impl<F: Field> BitwiseCircuitConfig<F> {
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt))),
         )?;
 
-        acc_2_not_zero.assign(
+        acc_2_is_zero.assign(
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.acc_2))),
