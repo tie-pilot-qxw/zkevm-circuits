@@ -76,7 +76,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // 从public calldata区域拷贝copy size大小的数据
             state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
             stack_pointer: ExpressionOutcome::To(0.expr()),
-            log_stamp: ExpressionOutcome::To(0.expr()),
             memory_chunk: ExpressionOutcome::To(0.expr()),
             ..Default::default()
         };

@@ -1378,17 +1378,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
     }
 
-    /// get_cur_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
-    /// between rotation::cur() and rotation(-1 * prev_exec_state_row)
-    pub(crate) fn get_cur_single_purpose_constraints(
-        &self,
-        meta: &mut VirtualCells<F>,
-        prev_exec_state_row: usize,
-        delta: CoreSinglePurposeOutcome<F>,
-    ) -> Vec<(String, Expression<F>)> {
-        self.get_core_single_purpose_constraints(meta, prev_exec_state_row, delta, "prev")
-    }
-
     // 已经实现了gas的可以先临时使用这个函数
     pub(crate) fn get_auxiliary_gas_constraints(
         &self,
@@ -1431,28 +1420,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
         delta: CoreSinglePurposeOutcome<F>,
     ) -> Vec<(String, Expression<F>)> {
-        self.get_core_single_purpose_constraints(meta, 0, delta, "next")
+        self.get_core_single_purpose_constraints(meta, 1, delta, "next")
     }
 
-    /// get_core_single_purpose_constraints compute pc,tx_idx,call_id,code_addr constraints
-    /// if prev_exec_state_row > 0, constraints used in rotation::cur() and rotation(-1*prev_exec_state_row);
-    /// elif prev_exec_state_row == 0, constraints used in rotation::cur and rotation::next()
-    fn get_core_single_purpose_constraints(
+    /// get_cur_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
+    /// between rotation::cur() and rotation(-1 * prev_exec_state_row)
+    pub(crate) fn get_cur_single_purpose_constraints(
         &self,
         meta: &mut VirtualCells<F>,
         prev_exec_state_row: usize,
         delta: CoreSinglePurposeOutcome<F>,
+    ) -> Vec<(String, Expression<F>)> {
+        self.get_core_single_purpose_constraints(
+            meta,
+            -1 * prev_exec_state_row as i32,
+            delta,
+            "prev",
+        )
+    }
+
+    /// get_core_single_purpose_constraints compute pc,tx_idx,call_id,code_addr constraints
+    fn get_core_single_purpose_constraints(
+        &self,
+        meta: &mut VirtualCells<F>,
+        roation_row: i32,
+        delta: CoreSinglePurposeOutcome<F>,
         comment_postfix: &str,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints: Vec<(String, Expression<F>)> = vec![];
-        let mut rotation_1 = Rotation::cur();
-        let mut rotation_2 = Rotation::next();
-        if prev_exec_state_row > 0 {
-            rotation_2 = Rotation(-1 * prev_exec_state_row as i32);
+
+        let (rotation_1, rotation_2) = if roation_row > 0 {
+            (Rotation(roation_row), Rotation::cur())
         } else {
-            rotation_1 = Rotation::next();
-            rotation_2 = Rotation::cur();
+            (Rotation::cur(), Rotation(roation_row))
         };
+
         // pc constraint
         constraints.extend(
             delta

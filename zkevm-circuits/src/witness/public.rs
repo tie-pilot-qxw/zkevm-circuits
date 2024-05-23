@@ -364,10 +364,12 @@ impl Row {
         }
 
         // The total number of logs in a block
-        let mut log_num: usize = 0;
-        for log_data in &geth_data.logs {
-            log_num = log_num + log_data.logs.len();
-        }
+        let log_num: usize = geth_data
+            .logs
+            .iter()
+            .map(|log_data| log_data.logs.len())
+            .sum();
+
         result.push(Row {
             tag: Tag::BlockLogNum,
             value_0: Some(log_num.into()),

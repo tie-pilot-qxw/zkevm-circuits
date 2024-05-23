@@ -1,12 +1,13 @@
-use eth_types::{Field, GethExecStep};
-use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
-
 use crate::execution::{
-    begin_tx_1, Auxiliary, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    begin_tx_1, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::LookupEntry;
+use crate::util::ExpressionOutcome;
 use crate::witness::{Witness, WitnessExecHelper};
+use eth_types::{Field, GethExecStep};
+use gadgets::util::Expr;
+use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 
 use std::marker::PhantomData;
 use std::vec;
@@ -53,29 +54,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         // pc = 0
         let mut constraints = vec![];
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        constraints.extend([("pc cur = 0".into(), pc_cur)]);
-        // 因为begin_block为第一条辅助状态数据，所以所有的值都应该为0
-        let Auxiliary {
-            state_stamp,
-            stack_pointer,
-            log_stamp,
-            ..
-        } = config.get_auxiliary();
-        constraints.extend([
-            (
-                "state_stamp = 0".into(),
-                meta.query_advice(state_stamp, Rotation::cur()),
-            ),
-            (
-                "stack_pointer = 0".into(),
-                meta.query_advice(stack_pointer, Rotation::cur()),
-            ),
-            (
-                "log_stamp = 0".into(),
-                meta.query_advice(log_stamp, Rotation::cur()),
-            ),
-        ]);
+        // let pc_cur = meta.query_advice(config.pc, Rotation::cur());
+        // constraints.extend([("pc cur = 0".into(), pc_cur)]);
+
+        // All Auxiliary status needs to be reset to 0
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::To(0.expr()),
+            stack_pointer: ExpressionOutcome::To(0.expr()),
+            log_stamp: ExpressionOutcome::To(0.expr()),
+            gas_left: ExpressionOutcome::To(0.expr()),
+            refund: ExpressionOutcome::To(0.expr()),
+            memory_chunk: ExpressionOutcome::To(0.expr()),
+            read_only: ExpressionOutcome::To(0.expr()),
+        };
+        constraints.append(&mut config.get_auxiliary_constraints(meta, 0, delta));
+
+        // reset pc, tx_idx, call_id, code_addr to 0
+        let delta_core = CoreSinglePurposeOutcome {
+            tx_idx: ExpressionOutcome::To(0.expr()),
+            pc: ExpressionOutcome::To(0.expr()),
+            call_id: ExpressionOutcome::To(0.expr()),
+            code_addr: ExpressionOutcome::To(0.expr()),
+        };
+        constraints.append(&mut config.get_cur_single_purpose_constraints(meta, 0, delta_core));
 
         // 下一条执行指令应该为begin_tx
         constraints.extend(config.get_exec_state_constraints(

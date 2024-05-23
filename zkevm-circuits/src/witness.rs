@@ -80,6 +80,8 @@ pub struct WitnessExecHelper {
     pub tx_idx: usize,
     // 区块内交易的数量
     pub tx_num_in_block: usize,
+    // 区块 log 的数量
+    pub log_num_in_block: usize,
     // 正在执行的call_id
     pub call_id: u64,
     // 下一个即将执行的call id；如在执行evm CALL指令时，将生成的新call id赋值该字段，
@@ -144,6 +146,7 @@ impl WitnessExecHelper {
             sender: HashMap::new(),
             tx_idx: 0,
             tx_num_in_block: 0,
+            log_num_in_block: 0,
             call_id: 0,
             call_id_new: 0,
             parent_call_id: HashMap::new(),
@@ -230,7 +233,6 @@ impl WitnessExecHelper {
         self.returndata_call_id = 0;
         self.returndata_size = 0.into();
         self.return_success = false;
-        self.log_stamp = 0;
         self.state_db.reset_tx();
     }
 
@@ -1969,8 +1971,8 @@ impl WitnessExecHelper {
                 tx_idx = 0;
             }
             public::Tag::BlockLogNum => {
-                values = [Some(self.log_stamp.into()), None, None, None];
-                value_comments = ["log_num".into(), "".into(), "".into(), "".into()];
+                values = [Some(self.log_num_in_block.into()), None, None, None];
+                value_comments = ["log_num_in_block".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
             public::Tag::TxGasLimit => {
@@ -3105,8 +3107,15 @@ impl Witness {
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
         witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
-        // initialize txs number in current_state with geth_data
+
+        // initialize txs number and log number in current_state with geth_data
         current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
+        current_state.log_num_in_block = geth_data
+            .logs
+            .iter()
+            .map(|log_data| log_data.logs.len())
+            .sum();
+
         current_state.preprocess_storage(geth_data);
         for i in 0..geth_data.geth_traces.len() {
             let trace_related_witness =
