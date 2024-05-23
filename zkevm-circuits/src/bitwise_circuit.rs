@@ -28,9 +28,9 @@ pub(crate) const NUM_OPERAND: usize = 3;
 ///  in this circuit, integers are broken into bytes and logical operations are performed on bytes.
 ///
 /// Table layout
-/// +---+--------+--------+--------+---------+------+-------+-------+-------+
-/// |tag| byte_0 | byte_1 | byte_2 |  acc_0 | acc_1 | acc_2 | sum_2 |  cnt  |
-/// +---+--------+--------+--------+-------+--------+-------+-------+-------+
+/// +---+--------+--------+--------+---------+------+-------+-------+-------+-------+
+/// |tag| byte_0 | byte_1 | byte_2 |  acc_0 | acc_1 | acc_2 | sum_2 |  cnt  | index |
+/// +---+--------+--------+--------+-------+--------+-------+-------+-------+-------+
 /// tag: Nil、And、Or (Nil is the default value)
 /// byte_0: operand1
 /// byte_1: operand2
@@ -40,14 +40,15 @@ pub(crate) const NUM_OPERAND: usize = 3;
 /// acc_2: accumulated value of byte_2, `acc_2=acc_2_pre*256`
 /// sum_2: cumulative sum of byte_2, `sum_2=byte_2+sum2_pre`
 /// cnt: counter, ranging from 0 to 15
+/// index: the most significant byte length
 ///
 /// Example:
 ///  0xabcdef AND 0xaabbcc
-///  | tag  | byte_0 | byte_1 | byte_2 | acc_0    | acc_1    | acc_2    | sum_2 | cnt  |
-///  | ---- | ------ | ------ | ------ | -------- | -------- | -------- | ----- | ---- |
-///  | And  | 0xab   | 0xaa   | 0xaa   | 0xab     | 0xaa     | 0xaa     | 0xaa  | 0    |
-///  | And  | 0xcd   | 0xbb   | 0x89   | 0xabcd   | 0xaabb   | 0xaa89   | 0x133 | 1    |
-///  | And  | 0xef   | 0xcc   | 0xcc   | 0xabcdef | 0xaabbcc | 0xaa89cc | 0x1ff | 2    |
+///  | tag  | byte_0 | byte_1 | byte_2 | acc_0    | acc_1    | acc_2    | sum_2 | cnt  | index |
+///  | ---- | ------ | ------ | ------ | -------- | -------- | -------- | ----- | ---- | ----- |
+///  | And  | 0xab   | 0xaa   | 0xaa   | 0xab     | 0xaa     | 0xaa     | 0xaa  | 0    |  16   |
+///  | And  | 0xcd   | 0xbb   | 0x89   | 0xabcd   | 0xaabb   | 0xaa89   | 0x133 | 1    |  16   |
+///  | And  | 0xef   | 0xcc   | 0xcc   | 0xabcdef | 0xaabbcc | 0xaa89cc | 0x1ff | 2    |  16   |
 ///
 /// note: in actual operation, the integer participating in the operation will be divided into 16 bytes, if the length
 ///       after division is not 16 bytes, 0 will be added.
