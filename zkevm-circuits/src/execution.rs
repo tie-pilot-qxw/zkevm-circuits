@@ -158,8 +158,8 @@ use crate::constant::{
     self, ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BYTECODE_COLUMN_START_IDX,
     COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX,
-    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH,
-    STORAGE_COLUMN_WIDTH,
+    MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH,
+    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::util::ExpressionOutcome;
@@ -321,6 +321,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ],
             sum_2: meta.query_advice(
                 self.vers[BITWISE_COLUMN_START_IDX + index * BITWISE_COLUMN_WIDTH + 4],
+                Rotation(-2),
+            ),
+        }
+    }
+
+    pub(crate) fn get_most_significant_byte_len_lookup(
+        &self,
+
+        meta: &mut VirtualCells<F>,
+        index: usize,
+    ) -> LookupEntry<F> {
+        assert!(index <= 3);
+        LookupEntry::MostSignificantByteLen {
+            acc_2: meta.query_advice(
+                self.vers
+                    [BITWISE_COLUMN_START_IDX + MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH * index],
+                Rotation(-2),
+            ),
+            index: meta.query_advice(
+                self.vers
+                    [BITWISE_COLUMN_START_IDX + MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH * index + 1],
                 Rotation(-2),
             ),
         }
@@ -791,7 +812,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 self.state_table.get_lookup_vector(meta, lookup)
             }
             LookupEntry::Public { .. } => self.public_table.get_lookup_vector(meta, lookup),
-            LookupEntry::Bitwise { .. } => self.bitwise_table.get_lookup_vector(meta, lookup),
+            LookupEntry::Bitwise { .. } | LookupEntry::MostSignificantByteLen { .. } => {
+                self.bitwise_table.get_lookup_vector(meta, lookup)
+            }
             LookupEntry::Copy { .. } => self.copy_table.get_lookup_vector(meta, lookup),
             LookupEntry::Arithmetic { .. }
             | LookupEntry::ArithmeticTiny { .. }
@@ -2067,6 +2090,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 | LookupEntry::U10(..)
                 | LookupEntry::U16(..)
                 | LookupEntry::Bitwise { .. }
+                | LookupEntry::MostSignificantByteLen { .. }
                 | LookupEntry::Copy { .. }
                 | LookupEntry::ArithmeticShort { .. }
                 | LookupEntry::Exp { .. } => {

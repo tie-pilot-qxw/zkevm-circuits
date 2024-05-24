@@ -694,6 +694,7 @@ pub struct BitwiseTable {
     pub acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND],
     /// The sum of bytes in one operation of operand 2, used to compute byte opcode
     pub sum_2: Column<Advice>,
+    pub index: Column<Advice>,
 }
 
 impl BitwiseTable {
@@ -702,10 +703,12 @@ impl BitwiseTable {
         let acc_vec: [Column<Advice>; BITWISE_NUM_OPERAND] =
             std::array::from_fn(|_| meta.advice_column());
         let sum_2 = meta.advice_column();
+        let index = meta.advice_column();
         Self {
             tag,
             acc_vec,
             sum_2,
+            index,
         }
     }
     pub fn get_lookup_vector<F: Field>(
@@ -718,6 +721,7 @@ impl BitwiseTable {
         let table_acc_1 = meta.query_advice(self.acc_vec[1], Rotation::cur());
         let table_acc_2 = meta.query_advice(self.acc_vec[2], Rotation::cur());
         let table_sum_2 = meta.query_advice(self.sum_2, Rotation::cur());
+        let table_index = meta.query_advice(self.index, Rotation::cur());
         match entry {
             LookupEntry::Bitwise { tag, acc, sum_2 } => {
                 vec![
@@ -726,6 +730,13 @@ impl BitwiseTable {
                     (acc[1].clone(), table_acc_1),
                     (acc[2].clone(), table_acc_2),
                     (sum_2.clone(), table_sum_2),
+                ]
+            }
+            LookupEntry::MostSignificantByteLen { acc_2, index } => {
+                vec![
+                    ((bitwise::Tag::Or as u8).expr(), table_tag),
+                    (acc_2, table_acc_2),
+                    (index, table_index),
                 ]
             }
             _ => panic!("Not bitwise lookup!"),
@@ -989,6 +1000,13 @@ pub enum LookupEntry<F> {
         /// The sum of bytes for operand 2, used for BYTE opcode
         sum_2: Expression<F>,
     },
+    /// MostSignificantByteLen lookup operation, lookup to bitwise table
+    MostSignificantByteLen {
+        /// acc_2 is operand_0, tag always OR
+        acc_2: Expression<F>,
+        /// index is most significant byte index
+        index: Expression<F>,
+    },
     /// Lookup to Public table
     Public {
         tag: Expression<F>,
@@ -1177,6 +1195,9 @@ impl<F: Field> LookupEntry<F> {
                 contents.extend(acc.iter().map(|v| v.identifier()));
                 contents.push(sum_2.identifier());
                 contents
+            }
+            LookupEntry::MostSignificantByteLen { acc_2, index } => {
+                vec![acc_2.identifier(), index.identifier()]
             }
             LookupEntry::ArithmeticShort { tag, values } => {
                 let mut contents = vec![tag.identifier()];
@@ -1379,6 +1400,7 @@ pub(crate) mod test_util {
             assign_advice_or_fixed_with_u256(region, offset, &row.acc_1, self.acc_vec[1])?;
             assign_advice_or_fixed_with_u256(region, offset, &row.acc_2, self.acc_vec[2])?;
             assign_advice_or_fixed_with_u256(region, offset, &row.sum_2, self.sum_2)?;
+            assign_advice_or_fixed_with_u256(region, offset, &row.index, self.index)?;
             Ok(())
         }
         /// assign values from witness in a region, used for test

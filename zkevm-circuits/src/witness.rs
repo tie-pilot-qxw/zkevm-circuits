@@ -16,9 +16,10 @@ use crate::constant::{
     ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BYTECODE_COLUMN_START_IDX,
     COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
-    LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
-    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES,
-    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
+    MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS,
+    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
+    STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -2316,21 +2317,36 @@ impl core::Row {
             bitwise_row.acc_2,
             bitwise_row.sum_2,
         ];
+        let start = BITWISE_COLUMN_START_IDX + BITWISE_COLUMN_WIDTH * index;
         for i in 0..BITWISE_COLUMN_WIDTH {
-            assign_or_panic!(
-                self[BITWISE_COLUMN_START_IDX + BITWISE_COLUMN_WIDTH * index + i],
-                column_values[i]
-            );
+            assign_or_panic!(self[start + i], column_values[i]);
         }
         self.comments.extend([
             (
-                format!("vers_{}", index * 5),
+                format!("vers_{}", start),
                 format!("tag:{:?}", bitwise_row.tag),
             ),
-            (format!("vers_{}", index * 5 + 1), "acc_0".into()),
-            (format!("vers_{}", index * 5 + 2), "acc_1".into()),
-            (format!("vers_{}", index * 5 + 3), "acc_2".into()),
-            (format!("vers_{}", index * 5 + 4), "sum_2".into()),
+            (format!("vers_{}", start + 1), "acc_0".into()),
+            (format!("vers_{}", start + 2), "acc_1".into()),
+            (format!("vers_{}", start + 3), "acc_2".into()),
+            (format!("vers_{}", start + 4), "sum_2".into()),
+        ]);
+    }
+    pub fn insert_most_significant_byte_len_lookups(
+        &mut self,
+        index: usize,
+        bitwise_row: &bitwise::Row,
+    ) {
+        assert!(index <= 3);
+        assert_eq!(self.cnt, 2.into());
+        let start = BITWISE_COLUMN_START_IDX + MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH * index;
+        let column_values = [bitwise_row.acc_2, bitwise_row.index];
+        for i in 0..MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH {
+            assign_or_panic!(self[start + i], column_values[i]);
+        }
+        self.comments.extend([
+            (format!("vers_{}", start), "acc_2".into()),
+            (format!("vers_{}", start + 1), "index".into()),
         ]);
     }
     pub fn insert_state_lookups<const NUM_LOOKUP: usize>(

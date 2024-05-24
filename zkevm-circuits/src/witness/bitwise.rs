@@ -23,6 +23,8 @@ pub struct Row {
     pub sum_2: U256,
     /// The counter for one operation
     pub cnt: U256,
+    /// Operand 2 most significant byte index
+    pub index: U256,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, EnumIter, EnumString)]
@@ -57,6 +59,7 @@ impl Row {
         // begin padding
         let mut byte_acc_pre_vec = vec![U256::zero(), U256::zero(), U256::zero()];
         let mut byte_2_sum_pre = U256::zero();
+        let mut index_prev = U256::zero();
         let temp_256_f = F::from(256);
         for i in 0..16 {
             let mut byte_vec = vec![operand1_bytes[i].into(), operand2_bytes[i].into()];
@@ -75,7 +78,6 @@ impl Row {
                 let byte_f = convert_u256_to_f::<F>(&byte_vec[i]);
                 acc_f = byte_f + acc_f * temp_256_f;
                 byte_acc_vec.push(convert_f_to_u256(&acc_f));
-                byte_acc_pre_vec[i] = byte_acc_vec[i];
 
                 // calc byte_2_sum
                 if i == 2 {
@@ -85,6 +87,29 @@ impl Row {
                     byte_2_sum_pre = byte_2_sum;
                 }
             }
+            // calc index
+            let mut index = U256::zero();
+            if i == 0 {
+                index = if byte_acc_vec[2] == U256::zero() {
+                    U256::zero()
+                } else {
+                    16.into()
+                }
+            } else {
+                let acc_2_not_zero = byte_acc_vec[2] != U256::zero();
+                let acc_2_not_zero_prev = byte_acc_pre_vec[2] != U256::zero();
+                index = if acc_2_not_zero_prev == acc_2_not_zero {
+                    index_prev
+                } else {
+                    U256::from(16 - i)
+                }
+            }
+
+            // update pre
+            for i in 0..3 {
+                byte_acc_pre_vec[i] = byte_acc_vec[i];
+            }
+            index_prev = index;
 
             let row = Row {
                 tag,
@@ -96,6 +121,7 @@ impl Row {
                 acc_2: byte_acc_vec[2],
                 sum_2: byte_2_sum,
                 cnt: i.into(),
+                index,
             };
             row_vec.push(row)
         }
@@ -126,6 +152,33 @@ mod test {
         ));
         bitwise.append(&mut Row::from_operation::<Fr>(
             Tag::And,
+            operand1_hi,
+            operand2_hi,
+        ));
+        let mut buf = Vec::new();
+        Witness::write_one_as_csv(&mut buf, &bitwise);
+        let csv_string = String::from_utf8(buf).unwrap();
+        println!("{}", csv_string);
+    }
+
+    #[test]
+    fn test_get_bitwise_index() {
+        let operand1 = U256::from(0x80090A20Au64);
+        let operand2 = U256::zero();
+
+        let operand1_hi = (operand1 >> 128).as_u128();
+        let operand1_lo = operand1.low_u128();
+
+        let operand2_hi = (operand2 >> 128).as_u128();
+        let operand2_lo = operand2.low_u128();
+        let mut bitwise = vec![];
+        bitwise.append(&mut Row::from_operation::<Fr>(
+            Tag::Or,
+            operand1_lo,
+            operand2_lo,
+        ));
+        bitwise.append(&mut Row::from_operation::<Fr>(
+            Tag::Or,
             operand1_hi,
             operand2_hi,
         ));

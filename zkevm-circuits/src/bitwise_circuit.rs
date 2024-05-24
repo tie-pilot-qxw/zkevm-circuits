@@ -15,7 +15,7 @@ use halo2_proofs::circuit::{Layouter, Region, Value};
 use crate::witness::bitwise::Tag;
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
-use gadgets::util::Expr;
+use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -28,9 +28,9 @@ pub(crate) const NUM_OPERAND: usize = 3;
 ///  in this circuit, integers are broken into bytes and logical operations are performed on bytes.
 ///
 /// Table layout
-/// +---+--------+--------+--------+---------+------+-------+-------+-------+
-/// |tag| byte_0 | byte_1 | byte_2 |  acc_0 | acc_1 | acc_2 | sum_2 |  cnt  |
-/// +---+--------+--------+--------+-------+--------+-------+-------+-------+
+/// +---+--------+--------+--------+---------+------+-------+-------+-------+-------+
+/// |tag| byte_0 | byte_1 | byte_2 |  acc_0 | acc_1 | acc_2 | sum_2 |  cnt  | index |
+/// +---+--------+--------+--------+-------+--------+-------+-------+-------+-------+
 /// tag: Nil、And、Or (Nil is the default value)
 /// byte_0: operand1
 /// byte_1: operand2
@@ -40,14 +40,15 @@ pub(crate) const NUM_OPERAND: usize = 3;
 /// acc_2: accumulated value of byte_2, `acc_2=acc_2_pre*256`
 /// sum_2: cumulative sum of byte_2, `sum_2=byte_2+sum2_pre`
 /// cnt: counter, ranging from 0 to 15
+/// index: the most significant byte length
 ///
 /// Example:
 ///  0xabcdef AND 0xaabbcc
-///  | tag  | byte_0 | byte_1 | byte_2 | acc_0    | acc_1    | acc_2    | sum_2 | cnt  |
-///  | ---- | ------ | ------ | ------ | -------- | -------- | -------- | ----- | ---- |
-///  | And  | 0xab   | 0xaa   | 0xaa   | 0xab     | 0xaa     | 0xaa     | 0xaa  | 0    |
-///  | And  | 0xcd   | 0xbb   | 0x89   | 0xabcd   | 0xaabb   | 0xaa89   | 0x133 | 1    |
-///  | And  | 0xef   | 0xcc   | 0xcc   | 0xabcdef | 0xaabbcc | 0xaa89cc | 0x1ff | 2    |
+///  | tag  | byte_0 | byte_1 | byte_2 | acc_0    | acc_1    | acc_2    | sum_2 | cnt  | index |
+///  | ---- | ------ | ------ | ------ | -------- | -------- | -------- | ----- | ---- | ----- |
+///  | And  | 0xab   | 0xaa   | 0xaa   | 0xab     | 0xaa     | 0xaa     | 0xaa  | 0    |  16   |
+///  | And  | 0xcd   | 0xbb   | 0x89   | 0xabcd   | 0xaabb   | 0xaa89   | 0x133 | 1    |  16   |
+///  | And  | 0xef   | 0xcc   | 0xcc   | 0xabcdef | 0xaabbcc | 0xaa89cc | 0x1ff | 2    |  16   |
 ///
 /// note: in actual operation, the integer participating in the operation will be divided into 16 bytes, if the length
 ///       after division is not 16 bytes, 0 will be added.
@@ -65,8 +66,12 @@ pub struct BitwiseCircuitConfig<F: Field> {
     pub sum_2: Column<Advice>,
     /// The counter for one operation
     pub cnt: Column<Advice>,
+    /// Index of the most significant byte
+    pub index: Column<Advice>,
     /// IsZero chip for column cnt
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
+    /// acc_2 is zero flag
+    pub acc_2_is_zero: IsZeroWithRotationConfig<F>,
     // table used for lookup
     fixed_table: FixedTable,
     bitwise_table: BitwiseTable,
@@ -94,6 +99,7 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             tag,
             acc_vec,
             sum_2,
+            index,
         } = bitwise_table;
         let bytes: [Column<Advice>; NUM_OPERAND] = std::array::from_fn(|_| meta.advice_column());
         let cnt = meta.advice_column();
@@ -101,6 +107,12 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             meta,
             |meta| meta.query_selector(q_enable),
             cnt,
+            None,
+        );
+        let acc_2_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            acc_vec[2],
             None,
         );
 
@@ -115,6 +127,8 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             cnt_is_zero,
             fixed_table,
             bitwise_table,
+            index,
+            acc_2_is_zero,
         };
 
         // Bitwise gate constraints
@@ -143,6 +157,8 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
             let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
             let tag_is_nil = config.tag.value_equals(Tag::Nil, Rotation::cur())(meta);
+            let acc_2_not_zero = 1.expr() - config.acc_2_is_zero.expr_at(meta, Rotation::cur());
+            let index = meta.query_advice(config.index, Rotation::cur());
 
             let tag_prev = config.tag.value(Rotation::prev())(meta);
             let acc_0_prev = meta.query_advice(config.acc_vec[0], Rotation::prev());
@@ -151,6 +167,9 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             let sum2_prev = meta.query_advice(config.sum_2, Rotation::prev());
             let cnt_prev = meta.query_advice(config.cnt, Rotation::prev());
             let cnt_next_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::next());
+            let acc_2_not_zero_prev =
+                1.expr() - config.acc_2_is_zero.expr_at(meta, Rotation::prev());
+            let index_prev = meta.query_advice(config.index, Rotation::prev());
 
             // tag_is_not_nil, cnt=0 ---> acc_0=byte_0、acc_1=byte_1、acc_2=byte_2、sum_2=byte_2
             let tag_is_not_nil = q_enable.clone() * (1.expr() - tag_is_nil.clone());
@@ -223,6 +242,25 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
                 tag_is_not_nil.clone() * cnt_next_is_zero.clone() * (cnt.clone() - 15.expr()),
             )]);
 
+            // tag_is_not_nil，cnt == 0 --> index = 16 or 0
+            let index_value = select::expr(acc_2_not_zero.clone(), 16.expr(), 0.expr());
+            constraints.push((
+                "tag_is_not_nil, cnt == 0 ==> index = 16 or 0",
+                tag_is_not_nil.clone() * cnt_is_zero.clone() * (index.clone() - index_value),
+            ));
+            // tag_is_not_nil，cnt != 0 --> index = index_prev or index = 16 - cnt
+            // if acc_2_not_zero.clone() != acc_2_not_zero_prev.clone(), then index = 16 - cnt
+            // if acc_2_not_zero.clone() == acc_2_not_zero_prev.clone(), then index = index_prev
+            let index_value = select::expr(
+                acc_2_not_zero.clone() - acc_2_not_zero_prev.clone(),
+                16.expr() - cnt.clone(),
+                index_prev,
+            );
+            constraints.push((
+                "tag_is_not_nil, cnt != 0 ==> index = index_prev or index = 16 - cnt",
+                tag_is_not_nil.clone() * cnt_is_not_zero.clone() * (index - index_value),
+            ));
+
             // tag_is_nil --> byte_0=0, byte_1=0, byte_2=0, acc_0=0, acc_1=0, acc_2=0, sum_2=0, cnt=0
             let tag_is_nil = q_enable.clone() * tag_is_nil;
             constraints.extend(vec![
@@ -233,8 +271,9 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
                 ("tag_is_nil => acc_1=0", tag_is_nil.clone() * acc_1),
                 ("tag_is_nil => acc_2=0", tag_is_nil.clone() * acc_2),
                 ("tag_is_nil => sum_2=0", tag_is_nil.clone() * sum_2),
-                ("tag_is_nil => cnt=0", tag_is_nil.clone() * cnt),
+                ("tag_is_nil => cnt=0", tag_is_nil.clone() * cnt.clone()),
             ]);
+
             constraints
         });
 
@@ -258,6 +297,8 @@ impl<F: Field> BitwiseCircuitConfig<F> {
             BinaryNumberChip::construct(self.tag);
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
+        let acc_2_is_zero: IsZeroWithRotationChip<F> =
+            IsZeroWithRotationChip::construct(self.acc_2_is_zero.clone());
 
         tag.assign(region, offset, &row.tag)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.byte_0, self.bytes[0])?;
@@ -268,11 +309,18 @@ impl<F: Field> BitwiseCircuitConfig<F> {
         assign_advice_or_fixed_with_u256(region, offset, &row.acc_2, self.acc_vec[2])?;
         assign_advice_or_fixed_with_u256(region, offset, &row.sum_2, self.sum_2)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.cnt, self.cnt)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.index, self.index)?;
 
         cnt_is_zero.assign(
             region,
             offset,
             Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt))),
+        )?;
+
+        acc_2_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.acc_2))),
         )?;
 
         Ok(())

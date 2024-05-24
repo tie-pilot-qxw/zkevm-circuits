@@ -76,6 +76,9 @@ pub(crate) const BITWISE_COLUMN_START_IDX: usize = 10;
 /// bitwise lookup column width
 pub(crate) const BITWISE_COLUMN_WIDTH: usize = 5;
 
+/// most significant byte len lookup column width
+pub(crate) const MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH: usize = 2;
+
 /// state column width
 pub(crate) const STATE_COLUMN_WIDTH: usize = 8;
 
