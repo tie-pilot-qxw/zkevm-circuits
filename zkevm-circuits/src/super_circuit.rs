@@ -48,8 +48,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     fn new(meta: &mut ConstraintSystem<F>, _: Self::ConfigArgs) -> Self {
         let q_enable_bytecode = meta.complex_selector();
         let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
-        let (instance_addr, instance_bytecode) =
-            BytecodeTable::construct_addr_bytecode_instance_column(meta);
         let q_enable_state = meta.complex_selector();
         let state_table = StateTable::construct(meta, q_enable_state);
         let public_table = PublicTable::construct(meta);
@@ -84,8 +82,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 q_enable: q_enable_bytecode,
                 bytecode_table,
                 fixed_table,
-                instance_addr,
-                instance_bytecode,
+                keccak_table,
+                public_table,
+                challenges,
             },
         );
         let state_circuit = StateCircuitConfig::new(

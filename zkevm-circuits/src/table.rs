@@ -5,7 +5,7 @@ use crate::witness::{bitwise, copy, fixed};
 use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
-use gadgets::util::Expr;
+use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{
     Advice, Column, ConstraintSystem, Expression, Fixed, Instance, SecondPhase, Selector,
     VirtualCells,
@@ -16,6 +16,7 @@ use strum_macros::{AsRefStr, EnumVariantNames};
 pub const SEPARATOR: &str = "-";
 pub const ANNOTATE_SEPARATOR: &str = ",";
 pub const BITWISE_NUM_OPERAND: usize = 3;
+const V_128: usize = 128;
 
 macro_rules! extract_lookup_expression {
     (state, $value:expr) => {
@@ -680,6 +681,21 @@ impl PublicTable {
                     (values[3].clone(), table_value_3),
                 ]
             }
+            LookupEntry::PublicMergeAddr {
+                tag,
+                tx_idx_or_number_diff,
+                addr,
+                values,
+            } => {
+                vec![
+                    (tag, table_tag),
+                    (tx_idx_or_number_diff, table_tx_idx_or_number_diff),
+                    // table_value_0 << 128 + table_value_1
+                    (addr, table_value_0 * pow_of_two::<F>(V_128) + table_value_1),
+                    (values[0].clone(), table_value_2),
+                    (values[1].clone(), table_value_3),
+                ]
+            }
             _ => panic!("Not public lookup!"),
         }
     }
@@ -789,7 +805,7 @@ impl ExpTable {
 }
 
 /// Keccak Table, used to verify keccak hashing from RLC'ed input.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct KeccakTable {
     /// Byte array input as `RLC(reversed(input))`
     pub input_rlc: Column<Advice>, // RLC of input bytes
@@ -1012,6 +1028,13 @@ pub enum LookupEntry<F> {
         tag: Expression<F>,
         tx_idx_or_number_diff: Expression<F>,
         values: [Expression<F>; PUBLIC_NUM_VALUES],
+    },
+    PublicMergeAddr {
+        tag: Expression<F>,
+        tx_idx_or_number_diff: Expression<F>,
+        addr: Expression<F>,
+        // value2, value3 of Public row
+        values: [Expression<F>; 2],
     },
     /// Lookup to state table
     StampCnt {

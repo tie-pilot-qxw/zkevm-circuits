@@ -1,4 +1,5 @@
 use crate::constant::PUBLIC_NUM_VALUES;
+use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
 use crate::util::{convert_u256_to_64_bytes, create_contract_addr_with_prefix};
 use eth_types::geth_types::{BlockConstants, GethData};
 use eth_types::{Field, ToBigEndian, U256};
@@ -50,6 +51,8 @@ pub enum Tag {
     TxLogSize,
     // bytecode size
     CodeSize,
+    // bytecode hash
+    CodeHash,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -491,12 +494,14 @@ impl Row {
             }
         }
 
-        // code size
+        // code size and code hash
         for account in geth_data.accounts.iter() {
             let addr_hi = account.address >> 128;
             let addr_lo = U256::from(account.address.low_u128());
             let code_size = account.code.len();
+            let (code_hash_hi, code_hash_lo) = calc_keccak_hi_lo(account.code.as_ref());
 
+            // push code size
             result.push(Row {
                 tag: Tag::CodeSize,
                 value_0: Some(addr_hi),
@@ -509,6 +514,25 @@ impl Row {
                     ("value_1".into(), "address_lo".into()),
                     ("value_2".into(), "code_size hi".into()),
                     ("value_3".into(), "code_size lo".into()),
+                ]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            });
+
+            // push code hash
+            result.push(Row {
+                tag: Tag::CodeHash,
+                value_0: Some(addr_hi),
+                value_1: Some(addr_lo),
+                value_2: Some(U256::from(code_hash_hi)),
+                value_3: Some(U256::from(code_hash_lo)),
+                comments: [
+                    ("tag".into(), "CodeHash".into()),
+                    ("value_0".into(), "address_hi".into()),
+                    ("value_1".into(), "address_lo".into()),
+                    ("value_2".into(), "code_hash_hi".into()),
+                    ("value_3".into(), "code_hash_lo".into()),
                 ]
                 .into_iter()
                 .collect(),

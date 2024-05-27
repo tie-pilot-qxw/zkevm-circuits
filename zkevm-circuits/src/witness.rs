@@ -25,6 +25,7 @@ use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::exp_circuit::ExpCircuit;
+use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
@@ -32,10 +33,10 @@ use crate::util::{
 };
 use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
-use crate::witness::util::{extract_address_from_tx, handle_sload, handle_sstore};
+use crate::witness::util::{extract_address_from_tx, handle_sstore};
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::geth_types::{Account, GethData};
-use eth_types::{Bytecode, Field, GethExecStep, GethExecTrace, StateDB, Word, U256};
+use eth_types::geth_types::GethData;
+use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -2969,7 +2970,15 @@ impl Witness {
             if op.is_push() {
                 let mut cnt = op.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
                 if pc + cnt as usize >= machine_code.len() {
-                    break;
+                    panic!(
+                        "pc:{}\ncnt:{}\npc+cnt:{} > machine_code.len:{}\nopcode:{:?}({:x})",
+                        pc,
+                        cnt,
+                        pc + cnt as usize,
+                        machine_code.len(),
+                        op,
+                        machine_code[pc]
+                    );
                 } // NOTE: the purpose is to avoid the effects of invalid bytecodes, for example, a PUSH31 opcode at machine_code.len()-23
                 let mut acc_hi = 0u128;
                 let mut acc_lo = 0u128;
@@ -3025,6 +3034,13 @@ impl Witness {
             }
             res.append(&mut this_op);
         }
+
+        // calc hash
+        if machine_code.len() > 0 {
+            let (hash_hi, hash_lo) = calc_keccak_hi_lo(machine_code);
+            res.last_mut().unwrap().hash_hi = Some(U256::from(hash_hi));
+            res.last_mut().unwrap().hash_lo = Some(U256::from(hash_lo));
+        }
         res
     }
 
@@ -3034,8 +3050,12 @@ impl Witness {
             .append(&mut public::Row::from_geth_data(&geth_data).unwrap());
         for account in &geth_data.accounts {
             if !account.code.is_empty() {
-                let mut bytecode_table =
-                    Self::gen_bytecode_witness(account.address, account.code.as_ref());
+                let machine_code = account.code.as_ref();
+                let mut bytecode_table = Self::gen_bytecode_witness(account.address, machine_code);
+                // add to keccak_inputs
+                if machine_code.len() > 0 {
+                    self.keccak.push(machine_code.to_vec());
+                }
                 self.bytecode.append(&mut bytecode_table);
             }
         }
