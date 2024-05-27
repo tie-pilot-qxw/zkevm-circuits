@@ -24,6 +24,7 @@ use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::exp_circuit::ExpCircuit;
+use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
@@ -31,10 +32,10 @@ use crate::util::{
 };
 use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
-use crate::witness::util::{extract_address_from_tx, handle_sload, handle_sstore};
+use crate::witness::util::{extract_address_from_tx, handle_sstore};
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::geth_types::{Account, GethData};
-use eth_types::{Bytecode, Field, GethExecStep, GethExecTrace, StateDB, Word, U256};
+use eth_types::geth_types::GethData;
+use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -2271,7 +2272,6 @@ macro_rules! assign_or_panic {
         }
     };
 }
-use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
 pub(crate) use assign_or_panic;
 
 impl core::Row {

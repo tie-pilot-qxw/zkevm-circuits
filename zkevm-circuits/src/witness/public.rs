@@ -11,7 +11,6 @@ pub struct Row {
     /// various public information tag, e.g. BlockNumber, TxFrom
     pub tag: Tag,
     /// tx_id (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
-    /// when Tag=CodeHash, the value is code address
     pub tx_idx_or_number_diff: Option<U256>,
     pub value_0: Option<U256>,
     pub value_1: Option<U256>,
@@ -527,8 +526,7 @@ impl Row {
                 value_2: Some(U256::from(code_hash_hi)),
                 value_3: Some(U256::from(code_hash_lo)),
                 comments: [
-                    ("tag".into(), "CodeSize".into()),
-                    ("tx_idx_or_number_diff".into(), "code addr".into()),
+                    ("tag".into(), "CodeHash".into()),
                     ("value_0".into(), "address_hi".into()),
                     ("value_1".into(), "address_lo".into()),
                     ("value_2".into(), "code_hash_hi".into()),

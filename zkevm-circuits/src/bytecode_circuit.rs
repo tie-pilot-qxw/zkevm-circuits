@@ -1,3 +1,4 @@
+use crate::table::LookupEntry;
 use crate::table::{BytecodeTable, FixedTable, KeccakTable, PublicTable};
 use crate::util::{
     assign_advice_or_fixed_with_u256, assign_advice_or_fixed_with_value, convert_u256_to_64_bytes,
@@ -10,9 +11,8 @@ use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Error, Instance, SecondPhase, Selector,
-};
+use halo2_proofs::plonk::Expression;
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, SecondPhase, Selector};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
@@ -548,7 +548,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     ) -> Result<(), Error> {
         let challenge = challenges.keccak_input();
 
-        // assign the rest rows
         let mut rlc_acc_prev: Value<F> = Value::known(F::ZERO);
         let bytecode_len = witness.bytecode.len();
         let default_row = Default::default();
@@ -649,8 +648,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any(name, |meta| {
-            use crate::table::LookupEntry;
-            use halo2_proofs::plonk::Expression;
             let q_enable = meta.query_selector(self.q_enable);
             let cnt_is_zero_prev = self.cnt_is_zero.expr_at(meta, Rotation::prev());
             let is_push_byte = 1.expr() - cnt_is_zero_prev;
@@ -675,9 +672,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         // when feature `no_fixed_lookup` is on, we don't do lookup
         #[cfg(not(feature = "no_fixed_lookup"))]
         meta.lookup_any(name, |meta| {
-            use crate::table::LookupEntry;
             use crate::witness::fixed;
-            use halo2_proofs::plonk::Expression;
             let q_enable = meta.query_selector(self.q_enable);
             let cnt_is_zero_prev = self.cnt_is_zero.expr_at(meta, Rotation::prev());
             let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
@@ -710,8 +705,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 
     pub fn keccak_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         meta.lookup_any(name, |meta| {
-            use crate::table::LookupEntry;
-            use halo2_proofs::plonk::Expression;
             let q_enable = meta.query_selector(self.q_enable);
             let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
             let addr_unchange_next = self.addr_unchange_next.expr();
@@ -745,8 +738,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     }
     pub fn public_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         meta.lookup_any(name, |meta| {
-            use crate::table::LookupEntry;
-            use halo2_proofs::plonk::Expression;
             let q_enable = meta.query_selector(self.q_enable);
             let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
             let addr_unchange_next = self.addr_unchange_next.expr();
@@ -1105,14 +1096,6 @@ mod test {
             value_1: Some(addr1_lo),
             value_2: Some(U256::from(contract1_bytecode_hash_hi)),
             value_3: Some(U256::from(contract1_bytecode_hash_lo)),
-            comments: [
-                ("tag".into(), "CodeSize".into()),
-                ("tx_idx_or_number_diff".into(), "code addr".into()),
-                ("value_0".into(), "code_hash".into()),
-                ("value_1".into(), "address_lo".into()),
-            ]
-            .into_iter()
-            .collect(),
             ..Default::default()
         };
         let public_row2 = public::Row {
@@ -1121,14 +1104,6 @@ mod test {
             value_1: Some(addr2_lo),
             value_2: Some(U256::from(contract2_bytecode_hash_hi)),
             value_3: Some(U256::from(contract2_bytecode_hash_lo)),
-            comments: [
-                ("tag".into(), "CodeSize".into()),
-                ("tx_idx_or_number_diff".into(), "code addr".into()),
-                ("value_0".into(), "code_hash".into()),
-                ("value_1".into(), "address_lo".into()),
-            ]
-            .into_iter()
-            .collect(),
             ..Default::default()
         };
 

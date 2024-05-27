@@ -1021,6 +1021,9 @@ mod test {
             let mut vec = Vec::new();
             vec.extend(self.bytecode_circuit.instance());
             vec.extend(self.public_circuit.instance());
+            vec.extend(self.copy_circuit.instance());
+            vec.extend(self.state_circuit.instance());
+            vec.extend(self.fixed_circuit.instance());
             vec.extend(self.keccak_circuit.instance());
             vec
         }
