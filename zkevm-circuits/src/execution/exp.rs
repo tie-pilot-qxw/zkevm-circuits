@@ -344,4 +344,10 @@ mod test {
         // calc 2^257
         run(U256::from(2), U256::from(257))
     }
+
+    #[test]
+    fn test_exp5() {
+        // calc 2^0
+        run(U256::from(2), U256::zero())
+    }
 }
