@@ -47,6 +47,7 @@ pub mod pop;
 pub mod post_call_1;
 pub mod post_call_2;
 pub mod public_context;
+pub mod pure_memory_gas;
 pub mod push;
 pub mod return_revert;
 pub mod returndatacopy;
@@ -151,6 +152,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::tx_context::new(),
             crate::execution::memory_gas::new(),
             crate::execution::memory_copier_gas::new(),
+            crate::execution::pure_memory_gas::new(),
         ]
     }};
 }
@@ -2290,6 +2292,7 @@ pub enum ExecutionState {
     ISZERO_EQ,
     MEMORY_GAS,
     MEMORY_COPIER_GAS,
+    PURE_MEMORY_GAS,
 }
 
 impl ExecutionState {
@@ -2333,8 +2336,10 @@ impl ExecutionState {
             OpcodeId::POP => {
                 vec![Self::POP]
             }
-            OpcodeId::MLOAD | OpcodeId::MSTORE => vec![Self::MEMORY],
-            OpcodeId::MSTORE8 => vec![Self::MSTORE8],
+            OpcodeId::MLOAD | OpcodeId::MSTORE => {
+                vec![Self::MEMORY, Self::MEMORY_GAS, Self::PURE_MEMORY_GAS]
+            }
+            OpcodeId::MSTORE8 => vec![Self::MSTORE8, Self::MEMORY_GAS, Self::PURE_MEMORY_GAS],
             OpcodeId::JUMP => vec![Self::JUMP],
             OpcodeId::JUMPI => vec![Self::JUMPI],
             OpcodeId::PC => {
@@ -2411,7 +2416,12 @@ impl ExecutionState {
             | OpcodeId::SWAP16 => vec![Self::SWAP],
 
             OpcodeId::RETURN | OpcodeId::REVERT => {
-                vec![Self::RETURN_REVERT, Self::END_CALL]
+                vec![
+                    Self::RETURN_REVERT,
+                    Self::MEMORY_GAS,
+                    Self::PURE_MEMORY_GAS,
+                    Self::END_CALL,
+                ]
             }
             OpcodeId::INVALID(_) => {
                 todo!()

@@ -195,12 +195,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_POST_CALL],
             Rotation::cur(),
         );
-        // prev state is RETURN_REVERT or STOP
+        // prev state is PURE_MEMORY_GAS(RETURN OR REVERT) or STOP
         // next state is END_TX or POST_CALL
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::RETURN_REVERT, ExecutionState::STOP],
+                vec![ExecutionState::PURE_MEMORY_GAS, ExecutionState::STOP],
                 NUM_ROW,
                 vec![
                     // 当为root call时，约束接下来的状态为END_TX(交易执行结束)
@@ -411,7 +411,7 @@ mod test {
 
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack); // end_call doesn't have opcode, like begin_tx_1 and begin_tx_2
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::RETURN_REVERT.into_exec_state_core_row(
+            let mut row = ExecutionState::PURE_MEMORY_GAS.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
@@ -461,7 +461,7 @@ mod test {
 
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack); // end_call doesn't have opcode, like begin_tx_1 and begin_tx_2
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::RETURN_REVERT.into_exec_state_core_row(
+            let mut row = ExecutionState::PURE_MEMORY_GAS.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
