@@ -99,7 +99,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 0));
         let gas_left_not_overflow =
             SimpleIsZero::new(&overflow, &overflow_inv, "gas_left_u64_overflow".into());
-        constraints.extend(gas_left_not_overflow.get_constraints());
         constraints.extend([
             (
                 "tag is U64Overflow".into(),
@@ -336,13 +335,13 @@ mod test {
 
     #[test]
     fn test_exp3() {
-        // calc 2^128
+        // calc 2^255
         run(U256::from(2), U256::from(255))
     }
 
     #[test]
     fn test_exp4() {
-        // calc 2^128
+        // calc 2^257
         run(U256::from(2), U256::from(257))
     }
 }

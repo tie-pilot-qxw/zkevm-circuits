@@ -112,7 +112,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         let gas_left_not_overflow =
             SimpleIsZero::new(&overflow, &overflow_inv, "gas_left_u64_overflow".into());
-        constraints.extend(gas_left_not_overflow.get_constraints());
         constraints.extend([
             (
                 "tag is U64Overflow".into(),
@@ -137,7 +136,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
         // core single constraints
         let delta = CoreSinglePurposeOutcome {
