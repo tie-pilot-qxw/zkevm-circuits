@@ -80,9 +80,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             log_stamp: ExpressionOutcome::Delta(log_stamp_delta),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
         // new selector LOG_LEFT_X and append selector constraints
         let selector = config.get_log_left_selector(meta);
@@ -147,7 +150,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
-        // prev state should be log_bytes
+        // prev state should be log_gas
         // next state should be log_topic if pc_delta == 0
         let following_log_topic =
             selector.select(&[1.expr(), 1.expr(), 1.expr(), 1.expr(), 0.expr()]);
@@ -158,7 +161,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::LOG_BYTES],
+                vec![ExecutionState::LOG_GAS],
                 NUM_ROW,
                 vec![(
                     ExecutionState::LOG_TOPIC,
@@ -267,12 +270,13 @@ mod test {
             call_id,
             tx_idx,
             log_stamp,
+            gas_left: 100,
             ..WitnessExecHelper::new()
         };
 
         let trace = prepare_trace_step!(0, opcode, stack);
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::LOG_BYTES.into_exec_state_core_row(
+            let mut row = ExecutionState::LOG_GAS.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

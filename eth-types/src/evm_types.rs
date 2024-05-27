@@ -93,4 +93,7 @@ impl GasCost {
     /// Times ceil exponent byte size for the EXP instruction, EIP-158 changed
     /// it from 10 to 50.
     pub const EXP_BYTE_TIMES: u64 = 50;
+
+    /// Cost for a log data operation
+    pub const LOG_DATA_GAS: u64 = 8;
 }

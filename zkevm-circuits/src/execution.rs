@@ -33,6 +33,7 @@ pub mod jumpdest;
 pub mod jumpi;
 pub mod keccak;
 pub mod log_bytes;
+pub mod log_gas;
 pub mod log_topic;
 pub mod log_topic_num_addr;
 pub mod lt_gt_slt_sgt;
@@ -153,6 +154,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::memory_gas::new(),
             crate::execution::memory_copier_gas::new(),
             crate::execution::pure_memory_gas::new(),
+            crate::execution::log_gas::new(),
         ]
     }};
 }
@@ -164,6 +166,7 @@ use crate::constant::{
     STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
+use crate::execution::ExecutionState::SAR_1;
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
@@ -2293,6 +2296,7 @@ pub enum ExecutionState {
     MEMORY_GAS,
     MEMORY_COPIER_GAS,
     PURE_MEMORY_GAS,
+    LOG_GAS,
 }
 
 impl ExecutionState {
@@ -2478,14 +2482,27 @@ impl ExecutionState {
             }
             //LOG TOPIC LOG BYTES
             OpcodeId::LOG0 => {
-                vec![Self::LOG_BYTES, Self::LOG_TOPIC_NUM_ADDR]
+                vec![
+                    Self::LOG_BYTES,
+                    Self::MEMORY_GAS,
+                    Self::LOG_GAS,
+                    Self::LOG_TOPIC_NUM_ADDR,
+                ]
             }
             OpcodeId::LOG1 => {
-                vec![Self::LOG_BYTES, Self::LOG_TOPIC_NUM_ADDR, Self::LOG_TOPIC]
+                vec![
+                    Self::LOG_BYTES,
+                    Self::MEMORY_GAS,
+                    Self::LOG_GAS,
+                    Self::LOG_TOPIC_NUM_ADDR,
+                    Self::LOG_TOPIC,
+                ]
             }
             OpcodeId::LOG2 => {
                 vec![
                     Self::LOG_BYTES,
+                    Self::MEMORY_GAS,
+                    Self::LOG_GAS,
                     Self::LOG_TOPIC_NUM_ADDR,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,
@@ -2494,6 +2511,8 @@ impl ExecutionState {
             OpcodeId::LOG3 => {
                 vec![
                     Self::LOG_BYTES,
+                    Self::MEMORY_GAS,
+                    Self::LOG_GAS,
                     Self::LOG_TOPIC_NUM_ADDR,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,
@@ -2503,6 +2522,8 @@ impl ExecutionState {
             OpcodeId::LOG4 => {
                 vec![
                     Self::LOG_BYTES,
+                    Self::MEMORY_GAS,
+                    Self::LOG_GAS,
                     Self::LOG_TOPIC_NUM_ADDR,
                     Self::LOG_TOPIC,
                     Self::LOG_TOPIC,

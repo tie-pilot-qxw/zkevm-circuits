@@ -1,6 +1,6 @@
 use crate::arithmetic_circuit::operation;
 use crate::execution::{
-    log_topic_num_addr, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+    memory_gas, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 
@@ -8,6 +8,9 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 
 use crate::witness::{arithmetic, assign_or_panic, copy, public, Witness, WitnessExecHelper};
 
+use crate::constant::{
+    GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
 use eth_types::GethExecStep;
@@ -40,7 +43,6 @@ use std::marker::PhantomData;
 pub(crate) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = -2;
-const PC_DELTA: u64 = 0;
 const LEN_LO_INV_COL_IDX: usize = 24;
 
 pub struct LogBytesGadget<F: Field> {
@@ -60,7 +62,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, log_topic_num_addr::NUM_ROW)
+        (NUM_ROW, memory_gas::NUM_ROW)
     }
     fn get_constraints(
         &self,
@@ -103,10 +105,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
 
         // append core single purpose constraints
-        let delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
+        let delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
         // append log_bytes constraints
@@ -168,11 +167,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(
                 vec![],
                 NUM_ROW,
-                vec![(
-                    ExecutionState::LOG_TOPIC_NUM_ADDR,
-                    log_topic_num_addr::NUM_ROW,
-                    None,
-                )],
+                vec![(ExecutionState::MEMORY_GAS, memory_gas::NUM_ROW, None)],
                 None,
             ),
         ));
@@ -209,14 +204,54 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let memory_chunk_to = expansion_tag.clone() * access_memory_size.clone()
             + (1.expr() - expansion_tag.clone()) * memory_chunk_prev;
 
+        // next state constraints
+        let memory_size_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "memory_size_for_next ==  (mem_off + length) * (1 - is_zero_len.expr()) in state lookup".into(),
+            (stack_pop_values[1].clone() + length.clone()) * (1.expr() - is_zero_len.expr())
+                - memory_size_for_next.clone(),
+        ));
+
+        let memory_chunk_prev_for_next = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "memory_chunk_prev_for_next == memory_chunk_prev in auxiliary".into(),
+            memory_chunk_prev_for_next
+                - meta.query_advice(
+                    config.get_auxiliary().memory_chunk,
+                    Rotation(-1 * NUM_ROW as i32).clone(),
+                ),
+        ));
+
+        let length_for_next = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
+            Rotation::cur(),
+        );
+        constraints.push((
+            "length_for_next == length in state lookup".into(),
+            length_for_next - length.clone(),
+        ));
+
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr() + len.clone()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             memory_chunk: ExpressionOutcome::To(memory_chunk_to),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
 
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
         constraints
     }
@@ -253,6 +288,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
 
         // generate core rows
+        // core_row_2
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         // generate copy rows and state rows(type: memory)
         let (copy_rows, memory_state_rows) =
@@ -270,6 +306,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_row = current_state.get_public_log_data_size_row(length);
         core_row_2.insert_public_lookup(0, &public_row);
 
+        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
+        let offset_bound = if length.is_zero() {
+            U256::zero()
+        } else {
+            offset + length
+        };
+
+        let (arith_mem, result) =
+            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
+        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+
+        core_row_2.insert_arithmetic_tiny_lookup(2, &arith_mem);
+
+        // core_row_1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
         let len_lo = F::from_u128(length.as_u128());
@@ -284,25 +334,39 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &stack_pop_length,
         ]);
 
-        let core_row_0 = ExecutionState::LOG_BYTES.into_exec_state_core_row(
+        // core_row_0
+        let mut core_row_0 = ExecutionState::LOG_BYTES.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
 
-        let memory_chunk_prev = U256::from(current_state.memory_chunk_prev);
-        let offset_bound = if length.is_zero() {
-            U256::zero()
-        } else {
-            offset + length
-        };
+        // 根据栈里的输入记录length和memory_size
+        current_state.new_memory_size = Some(offset_bound.as_u64());
 
-        let (arith_mem, result) =
-            operation::memory_expansion::gen_witness(vec![offset_bound, memory_chunk_prev]);
-        assert_eq!(result[0] == U256::one(), memory_chunk_prev < result[1]);
+        // 在外部gen_witness时，我们将current.gas_left预处理为trace.gas - trace.gas_cost
+        // 但是某些复杂的gas计算里，真正的gas计算是在执行状态的最后一步，此时我们需要保证这里的gas_left与
+        // 上一个状态的gas_left一致，也即trace.gas。
+        // 在生成core_row_0时我们没有改变current.gas_left是因为这样做会导致重复的代码。
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
 
-        core_row_2.insert_arithmetic_tiny_lookup(2, &arith_mem);
+        // 固定的预分配位置
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
+            offset_bound
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            current_state.memory_chunk_prev.into()
+        );
+        assign_or_panic!(
+            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
+            length.into()
+        );
 
         let mut state_rows = vec![stack_pop_offset, stack_pop_length];
         state_rows.extend(memory_state_rows);
@@ -343,6 +407,7 @@ mod test {
             tx_idx,
             log_stamp,
             memory_chunk: 1,
+            gas_left: 100,
             ..WitnessExecHelper::new()
         };
 
@@ -359,7 +424,7 @@ mod test {
             row
         };
         let padding_end_row = |current_state| {
-            let mut row = ExecutionState::LOG_TOPIC_NUM_ADDR.into_exec_state_core_row(
+            let mut row = ExecutionState::MEMORY_GAS.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,
