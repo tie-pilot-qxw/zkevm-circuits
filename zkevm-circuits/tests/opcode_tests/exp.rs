@@ -29,3 +29,16 @@ fn exp_without_overflow_bytecode() {
     };
     test_super_circuit_short_bytecode!(bytecode);
 } // integer exponential without overflow
+
+#[test]
+fn exp_index_is_zero() {
+    let a = U256::from_str_radix("2", 10).unwrap();
+    let b = U256::from_str_radix("0", 10).unwrap();
+    let bytecode = bytecode! {
+        PUSH1(b)
+        PUSH1(a)
+        EXP // a^b
+        STOP
+    };
+    test_super_circuit_short_bytecode!(bytecode);
+} // integer exponential without overflow

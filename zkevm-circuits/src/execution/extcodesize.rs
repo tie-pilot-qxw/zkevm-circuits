@@ -1,17 +1,21 @@
+use crate::arithmetic_circuit::operation;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{public, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
+use crate::witness::arithmetic::Tag::U64Overflow;
+use crate::witness::{public, state, Witness, WitnessExecHelper};
+use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep, U256};
-use gadgets::util::Expr;
+use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 2;
+const STATE_STAMP_DELTA: u64 = 4;
 
 const PC_DELTA: u64 = 1;
 
@@ -54,20 +58,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        // auxiliary constraints
-        let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            ..Default::default()
-        };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
-        // core single constraints
-        let delta = CoreSinglePurposeOutcome {
-            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
-            ..Default::default()
-        };
-        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
-
+        let mut constraints = vec![];
         // get stack val
         let mut stack_operands = vec![];
         for i in 0..2 {
@@ -83,6 +74,76 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             stack_operands.push([value_hi, value_lo]);
         }
+
+        let mut is_warm = 0.expr();
+        for i in 0..2 {
+            let entry = config.get_storage_lookup(meta, i, Rotation(-2));
+            let mut is_write = true;
+            if i == 0 {
+                let extracted = extract_lookup_expression!(storage, entry.clone());
+                is_warm = extracted.3;
+                is_write = false;
+            }
+            constraints.append(&mut config.get_storage_full_constraints_with_tag(
+                meta,
+                entry,
+                i + 2, // 前面有2个state
+                NUM_ROW,
+                0.expr(),
+                0.expr(),
+                stack_operands[0][0].clone(),
+                stack_operands[0][1].clone(),
+                state::Tag::AddrInAccessListStorage,
+                is_write,
+            ));
+        }
+
+        let gas_cost = select::expr(
+            is_warm,
+            GasCost::WARM_ACCESS.expr(),
+            GasCost::COLD_ACCOUNT_ACCESS.expr(),
+        );
+
+        // gas_left not overflow
+        let current_gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
+        let (tag, [gas_left_hi, gas_left_lo, overflow, overflow_inv]) = extract_lookup_expression!(
+            arithmetic_tiny,
+            config.get_arithmetic_tiny_lookup_with_rotation(meta, 3, Rotation::prev())
+        );
+        let gas_left_not_overflow =
+            SimpleIsZero::new(&overflow, &overflow_inv, "gas_left_u64_overflow".into());
+        constraints.extend([
+            (
+                "tag is U64Overflow".into(),
+                tag - (U64Overflow as u8).expr(),
+            ),
+            ("gas_left_hi == 0".into(), gas_left_hi.clone()),
+            (
+                "gas_left_lo = current_gas_left".into(),
+                gas_left_lo - current_gas_left.clone(),
+            ),
+            (
+                "gas_left not overflow".into(),
+                1.expr() - gas_left_not_overflow.expr(),
+            ),
+        ]);
+
+        // auxiliary constraints
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(gas_cost),
+            refund: ExpressionOutcome::Delta(0.expr()),
+            ..Default::default()
+        };
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+
+        // core single constraints
+        let delta = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
         // get public val
         // public_values[0] is code address hi
@@ -128,10 +189,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_code_size =
             query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
+        let is_warm_read = query_expression(meta, |meta| {
+            config.get_storage_lookup(meta, 0, Rotation(-2))
+        });
+        let is_warm_write = query_expression(meta, |meta| {
+            config.get_storage_lookup(meta, 1, Rotation(-2))
+        });
+        let u64_overflow_rows = query_expression(meta, |meta| {
+            config.get_arithmetic_tiny_lookup_with_rotation(meta, 3, Rotation::prev())
+        });
         vec![
             ("stack addr lookup".into(), stack_lookup_addr),
             ("stack code size lookup".into(), stack_lookup_code_size),
             ("public lookup(code size)".into(), public_lookup),
+            ("is_warm_read".into(), is_warm_read),
+            ("is_warm_write".into(), is_warm_write),
+            ("u64 overflow rows".into(), u64_overflow_rows),
         ]
     }
 
@@ -153,14 +226,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_push_row = current_state.get_push_stack_row(&trace, code_size);
 
         // get core row2
+        let (is_warm_read, is_warm) = current_state.get_addr_access_list_read_row(code_address);
+        let is_warm_write =
+            current_state.get_addr_access_list_write_row(code_address, true, is_warm);
+
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         //  get public row and insert public row lookup
         let public_row = current_state.get_public_code_size_row(code_address, code_size);
         core_row_2.insert_public_lookup(0, &public_row);
+        core_row_2.insert_storage_lookups([&is_warm_read, &is_warm_write]);
 
         // get core row1
+        let (u64_overflow_rows, _) =
+            operation::u64overflow::gen_witness::<F>(vec![current_state.gas_left.into()]);
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_pop_addr, &stack_push_row]);
+        core_row_1.insert_arithmetic_tiny_lookup(3, &u64_overflow_rows);
 
         // get core row0
         let core_row_0 = ExecutionState::EXTCODESIZE.into_exec_state_core_row(
@@ -172,7 +254,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![stack_pop_addr, stack_push_row],
+            state: vec![stack_pop_addr, stack_push_row, is_warm_read, is_warm_write],
+            arithmetic: u64_overflow_rows,
             ..Default::default()
         }
     }
@@ -185,7 +268,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -200,9 +283,12 @@ mod test {
             bytecode,
             stack_pointer: stack.0.len(),
             stack_top: Some(stack_top),
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-        let trace = prepare_trace_step!(0, OpcodeId::EXTCODESIZE, stack);
+        let gas_left_before_exec = current_state.gas_left + 0xA28;
+        let mut trace = prepare_trace_step!(0, OpcodeId::EXTCODESIZE, stack);
+        trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
                 &trace,
@@ -210,6 +296,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(U256::from(gas_left_before_exec));
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row

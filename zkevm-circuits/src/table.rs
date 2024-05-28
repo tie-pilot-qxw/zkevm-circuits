@@ -163,6 +163,12 @@ macro_rules! extract_lookup_expression {
             _ => panic!("Pattern doesn't match!"),
         }
     };
+    (most_significant_byte_len, $value: expr) => {
+        match $value {
+            LookupEntry::MostSignificantByteLen { acc_2, index } => (acc_2, index),
+            _ => panic!("Pattern doesn't match!"),
+        }
+    };
 }
 pub(crate) use extract_lookup_expression;
 
