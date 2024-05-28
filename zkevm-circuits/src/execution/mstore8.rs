@@ -154,7 +154,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation::cur(),
         );
         constraints.push((
-            "memory_size_for_next == in state lookup + 32".into(),
+            "memory_size_for_next == in state lookup + 1".into(),
             (operands[0][1].clone() + 1.expr()) - memory_size_for_next.clone(),
         ));
 

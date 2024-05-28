@@ -12,7 +12,6 @@ use crate::arithmetic_circuit::operation;
 use crate::constant::{
     GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, NUM_VERS,
 };
-use crate::execution::ExecutionState::MEMORY_COPIER_GAS;
 use crate::execution::{
     memory_copier_gas, pure_memory_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome,
     ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -275,7 +274,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 NUM_ROW,
                 vec![
                     (
-                        MEMORY_COPIER_GAS,
+                        ExecutionState::MEMORY_COPIER_GAS,
                         memory_copier_gas::NUM_ROW,
                         Some(next_is_memory_copier_gas),
                     ),
