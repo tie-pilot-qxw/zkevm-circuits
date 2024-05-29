@@ -1,7 +1,7 @@
 use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::evm_types::{Memory, OpcodeId};
-use eth_types::geth_types::{Account, GethData};
+use eth_types::geth_types::{Account, ChunkData, GethData};
 use eth_types::ToAddress;
 use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
 pub use gadgets::util::Expr;
@@ -325,13 +325,13 @@ pub fn preprocess_trace(trace: &mut GethExecTrace) {
     }
 }
 
-pub fn geth_data_test(
+pub fn chunk_data_test(
     trace: GethExecTrace,
     bytecode: &[u8],
     input: &[u8],
     is_create: bool,
     receipt_log: ReceiptLog,
-) -> GethData {
+) -> ChunkData {
     let mut history_hashes = vec![];
     for i in 0..256 {
         history_hashes.push(i.into())
@@ -366,23 +366,25 @@ pub fn geth_data_test(
     let mut trace_new = trace.clone();
     preprocess_trace(&mut trace_new);
 
-    GethData {
+    ChunkData {
         chain_id: 1337.into(),
         history_hashes,
-        eth_block,
-        geth_traces: vec![trace_new],
-        accounts: vec![account],
-        logs: vec![receipt_log],
+        blocks: vec![GethData {
+            eth_block,
+            geth_traces: vec![trace_new],
+            accounts: vec![account],
+            logs: vec![receipt_log],
+        }],
     }
 }
 
-pub fn get_geth_data<P: AsRef<Path>>(
+pub fn get_chunk_data<P: AsRef<Path>>(
     block_info_file: P,
     tx_info_file: P,
     trace_file: P,
     receipt_file: P,
     accounts_file: P,
-) -> GethData {
+) -> ChunkData {
     let eth_block = read_block_from_api_result_file(block_info_file);
     let tx = read_tx_from_api_result_file(tx_info_file);
     // debug transaction trace
@@ -415,24 +417,26 @@ pub fn get_geth_data<P: AsRef<Path>>(
         history_hashes.push(i.into())
     }
 
-    // build and return geth_data
-    GethData {
+    // build and return chunk_data
+    ChunkData {
         chain_id: chain_id.into(),
         history_hashes,
-        eth_block,
-        accounts,
-        geth_traces: vec![trace],
-        logs: vec![receipt_log],
+        blocks: vec![GethData {
+            eth_block,
+            accounts,
+            geth_traces: vec![trace],
+            logs: vec![receipt_log],
+        }],
     }
 }
 
-pub fn get_multi_trace_geth_data<P: AsRef<Path>>(
+pub fn get_multi_trace_chunk_data<P: AsRef<Path>>(
     block_info_file: P,
     tx_info_files: Vec<&str>,
     trace_files: Vec<&str>,
     receipt_files: Vec<&str>,
     accounts_file: P,
-) -> GethData {
+) -> ChunkData {
     let eth_block = read_block_from_api_result_file(block_info_file);
 
     // debug transaction trace
@@ -476,14 +480,16 @@ pub fn get_multi_trace_geth_data<P: AsRef<Path>>(
         history_hashes.push(i.into())
     }
 
-    // build and return geth_data
-    GethData {
+    // build and return chunk_data
+    ChunkData {
         chain_id: chain_id.into(),
         history_hashes,
-        eth_block,
-        accounts,
-        geth_traces,
-        logs,
+        blocks: vec![GethData {
+            eth_block,
+            accounts,
+            geth_traces,
+            logs,
+        }],
     }
 }
 

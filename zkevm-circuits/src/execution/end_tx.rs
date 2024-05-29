@@ -117,7 +117,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // 计算当前交易是否为最后一笔交易，如果tx_num_diff为0，则表示为当前区块的最后一笔交易
         // 使用SimpleGadget电路，需要两数的差值以及其对应的相反数
-        let tx_num_diff = (current_state.tx_num_in_block - current_state.tx_idx) as u64;
+        let tx_num_diff = (current_state
+            .tx_num_in_block
+            .get(&current_state.block_idx)
+            .unwrap()
+            .to_owned()
+            - current_state.tx_idx) as u64;
+
         let tx_num_diff_inv = U256::from_little_endian(
             F::from(tx_num_diff)
                 .invert()
@@ -181,10 +187,12 @@ mod test {
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             stack_top: None,
-            tx_num_in_block,
             tx_idx,
+            block_idx: 1,
             ..WitnessExecHelper::new()
         };
+        current_state.tx_num_in_block.insert(1, tx_num_in_block);
+
         let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_CALL.into_exec_state_core_row(

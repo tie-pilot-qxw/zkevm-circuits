@@ -35,7 +35,7 @@ use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
 use crate::witness::util::{extract_address_from_tx, handle_sstore};
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::geth_types::GethData;
+use eth_types::geth_types::{ChunkData, GethData};
 use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
@@ -78,12 +78,16 @@ pub struct WitnessExecHelper {
     pub value: HashMap<u64, U256>,
     // 存储调用方地址；如在CALL调用中，key=即将执行的CALL_ID，value=执行该CALL指令的调用方合约地址
     pub sender: HashMap<u64, U256>,
+    // 当前区块的索引. Note: 从1开始.
+    pub block_idx: usize,
     // 当前交易在区块的索引，Note：从1开始
     pub tx_idx: usize,
-    // 区块内交易的数量
-    pub tx_num_in_block: usize,
-    // 区块 log 的数量
-    pub log_num_in_block: usize,
+    // chunk 内 block 的数量
+    pub block_num_in_chunk: usize,
+    // 区块内交易的数量, key: block_idx, value: tx_num
+    pub tx_num_in_block: HashMap<usize, usize>,
+    // 区块 log 的数量, key: block_idx, value: log_num
+    pub log_num_in_block: HashMap<usize, usize>,
     // 正在执行的call_id
     pub call_id: u64,
     // 下一个即将执行的call id；如在执行evm CALL指令时，将生成的新call id赋值该字段，
@@ -146,9 +150,11 @@ impl WitnessExecHelper {
             return_data: HashMap::new(),
             value: HashMap::new(),
             sender: HashMap::new(),
+            block_idx: 0,
             tx_idx: 0,
-            tx_num_in_block: 0,
-            log_num_in_block: 0,
+            block_num_in_chunk: 0,
+            tx_num_in_block: HashMap::new(),
+            log_num_in_block: HashMap::new(),
             call_id: 0,
             call_id_new: 0,
             parent_call_id: HashMap::new(),
@@ -209,6 +215,7 @@ impl WitnessExecHelper {
 
     /// 直接获取每个account中的storage值
     fn handle_committed_value(&mut self, geth_data: &GethData) {
+        // for account in geth_data.accounts.iter() {
         for account in geth_data.accounts.iter() {
             account.storage.iter().for_each(|(key, value)| {
                 self.state_db
@@ -451,6 +458,7 @@ impl WitnessExecHelper {
         multi_row_cnt: usize,
     ) -> core::Row {
         core::Row {
+            block_idx: self.block_idx.into(),
             tx_idx: self.tx_idx.into(),
             call_id: self.call_id.into(),
             code_addr: self.code_addr,
@@ -1968,12 +1976,34 @@ impl WitnessExecHelper {
                 ]
             }
             public::Tag::BlockTxNum => {
-                values = [Some(self.tx_num_in_block.into()), None, None, None];
+                values = [
+                    Some(
+                        self.tx_num_in_block
+                            .get(&self.block_idx)
+                            .unwrap()
+                            .to_owned()
+                            .into(),
+                    ),
+                    None,
+                    None,
+                    None,
+                ];
                 value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
             public::Tag::BlockLogNum => {
-                values = [Some(self.log_num_in_block.into()), None, None, None];
+                values = [
+                    Some(
+                        self.log_num_in_block
+                            .get(&self.block_idx)
+                            .unwrap()
+                            .to_owned()
+                            .into(),
+                    ),
+                    None,
+                    None,
+                    None,
+                ];
                 value_comments = ["log_num_in_block".into(), "".into(), "".into(), "".into()];
                 tx_idx = 0;
             }
@@ -3044,11 +3074,11 @@ impl Witness {
         res
     }
 
-    /// Generate witness of block related data, such as bytecode and public table
-    fn insert_block_related(&mut self, geth_data: &GethData) {
+    /// Generate witness of all blocks related data, such as bytecode and public table
+    fn insert_block_related(&mut self, chunk_data: &ChunkData) {
         self.public
-            .append(&mut public::Row::from_geth_data(&geth_data).unwrap());
-        for account in &geth_data.accounts {
+            .append(&mut public::Row::from_chunk_data(&chunk_data).unwrap());
+        for account in chunk_data.blocks.iter().flat_map(|b| b.accounts.iter()) {
             if !account.code.is_empty() {
                 let machine_code = account.code.as_ref();
                 let mut bytecode_table = Self::gen_bytecode_witness(account.address, machine_code);
@@ -3126,8 +3156,9 @@ impl Witness {
     }
 
     /// Generate witness of one transaction's trace
-    pub fn new(geth_data: &GethData) -> Self {
+    pub fn new(chunk_data: &ChunkData) -> Self {
         assert!(U256::from(usize::MAX) >= U256::from(u64::MAX),"struct Memory doesn't support evm's memory because the range of usize is smaller than that of u64");
+
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         > = get_every_execution_gadgets!();
@@ -3135,41 +3166,51 @@ impl Witness {
             .into_iter()
             .map(|gadget| (gadget.execution_state(), gadget))
             .collect();
+
         let mut witness = Witness::default();
-        // step 1: insert block related witness: bytecode and public
-        witness.insert_block_related(&geth_data);
+        // step 1: insert all blocks related witness: bytecode and public
+        witness.insert_block_related(&chunk_data);
         // step 2: insert padding to core, bytecode, state
         witness.insert_begin_padding();
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
-        witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
+        current_state.block_num_in_chunk = chunk_data.blocks.len();
 
-        // initialize txs number and log number in current_state with geth_data
-        current_state.tx_num_in_block = geth_data.eth_block.transactions.len();
-        current_state.log_num_in_block = geth_data
-            .logs
-            .iter()
-            .map(|log_data| log_data.logs.len())
-            .sum();
+        for (block_idx, block) in chunk_data.blocks.iter().enumerate() {
+            // initialize block_idx, txs number and log number in current_state with GethData
+            current_state.block_idx = block_idx + 1;
+            current_state
+                .tx_num_in_block
+                .insert(block_idx + 1, block.eth_block.transactions.len());
+            current_state.log_num_in_block.insert(
+                block_idx + 1,
+                block.logs.iter().map(|log_data| log_data.logs.len()).sum(),
+            );
 
-        current_state.preprocess_storage(geth_data);
-        for i in 0..geth_data.geth_traces.len() {
-            let trace_related_witness =
-                current_state.generate_trace_witness(geth_data, i, &execution_gadgets_map);
-            witness.append(trace_related_witness);
+            current_state.state_db = StateDB::new();
+            current_state.preprocess_storage(block);
+
+            witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
+
+            for i in 0..block.geth_traces.len() {
+                let trace_related_witness =
+                    current_state.generate_trace_witness(block, i, &execution_gadgets_map);
+                witness.append(trace_related_witness);
+            }
+            // step 4: insert end padding (END_BLOCK)
+            witness.insert_end_padding(
+                block
+                    .geth_traces
+                    .last()
+                    .unwrap()
+                    .struct_logs
+                    .last()
+                    .unwrap(),
+                &mut current_state,
+                &execution_gadgets_map,
+            );
         }
-        // step 4: insert end padding (END_BLOCK)
-        witness.insert_end_padding(
-            geth_data
-                .geth_traces
-                .last()
-                .unwrap()
-                .struct_logs
-                .last()
-                .unwrap(),
-            &mut current_state,
-            &execution_gadgets_map,
-        );
+
         witness.state.sort_by(|a, b| {
             let key_a = state_to_be_limbs(a);
             let key_b = state_to_be_limbs(b);
@@ -3363,13 +3404,13 @@ impl ExecutionState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::geth_data_test;
+    use crate::util::chunk_data_test;
 
     #[test]
     fn test_data_print_csv() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code, &[]);
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],

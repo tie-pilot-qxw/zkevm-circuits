@@ -173,6 +173,8 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     /// only enable for BEGIN_BLOCK
     pub(crate) q_first_exec_state: Selector,
     pub(crate) q_enable: Selector,
+    // witness column of block index
+    pub(crate) block_idx: Column<Advice>,
     // witness column of transaction index
     pub(crate) tx_idx: Column<Advice>,
     // witness column of call id
@@ -259,6 +261,7 @@ impl<F: Field> Default for AuxiliaryOutcome<F> {
 pub(crate) struct CoreSinglePurposeOutcome<F> {
     /// Delta of pc (program counter) at the next execution state and current execution state
     pub(crate) pc: ExpressionOutcome<F>,
+    pub(crate) block_idx: ExpressionOutcome<F>,
     pub(crate) tx_idx: ExpressionOutcome<F>,
     pub(crate) call_id: ExpressionOutcome<F>,
     pub(crate) code_addr: ExpressionOutcome<F>,
@@ -268,6 +271,7 @@ impl<F: Field> Default for CoreSinglePurposeOutcome<F> {
     fn default() -> Self {
         Self {
             pc: ExpressionOutcome::Delta(0.expr()),
+            block_idx: ExpressionOutcome::Delta(0.expr()),
             tx_idx: ExpressionOutcome::Delta(0.expr()),
             call_id: ExpressionOutcome::Delta(0.expr()),
             code_addr: ExpressionOutcome::Delta(0.expr()),
@@ -1438,7 +1442,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
     }
 
-    /// get_next_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
+    /// get_next_single_purpose_constraints get constraints of pc, block_idx, tx_idx, call_id, code_addr
     /// between rotation::cur() and rotation::next()
     pub(crate) fn get_next_single_purpose_constraints(
         &self,
@@ -1448,7 +1452,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         self.get_core_single_purpose_constraints(meta, 1, delta, "next")
     }
 
-    /// get_cur_single_purpose_constraints get constraints of pc, tx_idx, call_id, code_addr
+    /// get_cur_single_purpose_constraints get constraints of pc, block_idx, tx_idx, call_id, code_addr
     /// between rotation::cur() and rotation(-1 * prev_exec_state_row)
     pub(crate) fn get_cur_single_purpose_constraints(
         &self,
@@ -1464,7 +1468,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         )
     }
 
-    /// get_core_single_purpose_constraints compute pc,tx_idx,call_id,code_addr constraints
+    /// get_core_single_purpose_constraints compute pc, block_idx, tx_idx, call_id, code_addr constraints
     fn get_core_single_purpose_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -1489,6 +1493,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     meta.query_advice(self.pc, rotation_2.clone()),
                 )
                 .map(|expr| (format!("pc {}", comment_postfix), expr)),
+        );
+        //  block_idx next constraint
+        constraints.extend(
+            delta
+                .block_idx
+                .into_constraint(
+                    meta.query_advice(self.block_idx, rotation_1.clone()),
+                    meta.query_advice(self.block_idx, rotation_2.clone()),
+                )
+                .map(|expr| (format!("block_idx {}", comment_postfix), expr)),
         );
         // tx_idx next constraint
         constraints.extend(
@@ -2620,6 +2634,7 @@ mod test {
                     let config = ExecutionConfig {
                         q_first_exec_state,
                         q_enable,
+                        block_idx: meta.advice_column(),
                         tx_idx: meta.advice_column(),
                         call_id: meta.advice_column(),
                         code_addr: meta.advice_column(),
@@ -2663,6 +2678,7 @@ mod test {
                     layouter.assign_region(
                         || "test",
                         |mut region| {
+                            region.name_column(|| "CORE_block_idx", config.block_idx);
                             region.name_column(|| "CORE_tx_idx", config.tx_idx);
                             region.name_column(|| "CORE_call_id", config.call_id);
                             region.name_column(|| "CORE_code_addr", config.code_addr);
@@ -2679,6 +2695,12 @@ mod test {
                             for (offset, row) in self.witness.core.iter().enumerate() {
                                 let cnt_is_zero: IsZeroWithRotationChip<F> =
                                     IsZeroWithRotationChip::construct(config.cnt_is_zero);
+                                assign_advice_or_fixed_with_u256(
+                                        &mut region,
+                                        offset,
+                                        &row.block_idx,
+                                        config.block_idx,
+                                )?;
                                 assign_advice_or_fixed_with_u256(
                                     &mut region,
                                     offset,

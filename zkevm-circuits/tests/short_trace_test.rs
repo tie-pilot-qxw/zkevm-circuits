@@ -5,7 +5,7 @@ use std::io::Read;
 use trace_parser::{read_log_from_api_result_file, read_trace_from_api_result_file};
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
+use zkevm_circuits::util::{chunk_data_test, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 #[test]
@@ -20,7 +20,7 @@ fn test_short_trace() {
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
     let receipt_log = read_log_from_api_result_file("test_data/short-log.json");
-    let witness = Witness::new(&geth_data_test(trace, &bytecodes, &[], false, receipt_log));
+    let witness = Witness::new(&chunk_data_test(trace, &bytecodes, &[], false, receipt_log));
     witness.print_csv();
     let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
     witness.write_html(&mut buf);

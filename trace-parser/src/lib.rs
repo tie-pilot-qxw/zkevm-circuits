@@ -266,7 +266,7 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
                     )
                     .unwrap_or_default();
                     // let log_address = H160::from_str(temp_splits[1]).unwrap();
-                    // for in fn geth_data_test, has assigned code_addr = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+                    // for in fn chunk_data_test, has assigned code_addr = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
                     // so not parsed from log result
                     let log_address =
                         Address::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();

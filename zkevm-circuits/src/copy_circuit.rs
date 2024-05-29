@@ -863,7 +863,7 @@ mod test {
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
     use crate::table::{FixedTable, KeccakTable};
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::{chunk_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::{bytecode, U256};
     use halo2_proofs::circuit::SimpleFloorPlanner;
@@ -1065,7 +1065,7 @@ mod test {
         let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code, &[]);
         // create witness object
-        let witness: Witness = Witness::new(&geth_data_test(
+        let witness: Witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],

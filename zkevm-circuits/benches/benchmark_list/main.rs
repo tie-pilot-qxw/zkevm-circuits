@@ -10,7 +10,7 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
 use ark_std::{end_timer, start_timer};
-use eth_types::geth_types::GethData;
+use eth_types::geth_types::ChunkData;
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
 use halo2_proofs::plonk::{
     create_proof, keygen_pk, keygen_vk, verify_proof, ProvingKey, VerifyingKey,
@@ -50,7 +50,7 @@ pub const DEFAULT_PROOF_PARAMS_DIR: &str = "./test_data";
 
 pub fn run_benchmark<const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
     id: &str,
-    geth_data: &GethData,
+    chunk_data: &ChunkData,
     degree: u32,
 ) {
     // get round from environment variables
@@ -79,7 +79,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
         )
     } else {
         gen_proof_params::<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
-            degree, geth_data,
+            degree, chunk_data,
         )
     };
     end_timer!(get_proof_params_start);
@@ -88,7 +88,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
     let run_and_verify_circuit_start = start_timer!(|| "run and verify circuit");
     run_circuit::<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
         id,
-        geth_data,
+        chunk_data,
         bench_round,
         proof_params,
         proof_pk,
@@ -181,9 +181,9 @@ fn gen_proof_params<
     const NUM_STATE_LO_COL: usize,
 >(
     degree: u32,
-    geth_data: &GethData,
+    chunk_data: &ChunkData,
 ) -> (ParamsKZG<Bn256>, ProvingKey<G1Affine>) {
-    let witness = Witness::new(geth_data);
+    let witness = Witness::new(chunk_data);
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     // gen proof params
@@ -211,7 +211,7 @@ fn run_circuit<
     const NUM_STATE_LO_COL: usize,
 >(
     id: &str,
-    geth_data: &GethData,
+    chunk_data: &ChunkData,
     bench_round: usize,
     proof_params: ParamsKZG<Bn256>,
     proof_pk: ProvingKey<G1Affine>,
@@ -222,7 +222,7 @@ fn run_circuit<
         GENERATE_WITNESS, id
     );
     let witness_start = start_timer!(|| witness_msg);
-    let witness = Witness::new(&geth_data);
+    let witness = Witness::new(&chunk_data);
     end_timer!(witness_start);
 
     // Create a circuit

@@ -856,7 +856,7 @@ mod test {
     use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
     use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::{chunk_data_test, log2_ceil};
     use crate::witness::public::Tag;
     use eth_types::evm_types::OpcodeId;
     use eth_types::Bytecode;
@@ -1132,7 +1132,7 @@ mod test {
         let trace = trace_parser::trace_program(&machine_code, &[]);
 
         // construct Witness object
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],
@@ -1158,7 +1158,7 @@ mod test {
         let trace = trace_parser::trace_program(&machine_code, &[]);
 
         // construct Witness object
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],

@@ -26,10 +26,12 @@ use strum::EnumCount;
 #[derive(Clone)]
 pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 {
-    /// only enable for BEGIN_BLOCK
+    /// only enable for BEGIN_CHUNK
     pub q_first_exec_state: Selector,
     pub q_enable: Selector,
-    /// Transaction index, the index inside the block, repeated for rows in one execution state
+    /// block index, the index of the block in the chunk, repeated for rows in one block
+    pub block_idx: Column<Advice>,
+    /// Transaction index, the index inside the block, repeated for rows in one transaction
     pub tx_idx: Column<Advice>,
     /// Call id, unique for each call, repeated for rows in one execution state
     pub call_id: Column<Advice>,
@@ -95,6 +97,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     ) -> Self {
         let q_enable = meta.complex_selector();
         let q_first_exec_state = meta.selector();
+        let block_idx = meta.advice_column();
         let tx_idx = meta.advice_column();
         let call_id = meta.advice_column();
         let code_addr = meta.advice_column();
@@ -131,6 +134,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let execution_config = ExecutionConfig {
             q_first_exec_state,
             q_enable,
+            block_idx,
             tx_idx,
             call_id,
             code_addr,
@@ -154,6 +158,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let config = Self {
             q_first_exec_state,
             q_enable,
+            block_idx,
             tx_idx,
             call_id,
             code_addr,
@@ -190,6 +195,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             let pc_prev = meta.query_advice(config.pc, Rotation::prev());
             let opcode = meta.query_advice(config.opcode, Rotation::cur());
             let opcode_prev = meta.query_advice(config.opcode, Rotation::prev());
+            let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+            let block_idx_prev = meta.query_advice(config.block_idx, Rotation::prev());
             let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
             let tx_idx_prev = meta.query_advice(config.tx_idx, Rotation::prev());
             let call_id = meta.query_advice(config.call_id, Rotation::cur());
@@ -207,6 +214,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                     q_enable.clone()
                         * (1.expr() - cnt_is_zero_prev.clone())
                         * (opcode_prev - opcode),
+                ),
+                (
+                    "block_idx",
+                    q_enable.clone()
+                        * (1.expr() - cnt_is_zero_prev.clone())
+                        * (block_idx_prev - block_idx),
                 ),
                 (
                     "tx_idx",
@@ -258,6 +271,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         row: &Row,
     ) -> Result<(), Error> {
         let cnt_is_zero: IsZeroWithRotationChip<F> = IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        assign_advice_or_fixed_with_u256(region, offset, &row.block_idx, self.block_idx)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.tx_idx, self.tx_idx)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.call_id, self.call_id)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.code_addr, self.code_addr)?;
@@ -298,6 +312,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Result<(), Error> {
         let cnt_is_zero: IsZeroWithRotationChip<F> =
             IsZeroWithRotationChip::construct(self.cnt_is_zero);
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.block_idx)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.tx_idx)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.call_id)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.code_addr)?;
@@ -351,6 +366,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     pub fn annotate_circuit_in_region(&self, region: &mut Region<F>) {
+        region.name_column(|| "CORE_block_idx", self.block_idx);
         region.name_column(|| "CORE_tx_idx", self.tx_idx);
         region.name_column(|| "CORE_call_id", self.call_id);
         region.name_column(|| "CORE_code_addr", self.code_addr);
@@ -434,7 +450,7 @@ mod test {
     use super::*;
     use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::core_circuit::CoreCircuit;
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::{chunk_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
@@ -614,7 +630,7 @@ mod test {
         };
         let machine_code = code.to_vec();
         let trace = trace_parser::trace_program(&machine_code, &[]);
-        let witness: Witness = Witness::new(&geth_data_test(
+        let witness: Witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],

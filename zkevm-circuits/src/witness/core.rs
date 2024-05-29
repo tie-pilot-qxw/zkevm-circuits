@@ -10,7 +10,9 @@ use std::ops::{Index, IndexMut};
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Row {
     // the following columns are single purpose, non-versatile
-    /// transaction index, the index inside the block, repeated for rows in one execution state
+    /// block index, the index of the block in the chunk, repeated for rows in one block
+    pub block_idx: U256,
+    /// transaction index, the index inside the block, repeated for rows in one transaction
     pub tx_idx: U256,
     /// call id, unique for each call, repeated for rows in one execution state
     pub call_id: U256,

@@ -5,7 +5,7 @@ use std::io::Read;
 use trace_parser::read_trace_from_api_result_file;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
+use zkevm_circuits::util::{chunk_data_test, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 #[ignore]
@@ -20,7 +20,7 @@ fn test_deploy_trace() {
         bytecodes = bytecodes.split_off(2);
     }
     let bytecodes = hex::decode(bytecodes).unwrap();
-    let witness = Witness::new(&geth_data_test(
+    let witness = Witness::new(&chunk_data_test(
         trace,
         &bytecodes,
         &[],
