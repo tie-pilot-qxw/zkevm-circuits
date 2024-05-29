@@ -83,9 +83,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             log_stamp: ExpressionOutcome::Delta(log_stamp_delta),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
         // new selector LOG_LEFT_X and append selector constraints
         constraints.extend(selector.get_constraints());
@@ -290,6 +293,7 @@ mod test {
             tx_idx,
             code_addr,
             log_stamp,
+            gas_left: 100,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, opcode, stack);
