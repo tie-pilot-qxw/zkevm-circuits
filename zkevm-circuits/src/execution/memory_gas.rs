@@ -12,10 +12,9 @@ use crate::arithmetic_circuit::operation;
 use crate::constant::{
     GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, NUM_VERS,
 };
-use crate::execution::ExecutionState::MEMORY_COPIER_GAS;
 use crate::execution::{
-    memory_copier_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
+    memory_copier_gas, pure_memory_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome,
+    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -27,26 +26,27 @@ const STATE_STAMP_DELTA: usize = 0;
 
 const CORE_ROW_1_START_COL_IDX: usize = 17;
 
-/// memory_gas_cost
-/// 前一个指令对应：CALLDATACOPY, CODECOPY, RETURNDATACOPY, EXTCODECOPY
-/// 后一个指令对应：MEMORY_COPIER_GAS
+/// memory_gas
+/// 前一个指令对应：CALLDATACOPY, CODECOPY, RETURNDATACOPY, EXTCODECOPY, MLOAD, MSTORE, MSTORE8, RETURN, REVERT
+/// 后一个指令对应：MEMORY_COPIER_GAS, PURE_MEMORY_GAS
 ///
 /// Table layout:
 ///     cnt = 0:
 ///         1.MEMORY_GAS(26) is the gas cost calculated for the current state and reserves space for the next state in advance.
-///         2.NEXT_IS_MEMORY_COPIER_GAS(31) is set to 1 if the next state is MEMORY_COPIER_GAS.
+///         2.NEXT_IS_PURE_MEMORY_GAS(30) is set to 1 if the next state is PURE_MEMORY_GAS.
+///         3.NEXT_IS_MEMORY_COPIER_GAS(31) is set to 1 if the next state is MEMORY_COPIER_GAS.
 ///     cnt = 1:
 ///         1. MEMORY_EXPANSION is `Max(cur_memory_size, memory_size)`;
 ///         2. U64Div is `cur_memory_size * cur_memory_size / 512 = curr_quad_memory_cost`;
 ///         3. U64Div is `next_memory_size * next_memory_size / 512 = next_quad_memory_cost`;
 ///         4. SELECTOR is the opcode selector.
 ///
-/// +-----+------------------------+----------------+----------------+----------------+------------------------------+
-/// | cnt |                        |                |                |                |                              |
-/// +-----+------------------------+----------------+----------------+----------------+------------------------------+
-/// | 1   | MEMORY_EXPANSION(2..6) | U64DIV(7..11) | U64DIV(12..16) | SELECTOR(17..20)|                              |
-/// | 0   | DYNAMIC(0..17)         | AUX(18..24)   |                | MEMORY_GAS(26)  | NEXT_IS_MEMORY_COPIER_GAS(31)|
-/// +-----+------------------------+----------------+----------------+----------------+------------------------------+
+/// +-----+------------------------+----------------+----------------+----------------+------------------------------+-----------------------------+
+/// | cnt |                        |                |                |                |                              |                             |
+/// +-----+------------------------+----------------+----------------+----------------+------------------------------+-----------------------------+
+/// | 1   | MEMORY_EXPANSION(2..6) | U64DIV(7..11) | U64DIV(12..16) | SELECTOR(17..25)|                              |                             |
+/// | 0   | DYNAMIC(0..17)         | AUX(18..24)   |                | MEMORY_GAS(26)  | NEXT_IS_PURE_MEMORY_GAS(30)  |NEXT_IS_MEMORY_COPIER_GAS(31)|
+/// +-----+------------------------+----------------+----------------+----------------+------------------------------------------------------------+
 
 pub struct MemoryGasGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -198,6 +198,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 5], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 6], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 7], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 8], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
         constraints.push((
@@ -207,6 +212,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode.clone() - OpcodeId::CODECOPY.as_u8().expr(),
                 opcode.clone() - OpcodeId::RETURNDATACOPY.as_u8().expr(),
                 opcode.clone() - OpcodeId::EXTCODECOPY.as_u8().expr(),
+                opcode.clone() - OpcodeId::MLOAD.as_u8().expr(),
+                opcode.clone() - OpcodeId::MSTORE.as_u8().expr(),
+                opcode.clone() - OpcodeId::MSTORE8.as_u8().expr(),
+                opcode.clone() - OpcodeId::RETURN.as_u8().expr(),
+                opcode.clone() - OpcodeId::REVERT.as_u8().expr(),
             ]),
         ));
 
@@ -222,10 +232,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // todo 后续实现中这里还有更多对应的opcode
         // CALLDATACOPY, CODECOPY, RETURNDATACOPY, EXTCODECOPY 下一个状态对应memory_copier_gas
-        let following_memory_copier_gas =
-            selector.select(&[1.expr(), 1.expr(), 1.expr(), 1.expr()]);
+        let following_memory_copier_gas = selector.select(&[
+            1.expr(),
+            1.expr(),
+            1.expr(),
+            1.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+        ]);
         let next_is_memory_copier_gas =
             meta.query_advice(config.vers[NUM_VERS - 1], Rotation::cur());
+
+        // MLOAD, MSTORE, MSTORE8, RETURN, REVERT 下一个状态对应pure_memory_gas
+        let following_pure_memory_gas = selector.select(&[
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            0.expr(),
+            1.expr(),
+            1.expr(),
+            1.expr(),
+            1.expr(),
+        ]);
+        let next_is_pure_memory_gas = meta.query_advice(config.vers[NUM_VERS - 2], Rotation::cur());
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -234,14 +267,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     ExecutionState::CODECOPY,
                     ExecutionState::EXTCODECOPY,
                     ExecutionState::RETURNDATACOPY,
+                    ExecutionState::MEMORY,
+                    ExecutionState::MSTORE8,
+                    ExecutionState::RETURN_REVERT,
                 ],
                 NUM_ROW,
-                vec![(
-                    MEMORY_COPIER_GAS,
-                    memory_copier_gas::NUM_ROW,
-                    Some(next_is_memory_copier_gas),
-                )],
-                Some(vec![following_memory_copier_gas]),
+                vec![
+                    (
+                        ExecutionState::MEMORY_COPIER_GAS,
+                        memory_copier_gas::NUM_ROW,
+                        Some(next_is_memory_copier_gas),
+                    ),
+                    (
+                        ExecutionState::PURE_MEMORY_GAS,
+                        pure_memory_gas::NUM_ROW,
+                        Some(next_is_pure_memory_gas),
+                    ),
+                ],
+                Some(vec![following_memory_copier_gas, following_pure_memory_gas]),
             ),
         ));
 
@@ -281,6 +324,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             OpcodeId::CODECOPY => 1,
             OpcodeId::RETURNDATACOPY => 2,
             OpcodeId::EXTCODECOPY => 3,
+            OpcodeId::MLOAD => 4,
+            OpcodeId::MSTORE => 5,
+            OpcodeId::MSTORE8 => 6,
+            OpcodeId::RETURN => 7,
+            OpcodeId::REVERT => 8,
             _ => panic!("memory gas not supported opcode"),
         };
 
@@ -332,6 +380,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 CORE_ROW_1_START_COL_IDX + 1,
                 CORE_ROW_1_START_COL_IDX + 2,
                 CORE_ROW_1_START_COL_IDX + 3,
+                CORE_ROW_1_START_COL_IDX + 4,
+                CORE_ROW_1_START_COL_IDX + 5,
+                CORE_ROW_1_START_COL_IDX + 6,
+                CORE_ROW_1_START_COL_IDX + 7,
+                CORE_ROW_1_START_COL_IDX + 8,
             ],
             tag_selector_index as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
@@ -345,8 +398,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // 如果下一个状态为MEMORY_COPIER_GAS,设置NUM_VERS - 1为1
         match current_state.next_exec_state {
-            Some(MEMORY_COPIER_GAS) => {
+            Some(ExecutionState::MEMORY_COPIER_GAS) => {
                 assign_or_panic!(core_row_0[NUM_VERS - 1], U256::one());
+            }
+            Some(ExecutionState::PURE_MEMORY_GAS) => {
+                assign_or_panic!(core_row_0[NUM_VERS - 2], U256::one());
             }
             _ => (),
         }
