@@ -166,7 +166,6 @@ use crate::constant::{
     STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
-use crate::execution::ExecutionState::SAR_1;
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 

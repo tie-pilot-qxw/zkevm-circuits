@@ -13,8 +13,8 @@ use crate::constant::{
     GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, NUM_VERS,
 };
 use crate::execution::{
-    log_gas, memory_copier_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
+    log_gas, memory_copier_gas, pure_memory_gas, AuxiliaryOutcome, CoreSinglePurposeOutcome,
+    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -65,7 +65,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         NUM_ROW
     }
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, memory_copier_gas::NUM_ROW)
+        (
+            NUM_ROW,
+            itertools::max(
+                [
+                    memory_copier_gas::NUM_ROW,
+                    pure_memory_gas::NUM_ROW,
+                    log_gas::NUM_ROW,
+                ]
+                .iter()
+                .map(|num_row| *num_row),
+            )
+            .unwrap(),
+        )
     }
     fn get_constraints(
         &self,
@@ -321,7 +333,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     ),
                     (
                         ExecutionState::PURE_MEMORY_GAS,
-                        memory_copier_gas::NUM_ROW,
+                        pure_memory_gas::NUM_ROW,
                         Some(next_is_pure_memory_gas),
                     ),
                     (
