@@ -297,11 +297,6 @@ impl Transaction {
 /// GethData is a type that contains all the information of a Ethereum block
 #[derive(Debug, Clone)]
 pub struct GethData {
-    /// chain id
-    pub chain_id: Word,
-    /// history hashes contains most recent 256 block hashes in history, where
-    /// the lastest one is at history_hashes[history_hashes.len() - 1].
-    pub history_hashes: Vec<Word>,
     /// Block from geth
     pub eth_block: Block<crate::Transaction>,
     /// Execution Trace from geth
@@ -312,20 +307,13 @@ pub struct GethData {
     pub logs: Vec<ReceiptLog>,
 }
 
-impl GethData {
-    /// Signs transactions with selected wallets
-    pub fn sign(&mut self, wallets: &HashMap<Address, LocalWallet>) {
-        for tx in self.eth_block.transactions.iter_mut() {
-            let wallet = wallets.get(&tx.from).unwrap();
-            assert_eq!(Word::from(wallet.chain_id()), self.chain_id);
-            let geth_tx: Transaction = (&*tx).into();
-            let req: TransactionRequest = (&geth_tx).into();
-            let sig = wallet
-                .sign_transaction_sync(&req.chain_id(self.chain_id.as_u64()).into())
-                .unwrap();
-            tx.v = U64::from(sig.v);
-            tx.r = sig.r;
-            tx.s = sig.s;
-        }
-    }
+/// ChunkData is a type that contains all the information of a chunk
+pub struct ChunkData {
+    /// chain id
+    pub chain_id: Word,
+    /// history hashes contains most recent (256 + blok_num_in_chunk block) hashes in history, where
+    /// the lastest one is at history_hashes[history_hashes.len() - 1].
+    pub history_hashes: Vec<Word>,
+    /// all blocks in the chunk
+    pub blocks: Vec<GethData>,
 }

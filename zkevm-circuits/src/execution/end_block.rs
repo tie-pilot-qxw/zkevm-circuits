@@ -196,9 +196,14 @@ mod test {
         let mut current_state = WitnessExecHelper {
             state_stamp: 1,
             log_stamp: 1,
-            log_num_in_block: 1,
+            block_idx: 1,
+            tx_idx: 1,
             ..WitnessExecHelper::new()
         };
+        current_state.log_num_in_block.insert(1, 1);
+        current_state.tx_num_in_block.insert(1, 1);
+        current_state.block_num_in_chunk = 1;
+
         // prepare a trace
         let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {

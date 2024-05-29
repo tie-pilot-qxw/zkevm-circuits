@@ -136,12 +136,12 @@ macro_rules! test_super_circuit_short_bytecode {
             MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
         };
         use zkevm_circuits::super_circuit::SuperCircuit;
-        use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
+        use zkevm_circuits::util::{chunk_data_test, log2_ceil, SubCircuit};
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
         let (trace, receipt_log) = trace_parser::trace_program_with_log(&machine_code, &[]);
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],
@@ -179,12 +179,12 @@ macro_rules! test_super_circuit_short_bytecode {
             MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
         };
         use zkevm_circuits::super_circuit::SuperCircuit;
-        use zkevm_circuits::util::{geth_data_test, log2_ceil, SubCircuit};
+        use zkevm_circuits::util::{chunk_data_test, log2_ceil, SubCircuit};
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
         let trace = trace_parser::trace_program(&machine_code, &calldata);
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &calldata,

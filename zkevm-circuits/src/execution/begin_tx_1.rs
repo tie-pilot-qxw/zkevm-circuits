@@ -92,8 +92,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
         let refund = meta.query_advice(refund, Rotation::cur());
         constraints.push(("init tx refund = 0".into(), refund));
-        // 约束pc, tx_idx, call_id, code_addr为0
+        // 约束pc, tx_idx, call_id, code_addr为0; block_idx 不变
         let delta = CoreSinglePurposeOutcome {
+            block_idx: ExpressionOutcome::Delta(0.expr()),
             tx_idx: ExpressionOutcome::Delta(TX_IDX_DELTA.expr()),
             pc: ExpressionOutcome::To(0.expr()),
             call_id: ExpressionOutcome::To(state_stamp_prev.clone() + 1.expr()),

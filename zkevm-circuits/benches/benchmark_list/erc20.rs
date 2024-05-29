@@ -1,6 +1,6 @@
 use crate::run_benchmark;
 use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW};
-use zkevm_circuits::util::get_geth_data;
+use zkevm_circuits::util::get_chunk_data;
 
 #[cfg(feature = "k_10")]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = 21000;
@@ -22,7 +22,7 @@ const CALL_MAX_CODE_SIZE_FOR_TEST: usize = MAX_CODESIZE;
 
 #[test]
 fn t01_a_deploy_erc20() {
-    let geth_data = &get_geth_data(
+    let chunk_data = &get_chunk_data(
         "test_data/erc20_test/trace/t01_a_deploy_erc20/block_info.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_info.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_debug_trace.json",
@@ -36,13 +36,13 @@ fn t01_a_deploy_erc20() {
 
     run_benchmark::<DEPLOY_MAX_NUM_ROW_FOR_TEST, DEPLOY_MAX_CODE_SIZE_FOR_TEST>(
         "t01_a_deploy_erc20",
-        geth_data,
+        chunk_data,
         degree,
     );
 }
 #[test]
 fn t02_a_transfer_b_200() {
-    let geth_data = &get_geth_data(
+    let chunk_data = &get_chunk_data(
         "test_data/erc20_test/trace/t02_a_transfer_b_200/block_info.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_info.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_debug_trace.json",
@@ -56,14 +56,14 @@ fn t02_a_transfer_b_200() {
 
     run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST, CALL_MAX_CODE_SIZE_FOR_TEST>(
         "t02_a_transfer_b_200",
-        geth_data,
+        chunk_data,
         degree,
     );
 }
 
 #[test]
 fn t03_a_approve_c_200() {
-    let geth_data = &get_geth_data(
+    let chunk_data = &get_chunk_data(
         "test_data/erc20_test/trace/t03_a_approve_c_200/block_info.json",
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_info.json",
         "test_data/erc20_test/trace/t03_a_approve_c_200/tx_debug_trace.json",
@@ -77,14 +77,14 @@ fn t03_a_approve_c_200() {
 
     run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST, CALL_MAX_CODE_SIZE_FOR_TEST>(
         "t03_a_approve_c_200",
-        geth_data,
+        chunk_data,
         degree,
     );
 }
 
 #[test]
 fn t04_c_transfer_from_a_b_200() {
-    let geth_data = &get_geth_data(
+    let chunk_data = &get_chunk_data(
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/block_info.json",
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_info.json",
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/tx_debug_trace.json",
@@ -98,7 +98,7 @@ fn t04_c_transfer_from_a_b_200() {
 
     run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST, CALL_MAX_CODE_SIZE_FOR_TEST>(
         "t04_c_transfer_from_a_b_200 benchmark",
-        geth_data,
+        chunk_data,
         degree,
     );
 }

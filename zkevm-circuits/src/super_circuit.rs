@@ -344,7 +344,7 @@ impl<
 mod tests {
     use super::*;
     use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::{chunk_data_test, log2_ceil};
     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::{Fr, G1};
     use std::fs::File;
@@ -373,7 +373,7 @@ mod tests {
     fn test_from_test_data() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code, &[]);
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],
@@ -412,7 +412,7 @@ mod tests {
         );
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code, &[]);
-        let witness = Witness::new(&geth_data_test(
+        let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],

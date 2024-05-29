@@ -71,6 +71,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // reset pc, tx_idx, call_id, code_addr to 0
         let delta_core = CoreSinglePurposeOutcome {
+            block_idx: ExpressionOutcome::To(1.expr()),
             tx_idx: ExpressionOutcome::To(0.expr()),
             pc: ExpressionOutcome::To(0.expr()),
             call_id: ExpressionOutcome::To(0.expr()),
@@ -131,6 +132,8 @@ mod test {
     #[test]
     fn assign_and_constraint() {
         let mut current_state = WitnessExecHelper::new();
+        current_state.block_idx = 1;
+
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, Stack::new());
         let padding_begin_row = |current_state| {
             let row = ExecutionState::END_PADDING.into_exec_state_core_row(

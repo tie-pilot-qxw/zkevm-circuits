@@ -94,7 +94,7 @@ mod test {
 
     use super::*;
     use crate::constant::MAX_NUM_ROW;
-    use crate::util::{assign_advice_or_fixed_with_u256, geth_data_test, log2_ceil};
+    use crate::util::{assign_advice_or_fixed_with_u256, chunk_data_test, log2_ceil};
     use crate::witness::Witness;
     use halo2_proofs::circuit::SimpleFloorPlanner;
     use halo2_proofs::dev::MockProver;
@@ -223,7 +223,7 @@ mod test {
         // parse trace
         let trace = trace_parser::trace_program(&machine_code, &[]);
         // construct witness using trace
-        let witness: Witness = Witness::new(&geth_data_test(
+        let witness: Witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
             &[],

@@ -674,7 +674,7 @@ mod test {
     use super::*;
     use crate::constant::MAX_NUM_ROW;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
-    use crate::util::{geth_data_test, log2_ceil};
+    use crate::util::{chunk_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::bytecode;
     use halo2_proofs::circuit::SimpleFloorPlanner;
@@ -769,7 +769,7 @@ mod test {
             ADD
         };
         let trace = trace_parser::trace_program(bytecode.to_vec().as_slice(), &[]);
-        let witness: Witness = Witness::new(&geth_data_test(
+        let witness: Witness = Witness::new(&chunk_data_test(
             trace,
             bytecode.to_vec().as_slice(),
             &[],
