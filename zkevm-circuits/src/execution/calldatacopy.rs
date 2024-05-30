@@ -202,8 +202,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         // 添加辅助列的约束，约束上下相邻指令的状态
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         // 约束pc、tx_id等状态
         // pc后移至memory_copier_gas后变化
         let delta = CoreSinglePurposeOutcome::default();

@@ -71,12 +71,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
+
+        let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
+        let public_entry = config.get_public_lookup(meta, 1);
+        let (_, _, [_, tx_gas_limit, _, _]) =
+            extract_lookup_expression!(public, public_entry.clone());
+
+        constraints.extend(config.get_public_constraints(
+            meta,
+            public_entry,
+            (public::Tag::TxGasLimit as u8).expr(),
+            Some(tx_idx.clone()),
+            [None, Some(gas_left), None, None],
+        ));
+
         let delta = AuxiliaryOutcome {
             // 记录了4个状态(to地址，calldata size, 父环境的code_addr和call_id)和
             // 从public calldata区域拷贝copy size大小的数据
             state_stamp: ExpressionOutcome::Delta(4.expr() + copy_size),
             stack_pointer: ExpressionOutcome::To(0.expr()),
             memory_chunk: ExpressionOutcome::To(0.expr()),
+            gas_left: ExpressionOutcome::To(tx_gas_limit),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -84,7 +101,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let Auxiliary {
             state_stamp,
             refund,
-            gas_left,
             ..
         } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
@@ -124,7 +140,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 读取calldata size状态，因为128bit足以标识其大小，所以在get_copy_constraints仅约束value_lo
         let (_, _, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
-        let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
@@ -167,7 +182,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         //约束public entry 与state entry记录的calldata size和code_addr状态一致
         let public_entry = config.get_public_lookup(meta, 0);
-        config.get_public_constraints(
+        constraints.extend(config.get_public_constraints(
             meta,
             public_entry,
             (public::Tag::TxToCallDataSize as u8).expr(),
@@ -182,17 +197,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 // constraint calldata_size lo == tx.input.len
                 Some(operands[1][1].clone()),
             ],
-        );
-
-        let gas_left = meta.query_advice(gas_left, Rotation::cur());
-        let public_entry = config.get_public_lookup(meta, 1);
-        config.get_public_constraints(
-            meta,
-            public_entry,
-            (public::Tag::TxGasLimit as u8).expr(),
-            Some(tx_idx),
-            [Some(gas_left), None, None, None],
-        );
+        ));
 
         // next state constraints
         constraints.extend(config.get_exec_state_constraints(

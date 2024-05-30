@@ -83,14 +83,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(state_stamp_delta),
             stack_pointer: ExpressionOutcome::Delta(stack_pointer_delta.clone()),
             // eq and is_zero's const_gas is same
-            gas_left: ExpressionOutcome::Delta(OpcodeId::EQ.constant_gas_cost().expr()),
+            gas_left: ExpressionOutcome::Delta(-OpcodeId::EQ.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // selector constraints
         constraints.extend(selector.get_constraints());
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
 
         let mut operands = vec![];
         //let stack_pointer_delta = vec![0, -1, -1];

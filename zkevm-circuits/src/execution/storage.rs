@@ -183,8 +183,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // before degree 16
             // now degree max 9
             gas_left: ExpressionOutcome::Delta(
-                sload_gas_cost.clone() * is_sload.clone()
-                    + sstore_gas_cost.clone() * is_sstore.clone(),
+                -sload_gas_cost.clone() * is_sload.clone()
+                    - sstore_gas_cost.clone() * is_sstore.clone(),
             ),
             // before degree 14
             // now degree max 9
@@ -194,7 +194,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // todo 所有模块实现完tx_refund以及gas计算后，删除这个约束
         // must： 1. gas, refund delta
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta.clone()));
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // option: 1. is_warm read and write

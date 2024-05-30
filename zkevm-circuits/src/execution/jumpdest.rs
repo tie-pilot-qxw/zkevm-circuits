@@ -50,13 +50,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
         let delta = AuxiliaryOutcome {
-            gas_left: ExpressionOutcome::Delta(OpcodeId::JUMPDEST.constant_gas_cost().expr()),
+            gas_left: ExpressionOutcome::Delta(-OpcodeId::JUMPDEST.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         let delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(1.expr()),
             ..Default::default()

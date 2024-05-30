@@ -57,13 +57,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             // CALLER, CALLVALUE, CALLDATASIZE gas cost is QUICK,
             // Only one of the representatives is used here
-            gas_left: ExpressionOutcome::Delta(OpcodeId::CALLER.constant_gas_cost().expr()),
+            gas_left: ExpressionOutcome::Delta(-OpcodeId::CALLER.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         let calldatasize_tag =
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX], Rotation::prev());

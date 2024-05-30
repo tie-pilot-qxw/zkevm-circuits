@@ -219,8 +219,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.append(&mut config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // append opcode constraint
         constraints.extend([(

@@ -338,12 +338,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        constraints.extend(config.get_auxiliary_constraints(
-            meta,
-            NUM_ROW,
-            auxiliary_delta.clone(),
-        ));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, auxiliary_delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta));
 
         // pc后移至memory_copier_gas后变化
         let core_single_delta = CoreSinglePurposeOutcome::default();

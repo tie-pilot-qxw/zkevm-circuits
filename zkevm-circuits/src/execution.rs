@@ -1390,46 +1390,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 )
                 .map(|expr| ("memory chunk cur - prev - delta".into(), expr)),
         );
-        // todo 全部gas和refund实现完成后再取消注释
-        // (
-        //     "gas left prev - cur - delta".into(),
-        //     delta.gas_left.into_constraint(
-        //         meta.query_advice(gas_left, Rotation(-1 * prev_exec_state_row as i32)),
-        //         meta.query_advice(gas_left, Rotation::cur()),
-        //     ),
-        // ),
-        // (
-        //     "refund cur - prev - delta".into(),
-        //     delta.refund.into_constraint(
-        //         meta.query_advice(refund, Rotation::cur()),
-        //         meta.query_advice(refund, Rotation(-1 * prev_exec_state_row as i32)),
-        //     ),
-        // ),
-        //todo other auxiliary
-        constraints
-    }
-
-    // 已经实现了gas的可以先临时使用这个函数
-    pub(crate) fn get_auxiliary_gas_constraints(
-        &self,
-        meta: &mut VirtualCells<F>,
-        prev_exec_state_row: usize,
-        delta: AuxiliaryOutcome<F>,
-    ) -> Vec<(String, Expression<F>)> {
-        let Auxiliary {
-            gas_left, refund, ..
-        } = self.get_auxiliary();
-        let mut constraints: Vec<(String, Expression<F>)> = vec![];
         // gas_left constraint
         constraints.extend(
             delta
                 .gas_left
                 .into_constraint(
-                    meta.query_advice(gas_left, Rotation(-1 * prev_exec_state_row as i32)),
                     meta.query_advice(gas_left, Rotation::cur()),
+                    meta.query_advice(gas_left, Rotation(-1 * prev_exec_state_row as i32)),
                 )
                 .map(|expr| ("gas left prev - cur - delta".into(), expr)),
         );
+
         // todo 需要预处理
         // constraints.extend(
         //     delta
@@ -1440,7 +1411,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //         )
         //         .map(|expr| ("refund cur - prev - delta".into(), expr)),
         // );
-
+        //todo other auxiliary
         constraints
     }
 

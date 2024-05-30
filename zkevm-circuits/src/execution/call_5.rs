@@ -277,7 +277,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Rotation::cur(),
         );
 
-        let gas_cost = base_gas + memory_gas_cost + call_gas.clone();
+        let gas_cost = base_gas.clone() + memory_gas_cost.clone() + call_gas.clone();
         constraints.extend([
             (
                 // append constraint for the next execution state's stamp_init
@@ -299,8 +299,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            // todo 当account不为空的时候(目前没有实现，默认都是不为空)，当前的gas_left应该等于call_gas
-            // 当为空时，下一个状态此时相当于还在主合约流程中，此时的current_gas_left计算规则与此不同
+            // todo 当account不为空的时候(目前没有实现，默认都是不为空)，当前的gas_left应该等于call_gas; 当为空时，下一个状态此时相当于还在主合约流程中，此时的current_gas_left计算规则与此不同
             gas_left: ExpressionOutcome::To(call_gas),
             ..Default::default()
         };
