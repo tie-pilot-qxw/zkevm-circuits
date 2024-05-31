@@ -59,6 +59,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             memory_chunk: ExpressionOutcome::Delta(0.expr()),
+            gas_left: ExpressionOutcome::Delta(-OpcodeId::MSIZE.constant_gas_cost().expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         // Get the auxiliary constraints.
@@ -144,7 +146,7 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 }
 #[cfg(test)]
 mod test {
-    use crate::constant::STACK_POINTER_IDX;
+    use crate::constant::{GAS_LEFT_IDX, STACK_POINTER_IDX};
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
@@ -155,8 +157,11 @@ mod test {
         let stack_pointer = stack.0.len();
         let value_vec = [0x12; 32];
         let value = U256::from_big_endian(&value_vec);
+        let init_gas = 0x254023u64;
+        let gas_left_before_exec = init_gas + OpcodeId::MSIZE.constant_gas_cost();
 
         let mut trace = prepare_trace_step!(0, OpcodeId::MSIZE, stack.clone());
+        trace.gas = gas_left_before_exec;
         trace.memory.0 = vec![0; 0x10020];
         for i in 0..32 {
             trace.memory.0.insert(0xffff + i, value_vec[i]);
@@ -167,6 +172,7 @@ mod test {
             stack_top: Some(value),
             memory_chunk: ((trace.memory.0.len() + 1) / 32) as u64,
             memory_chunk_prev: ((trace.memory.0.len() + 1) / 32) as u64,
+            gas_left: init_gas,
             ..WitnessExecHelper::new()
         };
 
@@ -177,6 +183,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(gas_left_before_exec.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
@@ -204,10 +212,13 @@ mod test {
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: None,
+            gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
-
-        let trace = prepare_trace_step!(0, OpcodeId::MSIZE, stack);
+        // 2.确认流程中改状态可能需要的gas消耗，例如这里的834，计算出前一个状态的值
+        let gas_left_before_exec = current_state.gas_left + OpcodeId::MSIZE.constant_gas_cost();
+        let mut trace = prepare_trace_step!(0, OpcodeId::MSIZE, stack);
+        trace.gas = gas_left_before_exec;
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -216,6 +227,8 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(gas_left_before_exec.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row

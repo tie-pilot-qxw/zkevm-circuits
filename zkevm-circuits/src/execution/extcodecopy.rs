@@ -310,12 +310,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         // auxiliary constraints
-        constraints.extend(config.get_auxiliary_constraints(
-            meta,
-            NUM_ROW,
-            auxiliary_delta.clone(),
-        ));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, auxiliary_delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta));
 
         // Add constraints for arithmetic tag.
         constraints.extend(vec![

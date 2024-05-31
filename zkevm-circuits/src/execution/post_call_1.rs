@@ -95,15 +95,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 2. auxiliary constraints
         let delta = AuxiliaryOutcome {
-            gas_left: ExpressionOutcome::Delta(gas_cost.expr()),
+            gas_left: ExpressionOutcome::Delta(-gas_cost.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(0.expr()),
             memory_chunk: ExpressionOutcome::To(operands[2].clone()),
             ..Default::default()
         };
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // 3. opcode and state_init constraints
         let opcode = meta.query_advice(config.opcode, Rotation::cur());

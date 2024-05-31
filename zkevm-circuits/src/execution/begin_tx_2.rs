@@ -70,7 +70,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             // 记录了4个state状态
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            // 目前gas,refund的约束还没启用
             gas_left: ExpressionOutcome::Delta(0.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()

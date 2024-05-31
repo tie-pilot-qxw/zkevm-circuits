@@ -73,11 +73,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             // 记录了2个state状态
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            gas_left: ExpressionOutcome::Delta(gas_cost),
+            gas_left: ExpressionOutcome::Delta(-gas_cost),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        constraints.append(&mut config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta.clone()));
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         let delta = Default::default();
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));

@@ -158,11 +158,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
-            gas_left: ExpressionOutcome::Delta(gas_cost),
+            gas_left: ExpressionOutcome::Delta(-gas_cost),
             ..Default::default()
         };
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         let prev_core_single_delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_cur_single_purpose_constraints(

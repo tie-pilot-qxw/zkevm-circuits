@@ -123,12 +123,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            gas_left: ExpressionOutcome::Delta(gas_cost),
+            gas_left: ExpressionOutcome::Delta(-gas_cost),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         constraints.extend([
             (
                 "base_hi = stack_top0_hi(stack base_hi)".into(),
@@ -302,7 +301,7 @@ mod test {
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(U256::from(gas_left_before_exec));
+                Some(gas_left_before_exec.into());
             row
         };
         let padding_end_row = |current_state| {

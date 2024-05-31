@@ -68,12 +68,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            gas_left: ExpressionOutcome::Delta(OpcodeId::STOP.constant_gas_cost().expr()),
+            gas_left: ExpressionOutcome::Delta(-OpcodeId::STOP.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
         //constraint returndata_size == 0
         constraints.extend([(

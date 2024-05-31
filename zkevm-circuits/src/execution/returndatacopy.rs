@@ -273,8 +273,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(

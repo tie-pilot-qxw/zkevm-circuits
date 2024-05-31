@@ -93,8 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         // append auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone());
-        constraints.extend(config.get_auxiliary_gas_constraints(meta, NUM_ROW, delta));
+        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..2 {
