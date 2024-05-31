@@ -192,8 +192,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
 
-        // todo 所有模块实现完tx_refund以及gas计算后，删除这个约束
-        // must： 1. gas, refund delta
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // option: 1. is_warm read and write
@@ -1108,7 +1106,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(U256::from(gas_left_before_exec));
+                Some(gas_left_before_exec.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
@@ -1155,7 +1153,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(U256::from(gas_left_before_exec));
+                Some(gas_left_before_exec.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row

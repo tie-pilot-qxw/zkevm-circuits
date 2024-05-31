@@ -83,7 +83,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             public_entry,
             (public::Tag::TxGasLimit as u8).expr(),
             Some(tx_idx.clone()),
-            [None, Some(gas_left), None, None],
+            [None, None, None, None],
         ));
 
         let delta = AuxiliaryOutcome {

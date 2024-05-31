@@ -184,7 +184,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(U256::from(gas_left_before_exec));
+                Some(gas_left_before_exec.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row
@@ -228,7 +228,7 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(U256::from(gas_left_before_exec));
+                Some(gas_left_before_exec.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
             row

@@ -1,4 +1,3 @@
-use crate::execution::ExecutionState::EXP;
 use crate::execution::{
     sar_1, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
