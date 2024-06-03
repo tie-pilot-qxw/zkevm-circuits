@@ -347,7 +347,6 @@ mod tests {
     use crate::util::{chunk_data_test, log2_ceil};
     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::{Fr, G1};
-    use std::fs::File;
 
     fn test_super_circuit(
         witness: Witness,
@@ -380,8 +379,6 @@ mod tests {
             false,
             Default::default(),
         ));
-        let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
-        witness.write_html(&mut buf);
         let (_k, _circuit, prover) = test_super_circuit(witness);
         prover.assert_satisfied_par();
     }

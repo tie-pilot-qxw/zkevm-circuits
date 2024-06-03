@@ -48,7 +48,7 @@ pub enum Tag {
     TxGasPrice, // tx gas price
     TxCalldata,
     TxLog,
-    TxLogSize,
+    TxLogData,
     // bytecode size
     CodeSize,
     // bytecode hash
@@ -71,8 +71,6 @@ pub enum LogTag {
     Topic1,
     Topic2,
     Topic3,
-    // Data log data
-    Data,
     // DataSize log data size
     DataSize,
 }
@@ -511,7 +509,10 @@ impl Row {
                         // log data's length
                         value_3: Some(log.data.len().into()),
                         comments: [
-                            ("tag".into(), format!("{:?}", Tag::TxLogSize)),
+                            (
+                                "tag".into(),
+                                format!("{:?}:{:?}", Tag::TxLog, LogTag::DataSize),
+                            ),
                             ("block_tx_idx".into(), "block_tx_idx".into()),
                             ("value_0".into(), "log_index".into()),
                             ("value_1".into(), format!("log_tag = {}", "DataSize")),
@@ -527,10 +528,10 @@ impl Row {
                     // | TxLog | block_tx_idx | log_index | LogTag::Data | byte | data_idx |
                     for (data_idx, data) in log.data.iter().enumerate() {
                         result.push(Row {
-                            tag: Tag::TxLog,
+                            tag: Tag::TxLogData,
                             block_tx_idx: Some(block_tx_idx.into()),
                             value_0: Some(log_index),
-                            value_1: Some(U256::from(LogTag::Data as u64)),
+                            value_1: Some(0.into()),
                             // log data byte
                             value_2: Some(U256::from(data.clone())),
                             // data byte index
@@ -539,7 +540,7 @@ impl Row {
                                 ("tag".into(), format!("{:?}", Tag::TxLog)),
                                 ("block_tx_idx".into(), "block_tx_idx".into()),
                                 ("value_0".into(), "logIndex".into()),
-                                ("value_1".into(), format!("log_tag = {:?}", LogTag::Data)),
+                                ("value_1".into(), "0".into()),
                                 ("value_2".into(), "byte".into()),
                                 ("value_3".into(), "byte index".into()),
                             ]
