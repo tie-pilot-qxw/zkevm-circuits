@@ -523,11 +523,11 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             state::Tag::ReturnData,
         );
         // dst public-log lookup
-        config.dst_public_log_lookup(
+        config.dst_public_log_data_lookup(
             meta,
             "COPY_dst_log_lookup",
             Tag::PublicLog,
-            public::Tag::TxLog,
+            public::Tag::TxLogData,
         );
         config
     }
@@ -729,7 +729,7 @@ impl<F: Field> CopyCircuitConfig<F> {
     /// Lookup data target:
     ///     lookup src: Copy circuit
     ///     lookup target: Public circut table
-    pub fn dst_public_log_lookup(
+    pub fn dst_public_log_data_lookup(
         &self,
         meta: &mut ConstraintSystem<F>,
         name: &str,
@@ -742,7 +742,7 @@ impl<F: Field> CopyCircuitConfig<F> {
                 block_tx_idx: meta.query_advice(self.dst_id, Rotation::cur()),
                 values: [
                     meta.query_advice(self.dst_stamp, Rotation::cur()),
-                    (public::LogTag::Data as u8).expr(),
+                    0.expr(),
                     meta.query_advice(self.byte, Rotation::cur()),
                     meta.query_advice(self.src_pointer, Rotation::cur())
                         + meta.query_advice(self.cnt, Rotation::cur()),

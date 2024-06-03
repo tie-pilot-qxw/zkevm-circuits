@@ -393,7 +393,6 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
-    use std::fs::File;
     generate_execution_gadget_test_circuit!();
 
     fn assign_and_constraint(operand1: U256, operand2: U256) {
@@ -434,8 +433,6 @@ mod test {
         let (witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
         witness.print_csv();
-        let mut buf = std::io::BufWriter::new(File::create("demo.html").unwrap());
-        witness.write_html(&mut buf);
         prover.assert_satisfied_par();
     }
 
