@@ -509,10 +509,7 @@ impl Row {
                         // log data's length
                         value_3: Some(log.data.len().into()),
                         comments: [
-                            (
-                                "tag".into(),
-                                format!("{:?}:{:?}", Tag::TxLog, LogTag::DataSize),
-                            ),
+                            ("tag".into(), format!("{:?}", Tag::TxLog)),
                             ("block_tx_idx".into(), "block_tx_idx".into()),
                             ("value_0".into(), "log_index".into()),
                             ("value_1".into(), format!("log_tag = {}", "DataSize")),
