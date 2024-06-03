@@ -145,9 +145,9 @@ macro_rules! extract_lookup_expression {
         match $value {
             LookupEntry::Public {
                 tag,
-                tx_idx_or_number_diff,
+                block_tx_idx,
                 values,
-            } => (tag, tx_idx_or_number_diff, values),
+            } => (tag, block_tx_idx, values),
             _ => panic!("Pattern doesn't match!"),
         }
     };
@@ -542,7 +542,7 @@ pub struct CopyTable {
     /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
     /// src Tag of Zero,Memory,Calldata,Returndata,PublicLog,PublicCalldata,Bytecode
     pub src_tag: BinaryNumberConfig<copy::Tag, LOG_NUM_STATE_TAG>,
-    /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
+    /// The source id, block_tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
     pub src_id: Column<Advice>,
     /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
     pub src_pointer: Column<Advice>,
@@ -645,18 +645,20 @@ impl CopyTable {
 pub struct PublicTable {
     /// various public information tag, e.g. BlockNumber, TxFrom
     pub tag: Column<Instance>,
-    /// tx_id (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
-    pub tx_idx_or_number_diff: Column<Instance>,
+    /// block_tx_idx generally represents either block_idx or tx_idx.
+    /// When representing tx_idx, it equals to block_idx * 2^32 + tx_idx.
+    /// Except for tag=BlockHash, means max_block_idx.
+    pub block_tx_idx: Column<Instance>,
     pub values: [Column<Instance>; PUBLIC_NUM_VALUES],
 }
 impl PublicTable {
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let tag = meta.instance_column();
-        let tx_idx_or_number_diff = meta.instance_column();
+        let block_tx_idx = meta.instance_column();
         let values = std::array::from_fn(|_| meta.instance_column());
         Self {
             tag,
-            tx_idx_or_number_diff,
+            block_tx_idx,
             values,
         }
     }
@@ -666,8 +668,7 @@ impl PublicTable {
         entry: LookupEntry<F>,
     ) -> Vec<(Expression<F>, Expression<F>)> {
         let table_tag = meta.query_instance(self.tag, Rotation::cur());
-        let table_tx_idx_or_number_diff =
-            meta.query_instance(self.tx_idx_or_number_diff, Rotation::cur());
+        let table_block_tx_idx = meta.query_instance(self.block_tx_idx, Rotation::cur());
         let table_value_0 = meta.query_instance(self.values[0], Rotation::cur());
         let table_value_1 = meta.query_instance(self.values[1], Rotation::cur());
         let table_value_2 = meta.query_instance(self.values[2], Rotation::cur());
@@ -675,12 +676,12 @@ impl PublicTable {
         match entry {
             LookupEntry::Public {
                 tag,
-                tx_idx_or_number_diff,
+                block_tx_idx,
                 values,
             } => {
                 vec![
                     (tag, table_tag),
-                    (tx_idx_or_number_diff, table_tx_idx_or_number_diff),
+                    (block_tx_idx, table_block_tx_idx),
                     (values[0].clone(), table_value_0),
                     (values[1].clone(), table_value_1),
                     (values[2].clone(), table_value_2),
@@ -689,13 +690,13 @@ impl PublicTable {
             }
             LookupEntry::PublicMergeAddr {
                 tag,
-                tx_idx_or_number_diff,
+                block_tx_idx,
                 addr,
                 values,
             } => {
                 vec![
                     (tag, table_tag),
-                    (tx_idx_or_number_diff, table_tx_idx_or_number_diff),
+                    (block_tx_idx, table_block_tx_idx),
                     // table_value_0 << 128 + table_value_1
                     (addr, table_value_0 * pow_of_two::<F>(V_128) + table_value_1),
                     (values[0].clone(), table_value_2),
@@ -1032,12 +1033,12 @@ pub enum LookupEntry<F> {
     /// Lookup to Public table
     Public {
         tag: Expression<F>,
-        tx_idx_or_number_diff: Expression<F>,
+        block_tx_idx: Expression<F>,
         values: [Expression<F>; PUBLIC_NUM_VALUES],
     },
     PublicMergeAddr {
         tag: Expression<F>,
-        tx_idx_or_number_diff: Expression<F>,
+        block_tx_idx: Expression<F>,
         addr: Expression<F>,
         // value2, value3 of Public row
         values: [Expression<F>; 2],
@@ -1175,10 +1176,10 @@ impl<F: Field> LookupEntry<F> {
             }
             LookupEntry::Public {
                 tag,
-                tx_idx_or_number_diff,
+                block_tx_idx,
                 values,
             } => {
-                let mut contents = vec![tag.identifier(), tx_idx_or_number_diff.identifier()];
+                let mut contents = vec![tag.identifier(), block_tx_idx.identifier()];
                 contents.extend(values.iter().map(|v| v.identifier()));
                 contents
             }

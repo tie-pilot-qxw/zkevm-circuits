@@ -746,7 +746,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 
             let public_entry = LookupEntry::PublicMergeAddr {
                 tag: (public::Tag::CodeHash as u8).expr(),
-                tx_idx_or_number_diff: 0.expr(),
+                block_tx_idx: 0.expr(),
                 addr: meta.query_advice(self.addr, Rotation::cur()),
                 values: [
                     meta.query_advice(self.hash_hi, Rotation::cur()),

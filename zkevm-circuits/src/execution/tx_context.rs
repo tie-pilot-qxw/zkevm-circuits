@@ -1,3 +1,4 @@
+use crate::constant::BLOCK_IDX_LEFT_SHIFT_NUM;
 use crate::execution::{ExecutionConfig, ExecutionGadget, ExecutionState};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -62,6 +63,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+        let block_tx_idx =
+            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+
         let auxiliary_delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -104,7 +109,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (Tag::TxFromValue as u64).expr(),
                 (Tag::TxGasPrice as u64).expr(),
             ]),
-            Some(tx_idx.clone()),
+            Some(block_tx_idx.clone()),
             [Some(state_value_hi), Some(state_value_lo), None, None],
         ));
         // opcode constraints
@@ -153,7 +158,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0,
             &public::Row {
                 tag: public_tag,
-                tx_idx_or_number_diff: Some(U256::from(current_state.tx_idx)),
+                block_tx_idx: Some(U256::from(current_state.get_block_tx_idx())),
                 value_0: Some(U256::from(value_hi)),
                 value_1: Some(U256::from(value_lo)),
                 value_2: Some(value_public_2),

@@ -9,7 +9,8 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::witness::{arithmetic, assign_or_panic, copy, public, Witness, WitnessExecHelper};
 
 use crate::constant::{
-    GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+    BLOCK_IDX_LEFT_SHIFT_NUM, GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX,
+    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
 };
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
@@ -71,6 +72,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+        let block_tx_idx =
+            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
 
@@ -120,7 +125,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stack_pop_values[1].clone(),
             stamp_start + 1.expr(),
             copy::Tag::PublicLog,
-            tx_idx.clone(),
+            block_tx_idx.clone(),
             0.expr(),          // index of PublicLog
             log_stamp.clone(), // log_stamp from Auxiliary
             None,
@@ -133,7 +138,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // append addrWithXLog constraints
         let (
             public_tag,
-            public_tx_idx,
+            public_block_tx_idx,
             public_values, // public_log_stamp, public_log_tag, public_log_addr_hi, public_log_addr_lo
         ) = extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
@@ -143,8 +148,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_tag - (public::Tag::TxLog as u8).expr(),
             ),
             (
-                "public tx_idx is config.tx_idx".into(),
-                public_tx_idx - tx_idx.clone(),
+                "public block_tx_idx = (block_idx << BLOCK_IDX_LEFT_SHIFT_NUM) + tx_idx".into(),
+                public_block_tx_idx - block_tx_idx.clone(),
             ),
             (
                 "public log_stamp is correct".into(),

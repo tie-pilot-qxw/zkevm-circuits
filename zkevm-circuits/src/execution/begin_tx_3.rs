@@ -1,5 +1,5 @@
 use crate::arithmetic_circuit::operation;
-use crate::constant::GAS_LEFT_IDX;
+use crate::constant::{BLOCK_IDX_LEFT_SHIFT_NUM, GAS_LEFT_IDX};
 use crate::execution::{
     AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -65,9 +65,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
-        let tx_id = meta.query_advice(config.tx_idx, Rotation::cur());
+        let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+        let block_tx_idx =
+            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+
         // auxiliary and single purpose constraints
-        let (gas_cost, gas_constraints) = get_intrinsic_gas_cost(config, meta, tx_id.clone());
+        let (gas_cost, gas_constraints) =
+            get_intrinsic_gas_cost(config, meta, block_tx_idx.clone());
         constraints.extend(gas_constraints);
         // auxiliary and single purpose constraints
         let delta = AuxiliaryOutcome {
@@ -203,11 +208,11 @@ fn get_intrinsic_gas_cost<
 >(
     config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     meta: &mut VirtualCells<F>,
-    tx_id_or_number_diff: Expression<F>,
+    block_tx_idx: Expression<F>,
 ) -> (Expression<F>, Vec<(String, Expression<F>)>) {
     let mut constraints = vec![];
     let public_entry = config.get_public_lookup(meta, 0);
-    let (public_tag, tx_id, [is_create, call_data_gas_cost, _, _]) =
+    let (public_tag, public_block_tx_idx, [is_create, call_data_gas_cost, _, _]) =
         extract_lookup_expression!(public, public_entry);
 
     let arithmetic_entry = config.get_arithmetic_tiny_lookup(meta, 0);
@@ -219,7 +224,10 @@ fn get_intrinsic_gas_cost<
             "public tag = TxIsCreate".into(),
             public_tag - (public::Tag::TxIsCreateCallDataGasCost as u8).expr(),
         ),
-        ("tx_id = tx_id".into(), tx_id - tx_id_or_number_diff),
+        (
+            "public_block_tx_idx = block_tx_idx".into(),
+            public_block_tx_idx - block_tx_idx,
+        ),
         (
             "arithmetic tag = MemoryExpansion".into(),
             tag - (arithmetic::Tag::MemoryExpansion as u8).expr(),

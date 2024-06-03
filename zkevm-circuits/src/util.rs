@@ -333,7 +333,7 @@ pub fn chunk_data_test(
     receipt_log: ReceiptLog,
 ) -> ChunkData {
     let mut history_hashes = vec![];
-    for i in 0..256 {
+    for i in 0..=256 {
         history_hashes.push(i.into())
     }
     let mut tx = Transaction::default();
@@ -413,7 +413,7 @@ pub fn get_chunk_data<P: AsRef<Path>>(
     // make fake history hashes
     // TODO read hashes from file
     let mut history_hashes = vec![];
-    for i in 0..256 {
+    for i in 0..=256 {
         history_hashes.push(i.into())
     }
 
@@ -476,7 +476,7 @@ pub fn get_multi_trace_chunk_data<P: AsRef<Path>>(
     // make fake history hashes
     // TODO read hashes from file
     let mut history_hashes = vec![];
-    for i in 0..256 {
+    for i in 0..=256 {
         history_hashes.push(i.into())
     }
 
