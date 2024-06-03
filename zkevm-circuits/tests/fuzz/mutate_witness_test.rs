@@ -1,6 +1,6 @@
 #[cfg(feature = "fuzz_test")]
 mod tests {
-    use crate::gen_fuzz_testcases;
+    use crate::gen_mutate_witness_testcases;
     use seq_macro::seq;
     use test_case::test_case;
     // Generate fuzz testcases for witness mutation
@@ -12,5 +12,5 @@ mod tests {
     //   - 3.3 Mutate certain cell by column_choice: eg: (witness.core[567].pc += value_delta) % column_num
     // step4: Get prover from witness
     // step5: Verify par and should be error
-    gen_fuzz_testcases!(500);
+    gen_mutate_witness_testcases!(500);
 }
