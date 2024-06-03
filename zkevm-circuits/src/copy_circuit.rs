@@ -741,11 +741,11 @@ impl<F: Field> CopyCircuitConfig<F> {
                 tag: (public_tag as u8).expr(),
                 block_tx_idx: meta.query_advice(self.dst_id, Rotation::cur()),
                 values: [
-                    meta.query_advice(self.dst_stamp, Rotation::cur()),
-                    0.expr(),
-                    meta.query_advice(self.byte, Rotation::cur()),
-                    meta.query_advice(self.src_pointer, Rotation::cur())
+                    meta.query_advice(self.src_pointer, Rotation::cur()) // idx
                         + meta.query_advice(self.cnt, Rotation::cur()),
+                    meta.query_advice(self.byte, Rotation::cur()), // byte
+                    meta.query_advice(self.dst_stamp, Rotation::cur()), // log index
+                    0.expr(),
                 ],
             };
             let public_lookup_vec = self

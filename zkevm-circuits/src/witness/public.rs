@@ -522,24 +522,24 @@ impl Row {
                     });
 
                     // insert log bytes
-                    // | TxLog | block_tx_idx | log_index | LogTag::Data | byte | data_idx |
+                    // | TxLog | block_tx_idx | idx | byte | log_index | 0 |
                     for (data_idx, data) in log.data.iter().enumerate() {
                         result.push(Row {
                             tag: Tag::TxLogData,
                             block_tx_idx: Some(block_tx_idx.into()),
-                            value_0: Some(log_index),
-                            value_1: Some(0.into()),
-                            // log data byte
-                            value_2: Some(U256::from(data.clone())),
                             // data byte index
-                            value_3: Some(U256::from(data_idx as u64)),
+                            value_0: Some(U256::from(data_idx as u64)),
+                            // log data byte
+                            value_1: Some(U256::from(data.clone())),
+                            value_2: Some(log_index),
+                            value_3: Some(0.into()),
                             comments: [
                                 ("tag".into(), format!("{:?}", Tag::TxLog)),
                                 ("block_tx_idx".into(), "block_tx_idx".into()),
-                                ("value_0".into(), "logIndex".into()),
-                                ("value_1".into(), "0".into()),
-                                ("value_2".into(), "byte".into()),
-                                ("value_3".into(), "byte index".into()),
+                                ("value_0".into(), "idx".into()),
+                                ("value_1".into(), "byte".into()),
+                                ("value_2".into(), "logIndex".into()),
+                                ("value_3".into(), "0".into()),
                             ]
                             .into_iter()
                             .collect(),
