@@ -44,7 +44,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
         // END_TX不需要做single_purpose_constraints
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
-        let (public_tag, _, [public_tx_num_in_block, _, _, _]) =
+
+        let (public_tag, public_block_idx, [public_tx_num_in_block, _, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
         let tx_id_diff_inv = meta.query_advice(config.vers[TX_DIFF_COL_IDX], Rotation(-2));
@@ -55,9 +56,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         constraints.append(&mut is_zero.get_constraints());
         constraints.push((
-            "tag is BlockTxNum".into(),
-            public_tag - (public::Tag::BlockTxNum as u8).expr(),
+            "tag is BlockTxLogNum".into(),
+            public_tag - (public::Tag::BlockTxLogNum as u8).expr(),
         ));
+
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+        constraints.push((
+            "public_block_idx is block_idx".into(),
+            public_block_idx - block_idx.clone(),
+        ));
+
         let next_is_end_block = meta.query_advice(
             config.vers
                 [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_TX_NEXT_IS_END_BLOCK],
@@ -137,7 +145,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // core_row_2添加public entry记录总的交易数，
         core_row_2.insert_public_lookup(
             0,
-            &current_state.get_public_tx_row(public::Tag::BlockTxNum, 0),
+            &current_state.get_public_tx_row(public::Tag::BlockTxLogNum, 0),
         );
 
         // 根据next exec state 填充core row0 的 下一个状态是begin_tx_1(列25) 还是 end_block(列26),分别在对应的列置为1
@@ -192,6 +200,7 @@ mod test {
             ..WitnessExecHelper::new()
         };
         current_state.tx_num_in_block.insert(1, tx_num_in_block);
+        current_state.log_num_in_block.insert(1, 0);
 
         let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {

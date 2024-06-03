@@ -1,4 +1,4 @@
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{BLOCK_IDX_LEFT_SHIFT_NUM, NUM_AUXILIARY};
 use crate::execution::{
     Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -67,6 +67,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+        let block_tx_idx =
+            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
         let selector = config.get_log_left_selector(meta);
@@ -107,7 +111,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // append public log lookup (addrWithXLog) constraints
         let (
             public_tag,
-            public_tx_idx,
+            public_block_tx_idx,
             public_values, // public_log_stamp, public_log_tag, public_log_addr_hi, public_log_addr_lo
         ) = extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
@@ -117,8 +121,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_tag - (public::Tag::TxLog as u8).expr(),
             ),
             (
-                "public tx_idx is config.tx_idx".into(),
-                public_tx_idx - tx_idx.clone(),
+                "public tx_idx = (block_idx << BLOCK_IDX_LEFT_SHIFT_NUM) + tx_idx".into(),
+                public_block_tx_idx - block_tx_idx.clone(),
             ),
             (
                 "public log stamp is correct".into(),

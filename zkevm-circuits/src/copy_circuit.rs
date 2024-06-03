@@ -69,7 +69,7 @@ use std::marker::PhantomData;
 ///         That is `LookupEntry::State`
 ///     3. dst_type is PublicLog:
 ///          Lookup src(Copy Circuit table): <tag=tx_log, log_tag=bytes, dst id, src_pointer + cnt, dst_stamp, byte, len>
-///          Lookup target(Public Circuit table): <tag, tx_idx, idx, value>
+///          Lookup target(Public Circuit table): <tag, block_tx_idx, idx, value>
 ///          That is `LookupEntry::Public`
 ///          note: the tag mentioned here is the Tag of Public
 ///
@@ -97,13 +97,13 @@ pub struct CopyCircuitConfig<F: Field> {
     pub q_enable: Selector,
     /// The byte value that is copied
     pub byte: Column<Advice>,
-    /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
+    /// The source id, block_tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
     pub src_id: Column<Advice>,
     /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
     pub src_pointer: Column<Advice>,
     /// The source stamp, state stamp for Memory, Calldata, Returndata. None for PublicCalldata and Bytecode
     pub src_stamp: Column<Advice>,
-    /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
+    /// The destination id, block_tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
     pub dst_id: Column<Advice>,
     /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
     pub dst_pointer: Column<Advice>,
@@ -703,7 +703,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         meta.lookup_any(name, |meta| {
             let public_entry = LookupEntry::Public {
                 tag: (public_tag as u8).expr(),
-                tx_idx_or_number_diff: meta.query_advice(self.src_id, Rotation::cur()),
+                block_tx_idx: meta.query_advice(self.src_id, Rotation::cur()),
                 values: [
                     meta.query_advice(self.src_pointer, Rotation::cur())
                         + meta.query_advice(self.cnt, Rotation::cur()),
@@ -739,7 +739,7 @@ impl<F: Field> CopyCircuitConfig<F> {
         meta.lookup_any(name, |meta| {
             let public_entry = LookupEntry::Public {
                 tag: (public_tag as u8).expr(),
-                tx_idx_or_number_diff: meta.query_advice(self.dst_id, Rotation::cur()),
+                block_tx_idx: meta.query_advice(self.dst_id, Rotation::cur()),
                 values: [
                     meta.query_advice(self.dst_stamp, Rotation::cur()),
                     (public::LogTag::Data as u8).expr(),

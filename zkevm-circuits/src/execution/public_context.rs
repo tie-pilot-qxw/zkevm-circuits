@@ -65,6 +65,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+
         let auxiliary_delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -133,7 +135,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 (Tag::ChainId as u64).expr(),
                 (Tag::BlockBaseFee as u64).expr(),
             ]),
-            Some(0.expr()),
+            Some(selector.select(&[
+                block_idx.clone(),
+                0.expr(),
+                block_idx.clone(),
+                block_idx.clone(),
+                0.expr(),
+                block_idx.clone(),
+            ])),
             [
                 Some(state_value_hi.clone()),
                 Some(state_value_lo.clone()),
@@ -173,24 +182,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let next_stack_top_value = current_state.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(trace, next_stack_top_value);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let value_hi = (next_stack_top_value >> 128).as_u128();
-        let value_lo = next_stack_top_value.low_u128();
+        let mut value_hi = (next_stack_top_value >> 128).as_u128();
+        let mut value_lo = next_stack_top_value.low_u128();
+
         // get public_tag by trace.op
-        let (public_tag, tag) = match trace.op {
-            OpcodeId::TIMESTAMP => (Tag::BlockTimestamp, 0usize), // GasQuickStep
-            OpcodeId::NUMBER => (Tag::BlockNumber, 1),            // GasQuickStep
-            OpcodeId::COINBASE => (Tag::BlockCoinbase, 2),        // GasQuickStep
-            OpcodeId::GASLIMIT => (Tag::BlockGasLimit, 3),        // GasQuickStep
-            OpcodeId::CHAINID => (Tag::ChainId, 4),               // GasQuickStep
-            OpcodeId::BASEFEE => (Tag::BlockBaseFee, 5),          // GasQuickStep
+        let (public_tag, tag, block_idx) = match trace.op {
+            OpcodeId::TIMESTAMP => (Tag::BlockTimestamp, 0usize, current_state.block_idx), // GasQuickStep
+            OpcodeId::NUMBER => {
+                let block_number_first = next_stack_top_value + 1 - current_state.block_idx;
+                value_hi = (block_number_first >> 128).as_u128();
+                value_lo = block_number_first.low_u128();
+                (Tag::BlockNumber, 1, 0)
+            } // GasQuickStep
+            OpcodeId::COINBASE => (Tag::BlockCoinbase, 2, current_state.block_idx), // GasQuickStep
+            OpcodeId::GASLIMIT => (Tag::BlockGasLimit, 3, current_state.block_idx), // GasQuickStep
+            OpcodeId::CHAINID => (Tag::ChainId, 4, 0),                              // GasQuickStep
+            OpcodeId::BASEFEE => (Tag::BlockBaseFee, 5, current_state.block_idx),   // GasQuickStep
             _ => panic!("not PUBLIC_CONTEXT op"),
         };
+
         // core_row_2
         core_row_2.insert_public_lookup(
             0,
             &public::Row {
                 tag: public_tag,
-                tx_idx_or_number_diff: Some(0.into()),
+                block_tx_idx: Some(block_idx.into()),
                 value_0: Some(U256::from(value_hi)),
                 value_1: Some(U256::from(value_lo)),
                 value_2: Some(0.into()),
@@ -248,6 +264,8 @@ mod test {
             gas_left: 0x254023,
             ..WitnessExecHelper::new()
         };
+        current_state.block_idx = 1;
+
         let gas_left_before_exec = current_state.gas_left + OpcodeId::TIMESTAMP.constant_gas_cost();
         let mut trace = prepare_trace_step!(0, op_code, stack);
         trace.gas = gas_left_before_exec;

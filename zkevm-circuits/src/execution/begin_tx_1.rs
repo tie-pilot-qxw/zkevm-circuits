@@ -1,3 +1,4 @@
+use crate::constant::BLOCK_IDX_LEFT_SHIFT_NUM;
 use crate::execution::{
     begin_tx_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -73,6 +74,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(copy, copy.clone());
 
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
+        let block_tx_idx =
+            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+
         let gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
         let public_entry = config.get_public_lookup(meta, 1);
         let (_, _, [_, tx_gas_limit, _, _]) =
@@ -82,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             public_entry,
             (public::Tag::TxGasLimit as u8).expr(),
-            Some(tx_idx.clone()),
+            Some(block_tx_idx.clone()),
             [None, None, None, None],
         ));
 
@@ -108,7 +113,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(state, config.get_state_lookup(meta, 0));
         let refund = meta.query_advice(refund, Rotation::cur());
         constraints.push(("init tx refund = 0".into(), refund));
-        // 约束pc, tx_idx, call_id, code_addr为0; block_idx 不变
+        // 约束pc, call_id, code_addr为0; tx_idx += 1; block_idx 不变
         let delta = CoreSinglePurposeOutcome {
             block_idx: ExpressionOutcome::Delta(0.expr()),
             tx_idx: ExpressionOutcome::Delta(TX_IDX_DELTA.expr()),
@@ -140,12 +145,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 读取calldata size状态，因为128bit足以标识其大小，所以在get_copy_constraints仅约束value_lo
         let (_, _, value_hi, value_lo, _, _, _, _) =
             extract_lookup_expression!(state, config.get_state_lookup(meta, 1));
+
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
         constraints.append(&mut config.get_copy_constraints(
             copy::Tag::PublicCalldata,
-            tx_idx.clone(),
+            block_tx_idx.clone(),
             0.expr(),
             0.expr(), // stamp is None for PublicCalldata
             copy::Tag::Calldata,
@@ -186,7 +192,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta,
             public_entry,
             (public::Tag::TxToCallDataSize as u8).expr(),
-            Some(tx_idx.clone()),
+            Some(block_tx_idx.clone()),
             [
                 // constraint storage_contract_addr hi == tx.to hi
                 Some(operands[0][0].clone()),

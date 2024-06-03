@@ -11,8 +11,10 @@ use std::marker::PhantomData;
 pub struct PublicCircuitConfig {
     // tag can be ChainId,BlockCoinbase....; refer witness/public.rs
     tag: Column<Instance>,
-    // tx_idx_or_number_diff (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
-    tx_idx_or_number_diff: Column<Instance>,
+    /// block_tx_idx generally represents either block_idx or tx_idx.
+    /// When representing tx_idx, it equals to block_idx * 2^32 + tx_idx.
+    /// Except for tag=BlockHash, means max_block_idx.
+    block_tx_idx: Column<Instance>,
     // values , 4 columns
     values: [Column<Instance>; PUBLIC_NUM_VALUES],
 }
@@ -33,14 +35,14 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig {
         let PublicTable {
             // tag can be ChainId,BlockCoinbase....; refer witness/public.rs
             tag,
-            // tx_idx_or_number_diff (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
-            tx_idx_or_number_diff,
+            // block_tx_idx (start from 1), except for tag=BlockHash, means recent block number diff (1...256)
+            block_tx_idx,
             // values , 4 columns
             values,
         } = public_table;
         Self {
             tag,
-            tx_idx_or_number_diff,
+            block_tx_idx,
             values,
         }
     }
@@ -64,7 +66,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
     }
     // instance return vector of vector
     /// +-----+-----------------------+--------+--------+--------+--------+
-    /// | tag | tx_idx_or_number_diff | value0 | value1 | value2 | value3 |
+    /// | tag | block_tx_idx | value0 | value1 | value2 | value3 |
     fn instance(&self) -> Vec<Vec<F>> {
         self.witness.get_public_instance()
     }
@@ -108,7 +110,7 @@ mod test {
     pub struct PublicTestCircuitConfig {
         pub public_circuit_config: PublicCircuitConfig,
         pub tag: Column<Advice>,
-        pub tx_idx_or_number_diff: Column<Advice>,
+        pub block_tx_idx: Column<Advice>,
         pub values: [Column<Advice>; PUBLIC_NUM_VALUES],
         pub challenges: Challenges,
     }
@@ -129,7 +131,7 @@ mod test {
             let config = PublicTestCircuitConfig {
                 public_circuit_config,
                 tag: meta.advice_column(),
-                tx_idx_or_number_diff: meta.advice_column(),
+                block_tx_idx: meta.advice_column(),
                 values: std::array::from_fn(|_| meta.advice_column()),
                 challenges,
             };
@@ -143,13 +145,13 @@ mod test {
                         // query tag instance
                         meta.query_instance(config.public_circuit_config.tag, Rotation::cur()),
                     ),
-                    // tx_idx_or_number_diff lookup constraints
+                    // block_tx_idx lookup constraints
                     (
-                        // query tx_idx_or_number_diff advice
-                        meta.query_advice(config.tx_idx_or_number_diff, Rotation::cur()),
-                        // query tx_idx_or_number_diff instance
+                        // query block_tx_idx advice
+                        meta.query_advice(config.block_tx_idx, Rotation::cur()),
+                        // query block_tx_idx instance
                         meta.query_instance(
-                            config.public_circuit_config.tx_idx_or_number_diff,
+                            config.public_circuit_config.block_tx_idx,
                             Rotation::cur(),
                         ),
                     ),
@@ -188,7 +190,7 @@ mod test {
                 |mut region| {
                     for (offset, row) in self.0.witness.public.iter().enumerate() {
                         assign_advice_or_fixed_with_u256(&mut region, offset, &(row.tag as u8).into(), config.tag)?;
-                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.tx_idx_or_number_diff.unwrap_or_default(), config.tx_idx_or_number_diff)?;
+                        assign_advice_or_fixed_with_u256(&mut region, offset, &row.block_tx_idx.unwrap_or_default(), config.block_tx_idx)?;
                         assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_0.unwrap_or_default(), config.values[0])?;
                         assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_1.unwrap_or_default(), config.values[1])?;
                         assign_advice_or_fixed_with_u256(&mut region, offset, &row.value_2.unwrap_or_default(), config.values[2])?;

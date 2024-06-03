@@ -7,7 +7,7 @@ pub struct Row {
     pub byte: U256,
     /// The source type, one of PublicCalldata, Memory, Bytecode, Calldata, Returndata
     pub src_type: Tag,
-    /// The source id, tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
+    /// The source id, block_tx_idx for PublicCalldata, contract_addr for Bytecode, call_id for Memory, Calldata, Returndata
     pub src_id: U256,
     /// The source pointer, for PublicCalldata, Bytecode, Calldata, Returndata means the index, for Memory means the address
     pub src_pointer: U256,
@@ -15,7 +15,7 @@ pub struct Row {
     pub src_stamp: U256,
     /// The destination type, one of Memory, Calldata, Returndata, PublicLog
     pub dst_type: Tag,
-    /// The destination id, tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
+    /// The destination id, block_tx_idx for PublicLog, call_id for Memory, Calldata, Returndata
     pub dst_id: U256,
     /// The destination pointer, for Calldata, Returndata, PublicLog means the index, for Memory means the address
     pub dst_pointer: U256,

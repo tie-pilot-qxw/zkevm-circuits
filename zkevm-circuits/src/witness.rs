@@ -14,8 +14,8 @@ use crate::bitwise_circuit::BitwiseCircuit;
 use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
-    BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BYTECODE_COLUMN_START_IDX,
-    COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
+    BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BLOCK_IDX_LEFT_SHIFT_NUM,
+    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
     LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
     MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS,
     PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
@@ -188,6 +188,10 @@ impl WitnessExecHelper {
             new_memory_size: None,
             length_in_stack: None,
         }
+    }
+
+    pub fn get_block_tx_idx(&self) -> usize {
+        (self.block_idx << BLOCK_IDX_LEFT_SHIFT_NUM) + self.tx_idx
     }
 
     pub fn update_from_next_step(&mut self, trace: &GethExecStep) {
@@ -1448,7 +1452,7 @@ impl WitnessExecHelper {
             copy_rows.push(copy::Row {
                 byte: byte.into(),
                 src_type: copy::Tag::PublicCalldata,
-                src_id: self.tx_idx.into(),
+                src_id: self.get_block_tx_idx().into(),
                 src_pointer: 0.into(),
                 src_stamp: 0.into(),
                 dst_type: copy::Tag::Calldata,
@@ -1812,9 +1816,9 @@ impl WitnessExecHelper {
                 src_pointer: offset,
                 src_stamp: copy_stamp.into(),
                 dst_type: copy::Tag::PublicLog,
-                dst_id: self.tx_idx.into(), // tx_idx
-                dst_pointer: 0.into(),      // PublicLog index
-                dst_stamp: log_stamp.into(),
+                dst_id: self.get_block_tx_idx().into(),
+                dst_pointer: 0.into(),
+                dst_stamp: log_stamp.into(), // PublicLog index
                 cnt: i.into(),
                 len: len.into(),
                 acc,
@@ -1830,7 +1834,7 @@ impl WitnessExecHelper {
     pub fn get_public_log_data_size_row(&self, data_len: U256) -> public::Row {
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
-        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 27), "block_tx_idx".into());
         comments.insert(format!("vers_{}", 28), "log_index".into());
         comments.insert(format!("vers_{}", 29), format!("log tag={}", "DataSize"));
         comments.insert(format!("vers_{}", 30), "0".into());
@@ -1838,7 +1842,7 @@ impl WitnessExecHelper {
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
-            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            block_tx_idx: Some(U256::from(self.get_block_tx_idx())),
             value_0: Some(U256::from(self.log_stamp)),
             value_1: Some(U256::from(LogTag::DataSize as u64)),
             value_2: Some(0.into()),
@@ -1867,7 +1871,7 @@ impl WitnessExecHelper {
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
-        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 27), "block_tx_idx".into());
         comments.insert(format!("vers_{}", 28), "log_index".into());
         comments.insert(
             format!("vers_{}", 29),
@@ -1878,7 +1882,7 @@ impl WitnessExecHelper {
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
-            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            block_tx_idx: Some(U256::from(self.get_block_tx_idx())),
             value_0: Some(U256::from(self.log_stamp)),
             value_1: Some(U256::from(topic_log_tag as u64)),
             value_2: topic_hash_hi, // topic_hash[..16]
@@ -1923,7 +1927,7 @@ impl WitnessExecHelper {
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
-        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 27), "block_tx_idx".into());
         comments.insert(format!("vers_{}", 28), "log_index".into());
         comments.insert(format!("vers_{}", 29), format!("log_tag={}", log_tag_name));
         comments.insert(format!("vers_{}", 30), "address[..4]".into());
@@ -1931,7 +1935,7 @@ impl WitnessExecHelper {
 
         let public_row = public::Row {
             tag: public::Tag::TxLog,
-            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            block_tx_idx: Some(U256::from(self.get_block_tx_idx())),
             value_0: Some(U256::from(self.log_stamp)),
             value_1: Some(U256::from(log_tag as u64)),
             value_2: Some(U256::from(value_hi)),
@@ -1945,7 +1949,8 @@ impl WitnessExecHelper {
         let start_idx = PUBLIC_COLUMN_START_IDX - index * PUBLIC_COLUMN_WIDTH;
         let values: [Option<U256>; PUBLIC_NUM_VALUES];
         let value_comments: [String; PUBLIC_NUM_VALUES];
-        let mut tx_idx = self.tx_idx as u64;
+        let mut block_tx_idx = self.get_block_tx_idx();
+
         match tag {
             public::Tag::TxToCallDataSize => {
                 values = [
@@ -1975,7 +1980,7 @@ impl WitnessExecHelper {
                     "value[16..]".into(),
                 ]
             }
-            public::Tag::BlockTxNum => {
+            public::Tag::BlockTxLogNum => {
                 values = [
                     Some(
                         self.tx_num_in_block
@@ -1984,15 +1989,6 @@ impl WitnessExecHelper {
                             .to_owned()
                             .into(),
                     ),
-                    None,
-                    None,
-                    None,
-                ];
-                value_comments = ["tx_num_in_block".into(), "".into(), "".into(), "".into()];
-                tx_idx = 0;
-            }
-            public::Tag::BlockLogNum => {
-                values = [
                     Some(
                         self.log_num_in_block
                             .get(&self.block_idx)
@@ -2002,11 +1998,16 @@ impl WitnessExecHelper {
                     ),
                     None,
                     None,
-                    None,
                 ];
-                value_comments = ["log_num_in_block".into(), "".into(), "".into(), "".into()];
-                tx_idx = 0;
+                value_comments = [
+                    "tx_num_in_block".into(),
+                    "log_num_in_block".into(),
+                    "".into(),
+                    "".into(),
+                ];
+                block_tx_idx = self.block_idx;
             }
+
             public::Tag::TxGasLimit => {
                 values = [None, Some(self.gas_left.into()), None, None];
                 value_comments = ["".into(), "gas_left".into(), "".into(), "".into()];
@@ -2016,7 +2017,7 @@ impl WitnessExecHelper {
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", start_idx), "tag".into());
-        comments.insert(format!("vers_{}", start_idx + 1), "tx_idx".into());
+        comments.insert(format!("vers_{}", start_idx + 1), "block_tx_idx".into());
         comments.insert(format!("vers_{}", start_idx + 2), value_comments[0].clone());
         comments.insert(format!("vers_{}", start_idx + 3), value_comments[1].clone());
         comments.insert(format!("vers_{}", start_idx + 4), value_comments[2].clone());
@@ -2024,7 +2025,7 @@ impl WitnessExecHelper {
 
         let public_row = public::Row {
             tag,
-            tx_idx_or_number_diff: Some(U256::from(tx_idx)),
+            block_tx_idx: Some(U256::from(block_tx_idx as u64)),
             value_0: values[0],
             value_1: values[1],
             value_2: values[2],
@@ -2046,7 +2047,7 @@ impl WitnessExecHelper {
 
         let public_row = public::Row {
             tag: public::Tag::TxIsCreateCallDataGasCost,
-            tx_idx_or_number_diff: Some(U256::from(self.tx_idx as u64)),
+            block_tx_idx: Some(U256::from(self.get_block_tx_idx())),
             value_0: Some((self.is_create as u8).into()),
             value_1: Some(self.call_data_gas_cost().into()),
             value_2: Some(
@@ -2854,7 +2855,7 @@ impl core::Row {
     pub fn insert_public_lookup(&mut self, index: usize, public_row: &public::Row) {
         let column_values = [
             (public_row.tag as u8).into(),
-            public_row.tx_idx_or_number_diff.unwrap_or_default(),
+            public_row.block_tx_idx.unwrap_or_default(),
             public_row.value_0.unwrap_or_default(),
             public_row.value_1.unwrap_or_default(),
             public_row.value_2.unwrap_or_default(),
@@ -2869,10 +2870,7 @@ impl core::Row {
                 format!("vers_{}", start_idx),
                 format!("tag={:?}", public_row.tag),
             ),
-            (
-                format!("vers_{}", start_idx + 1),
-                "tx_idx_or_number_diff".into(),
-            ),
+            (format!("vers_{}", start_idx + 1), "block_tx_idx".into()),
             (format!("vers_{}", start_idx + 2), "value_0".into()),
             (format!("vers_{}", start_idx + 3), "value_1".into()),
             (format!("vers_{}", start_idx + 4), "value_2".into()),

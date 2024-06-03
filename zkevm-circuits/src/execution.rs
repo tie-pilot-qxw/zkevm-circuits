@@ -498,7 +498,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         at: Rotation,
     ) -> LookupEntry<F> {
         let start_idx = PUBLIC_COLUMN_START_IDX - index * PUBLIC_COLUMN_WIDTH;
-        let (tag, tx_idx_or_number_diff, value_0, value_1, value_2, value_3) = (
+        let (tag, block_tx_idx, value_0, value_1, value_2, value_3) = (
             meta.query_advice(self.vers[start_idx], at),
             meta.query_advice(self.vers[start_idx + 1], at),
             meta.query_advice(self.vers[start_idx + 2], at),
@@ -510,7 +510,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let values = [value_0, value_1, value_2, value_3];
         LookupEntry::Public {
             tag,
-            tx_idx_or_number_diff,
+            block_tx_idx,
             values,
         }
     }
@@ -1115,18 +1115,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         _meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
         tag: Expression<F>,
-        tx_id_or_number_diff: Option<Expression<F>>,
+        block_tx_idx: Option<Expression<F>>,
         values: [Option<Expression<F>>; PUBLIC_NUM_VALUES],
     ) -> Vec<(String, Expression<F>)> {
-        let (public_lookup_tag, public_lookup_tx_idx_or_number_diff, public_lookup_values) =
+        let (public_lookup_tag, public_lookup_block_tx_idx, public_lookup_values) =
             extract_lookup_expression!(public, entry);
 
         let mut constraints = vec![];
         constraints.push(("public lookup tag".into(), public_lookup_tag - tag));
-        if let Some(tx_id_or_number_diff) = tx_id_or_number_diff {
+        if let Some(block_tx_idx) = block_tx_idx {
             constraints.push((
-                "public lookup tx_id_or_number_diff".into(),
-                public_lookup_tx_idx_or_number_diff - tx_id_or_number_diff,
+                "public lookup block_tx_idx".into(),
+                public_lookup_block_tx_idx - block_tx_idx,
             ));
         }
         for i in 0..PUBLIC_NUM_VALUES {
