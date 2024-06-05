@@ -1,13 +1,14 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
 use crate::constant::{LOG_NUM_BITWISE_TAG, LOG_NUM_STATE_TAG, PUBLIC_NUM_VALUES};
-use crate::witness::{arithmetic, state};
+use crate::witness::{arithmetic, exp, public, state, Witness};
 use crate::witness::{bitwise, copy, fixed};
-use eth_types::Field;
+use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::{pow_of_two, Expr};
+use halo2_proofs::circuit::Region;
 use halo2_proofs::plonk::{
-    Advice, Column, ConstraintSystem, Expression, Fixed, Instance, SecondPhase, Selector,
+    Advice, Column, ConstraintSystem, Error, Expression, Fixed, Instance, SecondPhase, Selector,
     VirtualCells,
 };
 use halo2_proofs::poly::Rotation;
@@ -170,6 +171,7 @@ macro_rules! extract_lookup_expression {
         }
     };
 }
+use crate::util::assign_advice_or_fixed_with_u256;
 pub(crate) use extract_lookup_expression;
 
 /// The table shared between Core Circuit and Stack Circuit
@@ -390,17 +392,6 @@ impl<F: Field> BytecodeTable<F> {
             }
             _ => panic!("Not bytecode lookup!"),
         }
-    }
-}
-
-impl<F: Field> BytecodeTable<F> {
-    // construct_addr_bytecode_instance_column init two instance column
-    pub fn construct_addr_bytecode_instance_column(
-        meta: &mut ConstraintSystem<F>,
-    ) -> (Column<Instance>, Column<Instance>) {
-        let addr_instance_column = meta.instance_column();
-        let bytecode_instance_column = meta.instance_column();
-        (addr_instance_column, bytecode_instance_column)
     }
 }
 
@@ -644,18 +635,18 @@ impl CopyTable {
 #[derive(Clone, Copy, Debug)]
 pub struct PublicTable {
     /// various public information tag, e.g. BlockNumber, TxFrom
-    pub tag: Column<Instance>,
+    pub tag: Column<Advice>,
     /// block_tx_idx generally represents either block_idx or tx_idx.
     /// When representing tx_idx, it equals to block_idx * 2^32 + tx_idx.
     /// Except for tag=BlockHash, means max_block_idx.
-    pub block_tx_idx: Column<Instance>,
-    pub values: [Column<Instance>; PUBLIC_NUM_VALUES],
+    pub block_tx_idx: Column<Advice>,
+    pub values: [Column<Advice>; PUBLIC_NUM_VALUES],
 }
 impl PublicTable {
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
-        let tag = meta.instance_column();
-        let block_tx_idx = meta.instance_column();
-        let values = std::array::from_fn(|_| meta.instance_column());
+        let tag = meta.advice_column();
+        let block_tx_idx = meta.advice_column();
+        let values = std::array::from_fn(|_| meta.advice_column());
         Self {
             tag,
             block_tx_idx,
@@ -667,12 +658,12 @@ impl PublicTable {
         meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
     ) -> Vec<(Expression<F>, Expression<F>)> {
-        let table_tag = meta.query_instance(self.tag, Rotation::cur());
-        let table_block_tx_idx = meta.query_instance(self.block_tx_idx, Rotation::cur());
-        let table_value_0 = meta.query_instance(self.values[0], Rotation::cur());
-        let table_value_1 = meta.query_instance(self.values[1], Rotation::cur());
-        let table_value_2 = meta.query_instance(self.values[2], Rotation::cur());
-        let table_value_3 = meta.query_instance(self.values[3], Rotation::cur());
+        let table_tag = meta.query_advice(self.tag, Rotation::cur());
+        let table_block_tx_idx = meta.query_advice(self.block_tx_idx, Rotation::cur());
+        let table_value_0 = meta.query_advice(self.values[0], Rotation::cur());
+        let table_value_1 = meta.query_advice(self.values[1], Rotation::cur());
+        let table_value_2 = meta.query_advice(self.values[2], Rotation::cur());
+        let table_value_3 = meta.query_advice(self.values[3], Rotation::cur());
         match entry {
             LookupEntry::Public {
                 tag,
@@ -705,6 +696,64 @@ impl PublicTable {
             }
             _ => panic!("Not public lookup!"),
         }
+    }
+
+    pub fn construct_hash_instance_column<F: Field>(
+        meta: &mut ConstraintSystem<F>,
+    ) -> Column<Instance> {
+        let hash_instance_column = meta.instance_column();
+        hash_instance_column
+    }
+
+    pub fn assign_with_region<F: Field>(
+        &self,
+        region: &mut Region<'_, F>,
+        witness: &Witness,
+    ) -> Result<(), Error> {
+        for (offset, row) in witness.public.iter().enumerate() {
+            self.assign_row(region, offset, row)?;
+        }
+        Ok(())
+    }
+
+    fn assign_row<F: Field>(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        row: &public::Row,
+    ) -> Result<(), Error> {
+        assign_advice_or_fixed_with_u256(region, offset, &U256::from(row.tag as u8), self.tag)?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.block_tx_idx.unwrap_or_default(),
+            self.block_tx_idx,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.value_0.unwrap_or_default(),
+            self.values[0],
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.value_1.unwrap_or_default(),
+            self.values[1],
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.value_2.unwrap_or_default(),
+            self.values[2],
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.value_3.unwrap_or_default(),
+            self.values[3],
+        )?;
+        Ok(())
     }
 }
 

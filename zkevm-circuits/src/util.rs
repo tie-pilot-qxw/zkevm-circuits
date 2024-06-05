@@ -237,6 +237,12 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     bytes
 }
 
+pub fn convert_u256_to_64_be_bytes(value: &U256) -> [u8; 64] {
+    let mut bytes = [0u8; 64];
+    value.to_big_endian(&mut bytes[..32]);
+    bytes
+}
+
 pub fn convert_f_to_u256<F: Field>(value: &F) -> U256 {
     U256::from_little_endian(&value.to_repr())
 }

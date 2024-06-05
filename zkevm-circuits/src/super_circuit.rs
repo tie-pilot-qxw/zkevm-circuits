@@ -30,7 +30,7 @@ pub struct SuperCircuitConfig<
     core_circuit: CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     bytecode_circuit: BytecodeCircuitConfig<F>,
     state_circuit: StateCircuitConfig<F>,
-    public_circuit: PublicCircuitConfig,
+    public_circuit: PublicCircuitConfig<F>,
     copy_circuit: CopyCircuitConfig<F>,
     fixed_circuit: FixedCircuitConfig<F>,
     bitwise_circuit: BitwiseCircuitConfig<F>,
@@ -46,21 +46,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     type ConfigArgs = ();
 
     fn new(meta: &mut ConstraintSystem<F>, _: Self::ConfigArgs) -> Self {
+        // construct bytecode table
         let q_enable_bytecode = meta.complex_selector();
         let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+
+        // construct state table
         let q_enable_state = meta.complex_selector();
         let state_table = StateTable::construct(meta, q_enable_state);
+
+        // construct public table
+        let instance_hash = PublicTable::construct_hash_instance_column(meta);
+        let q_enable_public = meta.complex_selector();
         let public_table = PublicTable::construct(meta);
+
+        // construct fixed table
         let fixed_table = FixedTable::construct(meta);
         let q_enable_arithmetic = meta.complex_selector();
+
+        // construct arithmetic table
         let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
+
+        // construct copy table
         let q_enable_copy = meta.complex_selector();
         let copy_table = CopyTable::construct(meta, q_enable_copy);
+
+        // construct bitwise table
         let q_enable_bitwise = meta.complex_selector();
         let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
+
+        // construct exp table
         let exp_table = ExpTable::construct(meta);
+
+        // construct keccak table
         let keccak_table = KeccakTable::construct(meta);
-        // construct challenges
+
+        // construct challenges after construct columns
         let challenges = Challenges::construct(meta);
 
         let core_circuit = CoreCircuitConfig::new(
@@ -96,8 +116,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 challenges,
             },
         );
-        let public_circuit =
-            PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
+        let public_circuit = PublicCircuitConfig::new(
+            meta,
+            PublicCircuitConfigArgs {
+                q_enable: q_enable_public,
+                public_table,
+                keccak_table,
+                challenges,
+                instance_hash,
+            },
+        );
 
         let copy_circuit = CopyCircuitConfig::new(
             meta,

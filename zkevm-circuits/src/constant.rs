@@ -3,7 +3,7 @@ pub const NUM_STATE_LO_COL: usize = 9;
 #[cfg(not(feature = "k_10"))]
 pub const MAX_NUM_ROW: usize = 280000;
 #[cfg(feature = "k_10")]
-pub const MAX_NUM_ROW: usize = 1200;
+pub const MAX_NUM_ROW: usize = 65416; // k=16
 #[cfg(not(feature = "k_10"))]
 pub const MAX_CODESIZE: usize = 2 * 24576;
 #[cfg(feature = "k_10")]
