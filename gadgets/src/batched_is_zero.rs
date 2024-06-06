@@ -158,6 +158,7 @@ mod test {
     impl<F: Field, const N: usize> Circuit<F> for TestCircuit<F, N> {
         type Config = TestCircuitConfig<N>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
 
         fn without_witnesses(&self) -> Self {
             Self::default()
@@ -241,7 +242,7 @@ mod test {
         };
         let k = 4;
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par()
+        prover.assert_satisfied()
     }
 
     #[test]

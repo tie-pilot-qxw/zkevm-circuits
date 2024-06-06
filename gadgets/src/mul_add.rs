@@ -401,7 +401,7 @@ mod test {
                 _marker: PhantomData,
             };
             let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-            prover.assert_satisfied_par()
+            prover.assert_satisfied()
         }};
     }
 
@@ -443,6 +443,7 @@ mod test {
         impl<F: Field> Circuit<F> for TestCircuit<F> {
             type Config = TestCircuitConfig<F>;
             type FloorPlanner = SimpleFloorPlanner;
+            type Params = ();
 
             fn configure(meta: &mut halo2_proofs::plonk::ConstraintSystem<F>) -> Self::Config {
                 let q_enable = meta.complex_selector();

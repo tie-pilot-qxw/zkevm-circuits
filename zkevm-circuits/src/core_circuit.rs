@@ -480,6 +480,8 @@ mod test {
     impl<F: Field> Circuit<F> for CoreTestCircuit<F> {
         type Config = CoreTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -652,6 +654,6 @@ mod test {
             Default::default(),
         ));
         let prover = test_simple_core_circuit(witness);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 }

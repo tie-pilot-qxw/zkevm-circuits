@@ -1065,6 +1065,8 @@ mod test {
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for PublicTestCircuit<F, MAX_NUM_ROW> {
         type Config = PublicTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -1217,6 +1219,6 @@ mod test {
         // witness prove
         let prover = test_public_circuit(witness);
         // any circuit fail will panic
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 }

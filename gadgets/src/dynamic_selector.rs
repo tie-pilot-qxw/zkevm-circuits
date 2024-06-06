@@ -228,6 +228,7 @@ mod test {
     {
         type Config = TestCircuitConfig<F, CNT, NUM_HIGH, NUM_LOW>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
 
         fn without_witnesses(&self) -> Self {
             Self::default()
@@ -311,9 +312,9 @@ mod test {
                 let k = 9;
                 let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
                 if !is_err {
-                    prover.assert_satisfied_par();
+                    prover.assert_satisfied();
                 } else {
-                    let res = prover.verify_par();
+                    let res = prover.verify();
                     assert!(res.is_err());
                     println!("{:?}", res);
                 }

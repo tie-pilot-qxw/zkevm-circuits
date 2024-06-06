@@ -32,5 +32,5 @@ fn test_log_trace() {
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-    prover.assert_satisfied_par();
+    prover.assert_satisfied();
 }

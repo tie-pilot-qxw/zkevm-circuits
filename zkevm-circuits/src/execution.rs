@@ -2586,6 +2586,7 @@ mod test {
             impl<F: Field> Circuit<F> for TestCircuit<F> {
                 type Config = ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
                 type FloorPlanner = SimpleFloorPlanner;
+                type Params = ();
 
                 fn without_witnesses(&self) -> Self {
                     Self::default()

@@ -32,7 +32,7 @@ fn test_erc20_t01_a_deploy() {
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-    prover.assert_satisfied_par();
+    prover.assert_satisfied();
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn test_erc20_t02_a_transfer_b_200() {
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<Fr, MAX_NUM_ROW_FOR_TEST, 5000, 10, 10>::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-    prover.assert_satisfied_par();
+    prover.assert_satisfied();
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn test_erc20_t03_a_approve_c_200() {
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-    prover.assert_satisfied_par();
+    prover.assert_satisfied();
 }
 
 #[test]
@@ -101,5 +101,5 @@ fn test_erc20_t04_c_transfer_from_a_b_200() {
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-    prover.assert_satisfied_par();
+    prover.assert_satisfied();
 }

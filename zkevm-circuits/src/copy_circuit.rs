@@ -1063,6 +1063,8 @@ mod test {
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for CopyTestCircuit<F, MAX_NUM_ROW> {
         type Config = CopyTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -1173,6 +1175,6 @@ mod test {
 
         // execution circuit
         let prover = test_simple_copy_circuit(witness);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 }

@@ -396,6 +396,7 @@ mod test {
     impl<F: Field> Circuit<F> for ArithmeticTestCircuit<F> {
         type Config = ArithmeticTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
 
         fn without_witnesses(&self) -> Self {
             Self::default()
@@ -455,7 +456,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -489,7 +490,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -505,7 +506,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -521,7 +522,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -535,7 +536,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -580,7 +581,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -609,7 +610,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -647,7 +648,7 @@ mod test {
         let circuit = ArithmeticTestCircuit::new(witness);
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -686,7 +687,7 @@ mod test {
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         witness.print_csv();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -707,6 +708,6 @@ mod test {
         let k = log2_ceil(TEST_SIZE);
         let prover = MockProver::<Fr>::run(k, &circuit, vec![]).unwrap();
         witness.print_csv();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 }
