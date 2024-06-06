@@ -6,7 +6,7 @@ use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
-use gadgets::simple_seletor::SimpleSelector;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -227,7 +227,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // tag selector
         // assign tag selector value, 8-13 columns ,only one column is 1 ,others are 0;
-        assign_or_panic!(core_row_1[CORE_ROW_1_START_COL_IDX + tag], 1.into());
+        simple_selector_assign(
+            &mut core_row_1,
+            [
+                CORE_ROW_1_START_COL_IDX + 0,
+                CORE_ROW_1_START_COL_IDX + 1,
+                CORE_ROW_1_START_COL_IDX + 2,
+                CORE_ROW_1_START_COL_IDX + 3,
+                CORE_ROW_1_START_COL_IDX + 4,
+                CORE_ROW_1_START_COL_IDX + 5,
+            ],
+            tag,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
 
         // core row 2
         let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
