@@ -67,8 +67,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -77,6 +75,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let delta_core = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta_core));
 
         let delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(1.expr()),
@@ -141,10 +145,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "CALLDATALOAD opcode".into(),
                 opcode - OpcodeId::CALLDATALOAD.as_u8().expr(),
-            ),
-            (
-                "CALLDATALOAD next pc".into(),
-                pc_next - pc_cur - PC_DELTA.expr(),
             ),
             (
                 "value_hi=operands[0][0]".into(),

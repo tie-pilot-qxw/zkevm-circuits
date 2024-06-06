@@ -100,13 +100,15 @@ impl Row {
         // the block number of the first block in the chunk
         let block_number_first = chunk_data.blocks[0].eth_block.number.unwrap().as_usize();
 
-        // | BlockNumber | 0 | 0 | Block_Number_first | 0 | 0 | 0 |
+        // | BlockNumber | 0 | 0 | Block_Number_first | 0 | Block_Num_in_chunk |
         result.push(Row {
             tag: Tag::BlockNumber,
             value_1: Some(block_number_first.into()),
+            value_3: Some(chunk_data.blocks.len().into()),
             comments: [
                 ("tag".into(), "BlockNumber".into()),
-                ("value_1".into(), "First Block Number as u64".into()),
+                ("value_1".into(), "First Block Number".into()),
+                ("value_3".into(), "Block Num in chunk".into()),
             ]
             .into_iter()
             .collect(),

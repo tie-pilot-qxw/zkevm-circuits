@@ -123,6 +123,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             chainid_tag.clone(),
             basefee_tag.clone(),
         ]);
+
         // public constraints
         constraints.extend(config.get_public_constraints(
             meta,
@@ -145,9 +146,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ])),
             [
                 Some(state_value_hi.clone()),
-                Some(state_value_lo.clone()),
-                Some(0.expr()),
-                Some(0.expr()),
+                // When Opcode == BlockNumber, should calculate Block Number First Block  = state_value_lo - (block_idx - 1)
+                Some(state_value_lo.clone() - number_tag.clone() * (block_idx.clone() - 1.expr())),
+                None,
+                None,
             ],
         ));
         // select opcode
@@ -210,7 +212,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 value_0: Some(U256::from(value_hi)),
                 value_1: Some(U256::from(value_lo)),
                 value_2: Some(0.into()),
-                value_3: Some(0.into()),
+                value_3: Some(if OpcodeId::NUMBER == trace.op {
+                    current_state.block_num_in_chunk.into()
+                } else {
+                    0.into()
+                }),
                 ..Default::default()
             },
         );
@@ -219,14 +225,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         core_row_1.insert_state_lookups([&stack_push_0]);
 
-        let mut v = [U256::from(0); 6];
-        // default v[i] = 0; except v[tag] = 1
-        v[tag] = 1.into();
         // tag selector
         // assign tag selector value, 8-13 columns ,only one column is 1 ,others are 0;
-        for i in 0..6 {
-            assign_or_panic!(core_row_1[i + CORE_ROW_1_START_COL_IDX], v[i]);
-        }
+        assign_or_panic!(core_row_1[CORE_ROW_1_START_COL_IDX + tag], 1.into());
+
         // core row 2
         let core_row_0 = ExecutionState::PUBLIC_CONTEXT.into_exec_state_core_row(
             trace,

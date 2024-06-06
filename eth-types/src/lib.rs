@@ -355,6 +355,23 @@ pub struct GethExecStep {
     pub storage: Storage,
 }
 
+impl Default for GethExecStep {
+    fn default() -> Self {
+        Self {
+            pc: 0,
+            op: OpcodeId::default(),
+            gas: 0,
+            gas_cost: 0,
+            refund: 0,
+            depth: 0,
+            error: None,
+            stack: Stack::new(),
+            memory: Memory::new(),
+            storage: Storage::empty(),
+        }
+    }
+}
+
 // Wrapper over u8 that provides formats the byte in hex for [`fmt::Debug`].
 pub(crate) struct DebugByte(pub(crate) u8);
 

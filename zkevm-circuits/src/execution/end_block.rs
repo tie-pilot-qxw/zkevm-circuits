@@ -1,12 +1,12 @@
 use crate::execution::{
-    Auxiliary, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
-    ExecutionState,
+    begin_block, end_chunk, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::state::Tag;
-use crate::witness::{public, state, Witness, WitnessExecHelper};
-use eth_types::{Field, GethExecStep};
+use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
+use eth_types::{Field, GethExecStep, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -14,24 +14,29 @@ use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
 
-/// BeginBlock 在区块执行结束后运行，记录一些结束状态与其它电路进行约束。
-/// 记录state电路的使用的行数、以及log,区块中的tx的数量
-///
+const END_BLOCK_NEXT_IS_BEGIN_BLOCK: usize = 0;
+const END_BLOCK_NEXT_IS_END_CHUNK: usize = 1;
+const BLOCK_NUM_DIFF_INV_COL_OFFSET: usize = 2;
+
+/// EndBlock runs after the execution of a block, recording some end states and constraining with other circuits.
+/// It records the number of logs and transactions in the block.
 ///
 /// END_BLOCK Execution State layout is as follows.
-/// P_LOG_NUM (6 columns) means lookup log_num from core circuit to public circuit,
-/// P_TX_NUM  (6 columns) means lookup tx num in block from core circuit to public circuit,
-/// TAG is END_PADDING flag to identify endding.
-/// CNT is the num of state row that has been used.
+/// P_TX_LOG_NUM (6 columns) means lookup tx_num and log_num in current block from core circuit to public circuit,
+/// P_BLOCK_NUM｜  (6 columns) means lookup block_number_in_chunk from core circuit to public circuit,
+/// TAG1 is END_BLOCK_NEXT_IS_BEGIN_BLOCK, means that next state is begin_block.
+/// TAG2 is END_BLOCK_NEXT_IS_END_CHUNK, means that next state is end_chunk.
+/// B_INV is the (block_num_in_chunk - block_idx) inverse.
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+--------------+
 /// |cnt| 8 col | 8 col | 8 col |     8 col    |
 /// +---+-------+-------+-------+--------------+
-/// | 2 |       |           |P_TX_NUM|P_LOG_NUM｜
-/// | 1 |TAG|CNT|                              |
+/// | 2 |       |     |P_TX_LOG_NUM|P_BLOCK_NUM|
+/// | 1 |TAG1|TAG2|B_INV|                      |
 /// | 0 | DYNA_SELECTOR   | AUX                |
+/// +---+-------+-------+-------+--------------+
 pub struct EndBlockGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -60,67 +65,94 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
+        // get block_idx and tx_idx from core
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
 
-        // 对辅助列进行约束，如stack_pointer、stamp等；
+        // constraints auxiliary, all status keep previous state
         let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        // 约束指令当前的stamp与state电路的stamp
-        let Auxiliary {
-            state_stamp,
-            log_stamp,
-            ..
-        } = config.get_auxiliary();
-        // 获取当前stamp值，与core电路中记录的state状态进行约束
-        let state_stamp = meta.query_advice(state_stamp, Rotation::cur());
-        let (state_circuit_tag, cnt) =
-            extract_lookup_expression!(cnt, config.get_stamp_cnt_lookup(meta));
-        // 获取当前tx、log值，与core电路中记录的public状态进行约束
-        let last_log_stamp = meta.query_advice(log_stamp, Rotation::cur());
-        let (public_tag, public_block_idx, [public_tx_num, public_log_num, _, _]) =
+        // get the public lookup of BlockTxLogNum and BlockNumber
+        let last_log_stamp = meta.query_advice(config.get_auxiliary().log_stamp, Rotation::cur());
+        let (public_tag_0, public_block_idx, [public_tx_num, public_log_num, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
+        let (public_tag_1, _, [_, _, _, block_num_in_chunk]) =
+            extract_lookup_expression!(public, config.get_public_lookup(meta, 1));
 
-        constraints.extend([
-            ("special next pc = 0".into(), pc_next),
-            (
-                "last stamp in state circuit = cnt in lookup".into(),
-                state_stamp - cnt,
-            ),
-            (
-                "last tag in state circuit = end padding".into(),
-                state_circuit_tag - (Tag::EndPadding as u8).expr(),
-            ),
-        ]);
-        // prev state should be end_tx.
-        constraints.extend(config.get_exec_state_constraints(
-            meta,
-            ExecStateTransition::new(vec![ExecutionState::END_TX], NUM_ROW, vec![], None),
-        ));
-
-        // tag constraint
+        // public tags constraint
         constraints.push((
             "tag is BlockTxLogNum".into(),
-            public_tag - (public::Tag::BlockTxLogNum as u8).expr(),
+            public_tag_0 - (public::Tag::BlockTxLogNum as u8).expr(),
+        ));
+        constraints.push((
+            "tag is BlockNumber".into(),
+            public_tag_1 - (public::Tag::BlockNumber as u8).expr(),
         ));
 
         // block_idx constraint
         constraints.push((
-            "last block idx in state = block idx in lookup".into(),
-            public_block_idx - block_idx.clone(),
+            "block idx in state = block idx in lookup".into(),
+            block_idx.clone() - public_block_idx,
         ));
 
+        // constraints log_stamp = log_num in current block
         constraints.push((
-            "last log stamp in state = log num in lookup".into(),
+            "log stamp in state = log num in lookup".into(),
             last_log_stamp - public_log_num,
         ));
 
+        // constraints tx_idx = tx_num in current block
         constraints.push((
-            "last tx num in state = tx num in lookup".into(),
+            "tx num in state = tx num in lookup".into(),
             tx_idx - public_tx_num,
         ));
+
+        // get the next state tag
+        let next_is_begin_block = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + END_BLOCK_NEXT_IS_BEGIN_BLOCK],
+            Rotation::prev(),
+        );
+        let next_is_end_chunk = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + END_BLOCK_NEXT_IS_END_CHUNK],
+            Rotation::prev(),
+        );
+
+        // get the (block_num_in_chunk - block_idx) inverse
+        let block_idx_diff_inv = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + BLOCK_NUM_DIFF_INV_COL_OFFSET],
+            Rotation::prev(),
+        );
+
+        // constraints block_idx_diff_inv and get signal is_zero
+        let is_zero = SimpleIsZero::new(
+            &(block_num_in_chunk.clone() - block_idx.clone()),
+            &block_idx_diff_inv,
+            String::from("block_id_diff"),
+        );
+
+        // constraints next state
+        constraints.append(&mut config.get_exec_state_constraints(
+            meta,
+            ExecStateTransition::new(
+                vec![ExecutionState::END_TX],
+                NUM_ROW,
+                vec![
+                    (
+                        ExecutionState::BEGIN_BLOCK,
+                        begin_block::NUM_ROW,
+                        Some(next_is_begin_block),
+                    ),
+                    (
+                        ExecutionState::END_CHUNK,
+                        end_chunk::NUM_ROW,
+                        Some(next_is_end_chunk),
+                    ),
+                ],
+                Some(vec![1.expr() - is_zero.expr(), is_zero.expr()]),
+            ),
+        ));
+
         constraints
     }
 
@@ -129,34 +161,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        // 从core电路中读取state使用的行和public内容，分别与state电路和public电路进行lookup
-        let stamp_cnt_lookup = query_expression(meta, |meta| config.get_stamp_cnt_lookup(meta));
         let public_tx_log_num_lookup =
             query_expression(meta, |meta| config.get_public_lookup(meta, 0));
+        let public_block_number_lookup =
+            query_expression(meta, |meta| config.get_public_lookup(meta, 1));
         vec![
-            ("stamp_cnt".into(), stamp_cnt_lookup),
             ("public_tx_log_num_lookup".into(), public_tx_log_num_lookup),
+            (
+                "public_block_number_lookup".into(),
+                public_block_number_lookup,
+            ),
         ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        // core电路中记录区块中tx、log的数量，写入core_row_2行
-        let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
-        core_row_2.insert_public_lookup(
-            0,
-            &current_state.get_public_tx_row(public::Tag::BlockTxLogNum, 0),
-        );
-
-        let state_circuit_end_padding = state::Row {
-            tag: Some(Tag::EndPadding),
-            ..Default::default()
-        };
-
-        // 记录总共使用的状态state状态行数
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        core_row_1.insert_stamp_cnt_lookups(current_state.state_stamp.into());
-
-        // core电路写入 执行标识
+        // row 0
         let core_row_0 = ExecutionState::END_BLOCK.into_exec_state_core_row(
             trace,
             current_state,
@@ -164,9 +183,46 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
 
+        // row 1
+        let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
+        let offset = if current_state.block_num_in_chunk == current_state.block_idx {
+            END_BLOCK_NEXT_IS_END_CHUNK
+        } else {
+            END_BLOCK_NEXT_IS_BEGIN_BLOCK
+        };
+        assign_or_panic!(
+            core_row_1[NUM_STATE_HI_COL + NUM_STATE_LO_COL + offset],
+            U256::one()
+        );
+
+        let block_num_diff = (current_state.block_num_in_chunk - current_state.block_idx) as u64;
+        let block_num_diff_inv = U256::from_little_endian(
+            F::from(block_num_diff)
+                .invert()
+                .unwrap_or(F::ZERO)
+                .to_repr()
+                .as_ref(),
+        );
+        assign_or_panic!(
+            core_row_1[NUM_STATE_HI_COL + NUM_STATE_LO_COL + BLOCK_NUM_DIFF_INV_COL_OFFSET],
+            block_num_diff_inv
+        );
+
+        // row 2
+        let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
+
+        // get the public lookup of BlockTxLogNum and BlockNumber(for the block_number_in_chunk)
+        core_row_2.insert_public_lookup(
+            0,
+            &current_state.get_public_tx_row(public::Tag::BlockTxLogNum, 0),
+        );
+        core_row_2.insert_public_lookup(
+            1,
+            &current_state.get_public_tx_row(public::Tag::BlockNumber, 1),
+        );
+
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![state_circuit_end_padding],
             ..Default::default()
         }
     }
@@ -212,7 +268,7 @@ mod test {
             )
         };
         let padding_end_row = |current_state| {
-            ExecutionState::END_PADDING.into_exec_state_core_row(
+            ExecutionState::END_CHUNK.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

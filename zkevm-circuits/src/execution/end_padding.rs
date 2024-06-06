@@ -1,15 +1,25 @@
 use crate::execution::{
-    AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState, ExpressionOutcome,
 };
 use crate::table::LookupEntry;
 use crate::witness::{Witness, WitnessExecHelper};
 use eth_types::{Field, GethExecStep};
+use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 const NUM_ROW: usize = 1;
 
+/// END_PADDING Execution State layout is as follows.
+/// DYNA_SELECTOR is dynamic selector of the state,
+/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
+/// AUX means auxiliary such as state stamp
+/// +---+-------+-------+-------+----------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
+/// +---+-------+-------+-------+----------+
+/// | 0 | DYNA_SELECTOR   | AUX            |
+/// +---+-------+-------+-------+----------+
 pub struct EndPaddingGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -38,20 +48,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-        // prev state should be end_block or self
+        // prev state should be end_chunk or self
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::END_BLOCK, ExecutionState::END_PADDING],
+                vec![ExecutionState::END_CHUNK, ExecutionState::END_PADDING],
                 NUM_ROW,
                 vec![],
                 None,
             ),
         ));
-        constraints.extend([("special next pc = 0".into(), pc_next)]);
+        // next pc would be 0
+        let delta_core = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::To(0.expr()),
+            ..Default::default()
+        };
+
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta_core));
         constraints
     }
 

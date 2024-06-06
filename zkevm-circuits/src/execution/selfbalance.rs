@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::LookupEntry;
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{Witness, WitnessExecHelper};
@@ -49,8 +51,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let delta: AuxiliaryOutcome<F> = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
@@ -60,6 +60,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         // auxiliary constraints
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let delta_core = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta_core));
 
         // stack constraints
         let entry = config.get_state_lookup(meta, 0);
@@ -72,14 +78,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             true,
         ));
         // todo stack push data constraints
-        // opcode & next pc   constraints
-        constraints.extend([
-            (
-                "opcode".into(),
-                opcode - OpcodeId::SELFBALANCE.as_u8().expr(),
-            ),
-            ("next pc".into(), pc_next - pc_cur - PC_DELTA.expr()),
-        ]);
+        // opcode constraints
+        constraints.push((
+            "opcode".into(),
+            opcode - OpcodeId::SELFBALANCE.as_u8().expr(),
+        ));
         constraints
     }
     fn get_lookups(

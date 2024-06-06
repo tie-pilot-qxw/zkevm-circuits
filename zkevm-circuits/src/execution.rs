@@ -2,6 +2,7 @@ pub mod add_sub_mul_div_mod;
 pub mod addmod;
 pub mod and_or_xor;
 pub mod begin_block;
+pub mod begin_chunk;
 pub mod begin_tx_1;
 pub mod begin_tx_2;
 pub mod begin_tx_3;
@@ -21,6 +22,7 @@ pub mod codesize;
 pub mod dup;
 pub mod end_block;
 pub mod end_call;
+pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
 pub mod exp;
@@ -94,6 +96,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::addmod::new(),
             crate::execution::and_or_xor::new(),
             crate::execution::begin_block::new(),
+            crate::execution::begin_chunk::new(),
             crate::execution::begin_tx_1::new(),
             crate::execution::begin_tx_2::new(),
             crate::execution::begin_tx_3::new(),
@@ -115,6 +118,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::dup::new(),
             crate::execution::end_block::new(),
             crate::execution::end_call::new(),
+            crate::execution::end_chunk::new(),
             crate::execution::end_padding::new(),
             crate::execution::end_tx::new(),
             crate::execution::exp::new(),
@@ -172,7 +176,7 @@ pub(crate) use get_every_execution_gadgets;
 #[allow(unused)]
 #[derive(Clone)]
 pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> {
-    /// only enable for BEGIN_BLOCK
+    /// only enable for BEGIN_CHUNK
     pub(crate) q_first_exec_state: Selector,
     pub(crate) q_enable: Selector,
     // witness column of block index
@@ -1993,7 +1997,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let q_first_exec_state = meta.query_selector(config.q_first_exec_state);
             let execution_state_selector = config.execution_state_selector.selector(
                 meta,
-                ExecutionState::BEGIN_BLOCK as usize,
+                ExecutionState::BEGIN_CHUNK as usize,
                 Rotation::cur(),
             );
             vec![
@@ -2002,7 +2006,7 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     q_first_exec_state.clone() * cnt,
                 ),
                 (
-                    "q_first_exec_state=1 => gadget=begin_block",
+                    "q_first_exec_state=1 => gadget=begin_chunk",
                     q_first_exec_state * (1.expr() - execution_state_selector),
                 ),
             ]
@@ -2216,7 +2220,9 @@ pub enum ExecutionState {
     BEGIN_TX_2, // start a tx, part two
     BEGIN_TX_3, // start a tx, part three
     BEGIN_BLOCK,
+    BEGIN_CHUNK,
     END_BLOCK,
+    END_CHUNK,
     // opcode/operation successful states
     STOP,
     ADD_SUB_MUL_DIV_MOD,

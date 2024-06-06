@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
@@ -130,12 +132,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 is_zero.clone() - hi_is_zero * lo_is_zero,
             ),
             (
-                "expect next pc".into(),
-                expect_next_pc.clone()
-                    - (pc_cur.clone() + 1.expr()) * is_zero.clone()
-                    - (1.expr() - is_zero.clone()) * operands[1].clone(),
-            ),
-            (
                 "bytecode lookup addr = code_addr".into(),
                 (1.expr() - is_zero.clone()) * (code_addr - bytecode_full_lookup_addr.clone())
                     + is_zero.clone() * bytecode_full_lookup_addr,
@@ -156,6 +152,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 bytecode_full_lookup_not_code,
             ),
         ]);
+
+        let delta_core = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::To(
+                (pc_cur.clone() + 1.expr()) * is_zero.clone()
+                    + (1.expr() - is_zero.clone()) * operands[1].clone().expr(),
+            ),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta_core));
+
         //inv of operand1hi
         constraints.extend(iszero_gadget_hi.get_constraints());
         //inv of operand1lo

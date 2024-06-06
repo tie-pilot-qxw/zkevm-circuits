@@ -138,6 +138,8 @@ pub struct WitnessExecHelper {
     pub new_memory_size: Option<u64>,
     // 暂存上一步stack中的length值，用于memory gas计算
     pub length_in_stack: Option<u64>,
+    // 存储当前 chunk 的第一个区块的 number
+    pub block_number_first_block: u64,
 }
 
 impl WitnessExecHelper {
@@ -187,6 +189,7 @@ impl WitnessExecHelper {
             parent_gas_cost: HashMap::new(),
             new_memory_size: None,
             length_in_stack: None,
+            block_number_first_block: 0,
         }
     }
 
@@ -2012,6 +2015,22 @@ impl WitnessExecHelper {
                 values = [None, Some(self.gas_left.into()), None, None];
                 value_comments = ["".into(), "gas_left".into(), "".into(), "".into()];
             }
+
+            public::Tag::BlockNumber => {
+                values = [
+                    None,
+                    Some(self.block_number_first_block.into()),
+                    None,
+                    Some(self.block_num_in_chunk.into()),
+                ];
+                value_comments = [
+                    "".into(),
+                    "First Block Number".into(),
+                    "".into(),
+                    "Block Num in chunk".into(),
+                ];
+                block_tx_idx = 0;
+            }
             _ => panic!(),
         };
 
@@ -3108,7 +3127,23 @@ impl Witness {
             .for_each(|_| self.exp.insert(0, Default::default()));
     }
 
-    /// Generate end padding of a witness of one block
+    /// Generate end_block of a witness of one block
+    fn insert_end_block(
+        &mut self,
+        last_step: &GethExecStep,
+        current_state: &mut WitnessExecHelper,
+        execution_gadgets_map: &HashMap<
+            ExecutionState,
+            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
+    ) {
+        let end_block_gadget = execution_gadgets_map
+            .get(&ExecutionState::END_BLOCK)
+            .unwrap();
+        self.append(end_block_gadget.gen_witness(last_step, current_state));
+    }
+
+    /// Generate end padding of a witness of one chunk
     fn insert_end_padding(
         &mut self,
         last_step: &GethExecStep,
@@ -3118,11 +3153,25 @@ impl Witness {
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
     ) {
-        // padding: add END_BLOCK to the end of core and (END_PADDING will be assigned automatically)
-        let end_block_gadget = execution_gadgets_map
-            .get(&ExecutionState::END_BLOCK)
+        // padding: add END_CHUNK to the end of core and (END_PADDING will be assigned automatically)
+        let end_chunk_gadget = execution_gadgets_map
+            .get(&ExecutionState::END_CHUNK)
             .unwrap();
-        self.append(end_block_gadget.gen_witness(last_step, current_state));
+        self.append(end_chunk_gadget.gen_witness(last_step, current_state));
+    }
+
+    fn insert_begin_chunk(
+        &mut self,
+        current_state: &mut WitnessExecHelper,
+        execution_gadgets_map: &HashMap<
+            ExecutionState,
+            Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
+    ) {
+        let begin_chunk_gadget = execution_gadgets_map
+            .get(&ExecutionState::BEGIN_CHUNK)
+            .unwrap();
+        self.append(begin_chunk_gadget.gen_witness(&GethExecStep::default(), current_state));
     }
 
     fn insert_begin_block(
@@ -3136,21 +3185,7 @@ impl Witness {
         let begin_block_gadget = execution_gadgets_map
             .get(&ExecutionState::BEGIN_BLOCK)
             .unwrap();
-        self.append(begin_block_gadget.gen_witness(
-            &GethExecStep {
-                pc: 0,
-                op: OpcodeId::default(),
-                gas: 0,
-                gas_cost: 0,
-                refund: 0,
-                depth: 0,
-                error: None,
-                stack: Stack::new(),
-                memory: Memory::new(),
-                storage: Storage::empty(),
-            },
-            current_state,
-        ));
+        self.append(begin_block_gadget.gen_witness(&GethExecStep::default(), current_state));
     }
 
     /// Generate witness of one transaction's trace
@@ -3173,6 +3208,17 @@ impl Witness {
         // step 3: create witness trace by trace, and append them
         let mut current_state = WitnessExecHelper::new();
         current_state.block_num_in_chunk = chunk_data.blocks.len();
+        current_state.block_number_first_block = chunk_data
+            .blocks
+            .first()
+            .unwrap()
+            .eth_block
+            .number
+            .unwrap_or(1.into())
+            .as_u64();
+
+        // insert begin chunk
+        witness.insert_begin_chunk(&mut current_state, &execution_gadgets_map);
 
         for (block_idx, block) in chunk_data.blocks.iter().enumerate() {
             // initialize block_idx, txs number and log number in current_state with GethData
@@ -3195,8 +3241,8 @@ impl Witness {
                     current_state.generate_trace_witness(block, i, &execution_gadgets_map);
                 witness.append(trace_related_witness);
             }
-            // step 4: insert end padding (END_BLOCK)
-            witness.insert_end_padding(
+            // step 4: insert END_BLOCK
+            witness.insert_end_block(
                 block
                     .geth_traces
                     .last()
@@ -3208,6 +3254,22 @@ impl Witness {
                 &execution_gadgets_map,
             );
         }
+
+        // step 5: insert end chunk
+        witness.insert_end_padding(
+            chunk_data
+                .blocks
+                .last()
+                .unwrap()
+                .geth_traces
+                .last()
+                .unwrap()
+                .struct_logs
+                .last()
+                .unwrap(),
+            &mut current_state,
+            &execution_gadgets_map,
+        );
 
         witness.state.sort_by(|a, b| {
             let key_a = state_to_be_limbs(a);
