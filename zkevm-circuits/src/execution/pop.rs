@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::LookupEntry;
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{Witness, WitnessExecHelper};
@@ -12,6 +14,7 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = -1;
+const PC_DELTA: u64 = 1;
 
 pub struct PopGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -49,9 +52,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
-
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
         let delta = AuxiliaryOutcome {
@@ -64,6 +64,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
+        let delta_core = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta_core));
+
         let state_entry = config.get_state_lookup(meta, 0);
         constraints.append(&mut config.get_stack_constraints(
             meta,
@@ -74,13 +80,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             false,
         ));
 
-        constraints.extend([
-            (
-                "opcode is pop".into(),
-                opcode - OpcodeId::POP.as_u8().expr(),
-            ),
-            ("next pc".into(), pc_next - pc_cur.clone() - 1.expr()),
-        ]);
+        constraints.push((
+            "opcode is pop".into(),
+            opcode - OpcodeId::POP.as_u8().expr(),
+        ));
         constraints
     }
 

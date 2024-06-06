@@ -48,10 +48,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (public_tag, public_block_idx, [public_tx_num_in_block, _, _, _]) =
             extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
 
-        let tx_id_diff_inv = meta.query_advice(config.vers[TX_DIFF_COL_IDX], Rotation(-2));
+        let tx_idx_diff_inv = meta.query_advice(config.vers[TX_DIFF_COL_IDX], Rotation(-2));
         let is_zero = SimpleIsZero::new(
             &(public_tx_num_in_block.clone() - tx_idx.clone()),
-            &tx_id_diff_inv,
+            &tx_idx_diff_inv,
             String::from("tx_id_diff"),
         );
         constraints.append(&mut is_zero.get_constraints());
@@ -125,7 +125,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         // 计算当前交易是否为最后一笔交易，如果tx_num_diff为0，则表示为当前区块的最后一笔交易
         // 使用SimpleGadget电路，需要两数的差值以及其对应的相反数
-        let tx_num_diff = (current_state
+        let tx_num_diff = (&current_state
             .tx_num_in_block
             .get(&current_state.block_idx)
             .unwrap()

@@ -1,4 +1,6 @@
-use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};
+use crate::execution::{
+    AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
+};
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::Witness;
@@ -55,7 +57,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
-        let pc_next = meta.query_advice(config.pc, Rotation::next());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
@@ -82,13 +83,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
         constraints.extend([
             ("opcode is one of push".into(), is_push - 1.expr()),
-            ("next pc".into(), pc_next - pc_cur.clone() - cnt - 1.expr()),
             ("value_hi = push_value".into(), push_value_hi - value_hi),
             ("value_lo = push_value".into(), push_value_lo - value_lo),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             ("bytecode lookup pc = pc".into(), pc_cur - pc),
             ("bytecode lookup not_code = 0".into(), not_code),
         ]);
+
+        let delta_core = CoreSinglePurposeOutcome {
+            pc: ExpressionOutcome::Delta(cnt + 1.expr()),
+            ..Default::default()
+        };
+        constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta_core));
+
         constraints
     }
 

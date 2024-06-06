@@ -139,6 +139,6 @@ pub(crate) const TRACE_GAS_IDX: usize = 1;
 /// TRACE_GAS_COST_IDX reserved location, in line cnt=0, located in NUM_STATE_HI_COL + NUM_STATE_LO_COL + AUX + TRACE_GAS_COST_IDX
 pub(crate) const TRACE_GAS_COST_IDX: usize = 2;
 
-/// LOCK_IDX_LEFT_SHIFT_NUM represents the number of bits that block_idx is left-shifted in the block_tx_idx variable.
+/// BLOCK_IDX_LEFT_SHIFT_NUM represents the number of bits that block_idx is left-shifted in the block_tx_idx variable.
 /// block_tx_idx = block_idx << BLOCK_IDX_LEFT_SHIFT_NUM + tx_idx
 pub(crate) const BLOCK_IDX_LEFT_SHIFT_NUM: u64 = 32;
