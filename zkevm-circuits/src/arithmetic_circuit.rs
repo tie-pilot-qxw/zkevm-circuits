@@ -14,6 +14,7 @@ use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::halo2curves::bn256::Fr;
 use halo2_proofs::plonk::{
     Advice, Column, ConstraintSystem, Error, Expression, Selector, VirtualCells,
 };
@@ -31,6 +32,7 @@ const NUM_U16: usize = 8;
 
 #[derive(Clone)]
 pub struct ArithmeticCircuitConfig<F> {
+    q_first_rows: Selector,
     q_enable: Selector,
     /// Tag for arithmetic operation type
     tag: BinaryNumberConfig<Tag, LOG_NUM_ARITHMETIC_TAG>,
@@ -167,7 +169,9 @@ impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
             cnt,
             is_not_zero,
         );
+        let q_first_rows = meta.selector();
         let config = Self {
+            q_first_rows,
             q_enable,
             tag,
             cnt,
@@ -236,6 +240,59 @@ impl<F: Field> SubCircuitConfig<F> for ArithmeticCircuitConfig<F> {
                 },
             );
         }
+
+        meta.create_gate("ARITHMETIC_q_first_rows_constrains", |meta| {
+            let q_first_rows = meta.query_selector(config.q_first_rows);
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let tag = config.tag.value(Rotation::cur())(meta);
+            let operands_0_hi = meta.query_advice(config.operands[0][0], Rotation::cur());
+            let operands_0_lo = meta.query_advice(config.operands[0][1], Rotation::cur());
+            let operands_1_hi = meta.query_advice(config.operands[1][0], Rotation::cur());
+            let operands_1_lo = meta.query_advice(config.operands[1][1], Rotation::cur());
+            let u16_0 = meta.query_advice(config.u16s[0], Rotation::cur());
+            let u16_1 = meta.query_advice(config.u16s[1], Rotation::cur());
+            let u16_2 = meta.query_advice(config.u16s[2], Rotation::cur());
+            let u16_3 = meta.query_advice(config.u16s[3], Rotation::cur());
+            let u16_4 = meta.query_advice(config.u16s[4], Rotation::cur());
+            let u16_5 = meta.query_advice(config.u16s[5], Rotation::cur());
+            let u16_6 = meta.query_advice(config.u16s[6], Rotation::cur());
+            let u16_7 = meta.query_advice(config.u16s[7], Rotation::cur());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+
+            vec![
+                ("q_first_rows=1 ==> tag=0", q_first_rows.clone() * tag),
+                (
+                    "q_first_rows=1 ==> operands_0_hi=0",
+                    q_first_rows.clone() * operands_0_hi,
+                ),
+                (
+                    "q_first_rows=1 ==> operands_0_lo=0",
+                    q_first_rows.clone() * operands_0_lo,
+                ),
+                (
+                    "q_first_rows=1 ==> operands_1_hi=0",
+                    q_first_rows.clone() * operands_1_hi,
+                ),
+                (
+                    "q_first_rows=1 ==> operands_1_lo=0",
+                    q_first_rows.clone() * operands_1_lo,
+                ),
+                ("q_first_rows=1 ==> u16_0=0", q_first_rows.clone() * u16_0),
+                ("q_first_rows=1 ==> u16_1=0", q_first_rows.clone() * u16_1),
+                ("q_first_rows=1 ==> u16_2=0", q_first_rows.clone() * u16_2),
+                ("q_first_rows=1 ==> u16_3=0", q_first_rows.clone() * u16_3),
+                ("q_first_rows=1 ==> u16_4=0", q_first_rows.clone() * u16_4),
+                ("q_first_rows=1 ==> u16_5=0", q_first_rows.clone() * u16_5),
+                ("q_first_rows=1 ==> u16_6=0", q_first_rows.clone() * u16_6),
+                ("q_first_rows=1 ==> u16_7=0", q_first_rows.clone() * u16_7),
+                ("q_first_rows=1 ==> cnt=0", q_first_rows.clone() * cnt),
+                (
+                    "q_first_rows=1 ==> cnt_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - cnt_is_zero),
+                ),
+            ]
+        });
+
         config
     }
 }
@@ -269,6 +326,12 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ArithmeticCircuit<F, 
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+
+                // enable q_first_rows
+                for offset in 0..Self::unusable_rows().0 {
+                    config.q_first_rows.enable(&mut region, offset)?;
+                }
+
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
@@ -308,6 +371,7 @@ mod test {
         pub arithmetic_circuit: ArithmeticCircuitConfig<F>,
         pub challenges: Challenges,
     }
+
     impl<F: Field> SubCircuitConfig<F> for ArithmeticTestCircuitConfig<F> {
         type ConfigArgs = ();
         fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
@@ -326,6 +390,7 @@ mod test {
             }
         }
     }
+
     #[derive(Clone, Default, Debug)]
     pub struct ArithmeticTestCircuit<F: Field>(ArithmeticCircuit<F, TEST_SIZE>);
 

@@ -12,6 +12,7 @@ use eth_types::Field;
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use halo2_proofs::circuit::{Layouter, Region, Value};
 
+use crate::table::LookupEntry::Bitwise;
 use crate::witness::bitwise::Tag;
 use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
@@ -55,6 +56,7 @@ pub(crate) const NUM_OPERAND: usize = 3;
 #[allow(unused)]
 #[derive(Clone)]
 pub struct BitwiseCircuitConfig<F: Field> {
+    q_first_rows: Selector,
     q_enable: Selector,
     /// The operation tag, one of AND, OR
     pub tag: BinaryNumberConfig<Tag, LOG_NUM_BITWISE_TAG>,
@@ -117,7 +119,9 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
         );
 
         // construct config object
+        let q_first_rows = meta.selector();
         let config = Self {
+            q_first_rows,
             q_enable,
             tag,
             bytes,
@@ -277,6 +281,48 @@ impl<F: Field> SubCircuitConfig<F> for BitwiseCircuitConfig<F> {
             constraints
         });
 
+        meta.create_gate("BITWISE_q_first_rows constrains", |meta| {
+            let q_first_rows = meta.query_selector(config.q_first_rows);
+            let byte_0 = meta.query_advice(config.bytes[0], Rotation::cur());
+            let byte_1 = meta.query_advice(config.bytes[1], Rotation::cur());
+            let byte_2 = meta.query_advice(config.bytes[2], Rotation::cur());
+            let acc_0 = meta.query_advice(config.acc_vec[0], Rotation::cur());
+            let acc_1 = meta.query_advice(config.acc_vec[1], Rotation::cur());
+            let acc_2 = meta.query_advice(config.acc_vec[2], Rotation::cur());
+            let sum_2 = meta.query_advice(config.sum_2, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let tag_is_nil = config.tag.value_equals(Tag::Nil, Rotation::cur())(meta);
+            let acc_2_is_zero = config.acc_2_is_zero.expr_at(meta, Rotation::cur());
+            let index = meta.query_advice(config.index, Rotation::cur());
+
+            let mut constraints = vec![
+                (
+                    "q_first_rows=1 ==> tag_is_nil=1",
+                    q_first_rows.clone() * (1.expr() - tag_is_nil),
+                ),
+                ("q_first_rows=1 ==> byte_0=0", q_first_rows.clone() * byte_0),
+                ("q_first_rows=1 ==> byte_1=0", q_first_rows.clone() * byte_1),
+                ("q_first_rows=1 ==> byte_1=0", q_first_rows.clone() * byte_2),
+                ("q_first_rows=1 ==> acc_0=0", q_first_rows.clone() * acc_0),
+                ("q_first_rows=1 ==> acc_1=0", q_first_rows.clone() * acc_1),
+                ("q_first_rows=1 ==> acc_2=0", q_first_rows.clone() * acc_2),
+                ("q_first_rows=1 ==> sum_2=0", q_first_rows.clone() * sum_2),
+                ("q_first_rows=1 ==> cnt=0", q_first_rows.clone() * cnt),
+                ("q_first_rows=1 ==> index=0", q_first_rows.clone() * index),
+                (
+                    "q_first_rows=1 ==> cnt_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - cnt_is_zero),
+                ),
+                (
+                    "q_first_rows=1 ==> acc_2_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - acc_2_is_zero),
+                ),
+            ];
+
+            constraints
+        });
+
         // lookup constraint
         // constrain the operation results of And, Or
         config.fixed_lookup(meta, "BITWISE_LOOKUP");
@@ -425,6 +471,11 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BitwiseCircuit<F, MAX
                 // assign circuit table value
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
 
+                // enable q_first_rows
+                for offset in 0..Self::unusable_rows().0 {
+                    config.q_first_rows.enable(&mut region, offset)?;
+                }
+
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
@@ -521,6 +572,7 @@ mod test {
             }
         }
     }
+
     impl<F: Field> BitwiseTestCircuitConfig<F> {
         /// assign BitwiseTestCircuit rows
         pub fn assign_with_region(

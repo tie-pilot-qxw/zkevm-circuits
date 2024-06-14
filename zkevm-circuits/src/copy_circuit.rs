@@ -94,6 +94,7 @@ use std::marker::PhantomData;
 
 #[derive(Clone)]
 pub struct CopyCircuitConfig<F: Field> {
+    pub q_first_rows: Selector,
     pub q_enable: Selector,
     /// The byte value that is copied
     pub byte: Column<Advice>,
@@ -196,7 +197,9 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
             _len_sub_cnt_one_is_zero_inv,
         );
         // construct config object
+        let q_first_rows = meta.selector();
         let config = Self {
+            q_first_rows,
             q_enable,
             byte,
             src_id,
@@ -464,6 +467,73 @@ impl<F: Field> SubCircuitConfig<F> for CopyCircuitConfig<F> {
                     * (1.expr() - cnt_is_zero)
                     * (acc - (byte + acc_prev * 256.expr())),
             )]);
+
+            constraints
+        });
+
+        meta.create_gate("COPY_q_first_rows constrains", |meta| {
+            let q_first_rows = meta.query_selector(config.q_first_rows);
+            let src_tag = config.src_tag.value(Rotation::cur())(meta);
+            let src_id = meta.query_advice(config.src_id, Rotation::cur());
+            let src_pointer = meta.query_advice(config.src_pointer, Rotation::cur());
+            let src_stamp = meta.query_advice(config.src_stamp, Rotation::cur());
+            let dst_tag = config.dst_tag.value(Rotation::cur())(meta);
+            let dst_id = meta.query_advice(config.dst_id, Rotation::cur());
+            let dst_pointer = meta.query_advice(config.dst_pointer, Rotation::cur());
+            let dst_stamp = meta.query_advice(config.dst_stamp, Rotation::cur());
+            let len = meta.query_advice(config.len, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let byte = meta.query_advice(config.byte, Rotation::cur());
+            let acc = meta.query_advice(config.acc, Rotation::cur());
+
+            let len_is_zero = config.len_is_zero.expr_at(meta, Rotation::cur());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let len_sub_cnt_one_is_zero = config.len_sub_cnt_one_is_zero.expr();
+
+            let mut constraints = vec![
+                ("q_first_rows=1 ==> cnt=0", q_first_rows.clone() * cnt),
+                ("q_first_rows=1 ==> byte=0", q_first_rows.clone() * byte),
+                ("q_first_rows=1 ==> src_id=0", q_first_rows.clone() * src_id),
+                (
+                    "q_first_rows=1 ==> src_tag is 0",
+                    q_first_rows.clone() * src_tag,
+                ),
+                (
+                    "q_first_rows=1 ==> src_pointer=0",
+                    q_first_rows.clone() * src_pointer,
+                ),
+                (
+                    "q_first_rows=1 ==> src_stamp=0",
+                    q_first_rows.clone() * src_stamp,
+                ),
+                ("q_first_rows=1 ==> dst_id=0", q_first_rows.clone() * dst_id),
+                (
+                    "q_first_rows=1 ==> dst_tag is 0",
+                    q_first_rows.clone() * dst_tag,
+                ),
+                (
+                    "q_first_rows=1 ==> dst_pointer=0",
+                    q_first_rows.clone() * dst_pointer,
+                ),
+                (
+                    "q_first_rows=1 ==> dst_stamp=0",
+                    q_first_rows.clone() * dst_stamp,
+                ),
+                ("q_first_rows=1 ==> len=0", q_first_rows.clone() * len),
+                ("q_first_rows=1 ==> acc=0", q_first_rows.clone() * acc),
+                (
+                    "q_first_rows=1 ==> len_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - len_is_zero),
+                ),
+                (
+                    "q_first_rows=1 ==> cnt_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - cnt_is_zero),
+                ),
+                (
+                    "q_first_rows=1 ==> len_sub_cnt_one_is_zero=0",
+                    q_first_rows.clone() * len_sub_cnt_one_is_zero,
+                ),
+            ];
 
             constraints
         });
@@ -830,6 +900,10 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for CopyCircuit<F, MAX_NU
 
                 // assgin circuit table value
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+
+                for offset in 0..Self::unusable_rows().0 {
+                    config.q_first_rows.enable(&mut region, offset)?;
+                }
 
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {

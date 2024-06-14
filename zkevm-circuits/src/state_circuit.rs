@@ -44,6 +44,7 @@ use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
 pub struct StateCircuitConfig<F> {
+    q_first_rows: Selector,
     q_enable: Selector,
     /// Type of value, one of stack, memory, storage, call context, call data or return data
     /// A `BinaryNumberConfig` can return the indicator by method `value_equals`
@@ -157,7 +158,10 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
 
         let ordering_config =
             OrderingConfig::new(meta, q_enable, keys, fixed_table, power_of_randomness);
+
+        let q_first_rows = meta.selector();
         let config: StateCircuitConfig<F> = Self {
+            q_first_rows,
             q_enable,
             tag,
             stamp,
@@ -401,6 +405,74 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             // todo committed_value、value_pre_in_cur 目前还没加
 
             vec
+        });
+
+        meta.create_gate("STATE_q_first_rows_constraints", |meta| {
+            let q_first_rows = meta.query_selector(config.q_first_rows);
+            let stamp = meta.query_advice(config.stamp, Rotation::cur());
+            let call_id_contract_addr =
+                meta.query_advice(config.call_id_contract_addr, Rotation::cur());
+            let pointer_lo = meta.query_advice(config.pointer_lo, Rotation::cur());
+            let is_default_tag = config.tag.value_equals(Tag::default(), Rotation::cur())(meta);
+            let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
+            let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
+            let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
+            let is_write = meta.query_advice(config.is_write, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let value_pre_hi = meta.query_advice(config.value_pre_hi, Rotation::cur());
+            let value_pre_lo = meta.query_advice(config.value_pre_lo, Rotation::cur());
+            let committed_value_hi = meta.query_advice(config.committed_value_hi, Rotation::cur());
+            let committed_value_lo = meta.query_advice(config.committed_value_lo, Rotation::cur());
+
+            let constraints = vec![
+                (
+                    "q_first_rows=1 ==> is_default_tag=1",
+                    q_first_rows.clone() * (1.expr() - is_default_tag),
+                ),
+                ("q_first_rows=1 ==> stamp=0", q_first_rows.clone() * stamp),
+                (
+                    "q_first_rows=1 ==> value_hi=0",
+                    q_first_rows.clone() * value_hi,
+                ),
+                (
+                    "q_first_rows=1 ==> value_lo=0",
+                    q_first_rows.clone() * value_lo,
+                ),
+                (
+                    "q_first_rows=1 ==> call_id_contract_addr=0",
+                    q_first_rows.clone() * call_id_contract_addr,
+                ),
+                (
+                    "q_first_rows=1 ==> pointer_hi=0",
+                    q_first_rows.clone() * pointer_hi,
+                ),
+                (
+                    "q_first_rows=1 ==> pointer_lo=0",
+                    q_first_rows.clone() * pointer_lo,
+                ),
+                (
+                    "q_first_rows=1 ==> is_write=0",
+                    q_first_rows.clone() * is_write,
+                ),
+                ("q_first_rows=1 ==> cnt=0", q_first_rows.clone() * cnt),
+                (
+                    "q_first_rows=1 ==> value_pre_hi=0",
+                    q_first_rows.clone() * value_pre_hi,
+                ),
+                (
+                    "q_first_rows=1 ==> value_pre_lo=0",
+                    q_first_rows.clone() * value_pre_lo,
+                ),
+                (
+                    "q_first_rows=1 ==> committed_value_hi=0",
+                    q_first_rows.clone() * committed_value_hi,
+                ),
+                (
+                    "q_first_rows=1 ==> committed_value_lo=0",
+                    q_first_rows.clone() * committed_value_lo,
+                ),
+            ];
+            constraints
         });
 
         // when feature `no_fixed_lookup` is on, we don't do lookup
@@ -650,6 +722,11 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for StateCircuit<F, MAX_N
             |mut region| {
                 config.annotate_circuit_in_region(&mut region);
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
+                // enable q_first_rows
+                for offset in 0..Self::unusable_rows().0 {
+                    config.q_first_rows.enable(&mut region, offset)?;
+                }
+
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
@@ -754,6 +831,7 @@ mod test {
             }
         }
     }
+
     fn test_state_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
         let circuit = StateTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
@@ -784,6 +862,7 @@ mod test {
     fn test_valid_ordering_state() {
         let witness = Witness {
             state: vec![
+                Row::default(),
                 Row {
                     tag: Some(Tag::Stack),
                     call_id_contract_addr: Some(1.into()),

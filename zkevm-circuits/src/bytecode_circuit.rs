@@ -1,3 +1,4 @@
+use crate::bitwise_circuit::BitwiseCircuit;
 use crate::table::LookupEntry;
 use crate::table::{BytecodeTable, FixedTable, KeccakTable, PublicTable};
 use crate::util::{
@@ -54,6 +55,7 @@ use std::marker::PhantomData;
 #[allow(unused)]
 #[derive(Clone)]
 pub struct BytecodeCircuitConfig<F> {
+    q_first_rows: Selector,
     q_enable: Selector,
     /// the contract address of the bytecodes (need to copy from public input)
     addr: Column<Advice>,
@@ -179,7 +181,9 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             None,
         );
         // construct config object
+        let q_first_rows = meta.selector();
         let config = Self {
+            q_first_rows,
             q_enable,
             addr,
             pc,
@@ -404,6 +408,76 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         config.bytecode_lookup(meta, "BYTECODE_LOOKUP_FIXED");
         config.keccak_lookup(meta, "BYTECODE_LOOKUP_KECCAK_HASH");
         config.public_lookup(meta, "BYTECODE_LOOKUP_PUBLIC_CODE_HASH");
+
+        meta.create_gate("BYTECODE_q_first_rows_constrains", |meta| {
+            let q_first_rows = meta.query_selector(config.q_first_rows);
+            let addr = meta.query_advice(config.addr, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let pc = meta.query_advice(config.pc, Rotation::cur());
+            let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
+            let value_hi = meta.query_advice(config.value_hi, Rotation::cur());
+            let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
+            let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
+            let is_high = meta.query_advice(config.is_high, Rotation::cur());
+            let rlc_acc = meta.query_advice(config.rlc_acc, Rotation::cur());
+            let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
+            let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let cnt_is_15 = config.cnt_is_15.expr();
+            let addr_unchange = config.addr_unchange.expr();
+            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
+
+            vec![
+                ("q_first_rows=1 => addr=0", q_first_rows.clone() * addr),
+                ("q_first_rows=1 => pc=0", q_first_rows.clone() * pc),
+                (
+                    "q_first_rows=1 => bytecode=0",
+                    q_first_rows.clone() * bytecode,
+                ),
+                (
+                    "q_first_rows=1 => value_hi=0",
+                    q_first_rows.clone() * value_hi,
+                ),
+                (
+                    "q_first_rows=1 => value_lo=0",
+                    q_first_rows.clone() * value_lo,
+                ),
+                ("q_first_rows=1 => acc_lo=0", q_first_rows.clone() * acc_lo),
+                ("q_first_rows=1 ==> cnt=0", q_first_rows.clone() * cnt),
+                (
+                    "q_first_rows=1 => is_high=0",
+                    q_first_rows.clone() * is_high,
+                ),
+                (
+                    "q_first_rows=1 => rlc_acc=0",
+                    q_first_rows.clone() * rlc_acc,
+                ),
+                (
+                    "q_first_rows=1 => hash_hi=0",
+                    q_first_rows.clone() * hash_hi,
+                ),
+                (
+                    "q_first_rows=1 => hash_lo=0",
+                    q_first_rows.clone() * hash_lo,
+                ),
+                (
+                    "q_first_rows=1 => cnt_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - cnt_is_zero),
+                ),
+                (
+                    "q_first_rows=1 => cnt_is_15=0",
+                    q_first_rows.clone() * cnt_is_15,
+                ),
+                (
+                    "q_first_rows=1 => addr_unchange=1",
+                    q_first_rows.clone() * (1.expr() - addr_unchange),
+                ),
+                (
+                    "q_first_rows=1 => addr_is_zero=1",
+                    q_first_rows.clone() * (1.expr() - addr_is_zero),
+                ),
+            ]
+        });
 
         config
     }
@@ -815,6 +889,11 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 
                 // assign circuit table value
                 config.assign_with_region(&mut region, challenges, &self.witness, MAX_NUM_ROW)?;
+
+                // enable q_first_rows
+                for offset in 0..Self::unusable_rows().0 {
+                    config.q_first_rows.enable(&mut region, offset)?;
+                }
 
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
