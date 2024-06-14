@@ -7,8 +7,8 @@ use crate::util::{
 use crate::witness::public::{Row, Tag};
 use crate::witness::Witness;
 use eth_types::{Field, U256};
-use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
+use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::{expr_from_be_bytes, Expr};
 use halo2_proofs::circuit::{Layouter, Region, Value};
 use halo2_proofs::plonk::{
@@ -63,13 +63,18 @@ pub struct PublicCircuitConfig<F: Field> {
     hash_lo: Column<Advice>,
 
     /// Tag for arithmetic operation type
-    tag_binary: BinaryNumberConfig<Tag, LOG_NUM_PUBLIC_TAG>,
+    // tag_binary: BinaryNumberConfig<Tag, LOG_NUM_PUBLIC_TAG>,
 
     /// first valid row
     pub is_first_valid_row: IsZeroConfig<F>,
 
     /// last valid row
     pub is_last_valid_row: IsZeroConfig<F>,
+
+    /// tag flag
+    pub tag_is_nil: IsZeroWithRotationConfig<F>,
+    pub tag_is_tx_logdata: IsZeroWithRotationConfig<F>,
+    pub tag_is_tx_calldata: IsZeroWithRotationConfig<F>,
 
     // table used for lookup
     keccak_table: KeccakTable,
@@ -118,7 +123,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         let hash_lo = meta.advice_column();
         let cnt = meta.advice_column();
         let length = meta.advice_column();
-        let tag_binary = BinaryNumberChip::configure(meta, q_enable.clone(), None);
+        //let tag_binary = BinaryNumberChip::configure(meta, q_enable.clone(), None);
 
         // define instance column
         meta.enable_equality(instance_hash);
@@ -149,6 +154,23 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             _is_last_valid_row_inv,
         );
 
+        // tag flag
+        let tag_is_nil = IsZeroWithRotationChip::configure_with_new_value_col(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            None,
+        );
+        let tag_is_tx_logdata = IsZeroWithRotationChip::configure_with_new_value_col(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            None,
+        );
+        let tag_is_tx_calldata = IsZeroWithRotationChip::configure_with_new_value_col(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            None,
+        );
+
         let config = Self {
             q_enable,
             instance_hash,
@@ -163,9 +185,11 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             length,
             hash_hi,
             hash_lo,
-            tag_binary,
             is_first_valid_row,
             is_last_valid_row,
+            tag_is_nil,
+            tag_is_tx_logdata,
+            tag_is_tx_calldata,
             keccak_table,
         };
 
@@ -187,18 +211,16 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let mut constrains = vec![];
 
             // challenge constrains
-            // constrains.extend(vec![
-            //     // in the first row(cnt==0) challenge == challenge_original
-            //     q_enable.clone()
-            //         * is_first_row.clone()
-            //         * (challenge_cur.clone() - challenge_original.clone()),
-            //     //non-first row challenge_cur = challenge_prev*challenge_original
-            //     q_enable.clone()
-            //         * (1.expr()
-            //             - is_first_valid_row.clone()
-            //                 * (challenge_cur.clone()
-            //                     - challenge_prev * challenge_original.clone())),
-            // ]);
+            constrains.extend(vec![
+                // in the first row(cnt==0) challenge == challenge_original
+                q_enable.clone()
+                    * is_first_valid_row.clone()
+                    * (challenge_cur.clone() - challenge_original.clone()),
+                // non-first row challenge_cur = challenge_prev*challenge_original
+                q_enable.clone()
+                    * (1.expr() - is_first_valid_row.clone())
+                    * (challenge_cur.clone() - challenge_prev * challenge_original.clone()),
+            ]);
 
             // random constrains
             for i in 0..NUM_RANDOM {
@@ -239,7 +261,6 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let q_enable = meta.query_selector(config.q_enable);
             let length_prev = meta.query_advice(config.length, Rotation::prev());
             let cnt_prev = meta.query_advice(config.cnt, Rotation::prev());
-            let is_first_valid_row = config.is_first_valid_row.expr();
 
             let length = meta.query_advice(config.length, Rotation::cur());
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
@@ -301,15 +322,9 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let value2 = meta.query_advice(config.values[2], Rotation::cur());
             let value3 = meta.query_advice(config.values[3], Rotation::cur());
 
-            let tag_is_nil = config.tag_binary.value_equals(Tag::Nil, Rotation::cur())(meta);
-            let tag_is_tx_calldata =
-                config
-                    .tag_binary
-                    .value_equals(Tag::TxCalldata, Rotation::cur())(meta);
-            let tag_is_tx_logdata =
-                config
-                    .tag_binary
-                    .value_equals(Tag::TxLogData, Rotation::cur())(meta);
+            let tag_is_nil = config.tag_is_nil.expr_at(meta, Rotation::cur());
+            let tag_is_tx_calldata = config.tag_is_tx_calldata.expr_at(meta, Rotation::cur());
+            let tag_is_tx_logdata = config.tag_is_tx_logdata.expr_at(meta, Rotation::cur());
 
             let tag_is_not_nil = 1.expr() - tag_is_nil.clone();
             let tag_is_not_tx_calldata = 1.expr() - tag_is_tx_calldata.clone();
@@ -358,13 +373,12 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             for i in 0..NUM_U8 {
                 // if tag != nil && tag != txCalldata && tag != txLogData,
                 // then src_value=target_value
-                // todo: is degree greater than 9?
                 constrains.push(
-                    q_enable.clone()
-                        * tag_is_not_nil.clone()
-                        * tag_is_not_tx_calldata.clone()
-                        * tag_is_not_tx_logdata.clone()
-                        * (target_value_vec[i].clone() - src_value_vec[i].clone()),
+                    q_enable.clone() // degree: 1
+                        * tag_is_not_nil.clone()  // degree: 5
+                        * tag_is_not_tx_calldata.clone() // degree:5 
+                        * tag_is_not_tx_logdata.clone() // degree: 5
+                        * (target_value_vec[i].clone() - src_value_vec[i].clone()), // degree: 1
                 );
 
                 // if tag != nil && (tag == txCallData || tag == txLogData),
@@ -404,15 +418,9 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let value0_prev = meta.query_advice(config.values[0], Rotation::prev());
             let value2_prev = meta.query_advice(config.values[2], Rotation::prev());
 
-            let tag_is_nil = config.tag_binary.value_equals(Tag::Nil, Rotation::cur())(meta);
-            let tag_is_tx_calldata =
-                config
-                    .tag_binary
-                    .value_equals(Tag::TxCalldata, Rotation::cur())(meta);
-            let tag_is_tx_logdata =
-                config
-                    .tag_binary
-                    .value_equals(Tag::TxLogData, Rotation::cur())(meta);
+            let tag_is_nil = config.tag_is_nil.expr_at(meta, Rotation::cur());
+            let tag_is_tx_calldata = config.tag_is_tx_calldata.expr_at(meta, Rotation::cur());
+            let tag_is_tx_logdata = config.tag_is_tx_logdata.expr_at(meta, Rotation::cur());
 
             let tag_is_not_nil = 1.expr() - tag_is_nil.clone();
             let tag_is_not_tx_calldata = 1.expr() - tag_is_tx_calldata.clone();
@@ -428,19 +436,14 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             //      tag.Rotation(-15) == nil
             for rotation in 1..NUM_ROTATION {
                 let tag_is_nil_rotation = config
-                    .tag_binary
-                    .value_equals(Tag::Nil, Rotation(-(rotation as i32)))(
-                    meta
-                );
-                let tag_rotation = meta.query_advice(config.tag, Rotation(-(rotation as i32)));
-                // todo: is degree greater than 9?
+                    .tag_is_nil
+                    .expr_at(meta, Rotation(-(rotation as i32)));
                 constrains.push(
                     q_enable.clone()
                         * tag_is_not_nil.clone()
                         * tag_is_not_tx_calldata.clone()
                         * tag_is_not_tx_logdata.clone()
-                        * tag_is_nil_rotation
-                        * tag_rotation,
+                        * (1.expr() - tag_is_nil_rotation),
                 );
             }
 
@@ -531,6 +534,7 @@ impl<F: Field> PublicCircuitConfig<F> {
         // assign valid row
 
         // calc random, random = challenge^length
+        // challenge, challenge^2, challenge^3, challenge^4...challenge^length
         let mut challenge_vec = vec![challenge];
         for i in 1..witness.public.len() - num_padding_begin {
             challenge_vec.push(challenge_vec[i - 1] * challenge)
@@ -636,9 +640,12 @@ impl<F: Field> PublicCircuitConfig<F> {
             rlc_acc_vec.push(rlc_acc)
         }
 
-        let tag_binary = BinaryNumberChip::construct(self.tag_binary);
+        //let tag_binary = BinaryNumberChip::construct(self.tag_binary);
         let is_first_valid_row = IsZeroChip::construct(self.is_first_valid_row.clone());
         let is_last_valid_row = IsZeroChip::construct(self.is_last_valid_row.clone());
+        let tag_is_nil = IsZeroWithRotationChip::construct(self.tag_is_nil.clone());
+        let tag_is_tx_logdata = IsZeroWithRotationChip::construct(self.tag_is_tx_logdata.clone());
+        let tag_is_tx_calldata = IsZeroWithRotationChip::construct(self.tag_is_tx_calldata.clone());
 
         // original value
         assign_advice_or_fixed_with_u256(region, offset, &U256::from(row.tag as u8), self.tag)?;
@@ -698,9 +705,9 @@ impl<F: Field> PublicCircuitConfig<F> {
         )?;
 
         // assign tag_binary
-        tag_binary.assign(region, offset, &row.tag)?;
+        // tag_binary.assign(region, offset, &row.tag)?;
 
-        // assign flag
+        // assign cnt flag
         let length_v =
             F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.length.unwrap_or_default()));
         let cnt_v = F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt.unwrap_or_default()));
@@ -713,6 +720,24 @@ impl<F: Field> PublicCircuitConfig<F> {
             region,
             offset,
             Value::known(length_v + F::from(NUM_BEGINNING_PADDING_ROW as u64) - cnt_v - F::from(1)),
+        )?;
+
+        // assign tag flag
+        let tag_v = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(row.tag as u8)));
+        tag_is_nil.assign(
+            region,
+            offset,
+            Value::known(tag_v - F::from((Tag::Nil as u8) as u64)),
+        )?;
+        tag_is_tx_logdata.assign(
+            region,
+            offset,
+            Value::known(tag_v - F::from((Tag::TxLogData as u8) as u64)),
+        )?;
+        tag_is_tx_calldata.assign(
+            region,
+            offset,
+            Value::known(tag_v - F::from((Tag::TxCalldata as u8) as u64)),
         )?;
         Ok(())
     }
