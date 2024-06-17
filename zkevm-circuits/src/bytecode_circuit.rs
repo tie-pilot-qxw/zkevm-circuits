@@ -864,7 +864,6 @@ mod test {
     use halo2_proofs::dev::{CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::plonk::Circuit;
-    use std::fs::File;
 
     #[derive(Clone)]
     pub struct BytecodeTestCircuitConfig<F: Field> {
