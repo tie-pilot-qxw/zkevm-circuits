@@ -246,12 +246,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let call_id = current_state.state_stamp + 1;
-        // update call_id and tx_idx due to will be accessed in get_write_call_context_row
-        // 设置将执行交易的call_id和tx_idx；Note：tx_idx从1开始
-        current_state.call_id = call_id;
-        current_state.tx_idx += 1;
-
         // 记录交易的to地址或 创建合约交易新创建的合约地址
         let addr = current_state.code_addr;
         let write_addr_row = current_state.get_write_call_context_row(
@@ -263,7 +257,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 记录交易的calldata size
         let calldata_size = current_state
             .call_data
-            .get(&call_id)
+            .get(&current_state.call_id)
             .map(|v| v.len())
             .unwrap_or_default();
         let write_calldata_size_row = current_state.get_write_call_context_row(
@@ -402,6 +396,7 @@ mod test {
             call_data_size,
             code_addr,
             storage_contract_addr,
+            tx_idx: 1,
             ..WitnessExecHelper::new()
         };
         let trace = prepare_trace_step!(0, OpcodeId::PUSH1, stack);
@@ -414,6 +409,7 @@ mod test {
             );
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
                 Some(stack_pointer.into());
+            row.tx_idx = 0.into();
             row
         };
         let padding_end_row = |current_state| {

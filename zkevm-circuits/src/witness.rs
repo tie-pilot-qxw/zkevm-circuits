@@ -41,7 +41,7 @@ use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 #[derive(Debug, Default, Clone)]
@@ -244,11 +244,58 @@ impl WitnessExecHelper {
         }
     }
 
-    pub fn reset_state_end_tx(&mut self) {
+    pub fn initialize_each_block(&mut self) {
+        self.state_db = StateDB::new();
+        self.value = HashMap::new();
+        self.tx_value = 0.into();
+        self.sender = HashMap::new();
+        self.code_addr = 0.into();
+        self.storage_contract_addr = HashMap::new();
+        self.bytecode = HashMap::new();
+        self.gas_left = 0;
+        self.is_create = false;
+        self.memory_chunk = 0;
+        self.memory_chunk_prev = 0;
+        self.call_id = 0;
+        self.call_id_new = 0;
+        self.tx_idx = 0;
+        self.stack_pointer = 0;
+        self.parent_stack_pointer = HashMap::new();
+        self.parent_memory_chunk = HashMap::new();
+        self.stack_top = None;
+        self.parent_pc = HashMap::new();
+        self.parent_call_id = HashMap::new();
+        self.returndata_call_id = 0;
+        self.returndata_size = 0.into();
+        self.log_stamp = 0;
+        self.parent_gas = HashMap::new();
+        self.memory_gas_cost = 0;
+        self.parent_gas_cost = HashMap::new();
+        self.call_data = HashMap::new();
+        self.call_data_gas_cost = HashMap::new();
+        self.call_data_size = HashMap::new();
+        self.return_data = HashMap::new();
+        self.parent_code_addr = HashMap::new();
+        self.refund = 0;
+        self.topic_left = 0;
+        self.sar = None;
+        self.next_exec_state = None;
+        self.new_memory_size = None;
+        self.length_in_stack = None;
+        self.is_create = false;
+    }
+
+    pub fn initialize_each_tx(&mut self) {
+        self.parent_stack_pointer = HashMap::new();
+        self.parent_memory_chunk = HashMap::new();
+        self.stack_top = None;
+        self.parent_pc = HashMap::new();
         self.stack_pointer = 0;
         self.returndata_call_id = 0;
         self.returndata_size = 0.into();
         self.return_success = false;
+        self.memory_chunk = 0;
+        self.memory_chunk_prev = 0;
         self.state_db.reset_tx();
     }
 
@@ -262,17 +309,16 @@ impl WitnessExecHelper {
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
     ) -> Witness {
-        let trace = &geth_data.geth_traces.get(tx_idx).unwrap().struct_logs;
+        // tx_idx counts from 1.
+        let index = tx_idx - 1;
+        let trace = &geth_data.geth_traces.get(index).unwrap().struct_logs;
         let tx = geth_data
             .eth_block
             .transactions
-            .get(tx_idx)
+            .get(index)
             .expect("tx_idx out of bounds");
         let call_id = self.state_stamp + 1;
-        assert_eq!(
-            tx_idx, self.tx_idx,
-            "the tx idx should match that in current_state"
-        );
+        self.call_id = call_id;
 
         // due to we decide to start idx at 1 in witness
         // if contract-create tx, calculate `to`, else convert `to`
@@ -301,8 +347,7 @@ impl WitnessExecHelper {
         self.bytecode = bytecode;
         self.gas_left = tx.gas.as_u64();
         self.is_create = tx.to.is_none();
-        self.memory_chunk = 0;
-        self.memory_chunk_prev = 0;
+        self.tx_idx = tx_idx;
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
@@ -410,7 +455,7 @@ impl WitnessExecHelper {
                 _ => {}
             }
         }
-        let is_last_tx_in_block = tx_idx == geth_data.geth_traces.len() - 1;
+        let is_last_tx_in_block = tx_idx == geth_data.geth_traces.len();
         // 若为最后一笔交易,则下一个状态是end_block,否则下一个状态为begin_tx_1
         if is_last_tx_in_block {
             self.next_exec_state = Some(ExecutionState::END_BLOCK);
@@ -423,11 +468,6 @@ impl WitnessExecHelper {
                 .unwrap()
                 .gen_witness(last_step, self),
         );
-        // 非区块中最后一笔交易，需清除上笔交易的状态，否则会将其它交易的状态写入下一笔
-        // 交易的witness导致约束失败。
-        if !is_last_tx_in_block {
-            self.reset_state_end_tx()
-        }
         res
     }
 
@@ -3095,15 +3135,21 @@ impl Witness {
     fn insert_block_related(&mut self, chunk_data: &ChunkData) {
         self.public
             .append(&mut public::Row::from_chunk_data(&chunk_data).unwrap());
+        let mut bytecode_set = HashSet::new();
+
         for account in chunk_data.blocks.iter().flat_map(|b| b.accounts.iter()) {
-            if !account.code.is_empty() {
-                let machine_code = account.code.as_ref();
+            let machine_code = account.code.as_ref();
+            let code_hash = calc_keccak_hi_lo(machine_code);
+
+            if !account.code.is_empty() && !bytecode_set.contains(&(account.address, code_hash)) {
                 let mut bytecode_table = Self::gen_bytecode_witness(account.address, machine_code);
                 // add to keccak_inputs
                 if machine_code.len() > 0 {
                     self.keccak.push(machine_code.to_vec());
                 }
                 self.bytecode.append(&mut bytecode_table);
+
+                bytecode_set.insert((account.address, code_hash));
             }
         }
     }
@@ -3220,25 +3266,32 @@ impl Witness {
         // insert begin chunk
         witness.insert_begin_chunk(&mut current_state, &execution_gadgets_map);
 
-        for (block_idx, block) in chunk_data.blocks.iter().enumerate() {
-            // initialize block_idx, txs number and log number in current_state with GethData
-            current_state.block_idx = block_idx + 1;
+        for (i, block) in chunk_data.blocks.iter().enumerate() {
+            // initialize current_state per block
+            current_state.initialize_each_block();
+
+            let block_idx = i + 1;
+            // set block_idx, txs number and log number in current_state with GethData
+            current_state.block_idx = block_idx;
             current_state
                 .tx_num_in_block
-                .insert(block_idx + 1, block.eth_block.transactions.len());
+                .insert(block_idx, block.eth_block.transactions.len());
             current_state.log_num_in_block.insert(
-                block_idx + 1,
+                block_idx,
                 block.logs.iter().map(|log_data| log_data.logs.len()).sum(),
             );
 
-            current_state.state_db = StateDB::new();
             current_state.preprocess_storage(block);
 
             witness.insert_begin_block(&mut current_state, &execution_gadgets_map);
 
-            for i in 0..block.geth_traces.len() {
+            for j in 0..block.geth_traces.len() {
+                // initialize current_state per tx
+                current_state.initialize_each_tx();
+
+                let tx_idx = j + 1;
                 let trace_related_witness =
-                    current_state.generate_trace_witness(block, i, &execution_gadgets_map);
+                    current_state.generate_trace_witness(block, tx_idx, &execution_gadgets_map);
                 witness.append(trace_related_witness);
             }
             // step 4: insert END_BLOCK
