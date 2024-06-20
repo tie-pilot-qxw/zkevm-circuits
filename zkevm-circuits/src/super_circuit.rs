@@ -463,21 +463,21 @@ mod tests {
         // let proof_size: usize = circuit_cost.proof_size(1).into();
         println!("Proof cost {:#?}", circuit_cost);
 
-        // println!(
-        //     "{} lookups {}",
-        //     vec!["#"; 20].join(""),
-        //     vec!["#"; 20].join("")
-        // );
-        // let mut cs = ConstraintSystem::default();
-        // let _config = SuperCircuit::<
-        //     Fr,
-        //     MAX_NUM_ROW,
-        //     MAX_CODESIZE,
-        //     NUM_STATE_HI_COL,
-        //     NUM_STATE_LO_COL,
-        // >::configure(&mut cs);
-        // for lookup in cs.lookups() {
-        //     println!("{}: {:?}", lookup, lookup);
-        // }
+        println!(
+            "{} lookups {}",
+            vec!["#"; 20].join(""),
+            vec!["#"; 20].join("")
+        );
+        let mut cs = ConstraintSystem::default();
+        let _config = SuperCircuit::<
+            Fr,
+            MAX_NUM_ROW,
+            MAX_CODESIZE,
+            NUM_STATE_HI_COL,
+            NUM_STATE_LO_COL,
+        >::configure(&mut cs);
+        for lookup in cs.lookups() {
+            println!("{}: {:?}", lookup.name(), lookup);
+        }
     }
 }
