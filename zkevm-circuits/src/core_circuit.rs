@@ -601,7 +601,7 @@ mod test {
                 },
             )?;
 
-            // assign exp table, but do not enable selector, since we are not testing it here
+            // assign public table, but do not enable selector, since we are not testing it here
             layouter.assign_region(
                 || "test, public circuit",
                 |mut region| {

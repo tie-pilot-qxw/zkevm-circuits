@@ -48,6 +48,9 @@ fn test_erc20_t02_a_transfer_b_200() {
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_receipt.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/bytecode.json",
     ));
+    let mut buf = std::io::BufWriter::new(File::create("public_test.html").unwrap());
+    witness.write_html(&mut buf);
+
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();

@@ -1,4 +1,6 @@
-use crate::constant::PUBLIC_NUM_VALUES;
+use crate::constant::{
+    PUBLIC_NUM_BEGINNING_PADDING_ROW, PUBLIC_NUM_VALUE, PUBLIC_NUM_VALUES, PUBLIC_NUM_VALUES_U8_ROW,
+};
 use crate::table::{KeccakTable, LookupEntry, PublicTable};
 use crate::util::{
     assign_advice_or_fixed_with_u256, assign_advice_or_fixed_with_value, convert_u256_to_64_bytes,
@@ -17,14 +19,11 @@ use halo2_proofs::plonk::{
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_RLC_ACC: usize = 6;
-const NUM_U8: usize = 6;
+const NUM_RLC_ACC: usize = PUBLIC_NUM_VALUE;
+const NUM_U8: usize = PUBLIC_NUM_VALUE;
 const NUM_RANDOM: usize = 5;
-const NUM_ROTATION: usize = 15;
-const MULTIPLES_OF_LENGTH: usize = 6;
-const NUM_BEGINNING_PADDING_ROW: usize = 15;
-
-const LOG_NUM_PUBLIC_TAG: usize = 5;
+const MULTIPLES_OF_LENGTH: usize = PUBLIC_NUM_VALUE;
+const NUM_ROTATION: usize = PUBLIC_NUM_VALUES_U8_ROW - 1;
 
 #[derive(Clone, Debug)]
 pub struct PublicCircuitConfig<F: Field> {
@@ -52,29 +51,35 @@ pub struct PublicCircuitConfig<F: Field> {
     // challenge | challenge^2 | challenge^3....challenge^length
     challenge: Column<Advice>,
 
-    /// the row counter starts at 0 and increases automatically
+    /// the row counter starts at 1 and increases automatically
     cnt: Column<Advice>,
     /// the total length of row
     length: Column<Advice>,
 
     /// High 128 bits of the contract bytecode hash result
     hash_hi: Column<Advice>,
-    // Low 128 bits of the contract bytecode hash result
+    /// Low 128 bits of the contract bytecode hash result
     hash_lo: Column<Advice>,
 
-    /// Tag for arithmetic operation type
-    // tag_binary: BinaryNumberConfig<Tag, LOG_NUM_PUBLIC_TAG>,
-
-    /// first valid row
+    /// cnt flag
+    /// is_first_valid_row: cnt == 1
     pub is_first_valid_row: IsZeroConfig<F>,
 
     /// last valid row
+    /// is_last_valid_row: cnt != 0 && cnt_next == 0 && cnt == length
     pub is_last_valid_row: IsZeroConfig<F>,
+
+    /// cnt_is_zero: cnt == 0
+    pub cnt_is_zero: IsZeroWithRotationConfig<F>,
 
     /// tag flag
     pub tag_is_nil: IsZeroWithRotationConfig<F>,
     pub tag_is_tx_logdata: IsZeroWithRotationConfig<F>,
     pub tag_is_tx_calldata: IsZeroWithRotationConfig<F>,
+
+    /// used to determine whether data_idx(value0) is 0 when tag is txLogData or txCallData
+    /// when tag is txLogData or txCallData and idx(value0) is 0, value1(data) will be split into 16 bytes.
+    pub value0_is_zero: IsZeroWithRotationConfig<F>,
 
     // table used for lookup
     keccak_table: KeccakTable,
@@ -123,7 +128,6 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         let hash_lo = meta.advice_column();
         let cnt = meta.advice_column();
         let length = meta.advice_column();
-        //let tag_binary = BinaryNumberChip::configure(meta, q_enable.clone(), None);
 
         // define instance column
         meta.enable_equality(instance_hash);
@@ -131,13 +135,20 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         meta.enable_equality(hash_lo);
 
         // cnt flag
+        let cnt_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            cnt,
+            None,
+        );
+
         let _is_first_valid_row_inv = meta.advice_column();
         let is_first_valid_row = IsZeroChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
             |meta| {
                 let cnt = meta.query_advice(cnt, Rotation::cur());
-                cnt - NUM_BEGINNING_PADDING_ROW.expr()
+                cnt - 1.expr()
             },
             _is_first_valid_row_inv,
         );
@@ -147,9 +158,10 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             meta,
             |meta| meta.query_selector(q_enable),
             |meta| {
-                let cnt = meta.query_advice(cnt, Rotation::cur());
-                let length = meta.query_advice(length, Rotation::cur());
-                length + NUM_BEGINNING_PADDING_ROW.expr() - cnt - 1.expr()
+                let cnt_cur_is_zero = cnt_is_zero.expr_at(meta, Rotation::cur());
+                let cnt_next_is_zero = cnt_is_zero.expr_at(meta, Rotation::next());
+                // cnt != 0 && cnt_next == 0
+                cnt_next_is_zero - cnt_cur_is_zero - 1.expr()
             },
             _is_last_valid_row_inv,
         );
@@ -171,6 +183,14 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             None,
         );
 
+        // value0 is zero
+        let value0_is_zero = IsZeroWithRotationChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            values[0],
+            None,
+        );
+
         let config = Self {
             q_enable,
             instance_hash,
@@ -187,9 +207,11 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             hash_lo,
             is_first_valid_row,
             is_last_valid_row,
+            cnt_is_zero,
             tag_is_nil,
             tag_is_tx_logdata,
             tag_is_tx_calldata,
+            value0_is_zero,
             keccak_table,
         };
 
@@ -201,6 +223,8 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let challenge_prev = meta.query_advice(config.challenge, Rotation::prev());
             let is_first_valid_row = config.is_first_valid_row.expr();
             let is_last_valid_row = config.is_last_valid_row.expr();
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let is_valid_row = 1.expr() - cnt_is_zero;
 
             let (mut random_vec_cur, mut random_vec_prev) = (vec![], vec![]);
             for i in 0..NUM_RANDOM {
@@ -212,12 +236,13 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
 
             // challenge constrains
             constrains.extend(vec![
-                // in the first row(cnt==0) challenge == challenge_original
+                // if the first row(cnt==1), then challenge == challenge_original
                 q_enable.clone()
                     * is_first_valid_row.clone()
                     * (challenge_cur.clone() - challenge_original.clone()),
-                // non-first row challenge_cur = challenge_prev*challenge_original
+                // if cnt is not 0 and non-first row, then challenge_cur = challenge_prev*challenge_original
                 q_enable.clone()
+                    * is_valid_row.clone()
                     * (1.expr() - is_first_valid_row.clone())
                     * (challenge_cur.clone() - challenge_prev * challenge_original.clone()),
             ]);
@@ -227,6 +252,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 // if it is not the first row, the random of the current row is equal to the random of the previous row
                 constrains.push(
                     q_enable.clone()
+                        * is_valid_row.clone()
                         * (1.expr() - is_first_valid_row.clone())
                         * (random_vec_cur[i].clone() - random_vec_prev[i].clone()),
                 );
@@ -246,6 +272,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 } else {
                     constrains.push(
                         q_enable.clone()
+                            * is_valid_row.clone()
                             * (random_vec_cur[i].clone()
                                 - random_vec_cur[i - 1].clone() * random_vec_cur[0].clone()),
                     )
@@ -259,16 +286,29 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         // the cnt value of the beginning padding row is 0 and the length value is length
         meta.create_gate("PUBLIC_CNT_LENGTH", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
+            let length = meta.query_advice(config.length, Rotation::cur());
+            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+
             let length_prev = meta.query_advice(config.length, Rotation::prev());
             let cnt_prev = meta.query_advice(config.cnt, Rotation::prev());
 
-            let length = meta.query_advice(config.length, Rotation::cur());
-            let cnt = meta.query_advice(config.cnt, Rotation::cur());
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let is_valid_row = 1.expr() - cnt_is_zero;
+            let is_last_valid_row = config.is_last_valid_row.expr();
+            let is_first_valid_row = config.is_first_valid_row.expr();
+
             vec![
                 // the cnt value is increasing, and the difference between every two rows of cnt is 1
-                q_enable.clone() * (cnt.clone() - cnt_prev - 1.expr()),
+                q_enable.clone() * is_valid_row.clone() * (cnt.clone() - cnt_prev - 1.expr()),
+                // the rows before first_valid_row are all pdding rows(all values are 0)
+                q_enable.clone() * is_first_valid_row.clone() * length_prev.clone(),
                 // the values of length are the same
-                q_enable.clone() * (length.clone() - length_prev),
+                q_enable.clone()
+                    * is_valid_row
+                    * (1.expr() - is_first_valid_row.clone())
+                    * (length.clone() - length_prev),
+                // the row where last_valid_row is located, the value of length is equal to cnt
+                q_enable.clone() * is_last_valid_row * (length - cnt),
             ]
         });
 
@@ -277,6 +317,8 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let challenge = challenges_expr.keccak_input();
             let q_enable = meta.query_selector(config.q_enable);
             let is_first_valid_row = config.is_first_valid_row.expr();
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let is_valid_row = 1.expr() - cnt_is_zero;
 
             let (mut values_u8_vec_cur, mut rlc_acc_vec_cur, mut rlc_acc_vec_prev) =
                 (vec![], vec![], vec![]);
@@ -300,6 +342,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 // not the first row， rlc_acc = rlc_acc_prev*challenge + value_u8
                 constrains.push(
                     q_enable.clone()
+                        * is_valid_row.clone()
                         * (1.expr() - is_first_valid_row.clone())
                         * (rlc_acc_vec_cur[i].clone()
                             - rlc_acc_vec_prev[i].clone() * challenge.clone()
@@ -325,6 +368,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let tag_is_nil = config.tag_is_nil.expr_at(meta, Rotation::cur());
             let tag_is_tx_calldata = config.tag_is_tx_calldata.expr_at(meta, Rotation::cur());
             let tag_is_tx_logdata = config.tag_is_tx_logdata.expr_at(meta, Rotation::cur());
+            let data_idx_is_zero = config.value0_is_zero.expr_at(meta, Rotation::cur());
 
             let tag_is_not_nil = 1.expr() - tag_is_nil.clone();
             let tag_is_not_tx_calldata = 1.expr() - tag_is_tx_calldata.clone();
@@ -374,28 +418,39 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 // if tag != nil && tag != txCalldata && tag != txLogData,
                 // then src_value=target_value
                 constrains.push(
-                    q_enable.clone() // degree: 1
-                        * tag_is_not_nil.clone()  // degree: 5
-                        * tag_is_not_tx_calldata.clone() // degree:5 
-                        * tag_is_not_tx_logdata.clone() // degree: 5
-                        * (target_value_vec[i].clone() - src_value_vec[i].clone()), // degree: 1
+                    q_enable.clone()
+                        * tag_is_not_nil.clone()
+                        * tag_is_not_tx_calldata.clone()
+                        * tag_is_not_tx_logdata.clone()
+                        * (target_value_vec[i].clone() - src_value_vec[i].clone()),
                 );
 
-                // if tag != nil && (tag == txCallData || tag == txLogData),
-                // then value1 == value1_u8 &&
-                //   value0_u8 == 0 && value2_u8 == 0 && value3_u8 == 0 && tag_u8 == 0 && block_tx_idx == 0
+                // if tag != nil && (tag == txCallData || tag == txLogData) && data_idx == 0, then src_value[3] == target_value[3]
+                // value1(data) at idx==0 is split into 16 bytes
+                constrains.push(
+                    q_enable.clone()
+                        * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
+                        * data_idx_is_zero.clone()
+                        * (target_value_vec[i].clone() - src_value_vec[i].clone()),
+                );
+
+                // tag == txCallData or tag == txLogData can already indicate tag!=nil
                 if i == 3 {
+                    // if tag != nil && tag == txCallData || tag == txLogData && idx != 0
+                    // then value1 == value1_u8 &&
                     constrains.push(
                         q_enable.clone()
-                            * tag_is_not_nil.clone()
                             * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
+                            * (1.expr() - data_idx_is_zero.clone())
                             * (u8_cur_vec[i].clone() - src_value_vec[i].clone()),
                     );
                 } else {
+                    // if tag != nil && (tag == txCallData || tag == txLogData) && idx != 0
+                    //   then value0_u8 == 0 && value2_u8 == 0 && value3_u8 == 0 && tag_u8 == 0 && block_tx_idx == 0
                     constrains.push(
                         q_enable.clone()
-                            * tag_is_not_nil.clone()
                             * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
+                            * (1.expr() - data_idx_is_zero.clone())
                             * u8_cur_vec[i].clone(),
                     );
                 }
@@ -513,17 +568,20 @@ impl<F: Field> PublicCircuitConfig<F> {
         challenges: &Challenges<Value<F>>,
         witness: &Witness,
         num_padding_begin: usize,
+        num_row_incl_padding: usize,
     ) -> Result<(), Error> {
         let challenge = challenges.keccak_input();
 
         // assign begin padding row
         let default_random_vec = vec![Value::known(F::ZERO); NUM_RANDOM];
         let mut default_rlc_acc_vec_prev: Vec<Value<F>> = vec![Value::known(F::ZERO); NUM_RLC_ACC];
+        let defatult_row = Row::default();
         for offset in 0..num_padding_begin {
             self.assign_row(
                 region,
                 offset,
                 &witness.public[offset],
+                &witness.public[offset + 1],
                 Value::known(F::ZERO),
                 &default_random_vec,
                 &mut default_rlc_acc_vec_prev,
@@ -550,14 +608,20 @@ impl<F: Field> PublicCircuitConfig<F> {
         // | tag_u8_rlc_acc | block_tx_idx_u8_rlc_acc | value_0_u8_rlc_acc | value_1_u8_rlc_acc | value_2_u8_rlc_acc | value_3_u8_rlc_acc
         let mut rlc_acc_vec_prev: Vec<Value<F>> = vec![Value::known(F::ZERO); NUM_RLC_ACC];
 
-        // has one padding row, cnt=0
         // assign value to cell
-        for offset in num_padding_begin..witness.public.len() {
+        let public_valid_row_num = witness.public.len();
+        for offset in num_padding_begin..public_valid_row_num {
+            let row_next = if offset == public_valid_row_num - 1 {
+                &defatult_row
+            } else {
+                &witness.public[offset + 1]
+            };
             // assign
             self.assign_row(
                 region,
                 offset,
                 &witness.public[offset],
+                row_next,
                 challenge,
                 &random_vec,
                 &mut rlc_acc_vec_prev,
@@ -566,13 +630,27 @@ impl<F: Field> PublicCircuitConfig<F> {
             self.assign_challenge_row(region, offset, challenge_vec[offset - num_padding_begin])?;
         }
 
+        // assign padding row
+        for offset in witness.public.len()..num_row_incl_padding {
+            self.assign_row(
+                region,
+                offset,
+                &defatult_row,
+                &defatult_row,
+                Value::known(F::ZERO),
+                &default_random_vec,
+                &mut default_rlc_acc_vec_prev,
+            )?;
+            self.assign_challenge_row(region, offset, Value::known(F::ZERO))?;
+        }
+
         Ok(())
     }
 
     pub fn assign_from_instance_with_region(
         &self,
         region: &mut Region<'_, F>,
-        row_num: usize,
+        valid_row_num: usize,
         num_padding_begin: usize,
     ) -> Result<(), Error> {
         let row = 0usize;
@@ -591,7 +669,7 @@ impl<F: Field> PublicCircuitConfig<F> {
             self.hash_lo,
             offset,
         )?;
-        for o in offset + 1..row_num {
+        for o in offset + 1..valid_row_num {
             hash_hi_prev = hash_hi_prev.copy_advice(|| "hash_hi", region, self.hash_hi, o)?;
             hash_lo_prev = hash_lo_prev.copy_advice(|| "hash_lo", region, self.hash_lo, o)?;
         }
@@ -614,6 +692,7 @@ impl<F: Field> PublicCircuitConfig<F> {
         region: &mut Region<'_, F>,
         offset: usize,
         row: &Row,
+        row_next: &Row,
         challenge: Value<F>,
         random_vec: &Vec<Value<F>>,
         rlc_acc_vec_prev: &mut Vec<Value<F>>,
@@ -643,9 +722,13 @@ impl<F: Field> PublicCircuitConfig<F> {
         //let tag_binary = BinaryNumberChip::construct(self.tag_binary);
         let is_first_valid_row = IsZeroChip::construct(self.is_first_valid_row.clone());
         let is_last_valid_row = IsZeroChip::construct(self.is_last_valid_row.clone());
+
+        let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
         let tag_is_nil = IsZeroWithRotationChip::construct(self.tag_is_nil.clone());
         let tag_is_tx_logdata = IsZeroWithRotationChip::construct(self.tag_is_tx_logdata.clone());
         let tag_is_tx_calldata = IsZeroWithRotationChip::construct(self.tag_is_tx_calldata.clone());
+
+        let value0_is_zero = IsZeroWithRotationChip::construct(self.value0_is_zero.clone());
 
         // original value
         assign_advice_or_fixed_with_u256(region, offset, &U256::from(row.tag as u8), self.tag)?;
@@ -708,18 +791,16 @@ impl<F: Field> PublicCircuitConfig<F> {
         // tag_binary.assign(region, offset, &row.tag)?;
 
         // assign cnt flag
-        let length_v =
-            F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.length.unwrap_or_default()));
         let cnt_v = F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.cnt.unwrap_or_default()));
-        is_first_valid_row.assign(
-            region,
-            offset,
-            Value::known(cnt_v - F::from(NUM_BEGINNING_PADDING_ROW as u64)),
-        )?;
+        let cnt_cur_is_zero = row.cnt.unwrap_or_default().is_zero() as u64;
+        let cnt_next_is_zero = row_next.cnt.unwrap_or_default().is_zero() as u64;
+
+        cnt_is_zero.assign(region, offset, Value::known(cnt_v))?;
+        is_first_valid_row.assign(region, offset, Value::known(cnt_v - F::from(1)))?;
         is_last_valid_row.assign(
             region,
             offset,
-            Value::known(length_v + F::from(NUM_BEGINNING_PADDING_ROW as u64) - cnt_v - F::from(1)),
+            Value::known(F::from(cnt_next_is_zero) - F::from(cnt_cur_is_zero) - F::from(1)),
         )?;
 
         // assign tag flag
@@ -739,6 +820,10 @@ impl<F: Field> PublicCircuitConfig<F> {
             offset,
             Value::known(tag_v - F::from((Tag::TxCalldata as u8) as u64)),
         )?;
+
+        let value0_v =
+            F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.value_0.unwrap_or_default()));
+        value0_is_zero.assign(region, offset, Value::known(value0_v))?;
         Ok(())
     }
 
@@ -830,12 +915,12 @@ impl<F: Field> PublicCircuitConfig<F> {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct PublicCircuit<F: Field> {
+pub struct PublicCircuit<F: Field, const MAX_NUM_ROW: usize> {
     witness: Witness,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
+impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PublicCircuit<F, MAX_NUM_ROW> {
     type Config = PublicCircuitConfig<F>;
     type Cells = ();
 
@@ -858,7 +943,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
         layouter: &mut impl Layouter<F>,
         challenges: &Challenges<Value<F>>,
     ) -> Result<(), Error> {
-        let (num_padding_begin, _) = Self::unusable_rows();
+        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         // assign row and calc rlc_acc
         layouter.assign_region(
             || "public circuit",
@@ -869,6 +954,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
                     challenges,
                     &self.witness,
                     num_padding_begin,
+                    MAX_NUM_ROW,
                 )?;
 
                 // assign value from instance
@@ -879,7 +965,7 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
                 )?;
 
                 // sub circuit need to enable selector
-                for offset in num_padding_begin..self.witness.public.len() {
+                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
                 }
                 Ok(())
@@ -888,13 +974,11 @@ impl<F: Field> SubCircuit<F> for PublicCircuit<F> {
     }
 
     fn unusable_rows() -> (usize, usize) {
-        (NUM_BEGINNING_PADDING_ROW, 0)
+        (PUBLIC_NUM_BEGINNING_PADDING_ROW, 1)
     }
 
     fn num_rows(witness: &Witness) -> usize {
-        let (num_padding_begin, num_padding_end) = Self::unusable_rows();
-        // bytecode witness length plus must-have padding in the end
-        num_padding_begin + witness.public.len() + num_padding_end
+        Self::unusable_rows().1 + witness.public.len()
     }
 }
 
@@ -911,10 +995,10 @@ mod test {
     use halo2_proofs::plonk::{Advice, Circuit};
     use halo2_proofs::poly::Rotation;
 
-    const TEST_MAX_NUM_ROW: usize = 65536; // k=16
+    const TEST_MAX_NUM_ROW: usize = 65477; // k=16
     #[derive(Clone, Default, Debug)]
     pub struct PublicTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
-        pub public_circuit: PublicCircuit<F>,
+        pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
     }
 

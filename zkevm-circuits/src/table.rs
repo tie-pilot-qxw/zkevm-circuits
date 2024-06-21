@@ -1,5 +1,6 @@
 use crate::arithmetic_circuit::{LOG_NUM_ARITHMETIC_TAG, NUM_OPERAND};
 use crate::constant::{LOG_NUM_BITWISE_TAG, LOG_NUM_STATE_TAG, PUBLIC_NUM_VALUES};
+use crate::util::assign_advice_or_fixed_with_u256;
 use crate::witness::{arithmetic, exp, public, state, Witness};
 use crate::witness::{bitwise, copy, fixed};
 use eth_types::{Field, U256};
@@ -171,7 +172,6 @@ macro_rules! extract_lookup_expression {
         }
     };
 }
-use crate::util::assign_advice_or_fixed_with_u256;
 pub(crate) use extract_lookup_expression;
 
 /// The table shared between Core Circuit and Stack Circuit

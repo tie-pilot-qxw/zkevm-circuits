@@ -586,7 +586,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         state_vec.extend(state_memory_rows);
 
         let public_rows = if addr_exists.is_zero() {
-            public::Row::new_from_value(public_code_size_row)
+            vec![public_code_size_row]
         } else {
             vec![]
         };

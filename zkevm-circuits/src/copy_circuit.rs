@@ -976,7 +976,7 @@ mod test {
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
-        pub public_circuit: PublicCircuit<F>,
+        pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub fixed_circuit: FixedCircuit<F>,
     }
 

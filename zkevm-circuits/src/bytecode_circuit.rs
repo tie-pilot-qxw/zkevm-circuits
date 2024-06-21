@@ -945,7 +945,7 @@ mod test {
     pub struct BytecodeTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub fixed_circuit: FixedCircuit<F>,
-        pub public_circuit: PublicCircuit<F>,
+        pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
     }
 
@@ -1096,23 +1096,23 @@ mod test {
         let addr2_lo = U256::from(addr2_u256.low_u128());
 
         let mut public_rows = vec![];
-        public_rows.extend(public::Row::new_from_value(public::Row {
+        public_rows.push(public::Row {
             tag: Tag::CodeHash,
             value_0: Some(addr1_hi),
             value_1: Some(addr1_lo),
             value_2: Some(U256::from(contract1_bytecode_hash_hi)),
             value_3: Some(U256::from(contract1_bytecode_hash_lo)),
             ..Default::default()
-        }));
+        });
 
-        public_rows.extend(public::Row::new_from_value(public::Row {
+        public_rows.push(public::Row {
             tag: Tag::CodeHash,
             value_0: Some(addr2_hi),
             value_1: Some(addr2_lo),
             value_2: Some(U256::from(contract2_bytecode_hash_hi)),
             value_3: Some(U256::from(contract2_bytecode_hash_lo)),
             ..Default::default()
-        }));
+        });
 
         // construct Witness object
         let mut witness: Witness = Default::default();
@@ -1120,7 +1120,7 @@ mod test {
         // begin padding
         (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
             .for_each(|_| witness.bytecode.insert(0, Default::default()));
-        (0..PublicCircuit::<Fr>::unusable_rows().0)
+        (0..PublicCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| witness.public.insert(0, Default::default()));
 
         // push row
@@ -1132,7 +1132,7 @@ mod test {
             .keccak
             .extend(vec![contract1_bytecode, contract2_bytecode]);
 
-        witness.fill_public_cnt_len::<Fr>();
+        public::witness_post_handle(&mut witness);
         // collect public keccak inputs
         witness
             .keccak

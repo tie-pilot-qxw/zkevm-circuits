@@ -142,3 +142,12 @@ pub(crate) const TRACE_GAS_COST_IDX: usize = 2;
 /// BLOCK_IDX_LEFT_SHIFT_NUM represents the number of bits that block_idx is left-shifted in the block_tx_idx variable.
 /// block_tx_idx = block_idx << BLOCK_IDX_LEFT_SHIFT_NUM + tx_idx
 pub(crate) const BLOCK_IDX_LEFT_SHIFT_NUM: u64 = 32;
+
+/// the number of original values in the public circuit (tag | block_tx_idx | value_0 | value_1 | value_2 | value_3)
+pub(crate) const PUBLIC_NUM_VALUE: usize = 6;
+
+/// the number of rows occupied by the original value after it is split into u8
+pub(crate) const PUBLIC_NUM_VALUES_U8_ROW: usize = 16;
+
+/// the number of padding rows required by the public circuit
+pub(crate) const PUBLIC_NUM_BEGINNING_PADDING_ROW: usize = 15;
