@@ -8,7 +8,7 @@ use zkevm_circuits::witness::Witness;
 #[cfg(not(feature = "fast_test"))]
 const MAX_NUM_ROW_FOR_TEST: usize = 262200;
 #[cfg(feature = "fast_test")]
-const MAX_NUM_ROW_FOR_TEST: usize = 131072; // k=17
+const MAX_NUM_ROW_FOR_TEST: usize = 11000;
 
 #[test]
 fn test_call_trace() {

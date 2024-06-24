@@ -2618,6 +2618,8 @@ mod test {
                     let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
                     let q_enable_state = meta.complex_selector();
                     let state_table = StateTable::construct(meta, q_enable_state);
+
+                    #[cfg(not(feature = "no_public_hash"))]
                     let _instance_hash = PublicTable::construct_hash_instance_column(meta);
                     let public_table = PublicTable::construct(meta);
                     let q_enable_arithmetic = meta.complex_selector();

@@ -865,8 +865,6 @@ mod test {
     use halo2_proofs::halo2curves::bn256::Fr;
     use halo2_proofs::plonk::Circuit;
 
-    const TEST_MAX_NUM_ROW: usize = 65477; // k=16
-
     #[derive(Clone)]
     pub struct BytecodeTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
@@ -882,7 +880,10 @@ mod test {
 
         fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
             // construct instance column
+            #[cfg(not(feature = "no_public_hash"))]
             let instance_hash = PublicTable::construct_hash_instance_column(meta);
+            #[cfg(not(feature = "no_public_hash"))]
+            let q_enable_public = meta.complex_selector();
 
             // initialize columns
             let q_enable_bytecode = meta.complex_selector();
@@ -918,6 +919,7 @@ mod test {
                 },
             );
 
+            #[cfg(not(feature = "no_public_hash"))]
             let public_circuit = PublicCircuitConfig::new(
                 meta,
                 PublicCircuitConfigArgs {
@@ -928,6 +930,10 @@ mod test {
                     instance_hash,
                 },
             );
+
+            #[cfg(feature = "no_public_hash")]
+            let public_circuit =
+                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
             // construct BytecodeTestCircuitConfig
             Self {
@@ -1017,8 +1023,8 @@ mod test {
     }
 
     fn test_bytecode_circuit(witness: Witness) -> MockProver<Fr> {
-        let k = log2_ceil(TEST_MAX_NUM_ROW);
-        let circuit = BytecodeTestCircuit::<Fr, TEST_MAX_NUM_ROW>::new(witness.clone());
+        let k = log2_ceil(MAX_NUM_ROW);
+        let circuit = BytecodeTestCircuit::<Fr, MAX_NUM_ROW>::new(witness.clone());
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         prover
@@ -1132,7 +1138,10 @@ mod test {
             .keccak
             .extend(vec![contract1_bytecode, contract2_bytecode]);
 
+        #[cfg(not(feature = "no_public_hash"))]
         public::witness_post_handle(&mut witness);
+
+        #[cfg(not(feature = "no_public_hash"))]
         // collect public keccak inputs
         witness
             .keccak
@@ -1226,7 +1235,7 @@ mod test {
     #[test]
     #[ignore]
     fn print_gates_lookups() {
-        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr, TEST_MAX_NUM_ROW>>();
+        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr, MAX_NUM_ROW>>();
         let str = gates.queries_to_csv();
         for line in str.lines() {
             let last_csv = line.rsplitn(2, ',').next().unwrap();

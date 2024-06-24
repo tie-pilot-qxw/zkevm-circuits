@@ -3,7 +3,7 @@ pub const NUM_STATE_LO_COL: usize = 9;
 #[cfg(not(feature = "k_10"))]
 pub const MAX_NUM_ROW: usize = 280000;
 #[cfg(feature = "k_10")]
-pub const MAX_NUM_ROW: usize = 65416; // k=16
+pub const MAX_NUM_ROW: usize = 1200;
 #[cfg(not(feature = "k_10"))]
 pub const MAX_CODESIZE: usize = 2 * 24576;
 #[cfg(feature = "k_10")]
@@ -144,7 +144,7 @@ pub(crate) const TRACE_GAS_COST_IDX: usize = 2;
 pub(crate) const BLOCK_IDX_LEFT_SHIFT_NUM: u64 = 32;
 
 /// the number of original values in the public circuit (tag | block_tx_idx | value_0 | value_1 | value_2 | value_3)
-pub(crate) const PUBLIC_NUM_VALUE: usize = 6;
+pub(crate) const PUBLIC_NUM_ALL_VALUE: usize = 6;
 
 /// the number of rows occupied by the original value after it is split into u8
 pub(crate) const PUBLIC_NUM_VALUES_U8_ROW: usize = 16;

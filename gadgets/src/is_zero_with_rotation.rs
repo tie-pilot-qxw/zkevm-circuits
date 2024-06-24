@@ -25,8 +25,6 @@ pub struct IsZeroWithRotationConfig<F> {
     pub value_inv: Column<Advice>,
     /// The result, which is 0 if the value is zero, and 1 otherwise
     pub is_not_zero: Option<Column<Advice>>,
-    /// Whether to use a new column to save the value
-    pub is_new_col: bool,
 
     _marker: PhantomData<F>,
 }
@@ -94,23 +92,9 @@ impl<F: Field> IsZeroWithRotationChip<F> {
             value,
             value_inv,
             is_not_zero,
-            is_new_col:false,
             _marker: PhantomData,
         }
     }
-
-    /// creating a new column to store the value of value
-    pub fn configure_with_new_value_col(
-        meta: &mut ConstraintSystem<F>,
-        q_enable: impl FnOnce(&mut VirtualCells<'_, F>) -> Expression<F>,
-        is_not_zero: Option<Column<Advice>>,
-    ) -> IsZeroWithRotationConfig<F> {
-        let value = meta.advice_column();
-        let mut config = Self::configure(meta, q_enable, value, is_not_zero);
-        config.is_new_col=true;
-        config
-    }
-
 
     /// Given an `IsZeroConfig`, construct the chip.
     pub fn construct(config: IsZeroWithRotationConfig<F>) -> Self {
@@ -133,9 +117,6 @@ impl<F: Field> IsZeroInstruction<F> for IsZeroWithRotationChip<F> {
             offset,
             || value_invert,
         )?;
-        if config.is_new_col {
-            region.assign_advice(|| "value", config.value, offset, || value)?;
-        }
         if let Some(v) = config.is_not_zero {
             let is_not_zero = value.map(|v| if v.is_zero_vartime() { F::ZERO } else { F::ONE });
             region.assign_advice(|| "witness is_zero", v, offset, || is_not_zero)?;

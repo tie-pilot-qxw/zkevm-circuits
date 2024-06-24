@@ -1,5 +1,6 @@
 use crate::constant::{
-    PUBLIC_NUM_BEGINNING_PADDING_ROW, PUBLIC_NUM_VALUE, PUBLIC_NUM_VALUES, PUBLIC_NUM_VALUES_U8_ROW,
+    PUBLIC_NUM_ALL_VALUE, PUBLIC_NUM_BEGINNING_PADDING_ROW, PUBLIC_NUM_VALUES,
+    PUBLIC_NUM_VALUES_U8_ROW,
 };
 use crate::table::{KeccakTable, LookupEntry, PublicTable};
 use crate::util::{
@@ -19,10 +20,10 @@ use halo2_proofs::plonk::{
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-const NUM_RLC_ACC: usize = PUBLIC_NUM_VALUE;
-const NUM_U8: usize = PUBLIC_NUM_VALUE;
+const NUM_RLC_ACC: usize = PUBLIC_NUM_ALL_VALUE;
+const NUM_U8: usize = PUBLIC_NUM_ALL_VALUE;
 const NUM_RANDOM: usize = 5;
-const MULTIPLES_OF_LENGTH: usize = PUBLIC_NUM_VALUE;
+const MULTIPLES_OF_LENGTH: usize = PUBLIC_NUM_ALL_VALUE;
 const NUM_ROTATION: usize = PUBLIC_NUM_VALUES_U8_ROW - 1;
 
 #[derive(Clone, Debug)]
@@ -73,6 +74,10 @@ pub struct PublicCircuitConfig<F: Field> {
     pub cnt_is_zero: IsZeroWithRotationConfig<F>,
 
     /// tag flag
+    pub tag_is_nil_val: Column<Advice>,
+    pub tag_is_tx_logdata_val: Column<Advice>,
+    pub tag_is_tx_calldata_val: Column<Advice>,
+
     pub tag_is_nil: IsZeroWithRotationConfig<F>,
     pub tag_is_tx_logdata: IsZeroWithRotationConfig<F>,
     pub tag_is_tx_calldata: IsZeroWithRotationConfig<F>,
@@ -128,6 +133,9 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         let hash_lo = meta.advice_column();
         let cnt = meta.advice_column();
         let length = meta.advice_column();
+        let tag_is_nil_val = meta.advice_column();
+        let tag_is_tx_logdata_val = meta.advice_column();
+        let tag_is_tx_calldata_val = meta.advice_column();
 
         // define instance column
         meta.enable_equality(instance_hash);
@@ -167,19 +175,22 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         );
 
         // tag flag
-        let tag_is_nil = IsZeroWithRotationChip::configure_with_new_value_col(
+        let tag_is_nil = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
+            tag_is_nil_val,
             None,
         );
-        let tag_is_tx_logdata = IsZeroWithRotationChip::configure_with_new_value_col(
+        let tag_is_tx_logdata = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
+            tag_is_tx_logdata_val,
             None,
         );
-        let tag_is_tx_calldata = IsZeroWithRotationChip::configure_with_new_value_col(
+        let tag_is_tx_calldata = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
+            tag_is_tx_calldata_val,
             None,
         );
 
@@ -208,6 +219,9 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             is_first_valid_row,
             is_last_valid_row,
             cnt_is_zero,
+            tag_is_nil_val,
+            tag_is_tx_logdata_val,
+            tag_is_tx_calldata_val,
             tag_is_nil,
             tag_is_tx_logdata,
             tag_is_tx_calldata,
@@ -571,7 +585,6 @@ impl<F: Field> PublicCircuitConfig<F> {
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
         let challenge = challenges.keccak_input();
-
         // assign begin padding row
         let default_random_vec = vec![Value::known(F::ZERO); NUM_RANDOM];
         let mut default_rlc_acc_vec_prev: Vec<Value<F>> = vec![Value::known(F::ZERO); NUM_RLC_ACC];
@@ -805,22 +818,29 @@ impl<F: Field> PublicCircuitConfig<F> {
 
         // assign tag flag
         let tag_v = F::from_uniform_bytes(&convert_u256_to_64_bytes(&U256::from(row.tag as u8)));
-        tag_is_nil.assign(
+        let tag_is_nil_v = Value::known(tag_v - F::from((Tag::Nil as u8) as u64));
+        let tag_is_tx_logdata_v = Value::known(tag_v - F::from((Tag::TxLogData as u8) as u64));
+        let tag_is_tx_calldata_v = Value::known(tag_v - F::from((Tag::TxCalldata as u8) as u64));
+
+        assign_advice_or_fixed_with_value(region, offset, tag_is_nil_v, self.tag_is_nil_val)?;
+        assign_advice_or_fixed_with_value(
             region,
             offset,
-            Value::known(tag_v - F::from((Tag::Nil as u8) as u64)),
+            tag_is_tx_logdata_v,
+            self.tag_is_tx_logdata_val,
         )?;
-        tag_is_tx_logdata.assign(
+        assign_advice_or_fixed_with_value(
             region,
             offset,
-            Value::known(tag_v - F::from((Tag::TxLogData as u8) as u64)),
-        )?;
-        tag_is_tx_calldata.assign(
-            region,
-            offset,
-            Value::known(tag_v - F::from((Tag::TxCalldata as u8) as u64)),
+            tag_is_tx_calldata_v,
+            self.tag_is_tx_calldata_val,
         )?;
 
+        tag_is_nil.assign(region, offset, tag_is_nil_v)?;
+        tag_is_tx_logdata.assign(region, offset, tag_is_tx_logdata_v)?;
+        tag_is_tx_calldata.assign(region, offset, tag_is_tx_calldata_v)?;
+
+        // txLoadData idx or txCallData idx
         let value0_v =
             F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.value_0.unwrap_or_default()));
         value0_is_zero.assign(region, offset, Value::known(value0_v))?;

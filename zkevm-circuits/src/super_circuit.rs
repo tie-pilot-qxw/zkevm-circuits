@@ -55,8 +55,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let state_table = StateTable::construct(meta, q_enable_state);
 
         // construct public table
+        #[cfg(not(feature = "no_public_hash"))]
         let instance_hash = PublicTable::construct_hash_instance_column(meta);
+        #[cfg(not(feature = "no_public_hash"))]
         let q_enable_public = meta.complex_selector();
+
         let public_table = PublicTable::construct(meta);
 
         // construct fixed table
@@ -116,6 +119,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 challenges,
             },
         );
+
+        #[cfg(not(feature = "no_public_hash"))]
         let public_circuit = PublicCircuitConfig::new(
             meta,
             PublicCircuitConfigArgs {
@@ -126,6 +131,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 instance_hash,
             },
         );
+
+        #[cfg(feature = "no_public_hash")]
+        let public_circuit =
+            PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
         let copy_circuit = CopyCircuitConfig::new(
             meta,

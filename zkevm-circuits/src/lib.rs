@@ -8,7 +8,14 @@ pub mod execution;
 pub mod exp_circuit;
 pub mod fixed_circuit;
 pub mod keccak_circuit;
+#[cfg(not(feature = "no_public_hash"))]
+#[path = "public_circuit.rs"]
 pub mod public_circuit;
+
+#[cfg(feature = "no_public_hash")]
+#[path = "public_circuit_no_hash.rs"]
+pub mod public_circuit;
+
 pub mod state_circuit;
 pub mod super_circuit;
 pub mod table;

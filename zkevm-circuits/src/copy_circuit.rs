@@ -856,7 +856,7 @@ mod test {
     use crate::bytecode_circuit::{
         BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
     };
-    use crate::constant::MAX_CODESIZE;
+    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
     use crate::copy_circuit::CopyCircuit;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
@@ -871,8 +871,6 @@ mod test {
     use halo2_proofs::halo2curves::bn256::Fr as Fp;
     use halo2_proofs::plonk::Circuit;
     use std::str::FromStr;
-
-    const TEST_MAX_NUM_ROW: usize = 65477; // k=16
 
     #[derive(Clone)]
     pub struct CopyTestCircuitConfig<F: Field> {
@@ -894,7 +892,9 @@ mod test {
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
 
+            #[cfg(not(feature = "no_public_hash"))]
             let instance_hash = PublicTable::construct_hash_instance_column(meta);
+            #[cfg(not(feature = "no_public_hash"))]
             let q_enable_public = meta.complex_selector();
             let public_table = PublicTable::construct(meta);
 
@@ -926,6 +926,8 @@ mod test {
                     challenges,
                 },
             );
+
+            #[cfg(not(feature = "no_public_hash"))]
             let public_circuit = PublicCircuitConfig::new(
                 meta,
                 PublicCircuitConfigArgs {
@@ -936,6 +938,10 @@ mod test {
                     instance_hash,
                 },
             );
+
+            #[cfg(feature = "no_public_hash")]
+            let public_circuit =
+                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
             // construct config object
             let copy_circuit = CopyCircuitConfig::new(
@@ -1047,8 +1053,8 @@ mod test {
     }
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
-        let k = log2_ceil(TEST_MAX_NUM_ROW);
-        let circuit = CopyTestCircuit::<Fp, TEST_MAX_NUM_ROW>::new(witness);
+        let k = log2_ceil(MAX_NUM_ROW);
+        let circuit = CopyTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover

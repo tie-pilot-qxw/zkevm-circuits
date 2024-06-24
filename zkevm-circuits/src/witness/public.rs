@@ -1,9 +1,8 @@
 use crate::constant::{
-    BLOCK_IDX_LEFT_SHIFT_NUM, PUBLIC_NUM_BEGINNING_PADDING_ROW, PUBLIC_NUM_VALUE,
-    PUBLIC_NUM_VALUES_U8_ROW,
+    BLOCK_IDX_LEFT_SHIFT_NUM, PUBLIC_NUM_ALL_VALUE, PUBLIC_NUM_BEGINNING_PADDING_ROW,
+    PUBLIC_NUM_VALUES, PUBLIC_NUM_VALUES_U8_ROW,
 };
 use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
-use crate::public_circuit::PublicCircuit;
 use crate::util::{
     convert_u256_to_64_be_bytes, convert_u256_to_64_bytes, create_contract_addr_with_prefix,
     SubCircuit,
@@ -37,7 +36,11 @@ pub struct Row {
     pub value_1_u8: Option<U256>,
     pub value_2_u8: Option<U256>,
     pub value_3_u8: Option<U256>,
+
+    #[cfg(not(feature = "no_public_hash"))]
     pub cnt: Option<U256>,
+
+    #[cfg(not(feature = "no_public_hash"))]
     pub length: Option<U256>,
     /// comments to show in html table that explain the purpose of each cell
     #[serde(skip_serializing)]
@@ -711,6 +714,7 @@ impl Row {
     }
 }
 
+#[cfg(not(feature = "no_public_hash"))]
 pub fn witness_post_handle(witness: &mut Witness) {
     // the results are sorted in the order of tags
     witness.public.sort_by(|row1, row2| {
@@ -752,6 +756,7 @@ pub fn witness_post_handle(witness: &mut Witness) {
     }
 }
 
+#[cfg(not(feature = "no_public_hash"))]
 /// Get instance from witness.public (`&[Row]`), return a vector of vector of F
 pub fn public_rows_to_instance<F: Field>(rows: &[Row]) -> Vec<Vec<F>> {
     // collect keccak inputs
@@ -764,9 +769,35 @@ pub fn public_rows_to_instance<F: Field>(rows: &[Row]) -> Vec<Vec<F>> {
     ]]
 }
 
+#[cfg(feature = "no_public_hash")]
+/// Get instance from witness.public (`&[Row]`), return a vector of vector of F
+pub fn public_rows_to_instance<F: Field>(rows: &[Row]) -> Vec<Vec<F>> {
+    let mut tag = vec![];
+    let mut block_tx_idx = vec![];
+    let mut values: [Vec<F>; PUBLIC_NUM_VALUES] = std::array::from_fn(|_| vec![]);
+    // assign values from witness of public
+    for row in rows {
+        tag.push(F::from_u128(row.tag as u128));
+        // block_tx_idx to little endian,u64
+        block_tx_idx.push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+            &row.block_tx_idx.unwrap_or_default(),
+        )));
+        let array: [_; PUBLIC_NUM_VALUES] = [row.value_0, row.value_1, row.value_2, row.value_3];
+        for i in 0..PUBLIC_NUM_VALUES {
+            // value[i] to little endian,u64
+            values[i].push(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &array[i].unwrap_or_default(),
+            )));
+        }
+    }
+    let mut res: Vec<Vec<F>> = vec![tag, block_tx_idx];
+    res.extend(values);
+    res
+}
+
 // note: ignore begin padding row
 pub fn public_rows_hash_inputs<F: Field>(rows: &[Row]) -> Vec<u8> {
-    let mut inputs = vec![vec![]; PUBLIC_NUM_VALUE];
+    let mut inputs = vec![vec![]; PUBLIC_NUM_ALL_VALUE];
     for row in rows.iter().skip(PUBLIC_NUM_BEGINNING_PADDING_ROW) {
         inputs[0].push(row.tag_u8.unwrap_or_default().as_usize() as u8);
         inputs[1].push(row.block_tx_idx_u8.unwrap_or_default().as_usize() as u8);

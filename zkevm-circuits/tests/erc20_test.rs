@@ -1,6 +1,5 @@
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
-use std::fs::File;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{get_chunk_data, log2_ceil, SubCircuit};
@@ -9,7 +8,7 @@ use zkevm_circuits::witness::Witness;
 #[cfg(not(feature = "fast_test"))]
 const MAX_NUM_ROW_FOR_TEST: usize = 262200;
 #[cfg(feature = "fast_test")]
-const MAX_NUM_ROW_FOR_TEST: usize = 131072; // k=17
+const MAX_NUM_ROW_FOR_TEST: usize = 21000;
 
 #[test]
 fn test_erc20_t01_a_deploy() {
@@ -21,8 +20,6 @@ fn test_erc20_t01_a_deploy() {
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_receipt.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/bytecode.json",
     ));
-    #[cfg(feature = "fast_test")]
-    const MAX_NUM_ROW_FOR_TEST: usize = 262144; // k=18
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 7000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
 
@@ -48,8 +45,6 @@ fn test_erc20_t02_a_transfer_b_200() {
         "test_data/erc20_test/trace/t02_a_transfer_b_200/tx_receipt.json",
         "test_data/erc20_test/trace/t02_a_transfer_b_200/bytecode.json",
     ));
-    let mut buf = std::io::BufWriter::new(File::create("public_test.html").unwrap());
-    witness.write_html(&mut buf);
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
