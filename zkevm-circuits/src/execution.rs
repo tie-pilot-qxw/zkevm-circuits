@@ -66,7 +66,7 @@ pub mod storage;
 pub mod swap;
 pub mod tx_context;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::table::{
     extract_lookup_expression, ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable,
@@ -2178,10 +2178,10 @@ impl<const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // tag表达式，不同gadget使用的是Advice第32列（column_index）上一行数据（rotation 相对当前位置），
         // query_index 标识符在证明和验证过程中的查询顺序，确保标识符在评估和验证约束时按正确的顺序进行计算。
         #[cfg(not(feature = "no_lookup_merge"))]
-        let mut lookup_category: HashMap<
+        let mut lookup_category: BTreeMap<
             String,
             Vec<(String, LookupEntry<F>, ExecutionState)>,
-        > = HashMap::new();
+        > = BTreeMap::new();
         #[cfg(not(feature = "no_lookup_merge"))]
         for (string, lookup, execution_state) in lookups_to_merge {
             match lookup {

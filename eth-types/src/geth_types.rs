@@ -14,13 +14,13 @@ use ethers_signers::{LocalWallet, Signer};
 use halo2_proofs::halo2curves::{group::ff::PrimeField, secp256k1};
 use num::Integer;
 use num_bigint::BigUint;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_with::serde_as;
 use std::collections::HashMap;
 
 /// Definition of all of the data related to an account.
 #[serde_as]
-#[derive(PartialEq, Eq, Debug, Default, Clone, Serialize)]
+#[derive(PartialEq, Eq, Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Account {
     /// Address
     pub address: Word, // extend address to Word, to let create-contract tx has special address
@@ -295,25 +295,32 @@ impl Transaction {
 }
 
 /// GethData is a type that contains all the information of a Ethereum block
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GethData {
     /// Block from geth
+    #[serde(rename = "block")]
     pub eth_block: Block<crate::Transaction>,
     /// Execution Trace from geth
+    #[serde(rename = "executionResults")]
     pub geth_traces: Vec<GethExecTrace>,
     /// Accounts
     pub accounts: Vec<Account>,
     /// Logs of transactions
+    #[serde(default)]
     pub logs: Vec<ReceiptLog>,
 }
 
-/// ChunkData is a type that contains all the information of a chunk
+/// ChunkData is a type that contains all the information of a chunk、
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ChunkData {
     /// chain id
+    #[serde(rename = "chainId")]
     pub chain_id: Word,
     /// history hashes contains most recent (256 + blok_num_in_chunk block) hashes in history, where
     /// the lastest one is at history_hashes[history_hashes.len() - 1].
+    #[serde(rename = "historyHashes")]
     pub history_hashes: Vec<Word>,
     /// all blocks in the chunk
+    #[serde(rename = "gethData")]
     pub blocks: Vec<GethData>,
 }
