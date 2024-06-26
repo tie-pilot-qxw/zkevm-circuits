@@ -3342,7 +3342,7 @@ impl Witness {
         // collect public keccak inputs
         witness
             .keccak
-            .push(public::public_rows_hash_inputs::<Fr>(&witness.public));
+            .push(public::public_rows_hash_inputs(&witness.public));
 
         witness.state.sort_by(|a, b| {
             let key_a = state_to_be_limbs(a);

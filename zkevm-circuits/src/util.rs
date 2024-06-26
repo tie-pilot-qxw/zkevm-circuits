@@ -237,8 +237,8 @@ pub fn convert_u256_to_64_bytes(value: &U256) -> [u8; 64] {
     bytes
 }
 
-pub fn convert_u256_to_64_be_bytes(value: &U256) -> [u8; 64] {
-    let mut bytes = [0u8; 64];
+pub fn convert_u256_to_be_bytes(value: &U256) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
     value.to_big_endian(&mut bytes[..32]);
     bytes
 }
@@ -674,7 +674,8 @@ impl<F: Field> BaseConstraintBuilder<F> {
 #[cfg(test)]
 mod tests {
     use crate::util::{
-        convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_f, uint64_with_overflow,
+        convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_be_bytes, convert_u256_to_f,
+        uint64_with_overflow,
     };
     use eth_types::U256;
     use halo2_proofs::halo2curves::bn256::Fr;
@@ -767,5 +768,36 @@ mod tests {
         let v = U256::from_little_endian(&x);
         let field_max = convert_u256_to_f::<Fr>(&v);
         assert_eq!(v, convert_f_to_u256(&field_max));
+    }
+
+    #[test]
+    fn test_convert_u256_to_be_bytes() {
+        let input_1: U256 = U256::from(1);
+        assert_eq!(
+            convert_u256_to_be_bytes(&input_1),
+            [
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 1
+            ]
+        );
+
+        let input_15: U256 = U256::from_str("f").unwrap();
+        assert_eq!(
+            convert_u256_to_be_bytes(&input_15),
+            [
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 15
+            ]
+        );
+        let input: U256 =
+            U256::from_str("efffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                .unwrap();
+        assert_eq!(
+            convert_u256_to_be_bytes(&input),
+            [
+                239, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
+            ]
+        );
     }
 }

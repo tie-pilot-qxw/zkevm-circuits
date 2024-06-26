@@ -568,6 +568,30 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             constrains
         });
 
+        // hash constrains
+        meta.create_gate("PUBLIC_HASH", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let hash_hi_cur = meta.query_advice(config.hash_hi, Rotation::cur());
+            let hash_lo_cur = meta.query_advice(config.hash_lo, Rotation::cur());
+
+            let hash_hi_prev = meta.query_advice(config.hash_hi, Rotation::prev());
+            let hash_lo_prev = meta.query_advice(config.hash_lo, Rotation::prev());
+
+            let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
+            let is_valid_row = 1.expr() - cnt_is_zero;
+            let is_first_valid_row = config.is_first_valid_row.expr();
+
+            vec![
+                q_enable.clone()
+                    * is_valid_row.clone()
+                    * (1.expr() - is_first_valid_row.clone())
+                    * (hash_hi_cur - hash_hi_prev),
+                q_enable.clone()
+                    * is_valid_row
+                    * (1.expr() - is_first_valid_row.clone())
+                    * (hash_lo_cur - hash_lo_prev),
+            ]
+        });
         // add all lookup constraints here
         config.keccak_lookup(meta, "PUBLIC_LOOKUP_KECCAK_HASH");
 
@@ -655,36 +679,6 @@ impl<F: Field> PublicCircuitConfig<F> {
                 &mut default_rlc_acc_vec_prev,
             )?;
             self.assign_challenge_row(region, offset, Value::known(F::ZERO))?;
-        }
-
-        Ok(())
-    }
-
-    pub fn assign_from_instance_with_region(
-        &self,
-        region: &mut Region<'_, F>,
-        valid_row_num: usize,
-        num_padding_begin: usize,
-    ) -> Result<(), Error> {
-        let row = 0usize;
-        let offset = num_padding_begin;
-        let mut hash_hi_prev = region.assign_advice_from_instance(
-            || "hash_hi",
-            self.instance_hash,
-            row,
-            self.hash_hi,
-            offset,
-        )?;
-        let mut hash_lo_prev = region.assign_advice_from_instance(
-            || "hash_hi",
-            self.instance_hash,
-            row + 1,
-            self.hash_lo,
-            offset,
-        )?;
-        for o in offset + 1..valid_row_num {
-            hash_hi_prev = hash_hi_prev.copy_advice(|| "hash_hi", region, self.hash_hi, o)?;
-            hash_lo_prev = hash_lo_prev.copy_advice(|| "hash_lo", region, self.hash_lo, o)?;
         }
 
         Ok(())
@@ -844,6 +838,39 @@ impl<F: Field> PublicCircuitConfig<F> {
         let value0_v =
             F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.value_0.unwrap_or_default()));
         value0_is_zero.assign(region, offset, Value::known(value0_v))?;
+
+        // assign hash
+        if row.cnt.unwrap_or_default() == U256::one() {
+            let row = 0usize;
+            let mut hash_hi_prev = region.assign_advice_from_instance(
+                || "hash_hi",
+                self.instance_hash,
+                row,
+                self.hash_hi,
+                offset,
+            )?;
+            let mut hash_lo_prev = region.assign_advice_from_instance(
+                || "hash_hi",
+                self.instance_hash,
+                row + 1,
+                self.hash_lo,
+                offset,
+            )?;
+        } else {
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &row.hash_hi.unwrap_or_default(),
+                self.hash_hi,
+            )?;
+
+            assign_advice_or_fixed_with_u256(
+                region,
+                offset,
+                &row.hash_lo.unwrap_or_default(),
+                self.hash_lo,
+            )?;
+        }
         Ok(())
     }
 
@@ -976,14 +1003,6 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PublicCircuit<F, MAX_
                     num_padding_begin,
                     MAX_NUM_ROW,
                 )?;
-
-                // assign value from instance
-                config.assign_from_instance_with_region(
-                    &mut region,
-                    self.witness.public.len(),
-                    num_padding_begin,
-                )?;
-
                 // sub circuit need to enable selector
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
