@@ -465,15 +465,15 @@ impl Row {
                 });
 
                 for (idx, byte) in tx.input.iter().enumerate() {
-                    // | TxCalldata | block_tx_idx | idx | byte | 0 | 0 |
+                    // | TxCalldata | block_tx_idx | 0 | 0 | idx | byte |
                     result.push(Row {
                         tag: Tag::TxCalldata,
                         // tx index
                         block_tx_idx: Some(block_tx_idx.into()),
                         // input index
-                        value_0: Some(idx.into()),
+                        value_2: Some(idx.into()),
                         // input byte
-                        value_1: Some(byte.clone().into()),
+                        value_3: Some(byte.clone().into()),
                         comments: [
                             ("tag".into(), "TxCalldata".into()),
                             (
@@ -577,16 +577,16 @@ impl Row {
                     });
 
                     // insert log bytes
-                    // | TxLog | block_tx_idx | idx | byte | log_index | 0 |
+                    // | TxLog | block_tx_idx | log_index | 0 | idx | byte |
                     for (data_idx, data) in log.data.iter().enumerate() {
                         result.push(Row {
                             tag: Tag::TxLogData,
                             block_tx_idx: Some(block_tx_idx.into()),
+                            value_0: Some(log_index),
                             // data byte index
-                            value_0: Some(U256::from(data_idx as u64)),
+                            value_2: Some(U256::from(data_idx as u64)),
                             // log data byte
-                            value_1: Some(data.clone().into()),
-                            value_2: Some(log_index),
+                            value_3: Some(data.clone().into()),
                             comments: [
                                 ("tag".into(), format!("{:?}", Tag::TxLogData)),
                                 ("block_tx_idx".into(), "block_tx_idx".into()),
@@ -661,7 +661,7 @@ impl Row {
     pub fn new_from_value(mut row: Row) -> Vec<Self> {
         let tag = row.tag;
         if (tag != Tag::TxCalldata && tag != Tag::TxLogData)
-            || ((tag == Tag::TxCalldata || tag == Tag::TxLogData) && row.value_0.unwrap().is_zero())
+            || ((tag == Tag::TxCalldata || tag == Tag::TxLogData) && row.value_2.unwrap().is_zero())
         {
             let tag_u8 = &convert_u256_to_be_bytes(&U256::from(row.tag as u8))[16..32];
             let block_tx_idx_u8 =
@@ -683,7 +683,7 @@ impl Row {
             rows
         } else {
             // (tag == Tag::TxCalldata || tag == Tag::TxLogData) && row.value_0 != 0
-            row.value_1_u8 = Some(row.value_1.unwrap());
+            row.value_3_u8 = Some(row.value_3.unwrap());
             vec![row]
         }
     }

@@ -13,7 +13,7 @@ use eth_types::{Field, U256};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::{expr_from_be_bytes, Expr};
-use halo2_proofs::circuit::{Layouter, Region, Value};
+use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
     Advice, Column, ConstraintSystem, Error, Expression, Instance, SecondPhase, Selector,
 };
@@ -25,6 +25,9 @@ const NUM_U8: usize = PUBLIC_NUM_ALL_VALUE;
 const NUM_RANDOM: usize = 5;
 const MULTIPLES_OF_LENGTH: usize = PUBLIC_NUM_ALL_VALUE;
 const NUM_ROTATION: usize = PUBLIC_NUM_VALUES_U8_ROW - 1;
+
+const INSTANCE_HASH_HI_ROW: usize = 0;
+const INSTANCE_HASH_LO_ROW: usize = 1;
 
 #[derive(Clone, Debug)]
 pub struct PublicCircuitConfig<F: Field> {
@@ -82,9 +85,9 @@ pub struct PublicCircuitConfig<F: Field> {
     pub tag_is_tx_logdata: IsZeroWithRotationConfig<F>,
     pub tag_is_tx_calldata: IsZeroWithRotationConfig<F>,
 
-    /// used to determine whether data_idx(value0) is 0 when tag is txLogData or txCallData
-    /// when tag is txLogData or txCallData and idx(value0) is 0, value1(data) will be split into 16 bytes.
-    pub value0_is_zero: IsZeroWithRotationConfig<F>,
+    /// used to determine whether data_idx(value2) is 0 when tag is txLogData or txCallData
+    /// when tag is txLogData or txCallData and idx(value2) is 0, value3(data) will be split into 16 bytes.
+    pub value2_is_zero: IsZeroWithRotationConfig<F>,
 
     // table used for lookup
     keccak_table: KeccakTable,
@@ -195,10 +198,10 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
         );
 
         // value0 is zero
-        let value0_is_zero = IsZeroWithRotationChip::configure(
+        let value2_is_zero = IsZeroWithRotationChip::configure(
             meta,
             |meta| meta.query_selector(q_enable),
-            values[0],
+            values[2],
             None,
         );
 
@@ -225,7 +228,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             tag_is_nil,
             tag_is_tx_logdata,
             tag_is_tx_calldata,
-            value0_is_zero,
+            value2_is_zero,
             keccak_table,
         };
 
@@ -382,7 +385,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             let tag_is_nil = config.tag_is_nil.expr_at(meta, Rotation::cur());
             let tag_is_tx_calldata = config.tag_is_tx_calldata.expr_at(meta, Rotation::cur());
             let tag_is_tx_logdata = config.tag_is_tx_logdata.expr_at(meta, Rotation::cur());
-            let data_idx_is_zero = config.value0_is_zero.expr_at(meta, Rotation::cur());
+            let data_idx_is_zero = config.value2_is_zero.expr_at(meta, Rotation::cur());
 
             let tag_is_not_nil = 1.expr() - tag_is_nil.clone();
             let tag_is_not_tx_calldata = 1.expr() - tag_is_tx_calldata.clone();
@@ -440,7 +443,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 );
 
                 // if tag != nil && (tag == txCallData || tag == txLogData) && data_idx == 0, then src_value[3] == target_value[3]
-                // value1(data) at idx==0 is split into 16 bytes
+                // value3(data) at idx(value2)==0 is split into 16 bytes
                 constrains.push(
                     q_enable.clone()
                         * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
@@ -449,9 +452,9 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 );
 
                 // tag == txCallData or tag == txLogData can already indicate tag!=nil
-                if i == 3 {
+                if i == NUM_U8 - 1 {
                     // if tag != nil && tag == txCallData || tag == txLogData && idx != 0
-                    // then value1 == value1_u8 &&
+                    // then value3 == value3_u8 &&
                     constrains.push(
                         q_enable.clone()
                             * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
@@ -460,7 +463,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                     );
                 } else {
                     // if tag != nil && (tag == txCallData || tag == txLogData) && idx != 0
-                    //   then value0_u8 == 0 && value2_u8 == 0 && value3_u8 == 0 && tag_u8 == 0 && block_tx_idx == 0
+                    //   then value0_u8 == 0 && value1_u8 == 0 && value3_u8 == 0 && tag_u8 == 0 && block_tx_idx == 0
                     constrains.push(
                         q_enable.clone()
                             * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
@@ -607,7 +610,7 @@ impl<F: Field> PublicCircuitConfig<F> {
         witness: &Witness,
         num_padding_begin: usize,
         num_row_incl_padding: usize,
-    ) -> Result<(), Error> {
+    ) -> Result<(Option<Cell>, Option<Cell>), Error> {
         let challenge = challenges.keccak_input();
         // assign begin padding row
         let default_random_vec = vec![Value::known(F::ZERO); NUM_RANDOM];
@@ -647,6 +650,7 @@ impl<F: Field> PublicCircuitConfig<F> {
 
         // assign value to cell
         let public_valid_row_num = witness.public.len();
+        let (mut hash_hi_cell, mut hash_lo_cell): (Option<Cell>, Option<Cell>) = (None, None);
         for offset in num_padding_begin..public_valid_row_num {
             let row_next = if offset == public_valid_row_num - 1 {
                 &defatult_row
@@ -654,7 +658,7 @@ impl<F: Field> PublicCircuitConfig<F> {
                 &witness.public[offset + 1]
             };
             // assign
-            self.assign_row(
+            let (hash_hi, hash_lo) = self.assign_row(
                 region,
                 offset,
                 &witness.public[offset],
@@ -663,6 +667,12 @@ impl<F: Field> PublicCircuitConfig<F> {
                 &random_vec,
                 &mut rlc_acc_vec_prev,
             )?;
+
+            if hash_hi.is_some() {
+                hash_hi_cell = hash_hi;
+                hash_lo_cell = hash_lo;
+            }
+
             // assign challenge column
             self.assign_challenge_row(region, offset, challenge_vec[offset - num_padding_begin])?;
         }
@@ -681,7 +691,7 @@ impl<F: Field> PublicCircuitConfig<F> {
             self.assign_challenge_row(region, offset, Value::known(F::ZERO))?;
         }
 
-        Ok(())
+        Ok((hash_hi_cell, hash_lo_cell))
     }
 
     fn assign_challenge_row(
@@ -703,7 +713,7 @@ impl<F: Field> PublicCircuitConfig<F> {
         challenge: Value<F>,
         random_vec: &Vec<Value<F>>,
         rlc_acc_vec_prev: &mut Vec<Value<F>>,
-    ) -> Result<(), Error> {
+    ) -> Result<(Option<Cell>, Option<Cell>), Error> {
         let values_u8_vec = vec![
             row.tag_u8.unwrap_or_default(),
             row.block_tx_idx_u8.unwrap_or_default(),
@@ -735,7 +745,7 @@ impl<F: Field> PublicCircuitConfig<F> {
         let tag_is_tx_logdata = IsZeroWithRotationChip::construct(self.tag_is_tx_logdata.clone());
         let tag_is_tx_calldata = IsZeroWithRotationChip::construct(self.tag_is_tx_calldata.clone());
 
-        let value0_is_zero = IsZeroWithRotationChip::construct(self.value0_is_zero.clone());
+        let value2_is_zero = IsZeroWithRotationChip::construct(self.value2_is_zero.clone());
 
         // original value
         assign_advice_or_fixed_with_u256(region, offset, &U256::from(row.tag as u8), self.tag)?;
@@ -835,43 +845,34 @@ impl<F: Field> PublicCircuitConfig<F> {
         tag_is_tx_calldata.assign(region, offset, tag_is_tx_calldata_v)?;
 
         // txLoadData idx or txCallData idx
-        let value0_v =
-            F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.value_0.unwrap_or_default()));
-        value0_is_zero.assign(region, offset, Value::known(value0_v))?;
+        value2_is_zero.assign(
+            region,
+            offset,
+            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
+                &row.value_2.unwrap_or_default(),
+            ))),
+        )?;
 
         // assign hash
-        if row.cnt.unwrap_or_default() == U256::one() {
-            let row = 0usize;
-            let mut hash_hi_prev = region.assign_advice_from_instance(
-                || "hash_hi",
-                self.instance_hash,
-                row,
-                self.hash_hi,
-                offset,
-            )?;
-            let mut hash_lo_prev = region.assign_advice_from_instance(
-                || "hash_hi",
-                self.instance_hash,
-                row + 1,
-                self.hash_lo,
-                offset,
-            )?;
-        } else {
-            assign_advice_or_fixed_with_u256(
-                region,
-                offset,
-                &row.hash_hi.unwrap_or_default(),
-                self.hash_hi,
-            )?;
+        let hash_hi_cell = assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.hash_hi.unwrap_or_default(),
+            self.hash_hi,
+        )?;
 
-            assign_advice_or_fixed_with_u256(
-                region,
-                offset,
-                &row.hash_lo.unwrap_or_default(),
-                self.hash_lo,
-            )?;
+        let hash_lo_cell = assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &row.hash_lo.unwrap_or_default(),
+            self.hash_lo,
+        )?;
+
+        if row.cnt.unwrap_or_default() == U256::one() {
+            Ok((Some(hash_hi_cell), Some(hash_lo_cell)))
+        } else {
+            Ok((None, None))
         }
-        Ok(())
     }
 
     /// set the annotation information of the circuit colum
@@ -992,11 +993,11 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PublicCircuit<F, MAX_
     ) -> Result<(), Error> {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
         // assign row and calc rlc_acc
-        layouter.assign_region(
+        let (hash_hi_cell, hash_lo_cell) = layouter.assign_region(
             || "public circuit",
             |mut region| {
                 // assign value to cell
-                config.assign_with_region(
+                let (hash_hi_cell, hash_lo_cell) = config.assign_with_region(
                     &mut region,
                     challenges,
                     &self.witness,
@@ -1007,9 +1008,22 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PublicCircuit<F, MAX_
                 for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
                 }
-                Ok(())
+                Ok((hash_hi_cell, hash_lo_cell))
             },
-        )
+        )?;
+
+        // set instance copy constraints
+        layouter.constrain_instance(
+            hash_hi_cell.unwrap(),
+            config.instance_hash,
+            INSTANCE_HASH_HI_ROW,
+        )?;
+        layouter.constrain_instance(
+            hash_lo_cell.unwrap(),
+            config.instance_hash,
+            INSTANCE_HASH_LO_ROW,
+        )?;
+        Ok(())
     }
 
     fn unusable_rows() -> (usize, usize) {
