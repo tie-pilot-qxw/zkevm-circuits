@@ -152,7 +152,7 @@ impl Row {
         // the block number of the first block in the chunk
         let block_number_first = chunk_data.blocks[0].eth_block.number.unwrap().as_usize();
 
-	    // | BlockNumber | 0 | 0 | Block_Number_first | 0 | Block_Num_in_chunk |
+        // | BlockNumber | 0 | 0 | Block_Number_first | 0 | Block_Num_in_chunk |
         result.push(Row {
             tag: Tag::BlockNumber,
             value_1: Some(block_number_first.into()),
@@ -654,7 +654,6 @@ impl Row {
                 });
             }
         }
-        // process result and split values into 16 u8
         Ok(result)
     }
 

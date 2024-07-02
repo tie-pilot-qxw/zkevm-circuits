@@ -432,8 +432,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             // =================== constrains ===================
             let mut constrains = vec![];
             for i in 0..NUM_U8 {
-                // if tag != nil && tag != txCalldata && tag != txLogData,
-                // then src_value=target_value
+                // if tag != nil && tag != txCalldata && tag != txLogData, then src_value=target_value
                 constrains.push(
                     q_enable.clone()
                         * tag_is_not_nil.clone()
@@ -442,8 +441,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                         * (target_value_vec[i].clone() - src_value_vec[i].clone()),
                 );
 
-                // if tag != nil && (tag == txCallData || tag == txLogData) && data_idx == 0, then src_value[3] == target_value[3]
-                // value3(data) at idx(value2)==0 is split into 16 bytes
+                // if tag != nil && (tag == txCallData || tag == txLogData) && data_idx == 0, then src_value=target_value
                 constrains.push(
                     q_enable.clone()
                         * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
@@ -453,8 +451,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
 
                 // tag == txCallData or tag == txLogData can already indicate tag!=nil
                 if i == NUM_U8 - 1 {
-                    // if tag != nil && tag == txCallData || tag == txLogData && idx != 0
-                    // then value3 == value3_u8 &&
+                    // if tag != nil && tag == txCallData || tag == txLogData && data_idx != 0 then value3 == value3_u8
                     constrains.push(
                         q_enable.clone()
                             * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
@@ -463,7 +460,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                     );
                 } else {
                     // if tag != nil && (tag == txCallData || tag == txLogData) && idx != 0
-                    //   then value0_u8 == 0 && value1_u8 == 0 && value3_u8 == 0 && tag_u8 == 0 && block_tx_idx == 0
+                    // then tag_u8 == 0 && block_tx_idx == 0 && value0_u8 == 0 && value1_u8 == 0 && value2_u8
                     constrains.push(
                         q_enable.clone()
                             * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
@@ -520,37 +517,37 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             }
 
             // if tag != nil && (tag == txCallData || tag == txLogData) && value0(idx_cur) != 0,
-            // then value0_cur(idx_cur) == value0_prev+1 (idx_cur+1)
+            // then value2_cur(idx_cur) == value2_prev+1 (idx_cur+1)
             //      tag_cur == tag_prev
             //      block_tx_idx_cur == block_tx_idx_prev
-            //      value2 == value2_prev
-            //      value3 == 0
+            //      value0 == value0_prev  (the value of value0 is log_index or zero)
+            //      value1 == 0 (the value of value1 is zero)
             constrains.extend(vec![
                 q_enable.clone()
                     * tag_is_not_nil.clone()
                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                    * value0.clone() // there are only two cases for value0: 0 and non-0
-                    * (value0.clone() - value0_prev - 1.expr()),
+                    * value2.clone() // there are only two cases for value0: 0 and non-0
+                    * (value2.clone() - value2_prev - 1.expr()),
                 q_enable.clone()
                     * tag_is_not_nil.clone()
                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                    * value0.clone()
+                    * value2.clone()
                     * (tag.clone() - tag_prev),
                 q_enable.clone()
                     * tag_is_not_nil.clone()
                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                    * value0.clone()
+                    * value2.clone()
                     * (block_tx_idx.clone() - block_tx_idx_prev),
                 q_enable.clone()
                     * tag_is_not_nil.clone()
                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                    * value0.clone()
-                    * (value2.clone() - value2_prev),
+                    * value2.clone()
+                    * (value0.clone() - value0_prev),
                 q_enable.clone()
                     * tag_is_not_nil.clone()
                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                    * value0.clone()
-                    * value3.clone(),
+                    * value2.clone()
+                    * value1.clone(),
             ]);
 
             // if tag == nil,
