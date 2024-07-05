@@ -201,7 +201,7 @@ impl<F: Field> Expr<F> for u128 {
     }
 }
 
-/// Given a bytes-representation of an expression, it computes and returns the
+/// Given a  little endian bytes-representation of an expression, it computes and returns the
 /// single expression.
 pub fn expr_from_bytes<F: Field, E: Expr<F>>(bytes: &[E]) -> Expression<F> {
     let mut value = 0.expr();
@@ -209,6 +209,16 @@ pub fn expr_from_bytes<F: Field, E: Expr<F>>(bytes: &[E]) -> Expression<F> {
     for byte in bytes.iter() {
         value = value + byte.expr() * multiplier;
         multiplier *= F::from(256);
+    }
+    value
+}
+
+/// Given a big Endian bytes-representation of an expression, it computes and returns the
+/// single expression.
+pub fn expr_from_be_bytes<F: Field, E: Expr<F>>(bytes: &[E]) -> Expression<F> {
+    let mut value = 0.expr();
+    for byte in bytes.iter() {
+        value = value * F::from(256) + byte.expr();
     }
     value
 }

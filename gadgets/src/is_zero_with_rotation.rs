@@ -96,7 +96,6 @@ impl<F: Field> IsZeroWithRotationChip<F> {
         }
     }
 
-
     /// Given an `IsZeroConfig`, construct the chip.
     pub fn construct(config: IsZeroWithRotationConfig<F>) -> Self {
         IsZeroWithRotationChip { config }

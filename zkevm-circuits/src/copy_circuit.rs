@@ -705,11 +705,11 @@ impl<F: Field> CopyCircuitConfig<F> {
                 tag: (public_tag as u8).expr(),
                 block_tx_idx: meta.query_advice(self.src_id, Rotation::cur()),
                 values: [
+                    0.expr(),
+                    0.expr(),
                     meta.query_advice(self.src_pointer, Rotation::cur())
                         + meta.query_advice(self.cnt, Rotation::cur()),
                     meta.query_advice(self.byte, Rotation::cur()),
-                    0.expr(),
-                    0.expr(),
                 ],
             };
             let public_lookup_vec = self
@@ -741,11 +741,11 @@ impl<F: Field> CopyCircuitConfig<F> {
                 tag: (public_tag as u8).expr(),
                 block_tx_idx: meta.query_advice(self.dst_id, Rotation::cur()),
                 values: [
+                    meta.query_advice(self.dst_stamp, Rotation::cur()), // log index
+                    0.expr(),
                     meta.query_advice(self.src_pointer, Rotation::cur()) // idx
                         + meta.query_advice(self.cnt, Rotation::cur()),
                     meta.query_advice(self.byte, Rotation::cur()), // byte
-                    meta.query_advice(self.dst_stamp, Rotation::cur()), // log index
-                    0.expr(),
                 ],
             };
             let public_lookup_vec = self
@@ -876,7 +876,7 @@ mod test {
     pub struct CopyTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
         pub keccak_circuit: KeccakCircuitConfig<F>,
-        pub public_circuit: PublicCircuitConfig,
+        pub public_circuit: PublicCircuitConfig<F>,
         pub copy_circuit: CopyCircuitConfig<F>,
         pub state_circuit: StateCircuitConfig<F>,
         pub fixed_circuit: FixedCircuitConfig<F>,
@@ -891,11 +891,20 @@ mod test {
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
+
+            #[cfg(not(feature = "no_public_hash"))]
+            let instance_hash = PublicTable::construct_hash_instance_column(meta);
+            #[cfg(not(feature = "no_public_hash"))]
+            let q_enable_public = meta.complex_selector();
             let public_table = PublicTable::construct(meta);
+
             let fixed_table = FixedTable::construct(meta);
+
             let keccak_table = KeccakTable::construct(meta);
+
             let q_enable_copy = meta.complex_selector();
             let copy_table = CopyTable::construct(meta, q_enable_copy);
+
             let challenges = Challenges::construct(meta);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
@@ -917,6 +926,20 @@ mod test {
                     challenges,
                 },
             );
+
+            #[cfg(not(feature = "no_public_hash"))]
+            let public_circuit = PublicCircuitConfig::new(
+                meta,
+                PublicCircuitConfigArgs {
+                    q_enable: q_enable_public,
+                    public_table,
+                    keccak_table,
+                    challenges,
+                    instance_hash,
+                },
+            );
+
+            #[cfg(feature = "no_public_hash")]
             let public_circuit =
                 PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
@@ -954,16 +977,16 @@ mod test {
 
     /// CopyTestCircuit is a Circuit used for testing
     #[derive(Clone, Default, Debug)]
-    pub struct CopyTestCircuit<F: Field> {
+    pub struct CopyTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
-        pub public_circuit: PublicCircuit<F>,
+        pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub fixed_circuit: FixedCircuit<F>,
     }
 
-    impl<F: Field> Circuit<F> for CopyTestCircuit<F> {
+    impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for CopyTestCircuit<F, MAX_NUM_ROW> {
         type Config = CopyTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
         fn without_witnesses(&self) -> Self {
@@ -1006,7 +1029,7 @@ mod test {
         }
     }
 
-    impl<F: Field> CopyTestCircuit<F> {
+    impl<F: Field, const MAX_NUM_ROW: usize> CopyTestCircuit<F, MAX_NUM_ROW> {
         pub fn new(witness: Witness) -> Self {
             Self {
                 bytecode_circuit: BytecodeCircuit::new_from_witness(&witness),
@@ -1031,7 +1054,7 @@ mod test {
 
     fn test_simple_copy_circuit(witness: Witness) -> MockProver<Fp> {
         let k = log2_ceil(MAX_NUM_ROW);
-        let circuit = CopyTestCircuit::<Fp>::new(witness);
+        let circuit = CopyTestCircuit::<Fp, MAX_NUM_ROW>::new(witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fp>::run(k, &circuit, instance).unwrap();
         prover

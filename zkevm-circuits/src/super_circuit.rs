@@ -30,7 +30,7 @@ pub struct SuperCircuitConfig<
     core_circuit: CoreCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     bytecode_circuit: BytecodeCircuitConfig<F>,
     state_circuit: StateCircuitConfig<F>,
-    public_circuit: PublicCircuitConfig,
+    public_circuit: PublicCircuitConfig<F>,
     copy_circuit: CopyCircuitConfig<F>,
     fixed_circuit: FixedCircuitConfig<F>,
     bitwise_circuit: BitwiseCircuitConfig<F>,
@@ -46,21 +46,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
     type ConfigArgs = ();
 
     fn new(meta: &mut ConstraintSystem<F>, _: Self::ConfigArgs) -> Self {
+        // construct bytecode table
         let q_enable_bytecode = meta.complex_selector();
         let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
+
+        // construct state table
         let q_enable_state = meta.complex_selector();
         let state_table = StateTable::construct(meta, q_enable_state);
+
+        // construct public table
+        #[cfg(not(feature = "no_public_hash"))]
+        let instance_hash = PublicTable::construct_hash_instance_column(meta);
+        #[cfg(not(feature = "no_public_hash"))]
+        let q_enable_public = meta.complex_selector();
+
         let public_table = PublicTable::construct(meta);
+
+        // construct fixed table
         let fixed_table = FixedTable::construct(meta);
         let q_enable_arithmetic = meta.complex_selector();
+
+        // construct arithmetic table
         let arithmetic_table = ArithmeticTable::construct(meta, q_enable_arithmetic);
+
+        // construct copy table
         let q_enable_copy = meta.complex_selector();
         let copy_table = CopyTable::construct(meta, q_enable_copy);
+
+        // construct bitwise table
         let q_enable_bitwise = meta.complex_selector();
         let bitwise_table = BitwiseTable::construct(meta, q_enable_bitwise);
+
+        // construct exp table
         let exp_table = ExpTable::construct(meta);
+
+        // construct keccak table
         let keccak_table = KeccakTable::construct(meta);
-        // construct challenges
+
+        // construct challenges after construct columns
         let challenges = Challenges::construct(meta);
 
         let core_circuit = CoreCircuitConfig::new(
@@ -96,6 +119,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 challenges,
             },
         );
+
+        #[cfg(not(feature = "no_public_hash"))]
+        let public_circuit = PublicCircuitConfig::new(
+            meta,
+            PublicCircuitConfigArgs {
+                q_enable: q_enable_public,
+                public_table,
+                keccak_table,
+                challenges,
+                instance_hash,
+            },
+        );
+
+        #[cfg(feature = "no_public_hash")]
         let public_circuit =
             PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
@@ -168,7 +205,7 @@ pub struct SuperCircuit<
     pub core_circuit: CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
     pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
-    pub public_circuit: PublicCircuit<F>,
+    pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
     pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
     pub fixed_circuit: FixedCircuit<F>,
     pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
@@ -265,7 +302,7 @@ impl<
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows(),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows(),
             StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
-            PublicCircuit::<F>::unusable_rows(),
+            PublicCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             BitwiseCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
@@ -282,7 +319,7 @@ impl<
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
             BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
-            PublicCircuit::<F>::num_rows(witness),
+            PublicCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::num_rows(witness),

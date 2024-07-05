@@ -149,7 +149,13 @@ macro_rules! test_super_circuit_short_bytecode {
             receipt_log,
         ));
 
-        let k = log2_ceil(MAX_NUM_ROW);
+        let k = log2_ceil(SuperCircuit::<
+            Fr,
+            MAX_NUM_ROW,
+            MAX_CODESIZE,
+            NUM_STATE_HI_COL,
+            NUM_STATE_LO_COL,
+        >::num_rows(&witness));
         // let circuit = SuperCircuit::<Fr, 490, 480, 10, 10>::new_from_witness(&witness);
         let circuit: SuperCircuit<
             Fr,

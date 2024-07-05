@@ -557,6 +557,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             } else {
                 &witness.bytecode[offset - 1]
             };
+
             let row_cur = &witness.bytecode[offset];
             let row_next = if offset == bytecode_len - 1 {
                 &default_row
@@ -585,7 +586,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 Value::known(F::ZERO)
             };
             rlc_acc_prev = rlc_acc;
-
             // assign_row
             self.assign_row(
                 region,
@@ -869,7 +869,7 @@ mod test {
     pub struct BytecodeTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
         pub keccak_circuit: KeccakCircuitConfig<F>,
-        pub public_circuit: PublicCircuitConfig,
+        pub public_circuit: PublicCircuitConfig<F>,
         // used to verify Lookup(src: Bytecode circuit, target: Fixed circuit table)
         pub fixed_circuit: FixedCircuitConfig<F>,
         pub challenges: Challenges,
@@ -879,8 +879,15 @@ mod test {
         type ConfigArgs = ();
 
         fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
+            // construct instance column
+            #[cfg(not(feature = "no_public_hash"))]
+            let instance_hash = PublicTable::construct_hash_instance_column(meta);
+            #[cfg(not(feature = "no_public_hash"))]
+            let q_enable_public = meta.complex_selector();
+
             // initialize columns
             let q_enable_bytecode = meta.complex_selector();
+            let q_enable_public = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let fixed_table = FixedTable::construct(meta);
             let keccak_table = KeccakTable::construct(meta);
@@ -912,6 +919,19 @@ mod test {
                 },
             );
 
+            #[cfg(not(feature = "no_public_hash"))]
+            let public_circuit = PublicCircuitConfig::new(
+                meta,
+                PublicCircuitConfigArgs {
+                    q_enable: q_enable_public,
+                    public_table,
+                    keccak_table,
+                    challenges,
+                    instance_hash,
+                },
+            );
+
+            #[cfg(feature = "no_public_hash")]
             let public_circuit =
                 PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
@@ -928,14 +948,14 @@ mod test {
 
     /// A standalone circuit for testing
     #[derive(Clone, Default, Debug)]
-    pub struct BytecodeTestCircuit<F: Field> {
+    pub struct BytecodeTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
         pub fixed_circuit: FixedCircuit<F>,
-        pub public_circuit: PublicCircuit<F>,
+        pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
     }
 
-    impl<F: Field> Circuit<F> for BytecodeTestCircuit<F> {
+    impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for BytecodeTestCircuit<F, MAX_NUM_ROW> {
         type Config = BytecodeTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
 
@@ -981,7 +1001,7 @@ mod test {
         }
     }
 
-    impl<F: Field> BytecodeTestCircuit<F> {
+    impl<F: Field, const MAX_NUM_ROW: usize> BytecodeTestCircuit<F, MAX_NUM_ROW> {
         /// construct BytecodeTestCircuit by witness
         pub fn new(witness: Witness) -> Self {
             Self {
@@ -1003,16 +1023,8 @@ mod test {
     }
 
     fn test_bytecode_circuit(witness: Witness) -> MockProver<Fr> {
-        let (num_padding_begin, _num_padding_end) =
-            BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows();
-        let mut witness = witness;
-        // insert padding rows (rows with all 0)
-        for _ in 0..num_padding_begin {
-            witness.bytecode.insert(0, Default::default());
-        }
-
         let k = log2_ceil(MAX_NUM_ROW);
-        let circuit = BytecodeTestCircuit::<Fr>::new(witness.clone());
+        let circuit = BytecodeTestCircuit::<Fr, MAX_NUM_ROW>::new(witness.clone());
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
         prover
@@ -1089,30 +1101,52 @@ mod test {
         let addr2_hi = addr2_u256 >> 128;
         let addr2_lo = U256::from(addr2_u256.low_u128());
 
-        let public_row1 = public::Row {
+        let mut public_rows = vec![];
+        public_rows.push(public::Row {
             tag: Tag::CodeHash,
             value_0: Some(addr1_hi),
             value_1: Some(addr1_lo),
             value_2: Some(U256::from(contract1_bytecode_hash_hi)),
             value_3: Some(U256::from(contract1_bytecode_hash_lo)),
             ..Default::default()
-        };
-        let public_row2 = public::Row {
+        });
+
+        public_rows.push(public::Row {
             tag: Tag::CodeHash,
             value_0: Some(addr2_hi),
             value_1: Some(addr2_lo),
             value_2: Some(U256::from(contract2_bytecode_hash_hi)),
             value_3: Some(U256::from(contract2_bytecode_hash_lo)),
             ..Default::default()
-        };
+        });
 
         // construct Witness object
-        let witness = Witness {
-            bytecode: vec![row1, row2, row3, row4, row5, row6],
-            keccak: vec![contract1_bytecode, contract2_bytecode],
-            public: vec![public_row1, public_row2],
-            ..Default::default()
-        };
+        let mut witness: Witness = Default::default();
+
+        // begin padding
+        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
+            .for_each(|_| witness.bytecode.insert(0, Default::default()));
+        (0..PublicCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
+            .for_each(|_| witness.public.insert(0, Default::default()));
+
+        // push row
+        witness
+            .bytecode
+            .extend(vec![row1, row2, row3, row4, row5, row6]);
+        witness.public.extend(public_rows);
+        witness
+            .keccak
+            .extend(vec![contract1_bytecode, contract2_bytecode]);
+
+        #[cfg(not(feature = "no_public_hash"))]
+        public::witness_post_handle(&mut witness);
+
+        #[cfg(not(feature = "no_public_hash"))]
+        // collect public keccak inputs
+        witness
+            .keccak
+            .push(public::public_rows_hash_inputs(&witness.public));
+
         // verification circuit
         let prover = test_bytecode_circuit(witness);
         prover.assert_satisfied_par();
@@ -1201,7 +1235,7 @@ mod test {
     #[test]
     #[ignore]
     fn print_gates_lookups() {
-        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr>>();
+        let gates = CircuitGates::collect::<Fr, BytecodeTestCircuit<Fr, MAX_NUM_ROW>>();
         let str = gates.queries_to_csv();
         for line in str.lines() {
             let last_csv = line.rsplitn(2, ',').next().unwrap();
