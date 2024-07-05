@@ -11,7 +11,7 @@ use eth_types::geth_types::{BlockConstants, ChunkData};
 use eth_types::{Field, ToBigEndian, U256};
 use serde::Serialize;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use strum_macros::{EnumIter, EnumString};
 
 #[cfg(not(feature = "no_public_hash"))]
@@ -61,25 +61,23 @@ pub enum Tag {
     #[default]
     Nil,
     ChainId,
-    BlockCoinbase,
-    BlockTimestamp,
     BlockNumber,
-    BlockDifficulty,
-    BlockGasLimit,
-    BlockBaseFee,
     BlockHash,
+    // block coinbase and timestamp
+    BlockCoinbaseAndTimestamp,
+    // block gas limit, and the BaseFee
+    BlockGasLimitAndBaseFee,
+    // the total number of txs and logs in a block, and the block difficulty
+    BlockTxLogNumAndDifficulty,
 
-    // the total number of txs and logs in a block
-    BlockTxLogNum,
-    TxStatus,
+    // TxIsCreateAndStatus :  include tx is create and call data gas cost, and tx status
+    TxIsCreateAndStatus,
     // combine From and Value together to reduce number of lookups
     TxFromValue,
     // combine To and CallDataLength together to reduce number of lookups
     TxToCallDataSize,
-    // TxIsCreateCallDataGasCost :  include tx is create and call data gas cost
-    TxIsCreateCallDataGasCost,
-    TxGasLimit,
-    TxGasPrice, // tx gas price
+    // tx gas limit and tx gas price
+    TxGasLimitAndGasPrice,
     TxCalldata,
     TxLog,
     TxLogData,
@@ -131,6 +129,8 @@ impl Row {
     /// Get all rows from chunk data except TxStatus and TxLog since they don't exist there
     pub fn from_chunk_data(chunk_data: &ChunkData) -> Result<Vec<Row>, anyhow::Error> {
         let mut result = vec![];
+        // store address with bytecode hash to avoid duplicate CodeSize and CodeHash items insert
+        let mut bytecode_set = HashSet::new();
 
         // | ChainId | 0 | chain_id[..16] | chain_id[16..] | 0 | 0 |
         result.push(Row {
@@ -202,100 +202,52 @@ impl Row {
             // block_idx start from 1
             let block_idx = i + 1;
 
-            // | BlockCoinbase | block index | coinbase[..4] | coinbase[4..] | 0 | 0 |
+            // | BlockCoinbaseAndTimestamp | block index | coinbase[..4] | coinbase[4..] | BlockTimestamp[..16] | BlockTimestamp[16..] |
             result.push(Row {
-                tag: Tag::BlockCoinbase,
+                tag: Tag::BlockCoinbaseAndTimestamp,
                 // block index
                 block_tx_idx: Some(block_idx.into()),
                 // coinbase high 4 byte
                 value_0: Some(block_constant.coinbase.as_fixed_bytes()[..4].into()),
                 // coinbase low 16 byte
                 value_1: Some(block_constant.coinbase.as_fixed_bytes()[4..].into()),
+                // timestamp high 16 byte
+                value_2: Some(block_constant.timestamp.to_be_bytes()[..16].into()),
+                // timestamp low 16 byte
+                value_3: Some(block_constant.timestamp.to_be_bytes()[16..].into()),
                 comments: [
                     ("tag".into(), "BlockCoinbase".into()),
                     ("block_tx_idx".into(), "block index".into()),
                     ("value_0".into(), "BlockCoinbase[..4]".into()),
                     ("value_1".into(), "BlockCoinbase[4..]".into()),
+                    ("value_2".into(), "BlockTimestamp[..16]".into()),
+                    ("value_3".into(), "BlockTimestamp[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
                 ..Default::default()
             });
 
-            // | BlockTimestamp | block index | BlockTimestamp[..16] | BlockTimestamp[16..] | 0 | 0 |
+            // | BlockGasLimitAndBaseFee | block index | BlockGasLimit[..16] | BlockGasLimit[16..] | BlockBaseFee[..16] | BlockBaseFee[16..] |
             result.push(Row {
-                tag: Tag::BlockTimestamp,
-                // block index
-                block_tx_idx: Some(block_idx.into()),
-                // timestamp high 16 byte
-                value_0: Some(block_constant.timestamp.to_be_bytes()[..16].into()),
-                // timestamp low 16 byte
-                value_1: Some(block_constant.timestamp.to_be_bytes()[16..].into()),
-                comments: [
-                    ("tag".into(), "BlockTimestamp".into()),
-                    ("block_tx_idx".into(), "block index".into()),
-                    ("value_0".into(), "BlockTimestamp[..16]".into()),
-                    ("value_1".into(), "BlockTimestamp[16..]".into()),
-                ]
-                .into_iter()
-                .collect(),
-                ..Default::default()
-            });
-
-            // | BlockDifficulty | block index | BlockDifficulty[..16] | BlockDifficulty[16..] | 0 | 0 |
-            result.push(Row {
-                tag: Tag::BlockDifficulty,
-                // block index
-                block_tx_idx: Some(block_idx.into()),
-                // difficulty high 16 byte
-                value_0: Some(block_constant.difficulty.to_be_bytes()[..16].into()),
-                // difficulty low 16 byte
-                value_1: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
-                comments: [
-                    ("tag".into(), "BlockDifficulty".into()),
-                    ("block_tx_idx".into(), "block index".into()),
-                    ("value_0".into(), "BlockDifficulty[..16]".into()),
-                    ("value_1".into(), "BlockDifficulty[16..]".into()),
-                ]
-                .into_iter()
-                .collect(),
-                ..Default::default()
-            });
-
-            // | BlockGasLimit | block index | BlockGasLimit[..16] | BlockGasLimit[16..] | 0 | 0 |
-            result.push(Row {
-                tag: Tag::BlockGasLimit,
+                tag: Tag::BlockGasLimitAndBaseFee,
                 // block index
                 block_tx_idx: Some(block_idx.into()),
                 // gaslimit high 16 byte
                 value_0: Some(block_constant.gas_limit.to_be_bytes()[..16].into()),
                 // gaslimit low 16 byte
                 value_1: Some(block_constant.gas_limit.to_be_bytes()[16..].into()),
+                // basefee high 16 byte
+                value_2: Some(block_constant.base_fee.to_be_bytes()[..16].into()),
+                // basefee low 16 byte
+                value_3: Some(block_constant.base_fee.to_be_bytes()[16..].into()),
                 comments: [
                     ("tag".into(), "BlockGasLimit".into()),
                     ("block_tx_idx".into(), "block index".into()),
                     ("value_0".into(), "BlockGasLimit[..16]".into()),
                     ("value_1".into(), "BlockGasLimit[16..]".into()),
-                ]
-                .into_iter()
-                .collect(),
-                ..Default::default()
-            });
-
-            // | BlockBaseFee | block index | BlockBaseFee[..16] | BlockBaseFee[16..] | 0 | 0 |
-            result.push(Row {
-                tag: Tag::BlockBaseFee,
-                // block index
-                block_tx_idx: Some(block_idx.into()),
-                // basefee high 16 byte
-                value_0: Some(block_constant.base_fee.to_be_bytes()[..16].into()),
-                // basefee low 16 byte
-                value_1: Some(block_constant.base_fee.to_be_bytes()[16..].into()),
-                comments: [
-                    ("tag".into(), "BlockBaseFee".into()),
-                    ("block_tx_idx".into(), "block index".into()),
-                    ("value_0".into(), "BlockBaseFee[..16]".into()),
-                    ("value_1".into(), "BlockBaseFee[16..]".into()),
+                    ("value_2".into(), "BlockBaseFee[..16]".into()),
+                    ("value_3".into(), "BlockBaseFee[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -303,19 +255,25 @@ impl Row {
             });
 
             let log_num: usize = block.logs.iter().map(|log_data| log_data.logs.len()).sum();
-            // The total number of txs and logs in a block
-            // | BlockTxLogNum | block index | tx_num | log_num | 0 | 0 |
+            // The total number of txs and logs in a block, and Block Difficulty
+            // | BlockTxLogNumAndDifficulty | block index | tx_num | log_num | BlockDifficulty[..16] | BlockDifficulty[16..] |
             result.push(Row {
-                tag: Tag::BlockTxLogNum,
+                tag: Tag::BlockTxLogNumAndDifficulty,
                 // block index
                 block_tx_idx: Some(block_idx.into()),
                 value_0: Some(block.eth_block.transactions.len().into()),
                 value_1: Some(log_num.into()),
+                // difficulty high 16 byte
+                value_2: Some(block_constant.difficulty.to_be_bytes()[..16].into()),
+                // difficulty low 16 byte
+                value_3: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
                 comments: [
                     ("tag".into(), "BlockTxLogNum".into()),
                     ("block_tx_idx".into(), "block index".into()),
                     ("value_0".into(), "tx_num".into()),
                     ("value_1".into(), "log_num".into()),
+                    ("value_2".into(), "BlockDifficulty[..16]".into()),
+                    ("value_3".into(), "BlockDifficulty[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
@@ -326,7 +284,6 @@ impl Row {
                 // due to we decide to start idx at 1 in witness
                 let tx_idx = tx_idx + 1;
                 let block_tx_idx = (block_idx << BLOCK_IDX_LEFT_SHIFT_NUM) + tx_idx;
-                let gas_price = tx.gas_price.unwrap_or(0.into());
 
                 // | TxFromValue | block_tx_idx  | from[..4] | from[4..] | value[..16] | value[16..] |
                 result.push(Row {
@@ -334,7 +291,7 @@ impl Row {
                     block_tx_idx: Some(block_tx_idx.into()),
                     // tx.from high 4 byte
                     value_0: Some(tx.from.as_fixed_bytes()[..4].into()),
-                    // tx.from low 4 byte
+                    // tx.from low 16 byte
                     value_1: Some(tx.from.as_fixed_bytes()[4..].into()),
                     // tx.value high 16 byte
                     value_2: Some(tx.value.to_be_bytes()[..16].into()),
@@ -395,16 +352,18 @@ impl Row {
                     ..Default::default()
                 });
 
-                // | TxIsCreate | block_tx_idx | 1/0(if create contract is 1,else 0) | call data gas cost | call data size | 0 |
+                // | TxIsCreateAndStatus | block_tx_idx | 1/0(if create contract is 1,else 0) | call data gas cost | call data size | tx status |
+                let tx_status = 0.into(); // todo
                 let call_data_gas_cost =
                     eth_types::geth_types::Transaction::from(tx).call_data_gas_cost();
                 result.push(Row {
-                    tag: Tag::TxIsCreateCallDataGasCost,
+                    tag: Tag::TxIsCreateAndStatus,
                     block_tx_idx: Some(block_tx_idx.into()),
                     // if isCreate 1 ,else 0
                     value_0: Some((tx.to.is_none() as u8).into()),
                     value_1: Some(call_data_gas_cost.into()),
                     value_2: Some(tx.input.len().into()),
+                    value_3: Some(tx_status),
                     comments: [
                         ("tag".into(), "TxIsCreate".into()),
                         (
@@ -414,50 +373,35 @@ impl Row {
                         ("value_0".into(), "tx.to.is_none".into()),
                         ("value_1".into(), "call data gas cost".into()),
                         ("value_2".into(), "call data size".into()),
+                        ("value_3".into(), "tx status".into()),
                     ]
                     .into_iter()
                     .collect(),
                     ..Default::default()
                 });
 
-                // | TxGasLimit | block_tx_idx | gas[..16] | gas[16..] | 0 | 0 |
+                let gas_price = tx.gas_price.unwrap_or(0.into());
+                // | TxGasLimitAndGasPrice | block_tx_idx | None | tx.gas | gas_price[..16] | gas_price[16..] |
                 result.push(Row {
-                    tag: Tag::TxGasLimit,
+                    tag: Tag::TxGasLimitAndGasPrice,
                     block_tx_idx: Some(block_tx_idx.into()),
-                    // tx gas high 16 byte
-                    value_0: Some(tx.gas.to_be_bytes()[..16].into()),
-                    // tx gas low 16 byte
-                    value_1: Some(tx.gas.to_be_bytes()[16..].into()),
+                    value_0: None,
+                    // tx gas
+                    value_1: Some(tx.gas),
+                    // tx gas_price high 16 byte
+                    value_2: Some(gas_price.to_be_bytes()[..16].into()),
+                    // tx gas_price low 16 byte
+                    value_3: Some(gas_price.to_be_bytes()[16..].into()),
                     comments: [
                         ("tag".into(), "TxGasLimit".into()),
                         (
                             "block_tx_idx".into(),
                             format!("block_tx_idx{}", block_tx_idx),
                         ),
-                        ("value_0".into(), "tx.gas[..16]".into()),
-                        ("value_1".into(), "tx.gas[16..]".into()),
-                    ]
-                    .into_iter()
-                    .collect(),
-                    ..Default::default()
-                });
-
-                // | TxGasPrice | block_tx_idx | gas_price[..16] | gas_price[16..] | 0 | 0 |
-                result.push(Row {
-                    tag: Tag::TxGasPrice,
-                    block_tx_idx: Some(block_tx_idx.into()),
-                    // tx gas_price high 16 byte
-                    value_0: Some(gas_price.to_be_bytes()[..16].into()),
-                    // tx gas_price low 16 byte
-                    value_1: Some(gas_price.to_be_bytes()[16..].into()),
-                    comments: [
-                        ("tag".into(), "TxGasPrice".into()),
-                        (
-                            "block_tx_idx".into(),
-                            format!("block_tx_idx{}", block_tx_idx),
-                        ),
-                        ("value_0".into(), "gas_price[..16]".into()),
-                        ("value_1".into(), "gas_price[16..]".into()),
+                        ("value_0".into(), "None".into()),
+                        ("value_1".into(), "tx.gas[24..]".into()),
+                        ("value_2".into(), "gas_price[..16]".into()),
+                        ("value_3".into(), "gas_price[16..]".into()),
                     ]
                     .into_iter()
                     .collect(),
@@ -608,6 +552,12 @@ impl Row {
                 let addr_lo = U256::from(account.address.low_u128());
                 let code_size = account.code.len();
                 let (code_hash_hi, code_hash_lo) = calc_keccak_hi_lo(account.code.as_ref());
+
+                if !bytecode_set.contains(&(account.address, (code_hash_hi, code_hash_lo))) {
+                    bytecode_set.insert((account.address, (code_hash_hi, code_hash_lo)));
+                } else {
+                    continue;
+                }
 
                 // push code size
                 // | CodeSize | 0 | addr_hi | addr_lo | code_size hi | code_size lo |

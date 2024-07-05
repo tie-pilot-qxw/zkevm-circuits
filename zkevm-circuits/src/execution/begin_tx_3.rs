@@ -212,27 +212,25 @@ fn get_intrinsic_gas_cost<
 ) -> (Expression<F>, Vec<(String, Expression<F>)>) {
     let mut constraints = vec![];
     let public_entry = config.get_public_lookup(meta, 0);
-    let (public_tag, public_block_tx_idx, [is_create, call_data_gas_cost, _, _]) =
-        extract_lookup_expression!(public, public_entry);
+    let (_, _, [is_create, call_data_gas_cost, _, _]) =
+        extract_lookup_expression!(public, public_entry.clone());
 
     let arithmetic_entry = config.get_arithmetic_tiny_lookup(meta, 0);
     let (tag, [_, _, _, call_data_word_length]) =
         extract_lookup_expression!(arithmetic_tiny, arithmetic_entry);
 
-    constraints.extend([
-        (
-            "public tag = TxIsCreate".into(),
-            public_tag - (public::Tag::TxIsCreateCallDataGasCost as u8).expr(),
-        ),
-        (
-            "public_block_tx_idx = block_tx_idx".into(),
-            public_block_tx_idx - block_tx_idx,
-        ),
-        (
-            "arithmetic tag = MemoryExpansion".into(),
-            tag - (arithmetic::Tag::MemoryExpansion as u8).expr(),
-        ),
-    ]);
+    constraints.extend(config.get_public_constraints(
+        meta,
+        public_entry,
+        (public::Tag::TxIsCreateAndStatus as u8).expr(),
+        Some(block_tx_idx.clone()),
+        [None, None, None, None],
+    ));
+
+    constraints.push((
+        "arithmetic tag = MemoryExpansion".into(),
+        tag - (arithmetic::Tag::MemoryExpansion as u8).expr(),
+    ));
 
     let init_code_gas_cost = select::expr(
         is_create.clone(),

@@ -73,39 +73,30 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = AuxiliaryOutcome::default();
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        // get the public lookup of BlockTxLogNum and BlockNumber
+        // get the public lookup of BlockTxLogNumAndDifficulty and BlockNumber
         let last_log_stamp = meta.query_advice(config.get_auxiliary().log_stamp, Rotation::cur());
-        let (public_tag_0, public_block_idx, [public_tx_num, public_log_num, _, _]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
-        let (public_tag_1, _, [_, _, _, block_num_in_chunk]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta, 1));
+        let tx_log_num_entry = config.get_public_lookup(meta, 0);
+        let block_num_entry = config.get_public_lookup(meta, 1);
+        let (_, _, [_, _, _, block_num_in_chunk]) =
+            extract_lookup_expression!(public, block_num_entry.clone());
 
-        // public tags constraint
-        constraints.push((
-            "tag is BlockTxLogNum".into(),
-            public_tag_0 - (public::Tag::BlockTxLogNum as u8).expr(),
-        ));
-        constraints.push((
-            "tag is BlockNumber".into(),
-            public_tag_1 - (public::Tag::BlockNumber as u8).expr(),
-        ));
-
-        // block_idx constraint
-        constraints.push((
-            "block idx in state = block idx in lookup".into(),
-            block_idx.clone() - public_block_idx,
+        // constraint tx_idx = tx_num in current block
+        // And constraint log_stamp = log_num in current block
+        constraints.extend(config.get_public_constraints(
+            meta,
+            tx_log_num_entry,
+            (public::Tag::BlockTxLogNumAndDifficulty as u8).expr(),
+            Some(block_idx.clone()),
+            [Some(tx_idx), Some(last_log_stamp), None, None],
         ));
 
-        // constraints log_stamp = log_num in current block
-        constraints.push((
-            "log stamp in state = log num in lookup".into(),
-            last_log_stamp - public_log_num,
-        ));
-
-        // constraints tx_idx = tx_num in current block
-        constraints.push((
-            "tx num in state = tx num in lookup".into(),
-            tx_idx - public_tx_num,
+        // only need to constrain the public tag
+        constraints.extend(config.get_public_constraints(
+            meta,
+            block_num_entry,
+            (public::Tag::BlockNumber as u8).expr(),
+            None,
+            [None, None, None, None],
         ));
 
         // get the next state tag
@@ -211,10 +202,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // row 2
         let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
 
-        // get the public lookup of BlockTxLogNum and BlockNumber(for the block_number_in_chunk)
+        // get the public lookup of BlockTxLogNumAndDifficulty and BlockNumber(for the block_number_in_chunk)
         core_row_2.insert_public_lookup(
             0,
-            &current_state.get_public_tx_row(public::Tag::BlockTxLogNum, 0),
+            &current_state.get_public_tx_row(public::Tag::BlockTxLogNumAndDifficulty, 0),
         );
         core_row_2.insert_public_lookup(
             1,

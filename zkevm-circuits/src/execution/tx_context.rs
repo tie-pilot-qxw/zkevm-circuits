@@ -20,10 +20,12 @@ const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
 const ORIGIN_TAG_COL_IDX: usize = 8;
 const GAS_PRICE_TAG_COL_IDX: usize = 9;
+const PUB_VALUE_COL_IDX: usize = 10;
 
 /// TxContextGadget deal OpCodeId:{ORIGIN,GASPRICE}
 /// STATE0 record value
 /// TAGSELECTOR 2 columns
+/// PUB_VAL 2 columns
 /// PUBLIC 6 columns, including:
 /// - TAG 1 column, means public tag (column 26)
 /// - TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
@@ -35,7 +37,7 @@ const GAS_PRICE_TAG_COL_IDX: usize = 9;
 /// |cnt| 8 col | 8 col | 8 col | 2 col | 6 col |
 /// +---+-------+-------+-------+---------------+
 /// | 2 |                               |PUBLIC |
-/// | 1 | STATE0| TAGSELECTOR |                 |
+/// | 1 | STATE0| TAGSELECTOR | PUB_VAL |       |
 /// | 0 | DYNA_SELECTOR        | AUX            |
 /// +---+-------+-------+-------+-------+-------+
 pub struct TxContextGadget<F: Field> {
@@ -100,6 +102,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let public_entry = config.get_public_lookup(meta, 0);
         let origin_tag = meta.query_advice(config.vers[ORIGIN_TAG_COL_IDX], Rotation::prev());
         let gasprice_tag = meta.query_advice(config.vers[GAS_PRICE_TAG_COL_IDX], Rotation::prev());
+        let pub_value_hi = meta.query_advice(config.vers[PUB_VALUE_COL_IDX], Rotation::prev());
+        let pub_value_lo = meta.query_advice(config.vers[PUB_VALUE_COL_IDX + 1], Rotation::prev());
+
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
         // pubic lookup constraints
         constraints.extend(config.get_public_constraints(
@@ -107,10 +112,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             public_entry,
             selector.select(&[
                 (Tag::TxFromValue as u64).expr(),
-                (Tag::TxGasPrice as u64).expr(),
+                (Tag::TxGasLimitAndGasPrice as u64).expr(),
             ]),
             Some(block_tx_idx.clone()),
-            [Some(state_value_hi), Some(state_value_lo), None, None],
+            [
+                Some(selector.select(&[state_value_hi.clone(), pub_value_hi.clone()])),
+                Some(selector.select(&[state_value_lo.clone(), pub_value_lo.clone()])),
+                Some(selector.select(&[pub_value_hi.clone(), state_value_hi.clone()])),
+                Some(selector.select(&[pub_value_lo.clone(), state_value_lo.clone()])),
+            ],
         ));
         // opcode constraints
         constraints.extend([(
@@ -141,41 +151,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let next_stack_top_value = current_state.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(trace, next_stack_top_value);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let value_hi = (next_stack_top_value >> 128).as_u128();
-        let value_lo = next_stack_top_value.low_u128();
-        let (public_tag, tag, value_public_2, value_public_3) = match trace.op {
-            OpcodeId::ORIGIN => (
-                Tag::TxFromValue,
-                0usize,
-                current_state.tx_value >> 128,
-                current_state.tx_value.low_u128().into(),
-            ),
-            OpcodeId::GASPRICE => (Tag::TxGasPrice, 1, U256::from(0), U256::from(0)),
+
+        let (public_row, pub_value_hi, pub_value_lo) = match trace.op {
+            OpcodeId::ORIGIN => {
+                let row = current_state.get_public_tx_row(public::Tag::TxFromValue, 0);
+                (
+                    row.clone(),
+                    row.clone().value_2.unwrap_or(U256::zero()),
+                    row.clone().value_3.unwrap_or(U256::zero()),
+                )
+            }
+            OpcodeId::GASPRICE => {
+                let row = current_state.get_public_tx_row(public::Tag::TxGasLimitAndGasPrice, 0);
+                (
+                    row.clone(),
+                    row.clone().value_0.unwrap_or(U256::zero()),
+                    row.clone().value_1.unwrap_or(U256::zero()),
+                )
+            }
             _ => panic!("not ORIGIN or GASPRICE"),
         };
+
         // core_row_2
-        core_row_2.insert_public_lookup(
-            0,
-            &public::Row {
-                tag: public_tag,
-                block_tx_idx: Some(U256::from(current_state.get_block_tx_idx())),
-                value_0: Some(U256::from(value_hi)),
-                value_1: Some(U256::from(value_lo)),
-                value_2: Some(value_public_2),
-                value_3: Some(value_public_3),
-                ..Default::default()
-            },
-        );
+        core_row_2.insert_public_lookup(0, &public_row);
+
+        // core_row_1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push_0]);
 
         simple_selector_assign(
             &mut core_row_1,
             [ORIGIN_TAG_COL_IDX, GAS_PRICE_TAG_COL_IDX],
-            tag,
+            if trace.op == OpcodeId::ORIGIN { 0 } else { 1 },
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
-        // core row 0
+        assign_or_panic!(core_row_1[PUB_VALUE_COL_IDX], pub_value_hi.into());
+        assign_or_panic!(core_row_1[PUB_VALUE_COL_IDX + 1], pub_value_lo.into());
+
+        // core_row 0
         let core_row_0 = ExecutionState::TX_CONTEXT.into_exec_state_core_row(
             trace,
             current_state,
@@ -214,13 +227,24 @@ mod test {
         let stack_pointer = stack.0.len();
         let mut sender = HashMap::new();
         sender.insert(0_u64, U256::max_value() - 1);
+        let mut value = HashMap::new();
+        value.insert(0_u64, U256::max_value() - 1);
+
         let mut current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(0xff.into()),
             sender,
             gas_left: 0x254023,
+            tx_gaslimit: 0x254023.into(),
+            tx_value: U256::max_value() - 2,
+            value,
             ..WitnessExecHelper::new()
         };
+        if op_code == OpcodeId::GASPRICE {
+            current_state.stack_top = Some(0.into());
+        } else {
+            current_state.stack_top = Some(U256::max_value() - 1);
+        }
+
         let gas_left_before_exec = current_state.gas_left + OpcodeId::ORIGIN.constant_gas_cost();
         let mut trace = prepare_trace_step!(0, op_code, stack);
         trace.gas = gas_left_before_exec;

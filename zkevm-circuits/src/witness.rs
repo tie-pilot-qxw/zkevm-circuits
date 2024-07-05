@@ -142,6 +142,20 @@ pub struct WitnessExecHelper {
     pub length_in_stack: Option<u64>,
     // 存储当前 chunk 的第一个区块的 number
     pub block_number_first_block: u64,
+    // 存储当前 block 的 TIMESTAMP
+    pub timestamp: U256,
+    // 存储当前 block 的 COINBASE
+    pub coinbase: U256,
+    // 存储当前 block 的 GASLIMIT
+    pub block_gaslimit: U256,
+    // 存储当前 block 的 BASEFEE
+    pub basefee: U256,
+    // 存储当前 block 的 DIFFICULTY
+    pub difficulty: U256,
+    // 存储当前 tx 的 GASLIMIT
+    pub tx_gaslimit: U256,
+    // 存储当前 tx 的 gasprice
+    pub tx_gasprice: U256,
 }
 
 impl WitnessExecHelper {
@@ -192,6 +206,13 @@ impl WitnessExecHelper {
             new_memory_size: None,
             length_in_stack: None,
             block_number_first_block: 0,
+            timestamp: 0.into(),
+            coinbase: 0.into(),
+            block_gaslimit: 0.into(),
+            basefee: 0.into(),
+            difficulty: 0.into(),
+            tx_gaslimit: 0.into(),
+            tx_gasprice: 0.into(),
         }
     }
 
@@ -350,6 +371,8 @@ impl WitnessExecHelper {
         self.gas_left = tx.gas.as_u64();
         self.is_create = tx.to.is_none();
         self.tx_idx = tx_idx;
+        self.tx_gaslimit = tx.gas;
+        self.tx_gasprice = tx.gas_price.unwrap_or(0.into());
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
@@ -2022,13 +2045,13 @@ impl WitnessExecHelper {
                     Some(self.value[&self.call_id].low_u128().into()),
                 ];
                 value_comments = [
-                    "from[..4]".into(),
-                    "from[4..]".into(),
-                    "value[..16]".into(),
-                    "value[16..]".into(),
+                    "from[..16]".into(),
+                    "from[16..]".into(),
+                    "tx_value[..16]".into(),
+                    "tx_value[16..]".into(),
                 ]
             }
-            public::Tag::BlockTxLogNum => {
+            public::Tag::BlockTxLogNumAndDifficulty => {
                 values = [
                     Some(
                         self.tx_num_in_block
@@ -2044,21 +2067,31 @@ impl WitnessExecHelper {
                             .to_owned()
                             .into(),
                     ),
-                    None,
-                    None,
+                    Some(self.difficulty >> 128),
+                    Some(self.difficulty.low_u128().into()),
                 ];
                 value_comments = [
                     "tx_num_in_block".into(),
                     "log_num_in_block".into(),
-                    "".into(),
-                    "".into(),
+                    "difficulty_hi".into(),
+                    "difficulty_lo".into(),
                 ];
                 block_tx_idx = self.block_idx;
             }
 
-            public::Tag::TxGasLimit => {
-                values = [None, Some(self.gas_left.into()), None, None];
-                value_comments = ["".into(), "gas_left".into(), "".into(), "".into()];
+            public::Tag::TxGasLimitAndGasPrice => {
+                values = [
+                    Some(0.into()),
+                    Some(self.tx_gaslimit.into()),
+                    Some(self.tx_gasprice >> 128),
+                    Some(self.tx_gasprice.low_u128().into()),
+                ];
+                value_comments = [
+                    "0".into(),
+                    "gaslimit".into(),
+                    "gas price hi".into(),
+                    "gas price lo".into(),
+                ];
             }
 
             public::Tag::BlockNumber => {
@@ -2108,10 +2141,10 @@ impl WitnessExecHelper {
         comments.insert(format!("vers_{}", 22), "is_create".into());
         comments.insert(format!("vers_{}", 23), "call_data_gas_cost".into());
         comments.insert(format!("vers_{}", 24), "call_data_length".into());
-        comments.insert(format!("vers_{}", 25), "none".into());
+        comments.insert(format!("vers_{}", 25), "tx_status".into());
 
         let public_row = public::Row {
-            tag: public::Tag::TxIsCreateCallDataGasCost,
+            tag: public::Tag::TxIsCreateAndStatus,
             block_tx_idx: Some(U256::from(self.get_block_tx_idx())),
             value_0: Some((self.is_create as u8).into()),
             value_1: Some(self.call_data_gas_cost().into()),
@@ -2121,7 +2154,7 @@ impl WitnessExecHelper {
                     .unwrap_or(&U256::zero())
                     .into(),
             ),
-            value_3: None,
+            value_3: Some(0.into()), // tx_status
             comments,
             ..Default::default()
         };
@@ -3289,6 +3322,11 @@ impl Witness {
                 block_idx,
                 block.logs.iter().map(|log_data| log_data.logs.len()).sum(),
             );
+            current_state.timestamp = block.eth_block.timestamp;
+            current_state.coinbase = block.eth_block.author.unwrap().as_bytes().into();
+            current_state.block_gaslimit = block.eth_block.gas_limit;
+            current_state.basefee = block.eth_block.base_fee_per_gas.unwrap();
+            current_state.difficulty = block.eth_block.difficulty;
 
             current_state.preprocess_storage(block);
 
