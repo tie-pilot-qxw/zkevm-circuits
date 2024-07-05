@@ -45,9 +45,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // END_TX不需要做single_purpose_constraints
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
 
-        let (public_tag, public_block_idx, [public_tx_num_in_block, _, _, _]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
+        let tx_num_entry = config.get_public_lookup(meta, 0);
+        let (_, _, [public_tx_num_in_block, _, _, _]) =
+            extract_lookup_expression!(public, tx_num_entry.clone());
 
+        // constraint tx_id_diff and tx_idx_diff_inv
         let tx_idx_diff_inv = meta.query_advice(config.vers[TX_DIFF_COL_IDX], Rotation(-2));
         let is_zero = SimpleIsZero::new(
             &(public_tx_num_in_block.clone() - tx_idx.clone()),
@@ -55,15 +57,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             String::from("tx_id_diff"),
         );
         constraints.append(&mut is_zero.get_constraints());
-        constraints.push((
-            "tag is BlockTxLogNum".into(),
-            public_tag - (public::Tag::BlockTxLogNum as u8).expr(),
-        ));
 
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
-        constraints.push((
-            "public_block_idx is block_idx".into(),
-            public_block_idx - block_idx.clone(),
+
+        // constraint tag and block_idx in public entry
+        constraints.extend(config.get_public_constraints(
+            meta,
+            tx_num_entry,
+            (public::Tag::BlockTxLogNumAndDifficulty as u8).expr(),
+            Some(block_idx.clone()),
+            [None, None, None, None],
         ));
 
         let next_is_end_block = meta.query_advice(
@@ -145,7 +148,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // core_row_2添加public entry记录总的交易数，
         core_row_2.insert_public_lookup(
             0,
-            &current_state.get_public_tx_row(public::Tag::BlockTxLogNum, 0),
+            &current_state.get_public_tx_row(public::Tag::BlockTxLogNumAndDifficulty, 0),
         );
 
         // 根据next exec state 填充core row0 的 下一个状态是begin_tx_1(列25) 还是 end_block(列26),分别在对应的列置为1

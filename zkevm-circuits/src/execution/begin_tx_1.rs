@@ -86,7 +86,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_public_constraints(
             meta,
             public_entry,
-            (public::Tag::TxGasLimit as u8).expr(),
+            (public::Tag::TxGasLimitAndGasPrice as u8).expr(),
             Some(block_tx_idx.clone()),
             [None, None, None, None],
         ));
@@ -326,7 +326,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // core_row_2写入交易的calldata size和to 地址，与public电路lookup
         let public_row = current_state.get_public_tx_row(public::Tag::TxToCallDataSize, 0);
         core_row_2.insert_public_lookup(0, &public_row);
-        let public_row = current_state.get_public_tx_row(public::Tag::TxGasLimit, 1);
+        let public_row = current_state.get_public_tx_row(public::Tag::TxGasLimitAndGasPrice, 1);
         core_row_2.insert_public_lookup(1, &public_row);
 
         // core_row_1写入交易的4个状态（to地址或创建的合约地址，交易的calldata_size，父call_id和code_addr）

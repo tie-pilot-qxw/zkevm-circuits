@@ -22,23 +22,24 @@ const CORE_ROW_1_START_COL_IDX: usize = 8;
 /// PublicContextGadget deal OpCodeId:{TIMESTAMP,NUMBER,COINBASE,GASLIMIT,CHAINID,BASEFEE}
 /// STATE0 record value
 /// TAGSEL 6 columns
+/// PUB_VAL 2 columns, others public values for public constraints
 /// TAG 1 column, means public tag (column 26)
-/// if opcode is OpCodeId::TIMESTAMP ,tag is public::Tag::BlockTimestamp
+/// if opcode is OpCodeId::TIMESTAMP ,tag is public::Tag::BlockCoinbaseAndTimestamp
 /// if opcode is OpCodeId::NUMBER , tag is public::Tag::BlockNumber
-/// if opcode is OpCodeId::COINBASE , tag is public::Tag::BlockCoinbase
-/// if opcode is OpCodeId::GASLIMIT , tag is public::Tag::BlockGasLimit
+/// if opcode is OpCodeId::COINBASE , tag is public::Tag::BlockCoinbaseAndTimestamp
+/// if opcode is OpCodeId::GASLIMIT , tag is public::Tag::BlockGasLimitAndBaseFee
 /// if opcode is OpCodeId::CHAINID , tag is public::Tag::ChainId
-/// if opcode is OpCodeId::BASEFEE , tag is public::Tag::BlockBaseFee
+/// if opcode is OpCodeId::BASEFEE , tag is public::Tag::BlockGasLimitAndBaseFee
 /// TX_IDX_0 1 column,default 0, means public table tx_idx (column 27)
 /// VALUE_HI 1 column , means public table value0 (column 28)
 /// VALUE_LOW 1 column, means public table value1 (column 29)
-/// VALUE_2 1 column , means public table value2 , here default 0 (column 30)
-/// VALUE_3 1 column ,means public table value3 , here default 0 (column 31)
+/// VALUE_2 1 column , means public table value2 (column 30)
+/// VALUE_3 1 column ,means public table value3 (column 31)
 /// +---+-------+-------+-------+-------+----------------------------------------------------------+
 /// |cnt| 8 col | 8 col | 8 col | 2 col |              public lookup (6 col)                       |
 /// +---+-------+-------+-------+------------------------------------------------------------------+
 /// | 2 |       |       |       |       |TAG | TX_IDX_0 | VALUE_HI | VALUE_LOW | VALUE_2 | VALUE_3 |
-/// | 1 | STATE0|TAGSEL|        |                                                                  |
+/// | 1 | STATE0|TAGSEL| PUB_VAL|                                                                  |
 /// | 0 | DYNA_SELECTOR   |                                 AUX                                    |
 /// +---+-------+-------+-------+------------------------------------------------------------------+
 pub struct PublicContextGadget<F: Field> {
@@ -114,6 +115,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev());
         let basefee_tag =
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 5], Rotation::prev());
+        let public_value_hi =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 6], Rotation::prev());
+        let public_value_lo =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 7], Rotation::prev());
+
         // Create a simple selector with input of array of expressions,which is 0.expr() or 1.expr();
         let selector = SimpleSelector::new(&[
             timestamp_tag.clone(),
@@ -124,33 +130,68 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             basefee_tag.clone(),
         ]);
 
+        let public_tag = selector.select(&[
+            (Tag::BlockCoinbaseAndTimestamp as u64).expr(),
+            (Tag::BlockNumber as u64).expr(),
+            (Tag::BlockCoinbaseAndTimestamp as u64).expr(),
+            (Tag::BlockGasLimitAndBaseFee as u64).expr(),
+            (Tag::ChainId as u64).expr(),
+            (Tag::BlockGasLimitAndBaseFee as u64).expr(),
+        ]);
+
+        let idx = Some(selector.select(&[
+            block_idx.clone(),
+            0.expr(),
+            block_idx.clone(),
+            block_idx.clone(),
+            0.expr(),
+            block_idx.clone(),
+        ]));
+
+        let value_0 = Some(selector.select(&[
+            public_value_hi.clone(),
+            state_value_hi.clone(),
+            state_value_hi.clone(),
+            state_value_hi.clone(),
+            state_value_hi.clone(),
+            public_value_hi.clone(),
+        ]));
+
+        let value_1 = Some(selector.select(&[
+            public_value_lo.clone(),
+            // When Opcode == BlockNumber, should calculate Block Number First Block  = state_value_lo - (block_idx - 1)
+            state_value_lo.clone() - number_tag.clone() * (block_idx.clone() - 1.expr()),
+            state_value_lo.clone(),
+            state_value_lo.clone(),
+            state_value_lo.clone(),
+            public_value_lo.clone(),
+        ]));
+
+        let value_2 = Some(selector.select(&[
+            state_value_hi.clone(),
+            public_value_hi.clone(),
+            public_value_hi.clone(),
+            public_value_hi.clone(),
+            public_value_hi.clone(),
+            state_value_hi.clone(),
+        ]));
+
+        let value_3 = Some(selector.select(&[
+            state_value_lo.clone(),
+            public_value_lo.clone(),
+            public_value_lo.clone(),
+            public_value_lo.clone(),
+            public_value_lo.clone(),
+            state_value_lo.clone(),
+        ]));
+
         // public constraints
         constraints.extend(config.get_public_constraints(
             meta,
             public_entry,
-            selector.select(&[
-                (Tag::BlockTimestamp as u64).expr(),
-                (Tag::BlockNumber as u64).expr(),
-                (Tag::BlockCoinbase as u64).expr(),
-                (Tag::BlockGasLimit as u64).expr(),
-                (Tag::ChainId as u64).expr(),
-                (Tag::BlockBaseFee as u64).expr(),
-            ]),
-            Some(selector.select(&[
-                block_idx.clone(),
-                0.expr(),
-                block_idx.clone(),
-                block_idx.clone(),
-                0.expr(),
-                block_idx.clone(),
-            ])),
-            [
-                Some(state_value_hi.clone()),
-                // When Opcode == BlockNumber, should calculate Block Number First Block  = state_value_lo - (block_idx - 1)
-                Some(state_value_lo.clone() - number_tag.clone() * (block_idx.clone() - 1.expr())),
-                None,
-                None,
-            ],
+            public_tag,
+            idx,
+            [value_0, value_1, value_2, value_3],
         ));
         // select opcode
         let public_context_tag = selector.select(&[
@@ -184,23 +225,46 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let next_stack_top_value = current_state.stack_top.unwrap_or_default();
         let stack_push_0 = current_state.get_push_stack_row(trace, next_stack_top_value);
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let mut value_hi = (next_stack_top_value >> 128).as_u128();
-        let mut value_lo = next_stack_top_value.low_u128();
 
-        // get public_tag by trace.op
-        let (public_tag, tag, block_idx) = match trace.op {
-            OpcodeId::TIMESTAMP => (Tag::BlockTimestamp, 0usize, current_state.block_idx), // GasQuickStep
+        let stack_value_hi = (next_stack_top_value >> 128).as_u128();
+        let stack_value_lo = next_stack_top_value.low_u128();
+
+        // get value for public lookup
+        let (public_tag, idx, value0, value1, value2, value3) = match trace.op {
+            OpcodeId::COINBASE | OpcodeId::TIMESTAMP => (
+                Tag::BlockCoinbaseAndTimestamp,
+                current_state.block_idx,
+                (current_state.coinbase >> 128).as_u128(),
+                current_state.coinbase.low_u128(),
+                (current_state.timestamp >> 128).as_u128(),
+                current_state.timestamp.low_u128(),
+            ), // GasQuickStep
+            OpcodeId::GASLIMIT | OpcodeId::BASEFEE => (
+                Tag::BlockGasLimitAndBaseFee,
+                current_state.block_idx,
+                0,
+                current_state.tx_gaslimit.low_u128(),
+                (current_state.basefee >> 128).as_u128(),
+                current_state.basefee.low_u128(),
+            ), // GasQuickStep
             OpcodeId::NUMBER => {
                 let block_number_first = next_stack_top_value + 1 - current_state.block_idx;
-                value_hi = (block_number_first >> 128).as_u128();
-                value_lo = block_number_first.low_u128();
-                (Tag::BlockNumber, 1, 0)
+                (
+                    Tag::BlockNumber,
+                    0,
+                    0,
+                    block_number_first.low_u128(),
+                    0,
+                    current_state.block_num_in_chunk as u128,
+                )
             } // GasQuickStep
-            OpcodeId::COINBASE => (Tag::BlockCoinbase, 2, current_state.block_idx), // GasQuickStep
-            OpcodeId::GASLIMIT => (Tag::BlockGasLimit, 3, current_state.block_idx), // GasQuickStep
-            OpcodeId::CHAINID => (Tag::ChainId, 4, 0),                              // GasQuickStep
-            OpcodeId::BASEFEE => (Tag::BlockBaseFee, 5, current_state.block_idx),   // GasQuickStep
+            OpcodeId::CHAINID => (Tag::ChainId, 0, stack_value_hi, stack_value_lo, 0, 0), // GasQuickStep
             _ => panic!("not PUBLIC_CONTEXT op"),
+        };
+
+        let (pub_value_hi, pub_value_lo) = match trace.op {
+            OpcodeId::TIMESTAMP | OpcodeId::BASEFEE => (value0, value1),
+            _ => (value2, value3),
         };
 
         // core_row_2
@@ -208,15 +272,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0,
             &public::Row {
                 tag: public_tag,
-                block_tx_idx: Some(block_idx.into()),
-                value_0: Some(U256::from(value_hi)),
-                value_1: Some(U256::from(value_lo)),
-                value_2: Some(0.into()),
-                value_3: Some(if OpcodeId::NUMBER == trace.op {
-                    current_state.block_num_in_chunk.into()
-                } else {
-                    0.into()
-                }),
+                block_tx_idx: Some(idx.into()),
+                value_0: Some(value0.into()),
+                value_1: Some(value1.into()),
+                value_2: Some(value2.into()),
+                value_3: Some(value3.into()),
                 ..Default::default()
             },
         );
@@ -237,8 +297,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 CORE_ROW_1_START_COL_IDX + 4,
                 CORE_ROW_1_START_COL_IDX + 5,
             ],
-            tag,
+            match trace.op {
+                OpcodeId::TIMESTAMP => 0,
+                OpcodeId::NUMBER => 1,
+                OpcodeId::COINBASE => 2,
+                OpcodeId::GASLIMIT => 3,
+                OpcodeId::CHAINID => 4,
+                OpcodeId::BASEFEE => 5,
+                _ => panic!("not PUBLIC_CONTEXT op"),
+            },
             |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+        assign_or_panic!(
+            core_row_1[CORE_ROW_1_START_COL_IDX + 6],
+            pub_value_hi.into()
+        );
+        assign_or_panic!(
+            core_row_1[CORE_ROW_1_START_COL_IDX + 7],
+            pub_value_lo.into()
         );
 
         // core row 2
@@ -276,6 +352,11 @@ mod test {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
             gas_left: 0x254023,
+            timestamp: 0xff.into(),
+            coinbase: 0xff.into(),
+            block_gaslimit: 0xff.into(),
+            basefee: 0xff.into(),
+            tx_gaslimit: 0xff.into(),
             ..WitnessExecHelper::new()
         };
         current_state.block_idx = 1;
