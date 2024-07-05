@@ -516,7 +516,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 );
             }
 
-            // if tag != nil && (tag == txCallData || tag == txLogData) && value0(idx_cur) != 0,
+            // if tag != nil && (tag == txCallData || tag == txLogData) && value2(idx_cur) != 0,
             // then value2_cur(idx_cur) == value2_prev+1 (idx_cur+1)
             //      tag_cur == tag_prev
             //      block_tx_idx_cur == block_tx_idx_prev
@@ -526,7 +526,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                 q_enable.clone()
                     * tag_is_not_nil.clone()
                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                    * value2.clone() // there are only two cases for value0: 0 and non-0
+                    * value2.clone() // there are only two cases for value2: 0 and non-0
                     * (value2.clone() - value2_prev - 1.expr()),
                 q_enable.clone()
                     * tag_is_not_nil.clone()
@@ -976,8 +976,8 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PublicCircuit<F, MAX_
         }
     }
     // instance return vector of vector
-    /// +-----+-----------------------+--------+--------+--------+--------+
-    /// | tag | block_tx_idx | value0 | value1 | value2 | value3 |
+    /// +------+
+    /// | hash |
     fn instance(&self) -> Vec<Vec<F>> {
         self.witness.get_public_instance()
     }
