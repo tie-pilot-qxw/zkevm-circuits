@@ -532,6 +532,7 @@ impl WitnessExecHelper {
         core::Row {
             block_idx: self.block_idx.into(),
             tx_idx: self.tx_idx.into(),
+            tx_is_create: (self.is_create as u8).into(),
             call_id: self.call_id.into(),
             code_addr: self.code_addr,
             pc: trace_step.pc.into(),
@@ -1517,20 +1518,38 @@ impl WitnessExecHelper {
             };
             acc_pre = acc;
 
-            copy_rows.push(copy::Row {
-                byte: byte.into(),
-                src_type: copy::Tag::PublicCalldata,
-                src_id: self.get_block_tx_idx().into(),
-                src_pointer: 0.into(),
-                src_stamp: 0.into(),
-                dst_type: copy::Tag::Calldata,
-                dst_id: self.call_id.into(),
-                dst_pointer: 0.into(),
-                dst_stamp: stamp_start.into(),
-                cnt: i.into(),
-                len: len.into(),
-                acc,
-            });
+            if self.is_create {
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Tag::Bytecode,
+                    src_id: self.code_addr,
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Tag::Calldata,
+                    dst_id: self.call_id.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: stamp_start.into(),
+                    cnt: i.into(),
+                    len: len.into(),
+                    acc,
+                });
+            } else {
+                copy_rows.push(copy::Row {
+                    byte: byte.into(),
+                    src_type: copy::Tag::PublicCalldata,
+                    src_id: self.get_block_tx_idx().into(),
+                    src_pointer: 0.into(),
+                    src_stamp: 0.into(),
+                    dst_type: copy::Tag::Calldata,
+                    dst_id: self.call_id.into(),
+                    dst_pointer: 0.into(),
+                    dst_stamp: stamp_start.into(),
+                    cnt: i.into(),
+                    len: len.into(),
+                    acc,
+                });
+            }
+
             state_rows.push(state::Row {
                 tag: Some(state::Tag::CallData),
                 stamp: Some(self.state_stamp.into()),

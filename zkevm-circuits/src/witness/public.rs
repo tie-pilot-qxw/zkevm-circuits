@@ -410,29 +410,31 @@ impl Row {
                     ..Default::default()
                 });
 
-                for (idx, byte) in tx.input.iter().enumerate() {
-                    // | TxCalldata | block_tx_idx | 0 | 0 | idx | byte |
-                    result.push(Row {
-                        tag: Tag::TxCalldata,
-                        // tx index
-                        block_tx_idx: Some(block_tx_idx.into()),
-                        // input index
-                        value_2: Some(idx.into()),
-                        // input byte
-                        value_3: Some(byte.clone().into()),
-                        comments: [
-                            ("tag".into(), "TxCalldata".into()),
-                            (
-                                "block_tx_idx".into(),
-                                format!("block_tx_idx{}", block_tx_idx),
-                            ),
-                            ("value_0".into(), "idx".into()),
-                            ("value_1".into(), "byte".into()),
-                        ]
-                        .into_iter()
-                        .collect(),
-                        ..Default::default()
-                    });
+                if tx.to.is_some() {
+                    for (idx, byte) in tx.input.iter().enumerate() {
+                        // | TxCalldata | block_tx_idx | 0 | 0 | idx | byte |
+                        result.push(Row {
+                            tag: Tag::TxCalldata,
+                            // tx index
+                            block_tx_idx: Some(block_tx_idx.into()),
+                            // input index
+                            value_2: Some(idx.into()),
+                            // input byte
+                            value_3: Some(byte.clone().into()),
+                            comments: [
+                                ("tag".into(), "TxCalldata".into()),
+                                (
+                                    "block_tx_idx".into(),
+                                    format!("block_tx_idx{}", block_tx_idx),
+                                ),
+                                ("value_0".into(), "idx".into()),
+                                ("value_1".into(), "byte".into()),
+                            ]
+                            .into_iter()
+                            .collect(),
+                            ..Default::default()
+                        });
+                    }
                 }
             }
 

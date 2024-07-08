@@ -183,6 +183,8 @@ pub(crate) struct ExecutionConfig<F, const NUM_STATE_HI_COL: usize, const NUM_ST
     pub(crate) block_idx: Column<Advice>,
     // witness column of transaction index
     pub(crate) tx_idx: Column<Advice>,
+    /// whether the current transaction is a transaction to create a contract
+    pub tx_is_create: Column<Advice>,
     // witness column of call id
     pub(crate) call_id: Column<Advice>,
     // witness column of contract address
@@ -535,6 +537,43 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         acc: Option<Expression<F>>,
         copy_lookup_entry: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
+        self.get_copy_constraints_with_src_type(
+            src_type.into(),
+            src_type.as_u8().expr(),
+            src_id,
+            src_pointer,
+            src_stamp,
+            dst_type.into(),
+            dst_type.as_u8().expr(),
+            dst_id,
+            dst_pointer,
+            dst_stamp,
+            cnt,
+            len,
+            len_is_zero,
+            acc,
+            copy_lookup_entry,
+        )
+    }
+
+    pub(crate) fn get_copy_constraints_with_src_type(
+        &self,
+        src_type: String,
+        src_type_expr: Expression<F>,
+        src_id: Expression<F>,
+        src_pointer: Expression<F>,
+        src_stamp: Expression<F>,
+        dst_type: String,
+        dst_type_expr: Expression<F>,
+        dst_id: Expression<F>,
+        dst_pointer: Expression<F>,
+        dst_stamp: Expression<F>,
+        cnt: Option<Expression<F>>,
+        len: Expression<F>,
+        len_is_zero: Expression<F>,
+        acc: Option<Expression<F>>,
+        copy_lookup_entry: LookupEntry<F>,
+    ) -> Vec<(String, Expression<F>)> {
         assert_eq!(cnt.is_some(), acc.is_some());
 
         let (
@@ -555,8 +594,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 format!("src_type of copy is {:?}", src_type),
-                (1.expr() - len_is_zero.clone())
-                    * (copy_lookup_src_type.clone() - (src_type as u64).expr())
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_src_type.clone() - src_type_expr)
                     + len_is_zero.clone() * copy_lookup_src_type,
             ),
             (
@@ -576,8 +614,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("dst_type of copy is {:?}", dst_type),
-                (1.expr() - len_is_zero.clone())
-                    * (copy_lookup_dst_type.clone() - (dst_type as u64).expr())
+                (1.expr() - len_is_zero.clone()) * (copy_lookup_dst_type.clone() - dst_type_expr)
                     + len_is_zero.clone() * copy_lookup_dst_type,
             ),
             (
@@ -2637,6 +2674,7 @@ mod test {
                         q_enable,
                         block_idx: meta.advice_column(),
                         tx_idx: meta.advice_column(),
+                        tx_is_create: meta.advice_column(),
                         call_id: meta.advice_column(),
                         code_addr: meta.advice_column(),
                         pc: meta.advice_column(),
@@ -2681,6 +2719,7 @@ mod test {
                         |mut region| {
                             region.name_column(|| "CORE_block_idx", config.block_idx);
                             region.name_column(|| "CORE_tx_idx", config.tx_idx);
+                            region.name_column(|| "CORE_tx_is_create", config.tx_is_create);
                             region.name_column(|| "CORE_call_id", config.call_id);
                             region.name_column(|| "CORE_code_addr", config.code_addr);
                             region.name_column(|| "CORE_pc", config.pc);
@@ -2707,6 +2746,12 @@ mod test {
                                     offset,
                                     &row.tx_idx,
                                     config.tx_idx,
+                                )?;
+                                assign_advice_or_fixed_with_u256(
+                                    &mut region,
+                                    offset,
+                                    &row.tx_is_create,
+                                    config.tx_is_create,
                                 )?;
                                 assign_advice_or_fixed_with_u256(
                                     &mut region,

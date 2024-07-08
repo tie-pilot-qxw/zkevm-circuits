@@ -14,6 +14,8 @@ pub struct Row {
     pub block_idx: U256,
     /// transaction index, the index inside the block, repeated for rows in one transaction
     pub tx_idx: U256,
+    /// whether the current transaction is a transaction to create a contract
+    pub tx_is_create: U256,
     /// call id, unique for each call, repeated for rows in one execution state
     pub call_id: U256,
     /// contract code address, repeated for rows in one execution state
