@@ -32,6 +32,8 @@ ark-std = { version = "0.3", features = ["print-trace"] }
 
 [dev-dependencies]
 hex = "0.4.3"
+test-case = "*"
+seq-macro = "0.3.5"
 
 [features]
 default = ["fast_test"]
@@ -42,3 +44,4 @@ no_lookup_merge = []
 no_public_hash = []
 fast_test = ["k_10", "no_fixed_lookup", "no_public_hash"]
 benches = []
+fuzz_test = []
