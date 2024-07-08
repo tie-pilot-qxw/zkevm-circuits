@@ -3335,10 +3335,8 @@ impl Witness {
                 block
                     .geth_traces
                     .last()
-                    .unwrap()
-                    .struct_logs
-                    .last()
-                    .unwrap(),
+                    .and_then(|trace| trace.struct_logs.last())
+                    .unwrap_or(&GethExecStep::default()),
                 &mut current_state,
                 &execution_gadgets_map,
             );
@@ -3349,13 +3347,13 @@ impl Witness {
             chunk_data
                 .blocks
                 .last()
-                .unwrap()
-                .geth_traces
-                .last()
-                .unwrap()
-                .struct_logs
-                .last()
-                .unwrap(),
+                .and_then(|block| {
+                    block
+                        .geth_traces
+                        .last()
+                        .and_then(|trace| trace.struct_logs.last())
+                })
+                .unwrap_or(&GethExecStep::default()),
             &mut current_state,
             &execution_gadgets_map,
         );

@@ -185,6 +185,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &src_overflow_inv,
             "src offset overflow".into(),
         );
+        constraints.extend(src_not_overflow.get_constraints());
+
         constraints.extend([
             (
                 "src_offset_hi = stack top1 value_hi".into(),
