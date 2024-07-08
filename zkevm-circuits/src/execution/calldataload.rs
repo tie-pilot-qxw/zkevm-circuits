@@ -111,6 +111,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (tag, [value_hi, value_lo, overflow, overflow_inv]) =
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 4));
         let not_overflow = SimpleIsZero::new(&overflow, &overflow_inv, "u64 overflow".into());
+        constraints.append(&mut not_overflow.get_constraints());
+
         for i in 0..2 {
             let copy_entry = if i == 0 {
                 config.get_copy_lookup(meta, 0)

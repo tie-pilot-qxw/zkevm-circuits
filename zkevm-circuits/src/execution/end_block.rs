@@ -121,12 +121,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &block_idx_diff_inv,
             String::from("block_id_diff"),
         );
+        constraints.extend(is_zero.get_constraints());
 
         // constraints next state
         constraints.append(&mut config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::END_TX],
+                vec![ExecutionState::END_TX, ExecutionState::BEGIN_BLOCK],
                 NUM_ROW,
                 vec![
                     (

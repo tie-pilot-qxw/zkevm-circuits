@@ -193,6 +193,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let gas_in_stack_not_overflow =
             SimpleIsZero::new(&overflow, &overflow_inv, "u64_overflow".into());
+        constraints.extend(gas_in_stack_not_overflow.get_constraints());
 
         let (lt_tag, [all_but_one_64th_gas_mul_32, gas_in_stack_input, lt, _]) =
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 3));
@@ -241,6 +242,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 2));
         let gas_left_not_overflow =
             SimpleIsZero::new(&overflow, &overflow_inv, "u64_overflow".into());
+        constraints.extend(gas_left_not_overflow.get_constraints());
+
         constraints.extend([
             (
                 "tag is U64Overflow".into(),

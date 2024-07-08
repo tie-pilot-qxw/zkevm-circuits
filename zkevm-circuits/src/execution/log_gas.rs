@@ -77,6 +77,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         let gas_left_not_overflow =
             SimpleIsZero::new(&overflow, &overflow_inv, "gas_left_u64_overflow".into());
+        constraints.extend(gas_left_not_overflow.get_constraints());
+
         constraints.extend([
             (
                 "tag is U64Overflow".into(),
