@@ -17,7 +17,12 @@ fn test_multi_trace() {
     // 该用例仅使用一个合约，包含一个区块4笔交易，交易操作为1.部署合约 2.updateMyBalance 3. updateBalance 4. transfer
     let chunk_data = get_multi_trace_chunk_data(
         "test_data/multi_trace_test/trace/block_info.json",
-        vec!["test_data/multi_trace_test/trace/step_01_deploy_tx_info.json"],
+        vec![
+            "test_data/multi_trace_test/trace/step_01_deploy_tx_info.json",
+            "test_data/multi_trace_test/trace/step_02_updateMyBalance_tx_info.json",
+            "test_data/multi_trace_test/trace/step_03_updateBalance_tx_info.json",
+            "test_data/multi_trace_test/trace/step_04_transfer_tx_info.json",
+        ],
         vec![
             "test_data/multi_trace_test/trace/step_01_deploy_tx_debug_trace.json",
             "test_data/multi_trace_test/trace/step_02_updateMyBalance_tx_debug_trace.json",

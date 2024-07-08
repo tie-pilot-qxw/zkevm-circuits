@@ -3096,17 +3096,6 @@ impl Witness {
             let mut this_op = vec![];
             if op.is_push() {
                 let mut cnt = op.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
-                if pc + cnt as usize >= machine_code.len() {
-                    panic!(
-                        "pc:{}\ncnt:{}\npc+cnt:{} > machine_code.len:{}\nopcode:{:?}({:x})",
-                        pc,
-                        cnt,
-                        pc + cnt as usize,
-                        machine_code.len(),
-                        op,
-                        machine_code[pc]
-                    );
-                } // NOTE: the purpose is to avoid the effects of invalid bytecodes, for example, a PUSH31 opcode at machine_code.len()-23
                 let mut acc_hi = 0u128;
                 let mut acc_lo = 0u128;
                 this_op.push(bytecode::Row {
@@ -3120,7 +3109,7 @@ impl Witness {
                     ..Default::default()
                 });
                 pc += 1;
-                while cnt > 0 {
+                while cnt > 0 && pc < machine_code.len() {
                     cnt -= 1;
                     if cnt >= 16 {
                         acc_hi = acc_hi * 256 + machine_code[pc] as u128;
