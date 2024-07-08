@@ -26,4 +26,9 @@ pub struct Row {
     pub hash_hi: Option<U256>,
     /// Low 128 bits of the contract bytecode hash result
     pub hash_lo: Option<U256>,
+    /// the effective length of the contract bytecode
+    pub length: Option<U256>,
+    /// whether the current bytecode is a padding bytecode
+    /// padding is only done at the end of the bytecode to handle the case where the number of bytes pushed by the pushX instruction is less than X.
+    pub is_padding: Option<U256>,
 }

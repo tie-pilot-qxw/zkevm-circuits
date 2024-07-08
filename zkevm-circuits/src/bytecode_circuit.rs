@@ -82,10 +82,16 @@ pub struct BytecodeCircuitConfig<F> {
     hash_hi: Column<Advice>,
     /// Low 128 bits of the contract bytecode hash result
     hash_lo: Column<Advice>,
+    /// the actual length of the contract bytecode (excluding padding bytecode)
+    length: Column<Advice>,
+    /// whether the current bytecode is the bytecode of padding
+    is_padding: Column<Advice>,
     /// for chip to determine whether cnt is 0
     cnt_is_zero: IsZeroWithRotationConfig<F>,
     /// for chip to determine whether cnt is 15
     cnt_is_15: IsZeroConfig<F>,
+    /// the last valid bytecode in the contract bytecode (length = pc + 1)
+    is_last_valid_bytecode: IsZeroConfig<F>,
     /// for chip to check if addr is changed from previous row
     addr_unchange: IsZeroConfig<F>,
     /// for chip to check if addr is changed from next row
@@ -141,6 +147,8 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         let acc_lo = meta.advice_column();
         let rlc_acc = meta.advice_column_in(SecondPhase);
         let is_high = meta.advice_column();
+        let length = meta.advice_column();
+        let is_padding = meta.advice_column();
         let _cnt_minus_15_inv = meta.advice_column();
         let cnt_is_15 = IsZeroChip::configure(
             meta,
@@ -151,6 +159,18 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             },
             _cnt_minus_15_inv,
         );
+        let _is_last_valid_bytecode_inv = meta.advice_column();
+        let is_last_valid_bytecode = IsZeroChip::configure(
+            meta,
+            |meta| meta.query_selector(q_enable),
+            |meta| {
+                let pc = meta.query_advice(pc, Rotation::cur());
+                let length = meta.query_advice(length, Rotation::cur());
+                length - pc - 1.expr()
+            },
+            _is_last_valid_bytecode_inv,
+        );
+
         let _addr_diff_inv = meta.advice_column();
         let addr_unchange = IsZeroChip::configure(
             meta,
@@ -197,8 +217,11 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             rlc_acc,
             hash_hi,
             hash_lo,
+            length,
+            is_padding,
             cnt_is_zero,
             cnt_is_15,
+            is_last_valid_bytecode,
             addr_unchange,
             addr_unchange_next,
             addr_is_zero,
@@ -217,16 +240,22 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let pc_prev = meta.query_advice(config.pc, Rotation::prev());
             let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
             vec![
-                q_enable.clone() * (1.expr() - addr_unchange.clone()) * pc_cur.clone(),
-                q_enable * addr_unchange
-                     * (1.expr() - addr_is_zero) // this row is not padding
-                     * (pc_cur - pc_prev - 1.expr()),
+                (
+                    "addr_change(new contract bytecode) --> pc=0",
+                    q_enable.clone() * (1.expr() - addr_unchange.clone()) * pc_cur.clone(),
+                ),
+                (
+                    "addr_unchange && addr_is_not_zero --> pc_cur -= pc_prev+1",
+                    q_enable * addr_unchange
+                        * (1.expr() - addr_is_zero) // this row is not padding
+                        * (pc_cur - pc_prev - 1.expr()),
+                ),
             ]
         });
 
         // constrain padding row, the padding row values are all 0
         // note: the data in the padding row has no actual meaning, it is just to make up the number of rows in the table
-        meta.create_gate("BYTECODE_padding_is_zero", |meta| {
+        meta.create_gate("BYTECODE_addr_is_zero", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
             let addr = meta.query_advice(config.addr, Rotation::cur());
@@ -242,18 +271,48 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
             let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
             vec![
-                q_enable.clone() * addr_is_zero.clone() * addr,
-                q_enable.clone() * addr_is_zero.clone() * pc,
-                q_enable.clone() * addr_is_zero.clone() * bytecode,
-                q_enable.clone() * addr_is_zero.clone() * value_hi,
-                q_enable.clone() * addr_is_zero.clone() * value_lo,
-                q_enable.clone() * addr_is_zero.clone() * acc_hi,
-                q_enable.clone() * addr_is_zero.clone() * acc_lo,
-                q_enable.clone() * addr_is_zero.clone() * cnt,
-                q_enable.clone() * addr_is_zero.clone() * is_high,
-                q_enable.clone() * addr_is_zero.clone() * rlc_acc,
-                q_enable.clone() * addr_is_zero.clone() * hash_hi,
-                q_enable.clone() * addr_is_zero.clone() * hash_lo,
+                (
+                    "addr is zero",
+                    q_enable.clone() * addr_is_zero.clone() * addr,
+                ),
+                ("pc is zero", q_enable.clone() * addr_is_zero.clone() * pc),
+                (
+                    "bytecode is zero",
+                    q_enable.clone() * addr_is_zero.clone() * bytecode,
+                ),
+                (
+                    "value_hi is zero",
+                    q_enable.clone() * addr_is_zero.clone() * value_hi,
+                ),
+                (
+                    "value_lo is zero",
+                    q_enable.clone() * addr_is_zero.clone() * value_lo,
+                ),
+                (
+                    "acc_hi is zero",
+                    q_enable.clone() * addr_is_zero.clone() * acc_hi,
+                ),
+                (
+                    "acc_lo is zero",
+                    q_enable.clone() * addr_is_zero.clone() * acc_lo,
+                ),
+                ("cnt is zero", q_enable.clone() * addr_is_zero.clone() * cnt),
+                (
+                    "is_high is zero",
+                    q_enable.clone() * addr_is_zero.clone() * is_high,
+                ),
+                (
+                    "rlc_acc is zero",
+                    q_enable.clone() * addr_is_zero.clone() * rlc_acc,
+                ),
+                (
+                    "hash_hi is zero",
+                    q_enable.clone() * addr_is_zero.clone() * hash_hi,
+                ),
+                (
+                    "hash_lo is zero",
+                    q_enable.clone() * addr_is_zero.clone() * hash_lo,
+                ),
             ]
         });
 
@@ -267,7 +326,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         //    for rows with cnt < 16, the value of acc_lo is acc_lo_prev*256 + bytecode
         // 5. the value_hi of all rows are equal, and the value_lo is also equal, that is, value_lo_cur=value_lo_prev, value_hi_lo_cur=value_hi_prev
         // cnt_prev!=0 && cnt=0, the last byte of push
-        /*meta.create_gate("BYTECODE_PUSH_BYTE", |meta| {
+        meta.create_gate("BYTECODE_PUSH_BYTE", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let value_hi_cur = meta.query_advice(config.value_hi, Rotation::cur());
             let value_lo_cur = meta.query_advice(config.value_lo, Rotation::cur());
@@ -285,38 +344,64 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let is_high_prev = meta.query_advice(config.is_high, Rotation::prev());
             let is_high_cur = meta.query_advice(config.is_high, Rotation::cur());
             let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
-
             let is_push_byte = 1.expr() - cnt_is_zero_prev;
             let is_push_last_byte = is_push_byte.clone() * cnt_is_zero;
             vec![
                 // cnt is decreasing
-                q_enable.clone() * is_push_byte.clone() * (cnt_prev - cnt_cur - 1.expr()),
+                (
+                    "cnt_prev = cnt_cur+1",
+                    q_enable.clone() * is_push_byte.clone() * (cnt_prev - cnt_cur - 1.expr()),
+                ),
                 // when cnt >=16, is_high is 1, and when cnt <16, is_high is 0
-                q_enable.clone()
-                    * is_push_byte.clone()
-                    * (is_high_prev - is_high_cur.clone() - cnt_is_15),
-                q_enable.clone() * is_push_byte.clone() * (value_hi_cur.clone() - value_hi_prev),
-                q_enable.clone() * is_push_byte.clone() * (value_lo_cur.clone() - value_lo_prev),
+                (
+                    "cnt >=16 --> is_high = 1",
+                    q_enable.clone()
+                        * is_push_byte.clone()
+                        * (is_high_prev - is_high_cur.clone() - cnt_is_15)
+                ),
+                (
+                    "value_hi_cur = value_hi_prev",
+                    q_enable.clone() * is_push_byte.clone() * (value_hi_cur.clone() - value_hi_prev)
+                ),
+                (
+                    "value_lo_cur = value_lo_prev",
+                    q_enable.clone() * is_push_byte.clone() * (value_lo_cur.clone() - value_lo_prev),
+                ),
                 // cnt >= 16 ==> acc_hi = acc_hi_prev*256 + bytecode
                 // cnt < 16 ==> acc_hi = acc_hi_prev
-                q_enable.clone()
-                    * is_push_byte.clone()
-                    * (acc_hi_prev.clone()
+                (
+                    "cnt >= 16 --> acc_hi = acc_hi_prev*256 + bytecode, cnt < 16 --> acc_hi = acc_hi_prev",
+                    q_enable.clone()
+                        * is_push_byte.clone()
+                        * (acc_hi_prev.clone()
                         + is_high_cur.clone() * (255.expr() * acc_hi_prev + bytecode.clone())
                         - acc_hi_cur.clone()),
+                ),
                 // cnt >= 16 ==> acc_lo=0, acc_lo = acc_lo_prev
                 // cnt < 16 ==> acc_lo=acc_lo_prev*256 + bytecode
-                q_enable.clone() * is_push_byte.clone() * is_high_cur.clone() * acc_lo_cur.clone(),
-                q_enable.clone()
-                    * is_push_byte.clone()
-                    * (acc_lo_prev.clone()
+                (
+                    "cnt >= 16 --> acc_lo=0",
+                    q_enable.clone() * is_push_byte.clone() * is_high_cur.clone() * acc_lo_cur.clone(),
+                ),
+                (
+                    "cnt >= 16 --> acc_lo = acc_lo_prev,  cnt < 16 --> acc_lo=acc_lo_prev*256 + bytecode",
+                    q_enable.clone()
+                        * is_push_byte.clone()
+                        * (acc_lo_prev.clone()
                         + (1.expr() - is_high_cur.clone()) * (255.expr() * acc_lo_prev + bytecode)
                         - acc_lo_cur.clone()),
+                ),
                 // the last byte of push, value_hi=acc_hi, value_lo=acc_lo
-                q_enable.clone() * is_push_last_byte.clone() * (value_hi_cur - acc_hi_cur),
-                q_enable * is_push_last_byte.clone() * (value_lo_cur - acc_lo_cur),
+                (
+                    "is_push_last_byte --> value_hi = acc_hi",
+                    q_enable.clone() * is_push_last_byte.clone() * (value_hi_cur - acc_hi_cur),
+                ),
+                (
+                    "is_push_last_byte --> value_lo = acc_lo",
+                    q_enable * is_push_last_byte.clone() * (value_lo_cur - acc_lo_cur),
+                )
             ]
-        }); */
+        });
 
         // if it is Bytecode or Opcode, and it is not a PUSH instruction, then cnt, cnt_prev, acc_hi,
         //  acc_lo, value_hi, value_lo、is_high are all 0.
@@ -336,11 +421,26 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let opcode_is_no_push = cnt_is_zero_prev * cnt_is_zero * (1.expr() - addr_is_zero);
 
             vec![
-                q_enable.clone() * opcode_is_no_push.clone() * value_hi,
-                q_enable.clone() * opcode_is_no_push.clone() * value_lo,
-                q_enable.clone() * opcode_is_no_push.clone() * acc_hi,
-                q_enable.clone() * opcode_is_no_push.clone() * acc_lo,
-                q_enable.clone() * opcode_is_no_push.clone() * is_high,
+                (
+                    "value_hi is zero",
+                    q_enable.clone() * opcode_is_no_push.clone() * value_hi,
+                ),
+                (
+                    "value_lo is zero",
+                    q_enable.clone() * opcode_is_no_push.clone() * value_lo,
+                ),
+                (
+                    "acc_hi is zero",
+                    q_enable.clone() * opcode_is_no_push.clone() * acc_hi,
+                ),
+                (
+                    "acc_lo is zero",
+                    q_enable.clone() * opcode_is_no_push.clone() * acc_lo,
+                ),
+                (
+                    "is_high is zero",
+                    q_enable.clone() * opcode_is_no_push.clone() * is_high,
+                ),
             ]
         });
 
@@ -357,8 +457,14 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
 
             vec![
                 // acc_hi and acc_lo are both 0
-                q_enable.clone() * opcode_is_push.clone() * acc_hi_cur,
-                q_enable.clone() * opcode_is_push.clone() * acc_lo_cur,
+                (
+                    "acc_hi_cur is zero",
+                    q_enable.clone() * opcode_is_push.clone() * acc_hi_cur,
+                ),
+                (
+                    "acc_lo_cur is zero",
+                    q_enable.clone() * opcode_is_push.clone() * acc_lo_cur,
+                ),
             ]
         });
 
@@ -375,13 +481,19 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let challenge = challenges_expr.keccak_input();
 
             vec![
-                q_enable.clone()
-                    * (1.expr() - addr_unchange.clone())
-                    * (rlc_acc.clone() - bytecode.clone()),
-                q_enable.clone()
-                    * addr_unchange
-                    * (1.expr() - addr_is_zero)
-                    * (rlc_acc - (rlc_acc_prev * challenge + bytecode)),
+                (
+                    "addr_change(new contract bytecode) --> rlc_acc = bytecode",
+                    q_enable.clone()
+                        * (1.expr() - addr_unchange.clone())
+                        * (rlc_acc.clone() - bytecode.clone()),
+                ),
+                (
+                    "addr_unchange --> rlc_acc = rlc_acc_prev*challenge + bytecode",
+                    q_enable.clone()
+                        * addr_unchange
+                        * (1.expr() - addr_is_zero)
+                        * (rlc_acc - (rlc_acc_prev * challenge + bytecode)),
+                ),
             ]
         });
 
@@ -391,23 +503,82 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         // If the addr of the next row does not change from the addr of the current row, the hash field value of the current row is 0.
         meta.create_gate("BYTECODE_hash", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
-            let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
-            let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
+            let hash_hi_cur = meta.query_advice(config.hash_hi, Rotation::cur());
+            let hash_lo_cur = meta.query_advice(config.hash_lo, Rotation::cur());
+            let hash_hi_next = meta.query_advice(config.hash_hi, Rotation::next());
+            let hash_lo_next = meta.query_advice(config.hash_lo, Rotation::next());
+
             let addr_unchange_next = config.addr_unchange_next.expr();
             let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
             let addr_is_not_zero = 1.expr() - addr_is_zero;
 
             vec![
-                q_enable.clone() * addr_is_not_zero.clone() * addr_unchange_next.clone() * hash_hi,
-                q_enable.clone() * addr_is_not_zero.clone() * addr_unchange_next.clone() * hash_lo,
+                (
+                    "addr_is_not_zero && addr_unchange_next --> hash_hi_cur = hash_hi_next",
+                    q_enable.clone()
+                        * addr_is_not_zero.clone()
+                        * addr_unchange_next.clone()
+                        * (hash_hi_cur - hash_hi_next),
+                ),
+                (
+                    "addr_is_not_zero && addr_unchange_next --> hash_lo_cur = hash_lo_next",
+                    q_enable.clone()
+                        * addr_is_not_zero.clone()
+                        * addr_unchange_next.clone()
+                        * (hash_lo_cur - hash_lo_next),
+                ),
             ]
         });
 
-        // add all lookup constraints here
-        // config.push_byte_range_lookup(meta, "BYTECODE_PUSH_BYTE_RANGE_LOOKUP");
-        config.bytecode_lookup(meta, "BYTECODE_LOOKUP_FIXED");
-        config.keccak_lookup(meta, "BYTECODE_LOOKUP_KECCAK_HASH");
-        config.public_lookup(meta, "BYTECODE_LOOKUP_PUBLIC_CODE_HASH");
+        meta.create_gate("BYTECODE_padding_value", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let is_padding = meta.query_advice(config.is_padding, Rotation::cur());
+            let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
+            vec![(
+                "is_padding == 1 --> bytecode is zero",
+                q_enable.clone() * is_padding.clone() * bytecode,
+            )]
+        });
+
+        meta.create_gate("BYTECODE_length_pc_ispadding", |meta| {
+            let q_enable = meta.query_selector(config.q_enable);
+            let pc = meta.query_advice(config.pc, Rotation::cur());
+            let length_cur = meta.query_advice(config.length, Rotation::cur());
+            let length_next = meta.query_advice(config.length, Rotation::next());
+            let addr_unchange_next = config.addr_unchange_next.expr();
+            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
+            let addr_is_not_zero = 1.expr() - addr_is_zero;
+            let is_padding_cur = meta.query_advice(config.is_padding, Rotation::cur());
+            let is_padding_next = meta.query_advice(config.is_padding, Rotation::next());
+
+            let is_last_valid_bytecode = config.is_last_valid_bytecode.expr();
+
+            let is_not_padding_cur = 1.expr() - is_padding_cur.clone();
+            let addr_change_next = 1.expr() - addr_unchange_next.clone();
+            vec![
+                (
+                    "addr_is_not_zero && addr_unchange_next --> length_cur=length_next",
+                    q_enable.clone()
+                        * addr_is_not_zero.clone()
+                        * addr_unchange_next.clone()
+                        * (length_cur.clone() - length_next),
+                ),
+                // there are two cases, with padding and without padding
+                (
+                    "addr_is_not_zero && is_not_padding_cur && is_padding_next --> length - pc = 1 or addr_is_not_zero && addr_change_next && is_not_padding_cur --> length - pc = 1",
+                    q_enable.clone()
+                        * addr_is_not_zero.clone()
+                        * (
+                        addr_unchange_next.clone() * (is_padding_next.clone() - is_padding_cur.clone())
+                            + is_not_padding_cur * addr_change_next)
+                        * (length_cur.clone() - pc.clone() - 1.expr()),
+                ),
+                (
+                    "is_last_valid_bytecode --> length - pc = 1",
+                    q_enable.clone() * is_last_valid_bytecode * (length_cur.clone() - pc.clone() - 1.expr())
+                )
+            ]
+        });
 
         meta.create_gate("BYTECODE_q_first_rows_constrains", |meta| {
             let q_first_rows = meta.query_selector(config.q_first_rows);
@@ -479,6 +650,12 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             ]
         });
 
+        // add all lookup constraints here
+        // config.push_byte_range_lookup(meta, "BYTECODE_PUSH_BYTE_RANGE_LOOKUP");
+        config.bytecode_lookup(meta, "BYTECODE_LOOKUP_FIXED");
+        config.keccak_lookup(meta, "BYTECODE_LOOKUP_KECCAK_HASH");
+        config.public_lookup(meta, "BYTECODE_LOOKUP_PUBLIC_CODE_HASH");
+
         config
     }
 }
@@ -496,6 +673,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     ) -> Result<(), Error> {
         let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
         let cnt_is_15 = IsZeroChip::construct(self.cnt_is_15.clone());
+        let is_last_valid_bytecode = IsZeroChip::construct(self.is_last_valid_bytecode.clone());
         let addr_unchange = IsZeroChip::construct(self.addr_unchange.clone());
         let addr_unchange_next = IsZeroChip::construct(self.addr_unchange_next.clone());
         let addr_is_zero = IsZeroWithRotationChip::construct(self.addr_is_zero.clone());
@@ -570,20 +748,32 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             &row_cur.hash_lo.unwrap_or_default(),
             self.hash_lo,
         )?;
-        cnt_is_zero.assign(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
-            Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                &row_cur.cnt.unwrap_or_default(),
-            ))),
+            &row_cur.length.unwrap_or_default(),
+            self.length,
         )?;
-        cnt_is_15.assign(
+        assign_advice_or_fixed_with_u256(
             region,
             offset,
-            Value::known(
-                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.cnt.unwrap_or_default()))
-                    - F::from(15),
-            ),
+            &row_cur.is_padding.unwrap_or_default(),
+            self.is_padding,
+        )?;
+
+        let cnt_f =
+            F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.cnt.unwrap_or_default()));
+        let length_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(
+            &row_cur.length.unwrap_or_default(),
+        ));
+        let pc_f =
+            F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.pc.unwrap_or_default()));
+        cnt_is_zero.assign(region, offset, Value::known(cnt_f))?;
+        cnt_is_15.assign(region, offset, Value::known(cnt_f - F::from(15)))?;
+        is_last_valid_bytecode.assign(
+            region,
+            offset,
+            Value::known(length_f - pc_f - F::from(1)),
         )?;
         addr_unchange.assign(
             region,
@@ -780,18 +970,14 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     pub fn keccak_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         meta.lookup_any(name, |meta| {
             let q_enable = meta.query_selector(self.q_enable);
-            let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
-            let addr_unchange_next = self.addr_unchange_next.expr();
-            let addr_change_next = 1.expr() - addr_unchange_next;
-            let addr_is_not_zero = 1.expr() - addr_is_zero;
+            let is_last_valid_bytecode = self.is_last_valid_bytecode.expr();
 
             let keecak_entry = LookupEntry::Keccak {
-                input_len: meta.query_advice(self.pc, Rotation::cur()) + 1.expr(),
+                input_len: meta.query_advice(self.length, Rotation::cur()),
                 input_rlc: meta.query_advice(self.rlc_acc, Rotation::cur()),
                 output_hi: meta.query_advice(self.hash_hi, Rotation::cur()),
                 output_lo: meta.query_advice(self.hash_lo, Rotation::cur()),
             };
-
             let keecak_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self
                 .keccak_table
                 .get_lookup_vector(meta, keecak_entry.clone());
@@ -800,10 +986,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 .into_iter()
                 .map(|(left, right)| {
                     (
-                        q_enable.clone()
-                            * addr_is_not_zero.clone()
-                            * addr_change_next.clone()
-                            * left,
+                        q_enable.clone() * is_last_valid_bytecode.clone() * left,
                         right,
                     )
                 })
@@ -813,11 +996,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     pub fn public_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         meta.lookup_any(name, |meta| {
             let q_enable = meta.query_selector(self.q_enable);
-            let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
-            let addr_unchange_next = self.addr_unchange_next.expr();
-            let addr_change_next = 1.expr() - addr_unchange_next;
-            let addr_is_not_zero = 1.expr() - addr_is_zero;
-
+            let is_last_valid_bytecode = self.is_last_valid_bytecode.expr();
             let public_entry = LookupEntry::PublicMergeAddr {
                 tag: (public::Tag::CodeHash as u8).expr(),
                 block_tx_idx: 0.expr(),
@@ -836,10 +1015,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 .into_iter()
                 .map(|(left, right)| {
                     (
-                        q_enable.clone()
-                            * addr_is_not_zero.clone()
-                            * addr_change_next.clone()
-                            * left,
+                        q_enable.clone() * is_last_valid_bytecode.clone() * left,
                         right,
                     )
                 })
@@ -1127,6 +1303,9 @@ mod test {
         let contract1_bytecode = hex::decode("6000600000").unwrap();
         let contract2_bytecode = hex::decode("00").unwrap();
 
+        let contract1_bytecode_len = contract1_bytecode.len();
+        let contract2_bytecode_len = contract2_bytecode.len();
+
         let (contract1_bytecode_hash_hi, contract1_bytecode_hash_lo) =
             calc_keccak_hi_lo(contract1_bytecode.as_slice());
         let (contract2_bytecode_hash_hi, contract2_bytecode_hash_lo) =
@@ -1137,11 +1316,17 @@ mod test {
             addr: Some(addr1.into()),
             bytecode: Some(OpcodeId::PUSH1.as_u8().into()),
             cnt: Some(1.into()),
+            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
+            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         };
         let row2 = Row {
             addr: Some(addr1.into()),
             pc: Some(1.into()),
+            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
+            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         };
         let row3 = Row {
@@ -1149,11 +1334,17 @@ mod test {
             pc: Some(2.into()),
             bytecode: Some(OpcodeId::PUSH1.as_u8().into()),
             cnt: Some(1.into()),
+            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
+            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         };
         let row4 = Row {
             addr: Some(addr1.into()),
             pc: Some(3.into()),
+            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
+            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         };
         let row5 = Row {
@@ -1162,6 +1353,7 @@ mod test {
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
             hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
             hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         };
 
@@ -1171,6 +1363,7 @@ mod test {
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
             hash_hi: Some(U256::from(contract2_bytecode_hash_hi)),
             hash_lo: Some(U256::from(contract2_bytecode_hash_lo)),
+            length: Some(contract2_bytecode_len.into()),
             ..Default::default()
         };
 
@@ -1262,7 +1455,6 @@ mod test {
     }
 
     /// verify the correctness of the data in the generated Bytecode table
-    #[ignore = "reason: need to fix"]
     #[test]
     fn push_30_fuzzing() {
         // should be 1..=32

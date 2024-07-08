@@ -45,6 +45,7 @@ use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::ptr::hash;
 
 #[derive(Debug, Default, Clone)]
 pub struct Witness {
@@ -2699,10 +2700,10 @@ impl core::Row {
         assign_or_panic!(self[STAMP_CNT_COLUMN_START_IDX + 1], cnt);
 
         #[rustfmt::skip]
-        self.comments.extend([
-            ("vers_0".into(), "tag=EndPadding".into()),
-            ("vers_1".into(), "cnt".into()),
-        ]);
+		self.comments.extend([
+			("vers_0".into(), "tag=EndPadding".into()),
+			("vers_1".into(), "cnt".into()),
+		]);
     }
 
     /// We can skip the constraint by setting code_addr to 0
@@ -2728,16 +2729,16 @@ impl core::Row {
             assign_or_panic!(self[BYTECODE_COLUMN_START_IDX + i], value);
         }
         #[rustfmt::skip]
-        self.comments.extend([
-            (format!("vers_{}", 24), "code_addr".into()),
-            (format!("vers_{}", 25), "pc".into()),
-            (format!("vers_{}", 26), format!("opcode={}", opcode)),
-            (format!("vers_{}", 27), "non_code must be 0".into()),
-            (format!("vers_{}", 28), "push_value_hi".into()),
-            (format!("vers_{}", 29), "push_value_lo".into()),
-            (format!("vers_{}", 30), "X for PUSHX".into()),
-            (format!("vers_{}", 31), "is_push".into()),
-        ]);
+		self.comments.extend([
+			(format!("vers_{}", 24), "code_addr".into()),
+			(format!("vers_{}", 25), "pc".into()),
+			(format!("vers_{}", 26), format!("opcode={}", opcode)),
+			(format!("vers_{}", 27), "non_code must be 0".into()),
+			(format!("vers_{}", 28), "push_value_hi".into()),
+			(format!("vers_{}", 29), "push_value_lo".into()),
+			(format!("vers_{}", 30), "X for PUSHX".into()),
+			(format!("vers_{}", 31), "is_push".into()),
+		]);
     }
 
     pub fn insert_arithmetic_tiny_lookup(
@@ -2762,9 +2763,9 @@ impl core::Row {
             assign_or_panic!(self[offset + i], column_values[i]);
         }
         #[rustfmt::skip]
-        self.comments.extend([
-            (format!("vers_{}", offset + 4), format!("arithmetic tag={:?}", arith_row.tag)),
-        ]);
+		self.comments.extend([
+			(format!("vers_{}", offset + 4), format!("arithmetic tag={:?}", arith_row.tag)),
+		]);
 
         match arith_entries[0].tag {
             arithmetic::Tag::U64Overflow => {
@@ -2825,13 +2826,13 @@ impl core::Row {
             assign_or_panic!(self[i + column_offset], column_values[i]);
         }
         #[rustfmt::skip]
-        self.comments.extend([
-            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
-            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
-            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
-            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
-            (format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 8), format!("arithmetic tag={:?}", row_0.tag)),
-        ]);
+		self.comments.extend([
+			(format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH), "arithmetic operand 0 hi".into()),
+			(format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 1), "arithmetic operand 0 lo".into()),
+			(format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 2), "arithmetic operand 1 hi".into()),
+			(format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 3), "arithmetic operand 1 lo".into()),
+			(format!("vers_{}", index * ARITHMETIC_COLUMN_WIDTH + 8), format!("arithmetic tag={:?}", row_0.tag)),
+		]);
         match row_0.tag {
             arithmetic::Tag::Add => {
                 self.comments.extend([
@@ -3088,14 +3089,36 @@ impl Witness {
         self.keccak.append(&mut witness.keccak);
     }
 
-    fn gen_bytecode_witness(addr: U256, machine_code: &[u8]) -> Vec<bytecode::Row> {
+    fn gen_bytecode_witness(
+        addr: U256,
+        mut machine_code: Vec<u8>,
+        (hash_hi, hash_lo): (u128, u128),
+    ) -> Vec<bytecode::Row> {
         let mut res = vec![];
         let mut pc = 0;
+        let real_machine_code_len = machine_code.len();
         while pc < machine_code.len() {
             let op = OpcodeId::from(machine_code[pc]);
             let mut this_op = vec![];
             if op.is_push() {
-                let mut cnt = op.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
+                let mut cnt = (op.as_u64() - OpcodeId::PUSH1.as_u64() + 1) as usize;
+                // if pc >= machine_code.len(), the number of bytes pushed by the pushX instruction is less than X
+                // then padding value
+                if pc + cnt >= machine_code.len() {
+                    let padding_zero_num = pc + cnt - machine_code.len() + 1;
+                    machine_code.extend(vec![0; padding_zero_num]);
+
+                    // // padding 32 rows
+                    // let padding_zero_num = BYTECODE_NUM_PADDING - cnt;
+                    // machine_code.extend(vec![0; padding_zero_num]);
+                    //
+                    // //
+                    // cnt = BYTECODE_NUM_PADDING;
+
+                    // add STOP
+                    machine_code.push(OpcodeId::STOP.as_u8())
+                }
+
                 let mut acc_hi = 0u128;
                 let mut acc_lo = 0u128;
                 this_op.push(bytecode::Row {
@@ -3106,6 +3129,10 @@ impl Witness {
                     acc_lo: Some(acc_lo.into()),
                     cnt: Some(cnt.into()),
                     is_high: Some((if cnt >= 16 { 1 } else { 0 }).into()),
+                    hash_hi: Some(hash_hi.into()),
+                    hash_lo: Some(hash_lo.into()),
+                    length: Some(real_machine_code_len.into()),
+                    is_padding: Some(0.into()),
                     ..Default::default()
                 });
                 pc += 1;
@@ -3124,6 +3151,10 @@ impl Witness {
                         acc_lo: Some(acc_lo.into()),
                         cnt: Some(cnt.into()),
                         is_high: Some((if cnt >= 16 { 1 } else { 0 }).into()),
+                        hash_hi: Some(hash_hi.into()),
+                        hash_lo: Some(hash_lo.into()),
+                        length: Some(real_machine_code_len.into()),
+                        is_padding: Some(((pc >= real_machine_code_len) as u8).into()),
                         ..Default::default()
                     });
                     pc += 1;
@@ -3144,18 +3175,15 @@ impl Witness {
                     acc_hi: Some(0.into()),
                     acc_lo: Some(0.into()),
                     is_high: Some(0.into()),
+                    hash_hi: Some(hash_hi.into()),
+                    hash_lo: Some(hash_lo.into()),
+                    length: Some(real_machine_code_len.into()),
+                    is_padding: Some(((pc >= real_machine_code_len) as u8).into()),
                     ..Default::default()
                 });
                 pc += 1;
             }
             res.append(&mut this_op);
-        }
-
-        // calc hash
-        if machine_code.len() > 0 {
-            let (hash_hi, hash_lo) = calc_keccak_hi_lo(machine_code);
-            res.last_mut().unwrap().hash_hi = Some(U256::from(hash_hi));
-            res.last_mut().unwrap().hash_lo = Some(U256::from(hash_lo));
         }
         res
     }
@@ -3171,7 +3199,8 @@ impl Witness {
             let code_hash = calc_keccak_hi_lo(machine_code);
 
             if !account.code.is_empty() && !bytecode_set.contains(&(account.address, code_hash)) {
-                let mut bytecode_table = Self::gen_bytecode_witness(account.address, machine_code);
+                let mut bytecode_table =
+                    Self::gen_bytecode_witness(account.address, machine_code.to_vec(), code_hash);
                 // add to keccak_inputs
                 if machine_code.len() > 0 {
                     self.keccak.push(machine_code.to_vec());
