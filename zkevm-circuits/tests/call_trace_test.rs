@@ -2,7 +2,7 @@ use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{get_chunk_data, log2_ceil, preprocess_trace, SubCircuit};
+use zkevm_circuits::util::{get_chunk_data, log2_ceil, SubCircuit};
 use zkevm_circuits::witness::Witness;
 
 #[cfg(not(feature = "fast_test"))]
@@ -13,15 +13,13 @@ const MAX_NUM_ROW_FOR_TEST: usize = 11000;
 #[test]
 fn test_call_trace() {
     // gen witness
-    let mut chunk_data = get_chunk_data(
+    let witness = Witness::new(&get_chunk_data(
         "test_data/call_test/trace/block_info.json",
         "test_data/call_test/trace/tx_info.json",
         "test_data/call_test/trace/tx_debug_trace.json",
         "test_data/call_test/trace/tx_receipt.json",
         "test_data/call_test/trace/bytecode.json",
-    );
-    preprocess_trace(&mut chunk_data.blocks[0].geth_traces[0]);
-    let witness = Witness::new(&chunk_data);
+    ));
 
     //print witness
     //witness.print_csv();

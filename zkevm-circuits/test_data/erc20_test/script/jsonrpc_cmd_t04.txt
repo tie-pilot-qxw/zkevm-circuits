@@ -10,11 +10,15 @@ curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getBlockByNum
 curl localhost:8545 \
    -X POST \
    -H "Content-Type: application/json" \
-   --data '{"method":"debug_traceTransaction","params":["0xc2f4c1259a3f073d11ac79045d06e1a28dfa9d28e29722df6ffe33f36fb8efef"], "id":1,"jsonrpc":"2.0"}' | jq '.'  > trace/t04_c_transfer_from_a_b_200/tx_debug_trace.json
+   --data '{"method":"debug_traceTransaction","params":["0x421695b9108cb62220e6b0177e97da284106c20de5d4ddf9f178a05c84c67251"], "id":1,"jsonrpc":"2.0"}' | jq '.'  > trace/t04_c_transfer_from_a_b_200/tx_debug_trace.json
 
 # tx_info.json
-curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["0xc2f4c1259a3f073d11ac79045d06e1a28dfa9d28e29722df6ffe33f36fb8efef"],"id":1}' | jq '.'  > trace/t04_c_transfer_from_a_b_200/tx_info.json
+curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["0x421695b9108cb62220e6b0177e97da284106c20de5d4ddf9f178a05c84c67251"],"id":1}' | jq '.'  > trace/t04_c_transfer_from_a_b_200/tx_info.json
 
 
 # tx_receipt.json
-curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["0xc2f4c1259a3f073d11ac79045d06e1a28dfa9d28e29722df6ffe33f36fb8efef"],"id":1}' | jq '.'  > trace/t04_c_transfer_from_a_b_200/tx_receipt.json
+curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["0x421695b9108cb62220e6b0177e97da284106c20de5d4ddf9f178a05c84c67251"],"id":1}' | jq '.'  > trace/t04_c_transfer_from_a_b_200/tx_receipt.json
+
+# bytecode.json
+# 获取合约字节码(需指定区块编号)
+curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getCode","params":["0x5fbdb2315678afecb367f032d93f642f64180aa3", "0x3"],"id":1}' | jq '.' > trace/t04_c_transfer_from_a_b_200/bytecode.json

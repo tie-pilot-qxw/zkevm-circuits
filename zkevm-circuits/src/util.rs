@@ -281,7 +281,7 @@ pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
 }
 
 // cal memory usage for each step
-pub fn preprocess_trace(trace: &mut GethExecTrace) {
+fn preprocess_trace(trace: &mut GethExecTrace) {
     let last_mem = trace
         .struct_logs
         .last()
@@ -393,8 +393,10 @@ pub fn get_chunk_data<P: AsRef<Path>>(
 ) -> ChunkData {
     let eth_block = read_block_from_api_result_file(block_info_file);
     let tx = read_tx_from_api_result_file(tx_info_file);
-    // debug transaction trace
-    let trace = read_trace_from_api_result_file(trace_file);
+    // debug transaction trace and preprocess trace
+    let mut trace = read_trace_from_api_result_file(trace_file);
+    preprocess_trace(&mut trace);
+
     // transaction receipt for public log
     let mut receipt_log = read_log_from_api_result_file(receipt_file);
 
@@ -448,7 +450,8 @@ pub fn get_multi_trace_chunk_data<P: AsRef<Path>>(
     // debug transaction trace
     let mut geth_traces: Vec<GethExecTrace> = vec![];
     for trace_file in trace_files.iter() {
-        let trace = read_trace_from_api_result_file(trace_file);
+        let mut trace = read_trace_from_api_result_file(trace_file);
+        preprocess_trace(&mut trace);
         geth_traces.push(trace)
     }
 

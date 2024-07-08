@@ -11,11 +11,11 @@ curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getCode","par
 curl localhost:8545 \
    -X POST \
    -H "Content-Type: application/json" \
-   --data '{"method":"debug_traceTransaction","params":["0x60539e24eb7069423d40c980951ab2d5ed01b39a4146ba37332faef368de3188"], "id":1,"jsonrpc":"2.0"}' | jq '.'  > trace/t01_a_deploy_erc20/tx_debug_trace.json
+   --data '{"method":"debug_traceTransaction","params":["0xdb17c4ede91b98863972fc523eea6e85231f0470bd6821e1aa01c57f7b52b748"], "id":1,"jsonrpc":"2.0"}' | jq '.'  > trace/t01_a_deploy_erc20/tx_debug_trace.json
 
 # tx_info.json
-curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["0x60539e24eb7069423d40c980951ab2d5ed01b39a4146ba37332faef368de3188"],"id":1}' | jq '.'  > trace/t01_a_deploy_erc20/tx_info.json
+curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["0xdb17c4ede91b98863972fc523eea6e85231f0470bd6821e1aa01c57f7b52b748"],"id":1}' | jq '.'  > trace/t01_a_deploy_erc20/tx_info.json
 
 
 # tx_receipt.json
-curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["0x60539e24eb7069423d40c980951ab2d5ed01b39a4146ba37332faef368de3188"],"id":1}' | jq '.'  > trace/t01_a_deploy_erc20/tx_receipt.json
+curl localhost:8545 -X POST --data '{"jsonrpc":"2.0","method":"eth_getTransactionReceipt","params":["0xdb17c4ede91b98863972fc523eea6e85231f0470bd6821e1aa01c57f7b52b748"],"id":1}' | jq '.'  > trace/t01_a_deploy_erc20/tx_receipt.json
