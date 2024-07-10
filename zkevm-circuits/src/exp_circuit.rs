@@ -657,6 +657,8 @@ mod test {
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for ExpTestCircuit<F, MAX_NUM_ROW> {
         type Config = ExpTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -790,7 +792,7 @@ mod test {
 
         // execution circuit
         let prover = test_simple_exp_circuit::<Fr, TEST_SIZE>(witness, vec![lookup_exp_row]);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]

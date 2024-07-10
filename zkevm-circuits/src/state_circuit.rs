@@ -801,6 +801,8 @@ mod test {
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for StateTestCircuit<F, MAX_NUM_ROW> {
         type Config = StateTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -855,7 +857,7 @@ mod test {
             Default::default(),
         ));
         let prover = test_state_circuit(witness);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -888,7 +890,7 @@ mod test {
             ..Default::default()
         };
         let prover = test_state_circuit(witness);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     // when feature `no_fixed_lookup` is on, we skip the test
@@ -921,7 +923,7 @@ mod test {
             ..Default::default()
         };
         let prover = test_state_circuit(witness);
-        match prover.verify_par() {
+        match prover.verify() {
             Ok(()) => panic!("should be error"),
             Err(errs) => println!("{:?}", errs),
         };

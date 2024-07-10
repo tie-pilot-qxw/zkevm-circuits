@@ -345,7 +345,7 @@ pub fn read_proof_vk_from_file<
     VerifyingKey::<G1Affine>::read::<
         _,
         SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-    >(&mut reader, SerdeFormat::RawBytes)
+    >(&mut reader, SerdeFormat::RawBytes, ())
     .unwrap()
 }
 
@@ -363,7 +363,7 @@ pub fn read_proof_pk_from_file<
     ProvingKey::<G1Affine>::read::<
         _,
         SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-    >(&mut reader, SerdeFormat::RawBytes)
+    >(&mut reader, SerdeFormat::RawBytes, ())
     .unwrap()
 }
 

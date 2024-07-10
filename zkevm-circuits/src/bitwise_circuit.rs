@@ -606,6 +606,8 @@ mod test {
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for BitwiseTestCircuit<F, MAX_NUM_ROW> {
         type Config = BitwiseTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -750,7 +752,7 @@ mod test {
 
         // execution circuit
         let prover = test_simple_bitwise_circuit::<Fr>(witness, bitwise_test_rows);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     /// Test And operation

@@ -262,6 +262,7 @@ mod test {
     impl<F: Field> Circuit<F> for FixedTestCircuit<F> {
         type Config = FixedTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
 
         fn without_witnesses(&self) -> Self {
             Self::default()
@@ -348,6 +349,6 @@ mod test {
     fn test_fixed_parser() {
         let witness = Witness::default();
         let prover = test_fixed_circuit(witness);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 }

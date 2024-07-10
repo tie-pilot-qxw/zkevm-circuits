@@ -308,7 +308,7 @@ mod test {
         current_state.next_exec_state = Some(next_state);
         let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]

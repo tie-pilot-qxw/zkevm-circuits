@@ -421,7 +421,7 @@ mod test {
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
 
         witness.print_csv();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]

@@ -33,5 +33,5 @@ fn test_sstore_with_original() {
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-    prover.assert_satisfied_par();
+    prover.assert_satisfied();
 }

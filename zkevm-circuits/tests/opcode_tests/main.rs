@@ -170,10 +170,10 @@ macro_rules! test_super_circuit_short_bytecode {
         let file_path = std::path::Path::new("./test_data/tmp.html")
             .with_file_name(file_name)
             .with_extension("html");
-        if prover.verify_par().is_err() {
+        if prover.verify().is_err() {
             let mut buf = std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
             witness.write_html(&mut buf);
-            prover.assert_satisfied_par();
+            prover.assert_satisfied();
         }
         (witness, k, circuit, prover)
     }};
@@ -209,14 +209,14 @@ macro_rules! test_super_circuit_short_bytecode {
         > = SuperCircuit::new_from_witness(&witness);
         let instance = circuit.instance();
         let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-        if prover.verify_par().is_err() {
+        if prover.verify().is_err() {
             let file_name = std::path::Path::new(file!()).file_stem().unwrap();
             let file_path = std::path::Path::new("./test_data/tmp.html")
                 .with_file_name(file_name)
                 .with_extension("html");
             let mut buf = std::io::BufWriter::new(std::fs::File::create(file_path).unwrap());
             witness.write_html(&mut buf);
-            prover.assert_satisfied_par();
+            prover.assert_satisfied();
         }
         (witness, k, circuit, prover)
     }};

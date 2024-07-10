@@ -1195,6 +1195,8 @@ mod test {
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for KeccakTestCircuit<F, MAX_NUM_ROW> {
         type Config = KeccakTestCircuitConfig<F>;
         type FloorPlanner = SimpleFloorPlanner;
+        type Params = ();
+
         fn without_witnesses(&self) -> Self {
             Self::default()
         }
@@ -1307,7 +1309,7 @@ mod test {
 
         let instance = circuit.instance();
         let prover = MockProver::<F>::run(k, &circuit, instance).unwrap();
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]

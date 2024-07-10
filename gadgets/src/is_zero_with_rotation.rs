@@ -164,7 +164,7 @@ mod test {
                 _marker: PhantomData,
             };
             let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-            prover.assert_satisfied_par()
+            prover.assert_satisfied()
         }};
     }
 
@@ -181,7 +181,7 @@ mod test {
                 _marker: PhantomData,
             };
             let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-            assert!(prover.verify_par().is_err());
+            assert!(prover.verify().is_err());
         }};
     }
 
@@ -205,6 +205,7 @@ mod test {
         impl<F: Field> Circuit<F> for TestCircuit<F> {
             type Config = TestCircuitConfig<F>;
             type FloorPlanner = SimpleFloorPlanner;
+            type Params = ();
 
             fn without_witnesses(&self) -> Self {
                 Self::default()

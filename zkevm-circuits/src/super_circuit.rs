@@ -357,6 +357,7 @@ impl<
 {
     type Config = SuperCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
     type FloorPlanner = SimpleFloorPlanner;
+    type Params = ();
 
     fn without_witnesses(&self) -> Self {
         Self::default()
@@ -417,7 +418,7 @@ mod tests {
             Default::default(),
         ));
         let (_k, _circuit, prover) = test_super_circuit(witness);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
@@ -432,7 +433,7 @@ mod tests {
         let gates = CircuitGates::collect::<
             Fr,
             SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        >();
+        >(());
         let str = gates.queries_to_csv();
         for line in str.lines() {
             let last_csv = line.rsplitn(2, ',').next().unwrap();
@@ -458,7 +459,7 @@ mod tests {
         let circuit_cost: CircuitCost<
             G1,
             SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        > = CircuitCost::measure(k as usize, &circuit);
+        > = CircuitCost::measure(k as u32, &circuit);
         // let proof_size: usize = circuit_cost.proof_size(1).into();
         println!("Proof cost {:#?}", circuit_cost);
 
@@ -476,7 +477,7 @@ mod tests {
             NUM_STATE_LO_COL,
         >::configure(&mut cs);
         for lookup in cs.lookups() {
-            println!("{}: {:?}", lookup, lookup);
+            println!("{}: {:?}", lookup.name(), lookup);
         }
     }
 }

@@ -332,7 +332,7 @@ mod test {
         current_state.topic_left = topic_left;
         let (_witness, prover) =
             prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        prover.assert_satisfied_par();
+        prover.assert_satisfied();
     }
 
     #[test]
