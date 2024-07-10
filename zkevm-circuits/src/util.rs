@@ -339,6 +339,7 @@ pub fn chunk_data_test(
     receipt_log: ReceiptLog,
 ) -> ChunkData {
     let mut history_hashes = vec![];
+    #[cfg(not(feature = "no_block_hash"))]
     for i in 0..=256 {
         history_hashes.push(i.into())
     }

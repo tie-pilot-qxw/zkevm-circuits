@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"]}
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"] }
 eth-types = { path = "../eth-types" }
 keccak256 = { path = "../keccak256" }
 ethers-core = "2.0.7"
@@ -42,6 +42,8 @@ k_10 = []
 no_fixed_lookup = []
 no_lookup_merge = []
 no_public_hash = []
-fast_test = ["k_10", "no_fixed_lookup", "no_public_hash"]
+no_block_hash = []
+public_hash_no_lookup = []
+fast_test = ["k_10", "no_fixed_lookup", "public_hash_no_lookup", "no_block_hash"]
 benches = []
 fuzz_test = []
