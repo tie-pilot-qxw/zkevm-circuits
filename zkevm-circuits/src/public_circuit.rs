@@ -593,7 +593,7 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             ]
         });
 
-        #[cfg(not(feature = "public_hash_no_lookup"))]
+        #[cfg(not(feature = "no_public_hash_lookup"))]
         // add all lookup constraints here
         config.keccak_lookup(meta, "PUBLIC_LOOKUP_KECCAK_HASH");
 

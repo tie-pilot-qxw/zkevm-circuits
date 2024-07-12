@@ -1222,7 +1222,7 @@ mod test {
         public::witness_post_handle(&mut witness);
 
         #[cfg(all(
-            not(feature = "public_hash_no_lookup"),
+            not(feature = "no_public_hash_lookup"),
             not(feature = "no_public_hash")
         ))]
         // collect public keccak inputs
