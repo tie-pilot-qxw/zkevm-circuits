@@ -151,3 +151,6 @@ pub(crate) const PUBLIC_NUM_VALUES_U8_ROW: usize = 16;
 
 /// the number of padding rows required by the public circuit
 pub(crate) const PUBLIC_NUM_BEGINNING_PADDING_ROW: usize = 15;
+
+/// contains a STOP padding
+pub(crate) const BYTECODE_NUM_PADDING: usize = 33;

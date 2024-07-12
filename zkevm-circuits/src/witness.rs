@@ -15,8 +15,8 @@ use crate::bytecode_circuit::BytecodeCircuit;
 use crate::constant::{
     ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BLOCK_IDX_LEFT_SHIFT_NUM,
-    BYTECODE_COLUMN_START_IDX, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY, EXP_COLUMN_START_IDX,
-    LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
+    BYTECODE_COLUMN_START_IDX, BYTECODE_NUM_PADDING, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY,
+    EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
     MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS,
     PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_BEGINNING_PADDING_ROW,
     PUBLIC_NUM_VALUES, PUBLIC_NUM_VALUES_U8_ROW, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH,
@@ -45,7 +45,6 @@ use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::ptr::hash;
 
 #[derive(Debug, Default, Clone)]
 pub struct Witness {
@@ -3105,16 +3104,8 @@ impl Witness {
                 // if pc >= machine_code.len(), the number of bytes pushed by the pushX instruction is less than X
                 // then padding value
                 if pc + cnt >= machine_code.len() {
-                    let padding_zero_num = pc + cnt - machine_code.len() + 1;
-                    machine_code.extend(vec![0; padding_zero_num]);
-
-                    // // padding 32 rows
-                    // let padding_zero_num = BYTECODE_NUM_PADDING - cnt;
-                    // machine_code.extend(vec![0; padding_zero_num]);
-                    //
-                    // //
-                    // cnt = BYTECODE_NUM_PADDING;
-
+                    let push_padding_zero_num = pc + cnt - machine_code.len() + 1;
+                    machine_code.extend(vec![0; push_padding_zero_num]);
                     // add STOP
                     machine_code.push(OpcodeId::STOP.as_u8())
                 }
@@ -3184,6 +3175,21 @@ impl Witness {
                 pc += 1;
             }
             res.append(&mut this_op);
+        }
+
+        // to uniformly process all bytecodes, add padding to all bytecodes
+        let all_zero_padding_num = BYTECODE_NUM_PADDING - (pc - real_machine_code_len);
+        for _ in 0..all_zero_padding_num {
+            res.push(bytecode::Row {
+                addr: Some(addr),
+                pc: Some(pc.into()),
+                hash_hi: Some(hash_hi.into()),
+                hash_lo: Some(hash_lo.into()),
+                length: Some(real_machine_code_len.into()),
+                is_padding: Some(((pc >= real_machine_code_len) as u8).into()),
+                ..Default::default()
+            });
+            pc += 1;
         }
         res
     }

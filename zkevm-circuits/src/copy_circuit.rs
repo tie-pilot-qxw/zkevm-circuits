@@ -1148,7 +1148,7 @@ mod test {
             PUSH1(0x1E)
             PUSH1(0x03)
             PUSH1(0x00)
-            PUSH32(a)
+            PUSH20(a)
             EXTCODECOPY
             PUSH1(0x1E)
             PUSH1(0xef)
@@ -1157,7 +1157,7 @@ mod test {
             PUSH1(0x1E)
             PUSH1(0xef)
             PUSH1(0x1F)
-            PUSH32(a)
+            PUSH20(a)
             EXTCODECOPY
             STOP
         };

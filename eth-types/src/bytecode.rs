@@ -95,6 +95,9 @@ impl Bytecode {
     }
 
     /// Push
+    /// if the number of bytes is not enough, fill with zeros on the right
+    /// for example:
+    ///    input: 0xefaf00bf  ----> bf00afef00000000000000000000000000000000000000000000000000000000 --> target: efaf00bf000000000000000000000000
     pub fn push<T: ToWord>(&mut self, n: u8, value: T) -> &mut Self {
         debug_assert!((1..=32).contains(&n), "invalid push");
         let value = value.to_word();
@@ -104,10 +107,28 @@ impl Bytecode {
 
         let mut bytes = [0u8; 32];
         value.to_little_endian(&mut bytes);
-        // Write the bytes MSB to LSB
-        for i in 0..n {
-            self.write(bytes[(n - 1 - i) as usize], false);
+
+        // get last not-zero byte idx
+        let first_not_zero_idx = bytes[..(n as usize)]
+            .iter()
+            .rposition(|&v| v != 0)
+            .map(|idx| idx as i32)
+            .unwrap_or(-1);
+
+        // all zero
+        if first_not_zero_idx == -1 {
+            for _ in 0..n {
+                self.write(0, false);
+            }
+        } else {
+            for &byte in bytes[..first_not_zero_idx as usize + 1].iter().rev() {
+                self.write(byte, false);
+            }
+            for _ in 0..n as usize - first_not_zero_idx as usize + 1 {
+                self.write(0, false);
+            }
         }
+
         // Check if the full value could be pushed
         for byte in bytes.iter().skip(n as usize) {
             debug_assert!(*byte == 0u8, "value too big for PUSH{}: {}", n, value);

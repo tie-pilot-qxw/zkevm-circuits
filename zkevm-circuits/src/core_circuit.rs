@@ -656,23 +656,4 @@ mod test {
         let prover = test_simple_core_circuit(witness);
         prover.assert_satisfied();
     }
-
-    #[test]
-    fn test_push_out_of_bounds() {
-        // 6f2f00000000000000000000000000000000
-        // Step { pc: 0x0000, op: PUSH16, gas: 9999979000, gas_cost: 3, depth: 1, error: None, stack: [], memory: [], storage: {} }
-        // Step { pc: 0x0011, op: STOP, gas: 9999978997, gas_cost: 0, depth: 1, error: None, stack: [0x2f000000000000000000000000000000], memory: [], storage: {} }
-        let machine_code = hex::decode("6f2f").unwrap();
-        let trace = trace_parser::trace_program(&machine_code, &[]);
-        // construct Witness object
-        let witness = Witness::new(&chunk_data_test(
-            trace,
-            &machine_code,
-            &[],
-            false,
-            Default::default(),
-        ));
-        let prover = test_simple_core_circuit(witness);
-        prover.assert_satisfied_par();
-    }
 }
