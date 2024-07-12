@@ -167,11 +167,13 @@ impl Row {
             ..Default::default()
         });
 
+        #[cfg(not(feature = "no_block_hash"))]
         assert_eq!(
             chunk_data.history_hashes.len(),
             chunk_data.blocks.len() + 256
         );
 
+        #[cfg(not(feature = "no_block_hash"))]
         for (i, hash) in chunk_data.history_hashes.iter().enumerate() {
             // max block idx means the last block which can access this hash
             let max_block_idx = i + 1;

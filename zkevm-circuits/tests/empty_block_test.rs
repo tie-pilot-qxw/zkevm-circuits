@@ -10,9 +10,13 @@ use zkevm_circuits::witness::Witness;
 
 #[cfg(not(feature = "fast_test"))]
 const MAX_NUM_ROW: usize = 12200;
-#[cfg(feature = "fast_test")]
+
+#[cfg(all(feature = "fast_test", not(feature = "no_public_hash_lookup")))]
 const MAX_NUM_ROW: usize = 600;
 const MAX_CODESIZE: usize = 1;
+
+#[cfg(all(feature = "fast_test", feature = "no_public_hash_lookup"))]
+const MAX_NUM_ROW: usize = 8133;
 
 #[test]
 fn test_multi_block_erc20() {
