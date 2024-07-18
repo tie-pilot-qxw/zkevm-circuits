@@ -68,6 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta_core = CoreSinglePurposeOutcome {
             block_idx: ExpressionOutcome::To(0.expr()),
             tx_idx: ExpressionOutcome::To(0.expr()),
+            tx_is_create: ExpressionOutcome::To(0.expr()),
             pc: ExpressionOutcome::To(0.expr()),
             call_id: ExpressionOutcome::To(0.expr()),
             code_addr: ExpressionOutcome::To(0.expr()),

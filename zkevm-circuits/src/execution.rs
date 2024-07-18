@@ -271,6 +271,7 @@ pub(crate) struct CoreSinglePurposeOutcome<F> {
     pub(crate) pc: ExpressionOutcome<F>,
     pub(crate) block_idx: ExpressionOutcome<F>,
     pub(crate) tx_idx: ExpressionOutcome<F>,
+    pub(crate) tx_is_create: ExpressionOutcome<F>,
     pub(crate) call_id: ExpressionOutcome<F>,
     pub(crate) code_addr: ExpressionOutcome<F>,
 }
@@ -281,6 +282,7 @@ impl<F: Field> Default for CoreSinglePurposeOutcome<F> {
             pc: ExpressionOutcome::Delta(0.expr()),
             block_idx: ExpressionOutcome::Delta(0.expr()),
             tx_idx: ExpressionOutcome::Delta(0.expr()),
+            tx_is_create: ExpressionOutcome::Delta(0.expr()),
             call_id: ExpressionOutcome::Delta(0.expr()),
             code_addr: ExpressionOutcome::Delta(0.expr()),
         }
@@ -1527,6 +1529,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     meta.query_advice(self.tx_idx, rotation_2.clone()),
                 )
                 .map(|expr| (format!("tx_idx {}", comment_postfix), expr)),
+        );
+        // tx_is_create next constraint
+        constraints.extend(
+            delta
+                .tx_is_create
+                .into_constraint(
+                    meta.query_advice(self.tx_is_create, rotation_1.clone()),
+                    meta.query_advice(self.tx_is_create, rotation_2.clone()),
+                )
+                .map(|expr| (format!("tx_is_create {}", comment_postfix), expr)),
         );
         // call_id next constraint
         constraints.extend(
