@@ -164,7 +164,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy::Tag::PublicCalldata,
             copy::Tag::Bytecode
         );
-        constraints.append(&mut config.get_copy_constraints_with_src_type(
+        constraints.append(&mut config.get_copy_constraints_with_src_dst_type(
             src_type_name,
             src_type_expr,
             src_id_expr,

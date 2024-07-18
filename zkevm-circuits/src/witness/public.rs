@@ -427,8 +427,8 @@ impl Row {
                                     "block_tx_idx".into(),
                                     format!("block_tx_idx{}", block_tx_idx),
                                 ),
-                                ("value_0".into(), "idx".into()),
-                                ("value_1".into(), "byte".into()),
+                                ("value_2".into(), "idx".into()),
+                                ("value_3".into(), "byte".into()),
                             ]
                             .into_iter()
                             .collect(),

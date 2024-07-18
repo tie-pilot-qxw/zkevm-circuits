@@ -537,7 +537,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         acc: Option<Expression<F>>,
         copy_lookup_entry: LookupEntry<F>,
     ) -> Vec<(String, Expression<F>)> {
-        self.get_copy_constraints_with_src_type(
+        self.get_copy_constraints_with_src_dst_type(
             src_type.into(),
             src_type.as_u8().expr(),
             src_id,
@@ -556,7 +556,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         )
     }
 
-    pub(crate) fn get_copy_constraints_with_src_type(
+    pub(crate) fn get_copy_constraints_with_src_dst_type(
         &self,
         src_type: String,
         src_type_expr: Expression<F>,

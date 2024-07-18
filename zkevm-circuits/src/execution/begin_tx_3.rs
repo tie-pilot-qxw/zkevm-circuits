@@ -220,13 +220,12 @@ fn get_intrinsic_gas_cost<
     let (tag, [_, _, _, call_data_word_length]) =
         extract_lookup_expression!(arithmetic_tiny, arithmetic_entry);
 
-    constraints.push(("tx is create".into(), is_create.clone() - tx_is_create));
     constraints.extend(config.get_public_constraints(
         meta,
         public_entry,
         (public::Tag::TxIsCreateAndStatus as u8).expr(),
         Some(block_tx_idx.clone()),
-        [None, None, None, None],
+        [Some(tx_is_create), None, None, None],
     ));
 
     constraints.push((
