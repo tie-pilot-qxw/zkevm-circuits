@@ -204,6 +204,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             let block_idx_prev = meta.query_advice(config.block_idx, Rotation::prev());
             let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
             let tx_idx_prev = meta.query_advice(config.tx_idx, Rotation::prev());
+            let tx_is_create = meta.query_advice(config.tx_is_create, Rotation::cur());
+            let tx_is_create_prev = meta.query_advice(config.tx_is_create, Rotation::prev());
             let call_id = meta.query_advice(config.call_id, Rotation::cur());
             let call_id_prev = meta.query_advice(config.call_id, Rotation::prev());
             let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
@@ -231,6 +233,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                     q_enable.clone()
                         * (1.expr() - cnt_is_zero_prev.clone())
                         * (tx_idx_prev - tx_idx),
+                ),
+                (
+                    "tx_is_create",
+                    q_enable.clone()
+                        * (1.expr() - cnt_is_zero_prev.clone())
+                        * (tx_is_create_prev - tx_is_create),
                 ),
                 (
                     "call_id",
