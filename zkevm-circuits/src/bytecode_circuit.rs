@@ -531,7 +531,6 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let is_padding_cur = meta.query_advice(config.is_padding, Rotation::cur());
             let is_padding_next = meta.query_advice(config.is_padding, Rotation::next());
 
-
             vec![
                 (
                     "addr_is_not_zero && addr_unchange_next --> length_cur=length_next",
@@ -541,7 +540,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                         * (length_cur.clone() - length_next),
                 ),
                 (
-                    "addr_is_not_zero && addr_change_next && is_not_padding_cur --> length - pc = 1",
+                    "addr_is_not_zero && is_padding_next && is_not_padding_cur --> length - pc = 1",
                     q_enable.clone()
                         * addr_is_not_zero.clone()
                         * (1.expr() - is_padding_cur.clone())
@@ -550,10 +549,11 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                 ),
                 (
                     "addr_change_next ---> pc(PC starts counting from 0) - length_cur - 32 = 0",
-                    q_enable.clone() * addr_is_not_zero
+                    q_enable.clone()
+                        * addr_is_not_zero
                         * (1.expr() - addr_unchange_next)
-                        * (pc - length_cur - (BYTECODE_NUM_PADDING as u8 - 1).expr())
-                )
+                        * (pc - length_cur - (BYTECODE_NUM_PADDING as u8 - 1).expr()),
+                ),
             ]
         });
 
@@ -569,6 +569,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
             let is_high = meta.query_advice(config.is_high, Rotation::cur());
 
+            // previous cnt is 0, and the current cnt is also 0, indicating that the current bytecode is not the byte of push
             let is_all_zero_padding = cnt_is_zero_prev * cnt_is_zero * is_padding_cur;
             vec![
                 (
