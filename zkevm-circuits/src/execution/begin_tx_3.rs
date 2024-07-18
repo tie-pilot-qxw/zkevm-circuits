@@ -210,6 +210,7 @@ fn get_intrinsic_gas_cost<
     meta: &mut VirtualCells<F>,
     block_tx_idx: Expression<F>,
 ) -> (Expression<F>, Vec<(String, Expression<F>)>) {
+    let tx_is_create = meta.query_advice(config.tx_is_create, Rotation::cur());
     let mut constraints = vec![];
     let public_entry = config.get_public_lookup(meta, 0);
     let (_, _, [is_create, call_data_gas_cost, _, _]) =
@@ -224,7 +225,7 @@ fn get_intrinsic_gas_cost<
         public_entry,
         (public::Tag::TxIsCreateAndStatus as u8).expr(),
         Some(block_tx_idx.clone()),
-        [None, None, None, None],
+        [Some(tx_is_create), None, None, None],
     ));
 
     constraints.push((

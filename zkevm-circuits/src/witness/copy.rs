@@ -60,3 +60,15 @@ impl From<Tag> for usize {
         t as usize
     }
 }
+
+impl From<Tag> for String {
+    fn from(t: Tag) -> Self {
+        format!("{:?}", t)
+    }
+}
+
+impl Tag {
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
+    }
+}

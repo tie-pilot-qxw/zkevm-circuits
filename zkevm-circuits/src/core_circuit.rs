@@ -33,6 +33,8 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     pub block_idx: Column<Advice>,
     /// Transaction index, the index inside the block, repeated for rows in one transaction
     pub tx_idx: Column<Advice>,
+    /// whether the current transaction is a transaction to create a contract
+    pub tx_is_create: Column<Advice>,
     /// Call id, unique for each call, repeated for rows in one execution state
     pub call_id: Column<Advice>,
     /// Contract code address, repeated for rows in one execution state
@@ -99,6 +101,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let q_first_exec_state = meta.selector();
         let block_idx = meta.advice_column();
         let tx_idx = meta.advice_column();
+        let tx_is_create = meta.advice_column();
         let call_id = meta.advice_column();
         let code_addr = meta.advice_column();
         let pc = meta.advice_column();
@@ -136,6 +139,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             q_enable,
             block_idx,
             tx_idx,
+            tx_is_create,
             call_id,
             code_addr,
             pc,
@@ -160,6 +164,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             q_enable,
             block_idx,
             tx_idx,
+            tx_is_create,
             call_id,
             code_addr,
             pc,
@@ -199,6 +204,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             let block_idx_prev = meta.query_advice(config.block_idx, Rotation::prev());
             let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
             let tx_idx_prev = meta.query_advice(config.tx_idx, Rotation::prev());
+            let tx_is_create = meta.query_advice(config.tx_is_create, Rotation::cur());
+            let tx_is_create_prev = meta.query_advice(config.tx_is_create, Rotation::prev());
             let call_id = meta.query_advice(config.call_id, Rotation::cur());
             let call_id_prev = meta.query_advice(config.call_id, Rotation::prev());
             let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
@@ -226,6 +233,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                     q_enable.clone()
                         * (1.expr() - cnt_is_zero_prev.clone())
                         * (tx_idx_prev - tx_idx),
+                ),
+                (
+                    "tx_is_create",
+                    q_enable.clone()
+                        * (1.expr() - cnt_is_zero_prev.clone())
+                        * (tx_is_create_prev - tx_is_create),
                 ),
                 (
                     "call_id",
@@ -273,6 +286,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let cnt_is_zero: IsZeroWithRotationChip<F> = IsZeroWithRotationChip::construct(self.cnt_is_zero);
         assign_advice_or_fixed_with_u256(region, offset, &row.block_idx, self.block_idx)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.tx_idx, self.tx_idx)?;
+        assign_advice_or_fixed_with_u256(region, offset, &row.tx_is_create, self.tx_is_create)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.call_id, self.call_id)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.code_addr, self.code_addr)?;
         assign_advice_or_fixed_with_u256(region, offset, &row.pc, self.pc)?;
@@ -314,6 +328,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             IsZeroWithRotationChip::construct(self.cnt_is_zero);
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.block_idx)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.tx_idx)?;
+        assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.tx_is_create)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.call_id)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.code_addr)?;
         assign_advice_or_fixed_with_u256(region, offset, &U256::zero(), self.pc)?;

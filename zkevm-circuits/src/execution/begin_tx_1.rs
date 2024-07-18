@@ -10,7 +10,7 @@ use crate::witness::{state::CallContextTag, Witness};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::util::{pow_of_two, Expr};
+use gadgets::util::{pow_of_two, select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
@@ -73,7 +73,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (_, _, _, _, _, _, _, _, _, copy_size, _) =
             extract_lookup_expression!(copy, copy.clone());
 
+        let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
+        let tx_is_create = meta.query_advice(config.tx_is_create, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
         let block_tx_idx =
             (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
@@ -117,6 +119,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = CoreSinglePurposeOutcome {
             block_idx: ExpressionOutcome::Delta(0.expr()),
             tx_idx: ExpressionOutcome::Delta(TX_IDX_DELTA.expr()),
+            tx_is_create: ExpressionOutcome::To(tx_is_create.clone()),
             pc: ExpressionOutcome::To(0.expr()),
             call_id: ExpressionOutcome::To(state_stamp_prev.clone() + 1.expr()),
             code_addr: ExpressionOutcome::To(
@@ -149,12 +152,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
         let is_zero_len = SimpleIsZero::new(&value_lo, &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
-        constraints.append(&mut config.get_copy_constraints(
+
+        // determine whether copy_src is a Bytecode lookup or a PublicCalldata lookup based on whether it is a contract creation transaction
+        let src_type_expr = select::expr(
+            tx_is_create.clone(),
+            copy::Tag::Bytecode.as_u8().expr(),
+            copy::Tag::PublicCalldata.as_u8().expr(),
+        );
+        let src_id_expr = select::expr(tx_is_create.clone(), code_addr, block_tx_idx.clone());
+        let src_type_name = format!(
+            "{:?} or {:?}",
             copy::Tag::PublicCalldata,
-            block_tx_idx.clone(),
+            copy::Tag::Bytecode
+        );
+        constraints.append(&mut config.get_copy_constraints_with_src_dst_type(
+            src_type_name,
+            src_type_expr,
+            src_id_expr,
             0.expr(),
             0.expr(), // stamp is None for PublicCalldata
-            copy::Tag::Calldata,
+            copy::Tag::Calldata.into(),
+            copy::Tag::Calldata.as_u8().expr(),
             call_id,
             0.expr(),
             state_stamp_prev.clone() + 4.expr(),
