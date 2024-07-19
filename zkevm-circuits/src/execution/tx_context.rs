@@ -106,6 +106,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pub_value_lo = meta.query_advice(config.vers[PUB_VALUE_COL_IDX + 1], Rotation::prev());
 
         let selector = SimpleSelector::new(&[origin_tag.clone(), gasprice_tag.clone()]);
+        constraints.extend(selector.get_constraints());
+
         // pubic lookup constraints
         constraints.extend(config.get_public_constraints(
             meta,

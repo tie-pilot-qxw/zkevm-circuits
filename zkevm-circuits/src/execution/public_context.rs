@@ -129,6 +129,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             chainid_tag.clone(),
             basefee_tag.clone(),
         ]);
+        constraints.extend(selector.get_constraints());
 
         let public_tag = selector.select(&[
             (Tag::BlockCoinbaseAndTimestamp as u64).expr(),

@@ -73,7 +73,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get opcodeid tag and selector
         let extcodehash_tag = meta.query_advice(config.vers[TAG_IDX], Rotation::prev());
         let extcodesize_tag = meta.query_advice(config.vers[TAG_IDX + 1], Rotation::prev());
+
         let selector = SimpleSelector::new(&[extcodehash_tag, extcodesize_tag]);
+        constraints.extend(selector.get_constraints());
 
         // constraint for opcode
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
