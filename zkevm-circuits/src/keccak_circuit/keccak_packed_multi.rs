@@ -871,6 +871,13 @@ pub(crate) fn calc_keccak_hi_lo(input: &[u8]) -> (u128, u128) {
     (hi_lo_vec[0], hi_lo_vec[1])
 }
 
+pub(crate) fn calc_keccak(input: &[u8]) -> U256 {
+    let mut keccak = Keccak::default();
+    keccak.update(input);
+    let output = keccak.digest();
+    U256::from_big_endian(&output)
+}
+
 // pub(crate) fn calc_keccak_hi_lo<F: Field>(input: &[u8]) -> (Value<F>, Value<F>) {
 //     let mut keccak = Keccak::default();
 //     keccak.update(input);

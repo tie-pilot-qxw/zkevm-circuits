@@ -26,7 +26,7 @@ use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::exp_circuit::ExpCircuit;
-use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
+use crate::keccak_circuit::keccak_packed_multi::{calc_keccak, calc_keccak_hi_lo};
 use crate::public_circuit::PublicCircuit;
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
@@ -1004,7 +1004,7 @@ impl WitnessExecHelper {
         } else {
             (U256::from(code.unwrap().code.len()), U256::one())
         };
-        let public_code_size_row = self.get_public_code_size_row(address, code_size);
+        let public_code_size_row = self.get_public_code_info_row(public::Tag::CodeSize, address);
 
         // calc real_length and zero_length
         // arith_results: [overflow,real_length,zero_length]
@@ -2180,26 +2180,35 @@ impl WitnessExecHelper {
 
         public_row
     }
-    pub fn get_public_code_size_row(&self, code_addr: U256, code_size: U256) -> public::Row {
+
+    // get public row for codehash or codesize
+    pub fn get_public_code_info_row(&self, tag: public::Tag, code_addr: U256) -> public::Row {
+        let bytecode = self
+            .bytecode
+            .get(&code_addr)
+            .and_then(|b| Some(b.code()))
+            .unwrap_or(vec![]);
+
+        let (name, value) = match tag {
+            public::Tag::CodeSize => ("CodeSize", bytecode.len().into()),
+            public::Tag::CodeHash => ("CodeHash", calc_keccak(&bytecode)),
+            _ => panic!(),
+        };
+
         let mut comments = HashMap::new();
-        comments.insert(format!("vers_{}", 26), format!("tag={}", "CodeSize"));
-        comments.insert(format!("vers_{}", 27), "tx_idx".into());
+        comments.insert(format!("vers_{}", 26), format!("tag={}", name));
+        comments.insert(format!("vers_{}", 27), "none".into());
         comments.insert(format!("vers_{}", 28), "address_hi".into());
         comments.insert(format!("vers_{}", 29), "address_lo".into());
-        comments.insert(format!("vers_{}", 30), "codesize_hi".into());
-        comments.insert(format!("vers_{}", 31), "codesize_lo".into());
-
-        let addr_hi = code_addr >> 128;
-        let addr_lo = U256::from(code_addr.low_u128());
-        let code_size_hi = code_size >> 128;
-        let code_size_lo = U256::from(code_size.low_u128());
+        comments.insert(format!("vers_{}", 30), format!("{}_hi", name));
+        comments.insert(format!("vers_{}", 31), format!("{}_lo", name));
 
         let public_row = public::Row {
-            tag: public::Tag::CodeSize,
-            value_0: Some(addr_hi),
-            value_1: Some(addr_lo),
-            value_2: Some(code_size_hi), // topic_hash[..16]
-            value_3: Some(code_size_lo), // topic_hash[16..]
+            tag,
+            value_0: Some(code_addr >> 128),
+            value_1: Some(code_addr.low_u128().into()),
+            value_2: Some(value >> 128),
+            value_3: Some(value.low_u128().into()),
             comments,
             ..Default::default()
         };

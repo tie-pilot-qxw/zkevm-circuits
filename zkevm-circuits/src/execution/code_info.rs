@@ -2,13 +2,15 @@ use crate::arithmetic_circuit::operation;
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
+use crate::keccak_circuit::keccak_packed_multi::calc_keccak;
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::arithmetic::Tag::U64Overflow;
-use crate::witness::{public, state, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, public, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::{GasCost, OpcodeId};
-use eth_types::{Field, GethExecStep, U256};
+use eth_types::{Field, GethExecStep};
 use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -16,36 +18,44 @@ use std::marker::PhantomData;
 
 const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: u64 = 4;
-
+const TAG_IDX: usize = 23;
 const PC_DELTA: u64 = 1;
 
-/// EXTCODESIZE overview:
-///   pop a value from the top of the stack: address, get the corresponding codesize according to the address,
-/// and write the codesize to the top of the stack
+/// CODEINFO overview:
+///   pop a value from the top of the stack: address, get the corresponding codehash or codesize according to the address,
+/// and write the codehash to the top of the stack
 ///
-/// EXTCODESIZE Execution State layout is as follows
+/// CODEINFO Execution State layout is as follows
 /// where STATE means state table lookup,
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
+/// WARM_R means is_warm_read lookup,
+/// WARM_W means is_warm_write lookup
+/// PUBLIC means public lookup
+/// STATE1 means state table lookup(pop)
+/// STATE2 means state table lookup(pop)
+/// ARITH means arithmetic u64overflow lookup
+/// TAG1 means tag for EXTCODEHASH
+/// TAG2 means tag for EXTCODESIZE
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col |  8 col   |
 /// +---+-------+-------+-------+----------+
-/// | 2 |       |       |       | PUBLIC(6)|
-/// | 1 | STATE | STATE |       |          |
+/// | 2 | WARM_R | WARM_W |     | PUBLIC(6)|
+/// | 1 | STATE1 | STATE2 |ARITH|TAG1|TAG2 |
 /// | 0 | DYNA_SELECTOR   | AUX |          |
 /// +---+-------+-------+-------+----------+
-pub struct ExtcodesizeGadget<F: Field> {
+pub struct CodeInfoGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for ExtcodesizeGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for CodeInfoGadget<F>
 {
     fn name(&self) -> &'static str {
-        "EXTCODESIZE"
+        "CODEINFO"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::EXTCODESIZE
+        ExecutionState::CODEINFO
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -59,6 +69,22 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
+
+        // get opcodeid tag and selector
+        let extcodehash_tag = meta.query_advice(config.vers[TAG_IDX], Rotation::prev());
+        let extcodesize_tag = meta.query_advice(config.vers[TAG_IDX + 1], Rotation::prev());
+        let selector = SimpleSelector::new(&[extcodehash_tag, extcodesize_tag]);
+
+        // constraint for opcode
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        constraints.push((
+            "opcode is EXTCODEHASH or EXTCODESIZE".into(),
+            selector.select(&[
+                opcode.clone() - OpcodeId::EXTCODEHASH.as_u8().expr(),
+                opcode - OpcodeId::EXTCODESIZE.as_u8().expr(),
+            ]),
+        ));
+
         // get stack val
         let mut stack_operands = vec![];
         for i in 0..2 {
@@ -146,37 +172,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
-        // get public val
-        // public_values[0] is code address hi
-        // public_values[1] is code address lo
-        // public_values[2] is code size hi (must be zero, because of the rigid requirements of EVM (the code size does not exceed about 40,000))
-        // public_values[3] is code size lo
+        // get public constraints
         let public_entry = config.get_public_lookup(meta, 0);
-        let (public_tag, _, public_values) = extract_lookup_expression!(public, public_entry);
-
-        constraints.extend([
-            (
-                "public tag is CodeSize".into(),
-                public_tag - (public::Tag::CodeSize as u8).expr(),
-            ),
-            (
-                "stack_top hi(code address hi) = public_value[0] ".into(),
-                stack_operands[0][0].clone() - public_values[0].clone(),
-            ),
-            (
-                "stack_top lo(code address lo) = public_value[1] ".into(),
-                stack_operands[0][1].clone() - public_values[1].clone(),
-            ),
-            (
-                "stack_push hi(code_size hi) = public_values[2]".into(),
-                stack_operands[1][0].clone() - public_values[2].clone(),
-            ),
-            (
-                "stack_push lo(code_size lo) = public_values[2]".into(),
-                stack_operands[1][1].clone() - public_values[3].clone(),
-            ),
-            ("code_size hi is zero".into(), stack_operands[1][0].clone()),
-        ]);
+        constraints.extend(config.get_public_constraints(
+            meta,
+            public_entry.clone(),
+            selector.select(&[
+                (public::Tag::CodeHash as u8).expr(),
+                (public::Tag::CodeSize as u8).expr(),
+            ]),
+            None,
+            [
+                Some(stack_operands[0][0].clone()),
+                Some(stack_operands[0][1].clone()),
+                Some(stack_operands[1][0].clone()),
+                Some(stack_operands[1][1].clone()),
+            ],
+        ));
 
         constraints
     }
@@ -187,8 +199,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_lookup_addr = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let stack_lookup_code_size =
-            query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let stack_lookup_codeinfo = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let public_lookup = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         let is_warm_read = query_expression(meta, |meta| {
             config.get_storage_lookup(meta, 0, Rotation(-2))
@@ -201,8 +212,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         });
         vec![
             ("stack addr lookup".into(), stack_lookup_addr),
-            ("stack code size lookup".into(), stack_lookup_code_size),
-            ("public lookup(code size)".into(), public_lookup),
+            ("stack code info lookup".into(), stack_lookup_codeinfo),
+            ("public lookup(code info)".into(), public_lookup),
             ("is_warm_read".into(), is_warm_read),
             ("is_warm_write".into(), is_warm_write),
             ("u64 overflow rows".into(), u64_overflow_rows),
@@ -210,34 +221,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert_eq!(trace.op, OpcodeId::EXTCODESIZE);
+        assert!(trace.op == OpcodeId::EXTCODEHASH || trace.op == OpcodeId::EXTCODESIZE);
 
+        // get code address, and stack pop value
         let (stack_pop_addr, code_address) = current_state.get_pop_stack_row_value(&trace);
 
-        //  get the bytecode size and put it on the top of the stack
-        let code_size = U256::from(
-            current_state
-                .bytecode
-                .get(&code_address)
-                .unwrap()
-                .code()
-                .len(),
-        );
-        assert_eq!(current_state.stack_top.unwrap(), code_size);
-        let stack_push_row = current_state.get_push_stack_row(&trace, code_size);
+        // get bytecode with code_address
+        let bytecode = current_state
+            .bytecode
+            .get(&code_address)
+            .and_then(|b| Some(b.code()))
+            .unwrap_or(vec![]);
 
-        // get core row2
+        // calculate push value
+        let (value, pub_tag) = if trace.op == OpcodeId::EXTCODEHASH {
+            (calc_keccak(&bytecode), public::Tag::CodeHash)
+        } else {
+            (bytecode.len().into(), public::Tag::CodeSize)
+        };
+
+        assert_eq!(current_state.stack_top.unwrap(), value);
+        let stack_push_row = current_state.get_push_stack_row(&trace, value);
+
+        // row2
         let (is_warm_read, is_warm) = current_state.get_addr_access_list_read_row(code_address);
         let is_warm_write =
             current_state.get_addr_access_list_write_row(code_address, true, is_warm);
 
+        //  get public row
+        let public_row = current_state.get_public_code_info_row(pub_tag, code_address);
+
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        //  get public row and insert public row lookup
-        let public_row = current_state.get_public_code_size_row(code_address, code_size);
         core_row_2.insert_public_lookup(0, &public_row);
         core_row_2.insert_storage_lookups([&is_warm_read, &is_warm_write]);
 
-        // get core row1
+        // row1
         let (u64_overflow_rows, _) =
             operation::u64overflow::gen_witness::<F>(vec![current_state.gas_left.into()]);
 
@@ -245,8 +263,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_1.insert_state_lookups([&stack_pop_addr, &stack_push_row]);
         core_row_1.insert_arithmetic_tiny_lookup(3, &u64_overflow_rows);
 
-        // get core row0
-        let core_row_0 = ExecutionState::EXTCODESIZE.into_exec_state_core_row(
+        // tag selector
+        simple_selector_assign(
+            &mut core_row_1,
+            [TAG_IDX, TAG_IDX + 1],
+            if trace.op == OpcodeId::EXTCODEHASH {
+                0
+            } else {
+                1
+            },
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+
+        // row0
+        let core_row_0 = ExecutionState::CODEINFO.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -254,8 +284,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         Witness {
-            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_addr, stack_push_row, is_warm_read, is_warm_write],
+            core: vec![core_row_2, core_row_1, core_row_0],
             arithmetic: u64_overflow_rows,
             ..Default::default()
         }
@@ -263,7 +293,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(ExtcodesizeGadget {
+    Box::new(CodeInfoGadget {
         _marker: PhantomData,
     })
 }
@@ -277,7 +307,13 @@ mod test {
     use std::collections::HashMap;
     generate_execution_gadget_test_circuit!();
 
-    fn run(stack: Stack, code_addr: U256, bytecode: HashMap<U256, Bytecode>, stack_top: U256) {
+    fn run(
+        stack: Stack,
+        code_addr: U256,
+        bytecode: HashMap<U256, Bytecode>,
+        stack_top: U256,
+        op: OpcodeId,
+    ) {
         let stack_pointer = stack.0.len();
         let mut current_state = WitnessExecHelper {
             code_addr,
@@ -288,7 +324,7 @@ mod test {
             ..WitnessExecHelper::new()
         };
         let gas_left_before_exec = current_state.gas_left + 0xA28;
-        let mut trace = prepare_trace_step!(0, OpcodeId::EXTCODESIZE, stack);
+        let mut trace = prepare_trace_step!(0, op, stack);
         trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -320,34 +356,50 @@ mod test {
     }
 
     #[test]
-    fn test_code_size1() {
+    fn test_codeinfo() {
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
         let stack = Stack::from_slice(&[code_addr]);
         let mut bytecode = HashMap::new();
         let code = Bytecode::from(Vec::new().to_vec());
         bytecode.insert(code_addr, code);
-        let stack_top = U256::zero();
-        run(stack, code_addr, bytecode, stack_top);
+        // empty code hash
+        let hash = U256::from_str_radix(
+            "0xC5D2460186F7233C927E7DB2DCC703C0E500B653CA82273B7BFAD8045D85A470",
+            16,
+        )
+        .unwrap();
+        let len = U256::zero();
+
+        run(
+            stack.clone(),
+            code_addr,
+            bytecode.clone(),
+            hash,
+            OpcodeId::EXTCODEHASH,
+        );
+        run(stack, code_addr, bytecode, len, OpcodeId::EXTCODESIZE);
     }
 
     #[test]
-    fn test_code_size2() {
-        // PUSH29 0x0000000000000000000000000000000000000000000000000000000000
-        // POP
-        // CODESIZE
-        // result: 0x20
+    fn test_codeinfo2() {
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
         let stack = Stack::from_slice(&[code_addr]);
         let mut bytecode = HashMap::new();
-        let code = Bytecode::from(
-            hex::decode("7c00000000000000000000000000000000000000000000000000000000005038")
-                .unwrap(),
-        );
+        let hex_code = hex::decode("6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea2646970667358fe1220fe7840966036100a633d188b84e1a14545ddea09878db189eb4a567d852807dd64736f6c63430008150033").unwrap();
+        let code = Bytecode::from(hex_code.clone());
         bytecode.insert(code_addr, code);
-        // 32 byte
-        let stack_top = U256::from(0x20);
-        run(stack, code_addr, bytecode, stack_top);
+        let hash = calc_keccak(hex_code.as_slice());
+        let len = U256::from(hex_code.len());
+
+        run(
+            stack.clone(),
+            code_addr,
+            bytecode.clone(),
+            hash,
+            OpcodeId::EXTCODEHASH,
+        );
+        run(stack, code_addr, bytecode, len, OpcodeId::EXTCODESIZE);
     }
 }

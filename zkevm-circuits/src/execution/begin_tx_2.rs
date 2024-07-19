@@ -119,7 +119,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
 
         let public_entry = config.get_public_lookup(meta, 0);
-        config.get_public_constraints(
+        constraints.extend(config.get_public_constraints(
             meta,
             public_entry,
             (public::Tag::TxFromValue as u8).expr(),
@@ -130,7 +130,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 Some(operands[1][0].clone()), // constraint value hi == tx.value hi
                 Some(operands[1][1].clone()), // constraint value lo == tx.value lo
             ],
-        );
+        ));
 
         // prev state constraint
         constraints.extend(config.get_exec_state_constraints(

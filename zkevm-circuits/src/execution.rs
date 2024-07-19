@@ -17,6 +17,7 @@ pub mod call_7;
 pub mod call_context;
 pub mod calldatacopy;
 pub mod calldataload;
+pub mod code_info;
 pub mod codecopy;
 pub mod codesize;
 pub mod dup;
@@ -27,7 +28,6 @@ pub mod end_padding;
 pub mod end_tx;
 pub mod exp;
 pub mod extcodecopy;
-pub mod extcodesize;
 pub mod gas;
 pub mod iszero_eq;
 pub mod jump;
@@ -114,6 +114,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::calldatacopy::new(),
             crate::execution::calldataload::new(),
             crate::execution::codecopy::new(),
+            crate::execution::code_info::new(),
             crate::execution::codesize::new(),
             crate::execution::dup::new(),
             crate::execution::end_block::new(),
@@ -123,7 +124,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_tx::new(),
             crate::execution::exp::new(),
             crate::execution::extcodecopy::new(),
-            crate::execution::extcodesize::new(),
             crate::execution::gas::new(),
             crate::execution::iszero_eq::new(),
             crate::execution::jump::new(),
@@ -2330,7 +2330,7 @@ pub enum ExecutionState {
     SDIV_SMOD,
     GAS,
     CODESIZE,
-    EXTCODESIZE,
+    CODEINFO,
     ISZERO_EQ,
     MEMORY_GAS,
     MEMORY_COPIER_GAS,
@@ -2483,12 +2483,9 @@ impl ExecutionState {
                 vec![Self::CALL_CONTEXT]
             }
 
-            OpcodeId::EXTCODESIZE => vec![Self::EXTCODESIZE],
+            OpcodeId::EXTCODESIZE | OpcodeId::EXTCODEHASH => vec![Self::CODEINFO],
             OpcodeId::EXTCODECOPY => {
                 vec![Self::EXTCODECOPY, Self::MEMORY_GAS, Self::MEMORY_COPIER_GAS]
-            }
-            OpcodeId::EXTCODEHASH => {
-                todo!()
             }
             OpcodeId::RETURNDATASIZE => {
                 vec![Self::RETURNDATASIZE]
