@@ -3104,6 +3104,7 @@ impl Witness {
         self.state.append(&mut witness.state);
         self.bitwise.append(&mut witness.bitwise);
         self.arithmetic.append(&mut witness.arithmetic);
+        #[cfg(not(feature = "no_hash_circuit"))]
         self.keccak.append(&mut witness.keccak);
     }
 
@@ -3227,6 +3228,7 @@ impl Witness {
                 let mut bytecode_table =
                     Self::gen_bytecode_witness(account.address, machine_code.to_vec(), code_hash);
                 // add to keccak_inputs
+                #[cfg(not(feature = "no_hash_circuit"))]
                 if machine_code.len() > 0 {
                     self.keccak.push(machine_code.to_vec());
                 }
