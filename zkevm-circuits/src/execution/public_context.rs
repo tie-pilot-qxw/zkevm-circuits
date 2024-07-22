@@ -129,6 +129,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             chainid_tag.clone(),
             basefee_tag.clone(),
         ]);
+        constraints.extend(selector.get_constraints());
 
         let public_tag = selector.select(&[
             (Tag::BlockCoinbaseAndTimestamp as u64).expr(),
@@ -193,17 +194,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             idx,
             [value_0, value_1, value_2, value_3],
         ));
-        // select opcode
-        let public_context_tag = selector.select(&[
-            opcode.clone() - OpcodeId::TIMESTAMP.as_u64().expr(),
-            opcode.clone() - OpcodeId::NUMBER.as_u64().expr(),
-            opcode.clone() - OpcodeId::COINBASE.as_u64().expr(),
-            opcode.clone() - OpcodeId::GASLIMIT.as_u64().expr(),
-            opcode.clone() - OpcodeId::CHAINID.as_u64().expr(),
-            opcode.clone() - OpcodeId::BASEFEE.as_u64().expr(),
-        ]);
+
         // opCode constraints
-        constraints.extend([("opCode constraints".into(), public_context_tag)]);
+        constraints.push((
+            "opCode constraints".into(),
+            selector.select(&[
+                opcode.clone() - OpcodeId::TIMESTAMP.as_u64().expr(),
+                opcode.clone() - OpcodeId::NUMBER.as_u64().expr(),
+                opcode.clone() - OpcodeId::COINBASE.as_u64().expr(),
+                opcode.clone() - OpcodeId::GASLIMIT.as_u64().expr(),
+                opcode.clone() - OpcodeId::CHAINID.as_u64().expr(),
+                opcode.clone() - OpcodeId::BASEFEE.as_u64().expr(),
+            ]),
+        ));
         constraints
     }
     fn get_lookups(

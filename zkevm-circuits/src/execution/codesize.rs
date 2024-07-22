@@ -67,6 +67,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
+        // opcode constraints
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        constraints.push((
+            "opcode is CODESIZE".into(),
+            opcode - OpcodeId::CODESIZE.as_u8().expr(),
+        ));
+
         // core single constraints
         let delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
@@ -150,7 +157,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get core row2
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
         //  get public row and insert public row lookup
-        let public_row = current_state.get_public_code_size_row(current_state.code_addr, code_size);
+        let public_row =
+            current_state.get_public_code_info_row(public::Tag::CodeSize, current_state.code_addr);
         core_row_2.insert_public_lookup(0, &public_row);
 
         // get core row1
