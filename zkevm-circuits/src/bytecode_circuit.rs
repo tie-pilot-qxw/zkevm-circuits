@@ -781,11 +781,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 
         let cnt_f =
             F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.cnt.unwrap_or_default()));
-        let length_f = F::from_uniform_bytes(&convert_u256_to_64_bytes(
-            &row_cur.length.unwrap_or_default(),
-        ));
-        let pc_f =
-            F::from_uniform_bytes(&convert_u256_to_64_bytes(&row_cur.pc.unwrap_or_default()));
         cnt_is_zero.assign(region, offset, Value::known(cnt_f))?;
         cnt_is_15.assign(region, offset, Value::known(cnt_f - F::from(15)))?;
         addr_unchange.assign(
@@ -981,6 +976,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     }
 
     pub fn keccak_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
+        #[cfg(not(feature = "no_hash_circuit"))]
         meta.lookup_any(name, |meta| {
             let q_enable = meta.query_selector(self.q_enable);
             let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
@@ -1474,6 +1470,8 @@ mod test {
         witness.bytecode.extend(contract1_byte_rows);
         witness.bytecode.extend(contract2_byte_rows);
         witness.public.extend(public_rows);
+
+        #[cfg(not(feature = "no_hash_circuit"))]
         witness
             .keccak
             .extend(vec![contract1_bytecode, contract2_bytecode]);
