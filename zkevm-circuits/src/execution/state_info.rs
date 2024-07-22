@@ -3,9 +3,10 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep, U256};
+use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -15,10 +16,14 @@ const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
 const PC_DELTA: u64 = 1;
-/// MSIZE gadget:
+const TAG_IDX: usize = 9;
+
+/// StateInfo gadget:
 /// The MSIZE opcode returns the size of the memory in bytes.
+/// The PC opcode returns the current value of the program counter.
 /// The memory is always fully accessible. What this instruction tracks is the highest
 /// offset that was accessed in the current execution.
+/// The TAG is used to select between the two opcodes.
 ///  A first write or read to a bigger offset will trigger a memory expansion,
 /// which will cost gas. The size is always a multiple of a word (32 bytes).
 /// STATE: State lookup (stack_pop), src: Core circuit, target: State circuit table, 8 columns
@@ -26,21 +31,21 @@ const PC_DELTA: u64 = 1;
 /// +---+-------+--------+--------+----------+
 /// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
 /// +---+-------+--------+--------+----------+
-/// | 1 | STATE |                            |
+/// | 1 | STATE | TAG |                      |
 /// | 0 | DYNA_SELECTOR         | AUX        |
 /// +---+-------+--------+--------+----------+
 
-pub struct MsizeGadget<F: Field> {
+pub struct StateInfoGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for MsizeGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for StateInfoGadget<F>
 {
     fn name(&self) -> &'static str {
-        "MSIZE"
+        "STATE_INFO"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::MSIZE
+        ExecutionState::STATE_INFO
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -53,18 +58,42 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let mut constraints = vec![];
+
+        // get tag
+        let msize_tag = meta.query_advice(config.vers[TAG_IDX], Rotation::prev());
+        let pc_tag = meta.query_advice(config.vers[TAG_IDX + 1], Rotation::prev());
+
+        // Create a simple selector with tag
+        let selector = SimpleSelector::new(&[msize_tag.clone(), pc_tag.clone()]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
+        // Add constraints for opcode.
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        constraints.push((
+            "opcode".into(),
+            opcode
+                - selector.select(&[OpcodeId::MSIZE.as_u8().expr(), OpcodeId::PC.as_u8().expr()]),
+        ));
+
+        // Get the gas cost for the opcode.
+        let gas_cost = selector.select(&[
+            OpcodeId::MSIZE.constant_gas_cost().expr(),
+            OpcodeId::PC.constant_gas_cost().expr(),
+        ]);
+
         // auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             memory_chunk: ExpressionOutcome::Delta(0.expr()),
-            gas_left: ExpressionOutcome::Delta(-OpcodeId::MSIZE.constant_gas_cost().expr()),
+            gas_left: ExpressionOutcome::Delta(-gas_cost),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         // Get the auxiliary constraints.
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // core single constraints
         let delta = CoreSinglePurposeOutcome {
@@ -83,23 +112,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             state_entry.clone(),
             0,
             NUM_ROW,
-            1.expr(),
+            STACK_POINTER_DELTA.expr(),
             true,
         ));
         // Extract the value_hi and value_lo from the state lookup expression.
         let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
-        // constrain that value_hi = 0 and value_lo = memory_chunk cur
+        // get state info
         let memory_chunk = meta.query_advice(config.get_auxiliary().memory_chunk, Rotation::cur());
-        constraints.extend([
-            ("value_hi = 0".into(), value_hi),
-            (
-                "value_lo = memory_chunk".into(),
-                value_lo - memory_chunk * 32.expr(),
-            ),
-        ]);
-        // Add constraints for opcode and arithmetic tag.
-        constraints.push(("opcode".into(), opcode - OpcodeId::MSIZE.as_u8().expr()));
+        let pc = meta.query_advice(config.pc, Rotation::cur());
+
+        // constrain value hi must be 0
+        constraints.push(("value hi must be 0".into(), value_hi.clone()));
+
+        // constrain value lo equal to memory_chunk or pc
+        constraints.push((
+            "value lo equal to memory_chunk or pc".into(),
+            value_lo.clone() - selector.select(&[memory_chunk.clone() * 32.expr(), pc.clone()]),
+        ));
 
         constraints
     }
@@ -114,17 +144,34 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert!(trace.op == OpcodeId::MSIZE);
+        assert!(trace.op == OpcodeId::MSIZE || trace.op == OpcodeId::PC);
 
-        // get memory size from trace
-        let memory_size = trace.memory.0.len();
-        let stack_push = current_state.get_push_stack_row(trace, U256::from(memory_size as u64));
+        let push_value = match trace.op {
+            // get memory size from trace
+            OpcodeId::MSIZE => trace.memory.0.len().into(),
+            // get pc from trace
+            OpcodeId::PC => trace.pc.into(),
+            _ => unreachable!(),
+        };
+        let stack_push = current_state.get_push_stack_row(trace, push_value);
 
         // coew row 1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push]);
+        // tag selector
+        simple_selector_assign(
+            &mut core_row_1,
+            [TAG_IDX, TAG_IDX + 1],
+            match trace.op {
+                OpcodeId::MSIZE => 0,
+                OpcodeId::PC => 1,
+                _ => panic!(),
+            },
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+
         // core row 0
-        let core_row_0 = ExecutionState::MSIZE.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::STATE_INFO.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -140,7 +187,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(MsizeGadget {
+    Box::new(StateInfoGadget {
         _marker: PhantomData,
     })
 }
@@ -204,6 +251,57 @@ mod test {
         witness.print_csv();
         prover.assert_satisfied();
     }
+
+    #[test]
+    fn assign_and_constraint_pc() {
+        let stack = Stack::from_slice(&[0xffff.into()]);
+        let stack_pointer = stack.0.len();
+        let value_vec = [0x12; 32];
+        let value = U256::from_big_endian(&value_vec);
+        let init_gas = 0x254023u64;
+        let gas_left_before_exec = init_gas + OpcodeId::PC.constant_gas_cost();
+
+        let mut trace = prepare_trace_step!(0, OpcodeId::PC, stack.clone());
+        trace.gas = gas_left_before_exec;
+        trace.pc = 64;
+
+        let mut current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(value),
+            gas_left: init_gas,
+            ..WitnessExecHelper::new()
+        };
+
+        let padding_begin_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
+                Some(gas_left_before_exec.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
+                Some(stack_pointer.into());
+            row.pc = 64.into();
+            row
+        };
+        let padding_end_row = |current_state| {
+            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
+                &trace,
+                current_state,
+                NUM_STATE_HI_COL,
+                NUM_STATE_LO_COL,
+            );
+            row.pc = 65.into();
+            row
+        };
+        let (witness, prover) =
+            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
+        witness.print_csv();
+        prover.assert_satisfied();
+    }
+
     #[test]
     fn assign_and_constraint_len_0() {
         let value = U256::from_big_endian(&[0x12; 32]);

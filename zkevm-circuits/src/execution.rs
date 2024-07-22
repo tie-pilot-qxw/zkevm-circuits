@@ -42,7 +42,6 @@ pub mod lt_gt_slt_sgt;
 pub mod memory;
 pub mod memory_copier_gas;
 pub mod memory_gas;
-pub mod msize;
 pub mod mstore8;
 pub mod mulmod;
 pub mod not;
@@ -61,6 +60,7 @@ pub mod sdiv_smod;
 pub mod selfbalance;
 pub mod shl_shr;
 pub mod signextend;
+pub mod state_info;
 pub mod stop;
 pub mod storage;
 pub mod swap;
@@ -135,7 +135,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::log_topic_num_addr::new(),
             crate::execution::lt_gt_slt_sgt::new(),
             crate::execution::memory::new(),
-            crate::execution::msize::new(),
             crate::execution::mstore8::new(),
             crate::execution::mulmod::new(),
             crate::execution::not::new(),
@@ -151,6 +150,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::selfbalance::new(),
             crate::execution::shl_shr::new(),
             crate::execution::signextend::new(),
+            crate::execution::state_info::new(),
             crate::execution::stop::new(),
             crate::execution::storage::new(),
             crate::execution::swap::new(),
@@ -2291,7 +2291,7 @@ pub enum ExecutionState {
     TX_CONTEXT,
     MEMORY,
     MSTORE8,
-    MSIZE,
+    STATE_INFO,
     STORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
@@ -2385,10 +2385,7 @@ impl ExecutionState {
             OpcodeId::MSTORE8 => vec![Self::MSTORE8, Self::MEMORY_GAS, Self::PURE_MEMORY_GAS],
             OpcodeId::JUMP => vec![Self::JUMP],
             OpcodeId::JUMPI => vec![Self::JUMPI],
-            OpcodeId::PC => {
-                todo!()
-            }
-            OpcodeId::MSIZE => vec![Self::MSIZE],
+            OpcodeId::MSIZE | OpcodeId::PC => vec![Self::STATE_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
 
             OpcodeId::PUSH1
