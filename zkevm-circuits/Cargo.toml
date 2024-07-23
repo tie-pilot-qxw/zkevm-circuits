@@ -6,12 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = [
-    "circuit-params",
-    "derive_serde",
-] }
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"] }
+snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
 eth-types = { path = "../eth-types" }
 keccak256 = { path = "../keccak256" }
+
 ethers-core = "2.0.7"
 rand_xorshift = "0.3"
 rand = "0.8"

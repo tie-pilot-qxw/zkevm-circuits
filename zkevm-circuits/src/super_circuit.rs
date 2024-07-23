@@ -27,7 +27,7 @@ use crate::witness::Witness;
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
-
+use snark_verifier_sdk::CircuitExt;
 #[derive(Clone)]
 pub struct SuperCircuitConfig<
     F: Field,
@@ -387,6 +387,22 @@ impl<
         let challenges = config.challenges.values(&mut layouter);
         self.synthesize_sub(&config, &mut layouter, &challenges)?;
         Ok(())
+    }
+}
+
+impl<
+        F: Field,
+        const MAX_NUM_ROW: usize,
+        const NUM_STATE_HI_COL: usize,
+        const NUM_STATE_LO_COL: usize,
+    > CircuitExt<F> for SuperCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+{
+    fn num_instance(&self) -> Vec<usize> {
+        self.instance().iter().map(|l| l.len()).collect()
+    }
+
+    fn instances(&self) -> Vec<Vec<F>> {
+        self.instance()
     }
 }
 

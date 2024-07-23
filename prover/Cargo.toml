@@ -6,9 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zkevm-circuits = { path = "../zkevm-circuits" }
+zkevm-circuits = { path = "../zkevm-circuits", default-features = false }
 eth-types = { path = "../eth-types" }
+trace-parser = { path = "../trace-parser" }
+
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"] }
+snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
+
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = { version = "1.0.94", features = ["unbounded_depth"] }
 log = "0.4.21"
@@ -20,7 +24,9 @@ serde_stacker = "0.1.11"
 dotenvy = "0.15.7"
 chrono = "0.4.19"
 log4rs = { version = "1.2.0", default_features = false, features = ["console_appender", "file_appender"] }
+sha2 = "0.10.2"
+ark-std = { version = "0.3.0", features = ["print-trace"] }
 
 [features]
-default = []
+default = ["fast_test"]
 fast_test = ["zkevm-circuits/fast_test"]

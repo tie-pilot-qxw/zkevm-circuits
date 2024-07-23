@@ -5,7 +5,8 @@ members = [
     "gadgets",
     "trace-parser",
     "keccak256",
-    "prover"
+    "prover",
+    "aggregate-zkevm"
 ]
 
 [profile.bench]
@@ -28,4 +29,16 @@ lto = "thin"
 incremental = true
 
 [profile.test]
+inherits = "dev"
 opt-level = 3
+
+[profile.dev]
+opt-level = 3
+# Set this to 1 or 2 to get more useful backtraces
+debug = true
+debug-assertions = false
+panic = 'unwind'
+# better recompile times
+incremental = true
+lto = "thin"
+codegen-units = 16

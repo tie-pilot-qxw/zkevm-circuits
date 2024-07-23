@@ -201,6 +201,7 @@ pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
         )
         .to_string()
     };
+
     let res = Command::new("sh")
         .arg("-c")
         .arg(cmd_string)
