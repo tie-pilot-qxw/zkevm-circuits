@@ -28,7 +28,6 @@ pub mod end_padding;
 pub mod end_tx;
 pub mod exp;
 pub mod extcodecopy;
-pub mod gas;
 pub mod iszero_eq;
 pub mod jump;
 pub mod jumpdest;
@@ -124,7 +123,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_tx::new(),
             crate::execution::exp::new(),
             crate::execution::extcodecopy::new(),
-            crate::execution::gas::new(),
             crate::execution::iszero_eq::new(),
             crate::execution::jump::new(),
             crate::execution::jumpdest::new(),
@@ -2385,7 +2383,7 @@ impl ExecutionState {
             OpcodeId::MSTORE8 => vec![Self::MSTORE8, Self::MEMORY_GAS, Self::PURE_MEMORY_GAS],
             OpcodeId::JUMP => vec![Self::JUMP],
             OpcodeId::JUMPI => vec![Self::JUMPI],
-            OpcodeId::MSIZE | OpcodeId::PC => vec![Self::STATE_INFO],
+            OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATE_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
 
             OpcodeId::PUSH1
@@ -2510,9 +2508,6 @@ impl ExecutionState {
                 vec![Self::SELFBALANCE]
             }
             OpcodeId::SLOAD | OpcodeId::SSTORE => vec![Self::STORAGE],
-            OpcodeId::GAS => {
-                vec![Self::GAS] //TODO: implement this
-            }
             //LOG TOPIC LOG BYTES
             OpcodeId::LOG0 => {
                 vec![

@@ -51,6 +51,7 @@ mod dup6; //85
 mod dup7; //86
 mod dup8; //87
 mod dup9; //88
+mod gas; //5A
 mod gaslimit; //45
 mod jump; //56
 mod jumpdest; //5B
@@ -61,7 +62,7 @@ mod log2; //A2
 mod log3; //A3
 mod log4; //A4
 mod mload; //51
-mod msize;
+mod msize; //59
 mod mstore; //52
 mod mstore8; //53
 mod number; //43

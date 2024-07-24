@@ -21,12 +21,13 @@ const TAG_IDX: usize = 9;
 /// StateInfo gadget:
 /// The MSIZE opcode returns the size of the memory in bytes.
 /// The PC opcode returns the current value of the program counter.
+/// The GAS opcode returns the amount of gas left. (after this instruction)
 /// The memory is always fully accessible. What this instruction tracks is the highest
 /// offset that was accessed in the current execution.
-/// The TAG is used to select between the two opcodes.
+/// The TAG is used to select between the three opcodes.
 ///  A first write or read to a bigger offset will trigger a memory expansion,
 /// which will cost gas. The size is always a multiple of a word (32 bytes).
-/// STATE: State lookup (stack_pop), src: Core circuit, target: State circuit table, 8 columns
+/// STATE: State lookup (stack_push), src: Core circuit, target: State circuit table, 8 columns
 ///
 /// +---+-------+--------+--------+----------+
 /// |cnt| 8 col | 8 col  | 8 col  | 8 col    |
@@ -63,9 +64,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get tag
         let msize_tag = meta.query_advice(config.vers[TAG_IDX], Rotation::prev());
         let pc_tag = meta.query_advice(config.vers[TAG_IDX + 1], Rotation::prev());
+        let gas_tag = meta.query_advice(config.vers[TAG_IDX + 2], Rotation::prev());
 
         // Create a simple selector with tag
-        let selector = SimpleSelector::new(&[msize_tag.clone(), pc_tag.clone()]);
+        let selector = SimpleSelector::new(&[msize_tag.clone(), pc_tag.clone(), gas_tag.clone()]);
         // Add constraints for the selector.
         constraints.extend(selector.get_constraints());
 
@@ -74,13 +76,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.push((
             "opcode".into(),
             opcode
-                - selector.select(&[OpcodeId::MSIZE.as_u8().expr(), OpcodeId::PC.as_u8().expr()]),
+                - selector.select(&[
+                    OpcodeId::MSIZE.as_u8().expr(),
+                    OpcodeId::PC.as_u8().expr(),
+                    OpcodeId::GAS.as_u8().expr(),
+                ]),
         ));
 
         // Get the gas cost for the opcode.
         let gas_cost = selector.select(&[
             OpcodeId::MSIZE.constant_gas_cost().expr(),
             OpcodeId::PC.constant_gas_cost().expr(),
+            OpcodeId::GAS.constant_gas_cost().expr(),
         ]);
 
         // auxiliary constraints
@@ -121,14 +128,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get state info
         let memory_chunk = meta.query_advice(config.get_auxiliary().memory_chunk, Rotation::cur());
         let pc = meta.query_advice(config.pc, Rotation::cur());
+        let gas = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
 
         // constrain value hi must be 0
         constraints.push(("value hi must be 0".into(), value_hi.clone()));
 
-        // constrain value lo equal to memory_chunk or pc
+        // constrain value lo equal to memory_chunk, pc or gas
         constraints.push((
-            "value lo equal to memory_chunk or pc".into(),
-            value_lo.clone() - selector.select(&[memory_chunk.clone() * 32.expr(), pc.clone()]),
+            "value lo equal to memory_chunk, pc or gas".into(),
+            value_lo.clone()
+                - selector.select(&[memory_chunk.clone() * 32.expr(), pc.clone(), gas.clone()]),
         ));
 
         constraints
@@ -144,27 +153,32 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert!(trace.op == OpcodeId::MSIZE || trace.op == OpcodeId::PC);
+        assert!(
+            trace.op == OpcodeId::MSIZE || trace.op == OpcodeId::PC || trace.op == OpcodeId::GAS
+        );
 
         let push_value = match trace.op {
             // get memory size from trace
             OpcodeId::MSIZE => trace.memory.0.len().into(),
             // get pc from trace
             OpcodeId::PC => trace.pc.into(),
-            _ => unreachable!(),
+            // get gas left from trace
+            OpcodeId::GAS => (trace.gas - OpcodeId::GAS.constant_gas_cost()).into(),
+            _ => panic!(),
         };
-        let stack_push = current_state.get_push_stack_row(trace, push_value);
 
+        let stack_push = current_state.get_push_stack_row(trace, push_value);
         // coew row 1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push]);
         // tag selector
         simple_selector_assign(
             &mut core_row_1,
-            [TAG_IDX, TAG_IDX + 1],
+            [TAG_IDX, TAG_IDX + 1, TAG_IDX + 2],
             match trace.op {
                 OpcodeId::MSIZE => 0,
                 OpcodeId::PC => 1,
+                OpcodeId::GAS => 2,
                 _ => panic!(),
             },
             |cell, value| assign_or_panic!(*cell, value.into()),
@@ -199,78 +213,79 @@ mod test {
     };
     generate_execution_gadget_test_circuit!();
     #[test]
-    fn assign_and_constraint_msize() {
+    fn test_msize() {
         let stack = Stack::from_slice(&[0xffff.into()]);
-        let stack_pointer = stack.0.len();
         let value_vec = [0x12; 32];
         let value = U256::from_big_endian(&value_vec);
-        let init_gas = 0x254023u64;
-        let gas_left_before_exec = init_gas + OpcodeId::MSIZE.constant_gas_cost();
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::MSIZE, stack.clone());
-        trace.gas = gas_left_before_exec;
-        trace.memory.0 = vec![0; 0x10020];
-        for i in 0..32 {
-            trace.memory.0.insert(0xffff + i, value_vec[i]);
-        }
-
-        let mut current_state = WitnessExecHelper {
+        let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(value),
-            memory_chunk: ((trace.memory.0.len() + 1) / 32) as u64,
-            memory_chunk_prev: ((trace.memory.0.len() + 1) / 32) as u64,
-            gas_left: init_gas,
+            memory_chunk: 2048u64,
+            memory_chunk_prev: 2048u64,
+            gas_left: 0x254023u64,
             ..WitnessExecHelper::new()
         };
-
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(gas_left_before_exec.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 1.into();
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied();
+        run(stack, current_state, OpcodeId::MSIZE)
     }
 
     #[test]
-    fn assign_and_constraint_pc() {
+    fn test_pc() {
         let stack = Stack::from_slice(&[0xffff.into()]);
-        let stack_pointer = stack.0.len();
         let value_vec = [0x12; 32];
         let value = U256::from_big_endian(&value_vec);
-        let init_gas = 0x254023u64;
-        let gas_left_before_exec = init_gas + OpcodeId::PC.constant_gas_cost();
+        let current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(value),
+            gas_left: 0x254023u64,
+            ..WitnessExecHelper::new()
+        };
 
-        let mut trace = prepare_trace_step!(0, OpcodeId::PC, stack.clone());
+        run(stack, current_state, OpcodeId::PC)
+    }
+
+    #[test]
+    fn test_gas() {
+        let stack = Stack::from_slice(&[0xffff.into()]);
+        let value_vec = [0x12; 32];
+        let value = U256::from_big_endian(&value_vec);
+        let current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(value),
+            gas_left: 0x254023u64,
+            ..WitnessExecHelper::new()
+        };
+
+        run(stack, current_state, OpcodeId::GAS)
+    }
+
+    #[test]
+    fn test_msize_len_0() {
+        let value = U256::from_big_endian(&[0x12; 32]);
+        let stack = Stack::from_slice(&[value, 0xffff.into()]);
+        let current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: None,
+            gas_left: 0x254023,
+            ..WitnessExecHelper::new()
+        };
+        run(stack, current_state, OpcodeId::MSIZE);
+    }
+
+    fn run(stack: Stack, mut current_state: WitnessExecHelper, op: OpcodeId) {
+        let mut trace = prepare_trace_step!(0, op, stack.clone());
+        let stack_pointer = stack.0.len();
+
+        let gas_left_before_exec = current_state.gas_left + op.constant_gas_cost();
         trace.gas = gas_left_before_exec;
         trace.pc = 64;
 
-        let mut current_state = WitnessExecHelper {
-            stack_pointer: stack.0.len(),
-            stack_top: Some(value),
-            gas_left: init_gas,
-            ..WitnessExecHelper::new()
-        };
+        if current_state.memory_chunk != 0 {
+            let mut mem = Vec::new();
+            mem.resize((current_state.memory_chunk * 32) as usize, 0);
+            trace.memory.0 = mem;
+            //vec![0; 0x10000];
+        }
 
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -294,51 +309,6 @@ mod test {
                 NUM_STATE_LO_COL,
             );
             row.pc = 65.into();
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied();
-    }
-
-    #[test]
-    fn assign_and_constraint_len_0() {
-        let value = U256::from_big_endian(&[0x12; 32]);
-        let stack = Stack::from_slice(&[value, 0xffff.into()]);
-        let stack_pointer = stack.0.len();
-        let mut current_state = WitnessExecHelper {
-            stack_pointer: stack.0.len(),
-            stack_top: None,
-            gas_left: 0x254023,
-            ..WitnessExecHelper::new()
-        };
-        // 2.确认流程中改状态可能需要的gas消耗，例如这里的834，计算出前一个状态的值
-        let gas_left_before_exec = current_state.gas_left + OpcodeId::MSIZE.constant_gas_cost();
-        let mut trace = prepare_trace_step!(0, OpcodeId::MSIZE, stack);
-        trace.gas = gas_left_before_exec;
-
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(gas_left_before_exec.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 1.into();
             row
         };
         let (witness, prover) =
