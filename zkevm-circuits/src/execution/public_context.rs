@@ -246,7 +246,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 Tag::BlockGasLimitAndBaseFee,
                 current_state.block_idx,
                 0,
-                current_state.tx_gaslimit.low_u128(),
+                current_state.block_gaslimit.low_u128(),
                 (current_state.basefee >> 128).as_u128(),
                 current_state.basefee.low_u128(),
             ), // GasQuickStep

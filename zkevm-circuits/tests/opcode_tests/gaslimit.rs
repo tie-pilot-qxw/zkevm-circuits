@@ -5,6 +5,8 @@ use eth_types::bytecode;
 fn gaslimit_bytecode() {
     let bytecode = bytecode! {
         GASLIMIT
+        GASLIMIT
+        SUB
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);

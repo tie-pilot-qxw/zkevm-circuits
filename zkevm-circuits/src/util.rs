@@ -360,7 +360,7 @@ pub fn chunk_data_test(
         author: Some(Default::default()),
         number: Some(0.into()),
         base_fee_per_gas: Some(1000000000.into()),
-        gas_limit: U256::from_str("0x2540be400").unwrap_or_default(),
+        gas_limit: U256::from_str("0x2540b91f8").unwrap_or_default(),
         transactions: vec![tx],
         ..Default::default()
     };

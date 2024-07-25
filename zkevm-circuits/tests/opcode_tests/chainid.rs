@@ -5,6 +5,8 @@ use eth_types::bytecode;
 fn coinbase_bytecode() {
     let bytecode = bytecode! {
         CHAINID
+        CHAINID
+        SUB
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);
