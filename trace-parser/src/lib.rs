@@ -155,20 +155,9 @@ pub fn get_geth_exec_trace(res: &Output) -> GethExecTrace {
 
     let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
     let mut struct_logs: Vec<GethExecStep> = vec![];
-    let mut is_gas_limit = false;
     for line in s {
         let result = serde_json::from_str::<EVMExecStep>(line);
-        if let Ok(mut step) = result {
-            // 如果碰到了gasLimit指令，那么is_gas_limit置为true
-            // 在下一轮循环时，就会将stack最后一个值改为./evm的默认gas值，也即block.gasLimit
-            if step.op_name == OpcodeId::GASLIMIT {
-                is_gas_limit = true;
-            }
-            if is_gas_limit {
-                if let Some(last) = step.stack.last_mut() {
-                    *last = U256::from(0x2540be400u64);
-                }
-            }
+        if let Ok(step) = result {
             struct_logs.push(step.into());
             continue;
         }
