@@ -53,7 +53,12 @@ impl<
     > Prover<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     pub fn from_dirs(params_dir: &str, assets_dir: &str) -> Self {
-        let degree = log2_ceil(MAX_NUM_ROW);
+        let mut cs = ConstraintSystem::<Fr>::default();
+        SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
+        let minimum_rows = cs.minimum_rows();
+        let rows = MAX_NUM_ROW + minimum_rows;
+        let degree = log2_ceil(rows);
+
         let param_file_name = format!("k{}.params", degree);
         let vk_file_name = format!("k{}.vk", degree);
         let params = read_params(params_dir, &param_file_name).unwrap();
@@ -159,6 +164,7 @@ impl<
     }
 }
 
+#[cfg(test)]
 mod test {
     use anyhow::anyhow;
     use halo2_proofs::dev::MockProver;

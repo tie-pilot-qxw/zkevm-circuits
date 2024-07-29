@@ -1,4 +1,3 @@
-mod proof_test;
 mod prover;
 mod verifier;
 

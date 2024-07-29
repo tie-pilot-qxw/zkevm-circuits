@@ -1,5 +1,5 @@
 use halo2_proofs::halo2curves::bn256::Fr;
-use halo2_proofs::plonk::{keygen_pk, verify_proof};
+use halo2_proofs::plonk::{keygen_pk, verify_proof, Circuit, ConstraintSystem};
 use halo2_proofs::poly::commitment::{Params, ParamsProver};
 use halo2_proofs::poly::kzg::commitment::KZGCommitmentScheme;
 use halo2_proofs::poly::kzg::multiopen::VerifierSHPLONK;
@@ -42,7 +42,12 @@ impl<
     }
 
     pub fn from_dirs(params_dir: &str, assets_dir: &str) -> Self {
-        let degree = log2_ceil(MAX_NUM_ROW);
+        let mut cs = ConstraintSystem::<Fr>::default();
+        SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
+        let minimum_rows = cs.minimum_rows();
+        let rows = MAX_NUM_ROW + minimum_rows;
+        let degree = log2_ceil(rows);
+
         let param_file_name = format!("k{}.params", degree);
         let vk_file_name = format!("k{}.vk", degree);
 
@@ -86,6 +91,7 @@ impl<
     }
 }
 
+#[cfg(test)]
 mod test {
     use crate::proof::Proof;
     use crate::zkevm::Verifier;
