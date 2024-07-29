@@ -532,7 +532,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for ExpCircuit<F, MAX_NUM
                 config.assign_with_region(&mut region, &self.witness, MAX_NUM_ROW)?;
 
                 // sub circuit need to enable selector
-                for offset in num_padding_begin..self.witness.exp.len() - num_padding_end {
+                for offset in num_padding_begin..MAX_NUM_ROW - num_padding_end {
                     config.q_enable.enable(&mut region, offset)?;
                 }
                 Ok(())

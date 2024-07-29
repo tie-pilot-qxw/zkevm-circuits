@@ -281,7 +281,7 @@ pub fn create_contract_addr_with_prefix(tx: &Transaction) -> U256 {
 }
 
 // cal memory usage for each step
-fn preprocess_trace(trace: &mut GethExecTrace) {
+pub fn preprocess_trace(trace: &mut GethExecTrace) {
     let last_mem = trace
         .struct_logs
         .last()
