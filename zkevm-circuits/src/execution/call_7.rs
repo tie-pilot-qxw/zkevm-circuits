@@ -4,16 +4,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::execution::{
     Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{state, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -21,6 +22,9 @@ use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
+const STAMP_INIT_COL_PREV_GADGET: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+const OPCODE_SELECTOR_IDX: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+const OPCODE_SELECTOR_IDX_START: usize = 0;
 
 /// call_1..call_7为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
@@ -38,12 +42,12 @@ const STATE_STAMP_DELTA: usize = 4;
 ///     2. State lookup(stack read addr), src: Core circuit, target: State circuit table, 8 columns
 ///     3. State lookup(call_context write storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
 ///     4. State lookup(call_context write caller), src: Core circuit, target: State circuit table, 8 columns
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
-/// +---+-------+-------+-------+----------+
-/// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// +-----+--------------+----------------+------------------------+----------------+
+/// | cnt |              |               |                         |                |
+/// +-----+--------------+---------------+-------------------------+----------------+
+/// | 1 | STATE1(0..7)   | STATE2(8..15) | STATE3(16..23)          | STATE4(24..31) |
+/// | 0 | DYNAMIC(0..17) | AUX(18..24)   | OPCODE_SELECTOR(25..27) |                |
+/// +---+------- --------+--------------+--------------------------+----------------+
 ///
 /// Note: call_context write's call_id should be callee's
 pub struct Call7Gadget<F: Field> {
@@ -75,7 +79,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let Auxiliary { stack_pointer, .. } = config.get_auxiliary();
         // CALL指令开始时 state_stamp值（即在call_1.rs中gadget生成witness之前的值）
         let state_stamp_init = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            config.vers[STAMP_INIT_COL_PREV_GADGET],
             Rotation(-1 * NUM_ROW as i32),
         );
         let stack_pointer_prev = meta.query_advice(
@@ -87,6 +91,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 计算即将执行的call_id
         let call_id_new = state_stamp_init.clone() + 1.expr();
+
+        let mut constraints = vec![];
+
+        // get tag
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             gas_left: ExpressionOutcome::Delta(0.expr()), // 此处的gas_left值与post_call保持一致
@@ -96,7 +113,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             memory_chunk: ExpressionOutcome::To(0.expr()),
             ..Default::default()
         };
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
@@ -134,30 +152,55 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
         // CALL指令需要的addr操作数
-        let addr = operands[1].clone();
         // CALL指令调用的合约地址，与addr相同
-        let storage_contract_addr = operands[2].clone();
         // CALL指令的调用方地址
-        let sender_addr = operands[3].clone();
+        let (addr, storage_contract_addr, sender_addr) = (
+            operands[1].clone(),
+            operands[2].clone(),
+            operands[3].clone(),
+        );
 
+        let storage_contract_addr_expr = storage_contract_addr[0].clone() * pow_of_two::<F>(128)
+            + storage_contract_addr[1].clone();
+
+        let call_staticcall_contract_addr_expr =
+            addr[0].clone() * pow_of_two::<F>(128) + addr[1].clone();
+        let call_staticcall_sender_addr_expr =
+            sender_addr[0].clone() * pow_of_two::<F>(128) + sender_addr[1].clone();
+
+        // 如果是DELEGATECALL， contract_address和sender_addrress只使用lookup约束
+        // 如果是CALL和STATICCALL使用lookup约束，并进行以下约束
         constraints.extend([
             (
-                "storage_contract_addr == addr hi".into(),
-                storage_contract_addr[0].clone() - addr[0].clone(),
-            ),
-            (
-                "storage_contract_addr == addr lo".into(),
-                storage_contract_addr[1].clone() - addr[1].clone(),
+                "opcode==CALL or STATICCALL --> storage_contract_addr == addr hi and storage_contract_addr == addr lo".into(),
+                storage_contract_addr_expr.clone() - selector.select(&[
+                    call_staticcall_contract_addr_expr.clone(),
+                    call_staticcall_contract_addr_expr.clone(),
+                    code_addr_cur.clone(),
+                ]),
             ),
             // 约束数据为CALL指令的调用方地址
             (
                 "sender_addr == current code_addr ".into(),
-                sender_addr[0].clone() * pow_of_two::<F>(128) + sender_addr[1].clone()
-                    - code_addr_cur,
+                call_staticcall_sender_addr_expr.clone() - selector.select(&[
+                    code_addr_cur.clone(),
+                    code_addr_cur.clone(),
+                    // todo: 这里应该是parent的sender-addr
+                    call_staticcall_sender_addr_expr.clone(),
+                ]),
             ),
         ]);
         // append opcode constraint
-        constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        constraints.push((
+            "opcode".into(),
+            opcode.clone()
+                - selector.select(&[
+                    OpcodeId::CALL.as_u8().expr(),
+                    OpcodeId::STATICCALL.as_u8().expr(),
+                    OpcodeId::DELEGATECALL.as_u8().expr(),
+                ]),
+        ));
+
         let core_single_delta = CoreSinglePurposeOutcome {
             // call指令开始执行，所以next为0
             pc: ExpressionOutcome::To(0.expr()),
@@ -218,29 +261,69 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // 从栈中读取gas，addr的值，Note: 未将操作数弹出栈
         let (stack_read_0, _gas) = current_state.get_peek_stack_row_value(trace, 1);
+        // 对于CALL和STATICCALLL， addr为目标合约的storage address
+        // 对于CALLCODE和DELEGATECALL，目标合约的storage address为current.code_address
         let (stack_read_1, addr) = current_state.get_peek_stack_row_value(trace, 2);
-        // 将CALL调用的合约地址生成state row, 写入state电路和core电路
+
+        // 对于CALL和STATICCALLL和CALLCODE， 目标合约的sender address为current.code_address
+        // 对于DELEGATECALL目标合约的sender address为current.parent.code_address
+        let (contract_address, sender_addr) = match trace.op {
+            OpcodeId::CALL | OpcodeId::STATICCALL => (addr, current_state.code_addr),
+            OpcodeId::DELEGATECALL => (
+                current_state.code_addr,
+                *current_state.sender.get(&current_state.call_id).unwrap(), // parent sender address
+            ),
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
+
+        let selector_index = match trace.op {
+            OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,
+            OpcodeId::STATICCALL => OPCODE_SELECTOR_IDX_START + 1,
+            OpcodeId::DELEGATECALL => OPCODE_SELECTOR_IDX_START + 2,
+            _ => unreachable!(),
+        };
+
         let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::StorageContractAddr,
-            addr.into(),
+            contract_address,
             current_state.call_id_new,
         );
+
         // 将CALL指令的调用方地址生成state row，写入state 电路和core电路
         let call_context_write_row_1 = current_state.get_call_context_write_row(
             state::CallContextTag::SenderAddr,
-            current_state.code_addr,
+            sender_addr,
             current_state.call_id_new,
         );
+
+        //  如果是delegate需要获取parent.senderAddress
+        // let call_context_read_row_1 = if trace.op == OpcodeId::DELEGATECALL {
+        //     current_state.get_call_context_read_row_with_arbitrary_tag(
+        //         state::CallContextTag::SenderAddr,
+        //         sender_addr,
+        //         current_state.call_id,
+        //     )
+        // } else {
+        //     // 为了便于约束的辨析，这里多做一次call_id_new的查询
+        //     current_state.get_call_context_read_row_with_arbitrary_tag(
+        //         state::CallContextTag::SenderAddr,
+        //         sender_addr,
+        //         current_state.call_id_new,
+        //     )
+        // };
+
         // 记录CALL指令调用所需的的合约addr和调用方地址
         current_state
             .storage_contract_addr
-            .insert(current_state.call_id_new, addr);
+            .insert(current_state.call_id_new, contract_address);
+
         current_state
             .sender
-            .insert(current_state.call_id_new, current_state.code_addr);
+            .insert(current_state.call_id_new, sender_addr);
 
         // 更新stack pointer=0标识开始进行的CALL指令操作；
         current_state.stack_pointer = 0;
+
         // 在调用方的环境下生成core_row_1/0; 此时code_addr，call_id还未更新为将执行的CALL
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         // insert lookup: Core ---> State； 将读取状态时生成的state rows写入core 电路，
@@ -252,11 +335,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
         current_state.memory_chunk = 0;
 
-        let core_row_0 = ExecutionState::CALL_7.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::CALL_7.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
+        );
+
+        // tag selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
         );
 
         // 更新code_id, code_addr为CALL指令的状态，执行CALL指令
@@ -270,6 +365,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_read_1,
                 call_context_write_row_0,
                 call_context_write_row_1,
+                //call_context_read_row_1,
             ],
             ..Default::default()
         }

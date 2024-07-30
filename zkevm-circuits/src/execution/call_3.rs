@@ -4,7 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::{GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NUM_AUXILIARY};
+use crate::constant::{
+    GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+};
 use crate::execution::{
     call_4, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -14,6 +16,7 @@ use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -22,6 +25,15 @@ use std::marker::PhantomData;
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
+
+const STAMP_INIT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+
+const MEMORY_CHUNK_PREV_COL: usize = STAMP_INIT_COL + MEMORY_CHUNK_PREV_IDX;
+const OPCODE_SELECTOR_IDX: usize = MEMORY_CHUNK_PREV_COL + 1;
+
+const GAS_LEFT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX;
+
+const OPCODE_SELECTOR_IDX_START: usize = 0;
 
 /// call_1..call_7为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
@@ -40,12 +52,12 @@ const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 ///     2. State lookup(call_context write parent_pc), src: Core circuit, target: State circuit table, 8 columns
 ///     3. State lookup(call_context write parent_stack_pointer), src: Core circuit, target: State circuit table, 8 columns
 ///     4. State lookup(call_context write parent_code_addr), src: Core circuit, target: State circuit table, 8 columns
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
-/// +---+-------+-------+-------+----------+
-/// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
-/// +---+-------+-------+-------+----------+
+/// +---+------------------------+------------------+---------------------+----------------+----------------------+------------------------+
+/// |cnt|                        |                 |                      |                |                     |                         |
+/// +---+------------------------+-----------------+----------------------+----------------+---------------------+-------------------------+
+/// | 1 | STATE1(0..7)           | STATE2(8..15)   | STATE3(16..23)       | STATE4(24..31) |                     |                         |
+/// | 0 | DYNA_SELECTOR(0..17)   | AUX(18..24)     | STATE_STAMP_INIT(25) |                |MEMORY_CHUNK_PREV(27)| OPCODE_SELECTOR(28..30) |
+/// +---+------------------------+-----------------+----------------------+----------------+--------------------+--------------------------+
 ///
 /// Note: call_context write's call_id should be callee's
 pub struct Call3Gadget<F: Field> {
@@ -76,24 +88,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc = meta.query_advice(config.pc, Rotation::cur());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { stack_pointer, .. } = config.get_auxiliary();
-        let state_stamp_init = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation(-1 * NUM_ROW as i32),
-        );
+        let state_stamp_init =
+            meta.query_advice(config.vers[STAMP_INIT_COL], Rotation(-1 * NUM_ROW as i32));
         let stack_pointer_prev = meta.query_advice(
             stack_pointer,
             // call_1 and call_2 don't change the stack_pointer value, so stack_pointer
             // of the last gadget equals to the stack_pointer just before the call operation.
             Rotation(-1 * NUM_ROW as i32),
         );
-        let memory_chunk_prev_for_next = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
-            Rotation::cur(),
-        );
+        let memory_chunk_prev_for_next =
+            meta.query_advice(config.vers[MEMORY_CHUNK_PREV_COL], Rotation::cur());
         let memory_chunk_prev = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            config.vers[MEMORY_CHUNK_PREV_COL],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -102,6 +108,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
         );
+
+        let mut constraints = vec![];
+
+        // get tag
+        let tag_call = meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur());
+        let tag_staticcall =
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur());
+        let tag_delegatecall =
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur());
+        // Create a simple selector with tag
+        let selector = SimpleSelector::new(&[tag_call, tag_staticcall, tag_delegatecall]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         let delta = AuxiliaryOutcome {
             gas_left: ExpressionOutcome::Delta(0.expr()), // 此处的gas_left值与CALL1-3保持一致
             refund: ExpressionOutcome::Delta(0.expr()),
@@ -112,7 +132,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         // append auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+
         // append call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
@@ -175,7 +196,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
         // append opcode constraint
         constraints.extend([
-            ("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr()),
+            (
+                "opcode".into(),
+                opcode
+                    - selector.select(&[
+                        OpcodeId::CALL.as_u8().expr(),
+                        OpcodeId::STATICCALL.as_u8().expr(),
+                        OpcodeId::DELEGATECALL.as_u8().expr(),
+                    ]),
+            ),
             // append constraint for the next execution state's stamp_init
             (
                 "state_init_for_next_gadget correct".into(),
@@ -230,6 +259,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        let selector_index = match trace.op {
+            OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,
+            OpcodeId::STATICCALL => OPCODE_SELECTOR_IDX_START + 1,
+            OpcodeId::DELEGATECALL => OPCODE_SELECTOR_IDX_START + 2,
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
+
         // 存储CALL指令父环境的call_id
         let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentCallId,
@@ -287,17 +323,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // here we use the property that call_id_new == state_stamp + 1, where state_stamp is
         // the stamp just before call operation is executed (instead of before the call_3 gadget).
         let stamp_init = current_state.call_id_new - 1;
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            stamp_init.into()
-        );
+        assign_or_panic!(core_row_0[STAMP_INIT_COL], stamp_init.into());
         // core_row_0写入memory_chunk_prev, 向下传至memory gas计算部分
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            core_row_0[MEMORY_CHUNK_PREV_COL],
             current_state.memory_chunk_prev.into()
         );
         // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas
-        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+        core_row_0[GAS_LEFT_COL] = Some(trace.gas.into());
+
+        // opcodeid selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
 
         Witness {
             core: vec![core_row_1, core_row_0],

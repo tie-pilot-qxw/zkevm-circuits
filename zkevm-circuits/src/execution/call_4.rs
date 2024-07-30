@@ -12,12 +12,13 @@ use halo2_proofs::poly::Rotation;
 use eth_types::evm_types::{GasCost, OpcodeId, MAX_EXPANDED_MEMORY_ADDRESS};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{select, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::constant::{
     ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX, GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX,
-    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
 };
 use crate::execution::storage::get_multi_inverse;
 use crate::execution::ExecutionState::CALL_5;
@@ -34,6 +35,17 @@ pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = 0;
 
+const STAMP_INIT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+
+const MEMORY_CHUNK_PREV_COL_PREV_GADGET: usize = STAMP_INIT_COL + MEMORY_CHUNK_PREV_IDX;
+
+const MEMORY_GAS_COL: usize = STAMP_INIT_COL + NEW_MEMORY_SIZE_OR_GAS_COST_IDX;
+const OPCODE_SELECTOR_IDX: usize = MEMORY_GAS_COL + 1;
+
+const GAS_LEFT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX;
+
+const OPCODE_SELECTOR_IDX_START: usize = 0;
+
 /// call_4 前一个指令为call_3, 后一个指令为call_5， call_4用于计算call的memory gas cost
 /// call_4 需要4个栈元素：
 /// - args_offset, args_length, ret_offset, ret_length: 计算读取的数据位置
@@ -48,13 +60,13 @@ const STACK_POINTER_DELTA: i32 = 0;
 ///         5. U64Div is `next_memory_word_size * next_memory_word_size / 512 = next_quad_memory_cost`;
 ///         5. args_len_inv, ret_len_inv is `args_length, ret_length is zero` needed parameters;
 ///
-/// +-----+----------------+-------------------------+-------------------------+----------------+---------------------+------------------+-----------------+
-/// | cnt |                |                         |                         |                |                     |                  |                 |
-/// +-----+----------------+-------------------------+-------------------------+----------------+---------------------+------------------+-----------------+
-/// | 2   | U64Div(2..6)   | MemoryExpansion(7..11)  | MemoryExpansion(12..16) | U64Div(17..21) | U64Div(22..26)      | args_len_inv(27) | ret_len_inv(28) |
-/// | 1   | STATE0(0..7)   | STATE1(8..15)           | STATE2(16..23)          | STATE3(24..31) |                     |                  |                 |
-/// | 0   | DYNAMIC(0..17) | AUX(18..24)             | STATE_STAMP_INIT(25)    | MEMORY_GAS(26) |                     |                  |                 |
-/// +-----+----------------+-------------------------+-------------------------+----------------+---------------------+------------------+-----------------+
+/// +-----+----------------+-------------------------+-------------------------+----------------+----------------------------+------------------+-----------------+
+/// | cnt |                |                         |                         |                |                            |                  |                 |
+/// +-----+----------------+-------------------------+-------------------------+----------------+----------------------------+------------------+-----------------+
+/// | 2   | U64Div(2..6)   | MemoryExpansion(7..11)  | MemoryExpansion(12..16) | U64Div(17..21) | U64Div(22..26)             | args_len_inv(27) | ret_len_inv(28) |
+/// | 1   | STATE0(0..7)   | STATE1(8..15)           | STATE2(16..23)          | STATE3(24..31) |                            |                  |                 |
+/// | 0   | DYNAMIC(0..17) | AUX(18..24)             | STATE_STAMP_INIT(25)    | MEMORY_GAS(26) | OPCODE_SELECTOR(27..29)    |                  |                 |
+/// +-----+----------------+-------------------------+-------------------------+----------------+----------------------------+------------------+-----------------+
 
 pub struct Call4Gadget<F: Field> {
     _marker: PhantomData<F>,
@@ -80,8 +92,20 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
+
+        // get tag
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         // stack constraints
         let mut operands = vec![];
+
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
             constraints.append(&mut config.get_stack_constraints(
@@ -89,7 +113,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 entry.clone(),
                 i,
                 NUM_ROW,
-                -3.expr() - i.expr(),
+                selector.select(&[
+                    -3.expr() - i.expr(), // CALL
+                    -2.expr() - i.expr(), // STATICCALL
+                    -3.expr() - i.expr(), // DELEGATECALL
+                ]),
                 false,
             ));
 
@@ -119,8 +147,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // Max(cur_memory_word_size, max_word_size) = next_word_size
         // input: [cur_memory_size * 32, max_word_size]
         let memory_chunk_prev = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            config.vers[MEMORY_CHUNK_PREV_COL_PREV_GADGET],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -264,24 +291,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let gas_cost = GasCost::MEMORY_EXPANSION_LINEAR_COEFF.expr()
             * (next_word_size.clone() - memory_chunk_prev)
             + (next_quad_memory_cost - curr_quad_memory_cost);
-        let memory_gas_cost = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL
-                + NUM_STATE_LO_COL
-                + NUM_AUXILIARY
-                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
-            Rotation::cur(),
-        );
+        let memory_gas_cost = meta.query_advice(config.vers[MEMORY_GAS_COL], Rotation::cur());
         constraints.push(("gas cost".to_string(), gas_cost - memory_gas_cost));
 
         // core constraints
-        let state_stamp_init = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        let stamp_init_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation::cur(),
-        );
+        let state_stamp_init =
+            meta.query_advice(config.vers[STAMP_INIT_COL], Rotation(-1 * NUM_ROW as i32));
+        let stamp_init_for_next_gadget =
+            meta.query_advice(config.vers[STAMP_INIT_COL], Rotation::cur());
         // append constraint for the next execution state's stamp_init
         constraints.extend([(
             "state_init_for_next_gadget correct".into(),
@@ -299,7 +316,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        constraints.extend([(
+            "opcode".into(),
+            opcode
+                - selector.select(&[
+                    OpcodeId::CALL.as_u8().expr(),
+                    OpcodeId::STATICCALL.as_u8().expr(),
+                    OpcodeId::DELEGATECALL.as_u8().expr(),
+                ]),
+        )]);
         let prev_core_single_delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_cur_single_purpose_constraints(
             meta,
@@ -358,10 +383,36 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_read_0, args_offset) = current_state.get_peek_stack_row_value(trace, 4);
-        let (stack_read_1, args_length) = current_state.get_peek_stack_row_value(trace, 5);
-        let (stack_read_2, ret_offset) = current_state.get_peek_stack_row_value(trace, 6);
-        let (stack_read_3, ret_length) = current_state.get_peek_stack_row_value(trace, 7);
+        let ((stack_read_0, args_offset), (stack_read_1, args_length)) = match trace.op {
+            OpcodeId::CALL => (
+                current_state.get_peek_stack_row_value(trace, 4),
+                current_state.get_peek_stack_row_value(trace, 5),
+            ),
+            OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => (
+                current_state.get_peek_stack_row_value(trace, 3),
+                current_state.get_peek_stack_row_value(trace, 4),
+            ),
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
+
+        let ((stack_read_2, ret_offset), (stack_read_3, ret_length)) = match trace.op {
+            OpcodeId::CALL => (
+                current_state.get_peek_stack_row_value(trace, 6),
+                current_state.get_peek_stack_row_value(trace, 7),
+            ),
+            OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => (
+                current_state.get_peek_stack_row_value(trace, 5),
+                current_state.get_peek_stack_row_value(trace, 6),
+            ),
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
+
+        let selector_index = match trace.op {
+            OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,
+            OpcodeId::STATICCALL => OPCODE_SELECTOR_IDX_START + 1,
+            OpcodeId::DELEGATECALL => OPCODE_SELECTOR_IDX_START + 2,
+            _ => unreachable!(),
+        };
 
         let args_len_inv = get_multi_inverse::<F>(args_length);
         let ret_len_inv = get_multi_inverse::<F>(ret_length);
@@ -461,21 +512,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let stamp_init = current_state.call_id_new - 1;
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            stamp_init.into()
-        );
+        assign_or_panic!(core_row_0[STAMP_INIT_COL], stamp_init.into());
         // 给后续的计算提前规划好位置
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL
-                + NUM_STATE_LO_COL
-                + NUM_AUXILIARY
-                + NEW_MEMORY_SIZE_OR_GAS_COST_IDX],
-            gas_cost
-        );
+        assign_or_panic!(core_row_0[MEMORY_GAS_COL], gas_cost);
 
         // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas
-        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+        core_row_0[GAS_LEFT_COL] = Some(trace.gas.into());
+
+        // opcodeid selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
 
         let mut arithmetic = vec![];
         arithmetic.extend(args_div_row);

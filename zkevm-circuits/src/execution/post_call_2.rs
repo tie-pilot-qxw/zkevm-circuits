@@ -6,7 +6,7 @@
 
 use crate::arithmetic_circuit::operation;
 
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::execution::{
     end_call_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -17,6 +17,7 @@ use crate::witness::{arithmetic, assign_or_panic, copy, state, Witness, WitnessE
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -27,6 +28,12 @@ const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = -6;
 const PC_DELTA: u64 = 1;
 const START_COL_IDX: usize = 11;
+const CALL_STACK_OPERAND_NUM: usize = 7;
+const RET_LEN_ON_STACK_IDX: usize = 7;
+const OPCODE_SELECTOR_IDX_START: usize = 0;
+const RETURN_DATA_SUCCESS_COL_PREV_GADGET: usize =
+    NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+const OPCODE_SELECTOR_IDX: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
 
 /// 当evm CALL指令调用结束后，正常返回或异常出错时（如：REVERT，STOP）时，调用当前 gadget
 /// post_call_2 is one of the last steps of opcode CALL, which is
@@ -47,13 +54,13 @@ const START_COL_IDX: usize = 11;
 ///     7. LEN_INV: the inverse of copy lookup's len, 1 column
 ///     8. COPY_PADDING_LEN: only used to construct a lookup entry to arithmetic circuit (tag: length), 1 column
 ///     
-/// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col    |
-/// +---+-------+-------+-------+----------+
-/// | 2 | COPY(11) | COPY_LEN(1)| LEN_INV(1)| COPY_PADDING_LEN(1)  |
-/// | 1 | STATE1| STATE2| STATE3| STATE4   |
-/// | 0 | DYNA_SELECTOR   | AUX            |
-/// +---+-------+-------+-------+----------+
+/// +---+----------------+----------------+------------------------+----------------------+
+/// |cnt|                |                |                        |                      |
+/// +---+----------------+----------------+------------------------+----------------------+
+/// | 2 | COPY(11)       | COPY_LEN(1)   | LEN_INV(1)              | COPY_PADDING_LEN(1)  |
+/// | 1 | STATE1(0..7)   | STATE2(8..15) | STATE3(16..23)          | STATE4(24..31)       |
+/// | 0 | DYNAMIC(0..17) | AUX(18..24)   | OPCODE_SELECTOR(25..27) |                      |
+/// +---+----------------+--------------+--------------------------+----------------------+
 ///
 /// Note:
 ///     1. The actual number of bytes copied might be smaller than ret_len, and we use length arithmetic to handle the problem.
@@ -84,14 +91,32 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id_cur = meta.query_advice(config.call_id, Rotation::cur());
         let success = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            config.vers[RETURN_DATA_SUCCESS_COL_PREV_GADGET],
             Rotation(-1 * NUM_ROW as i32),
         );
 
         let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
+
+        let mut constraints = vec![];
+
+        // get tag
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         // append auxiliary constraints
+        let stack_delta = selector.select(&[
+            STACK_POINTER_DELTA.expr(),
+            (STACK_POINTER_DELTA + 1).expr(),
+            (STACK_POINTER_DELTA + 1).expr(),
+        ]);
         let delta = AuxiliaryOutcome {
             // len*2 因为一份return_data数据记录了两次state rows
             // first: 记录从return_data copy的len字节的数据
@@ -100,28 +125,37 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 STATE_STAMP_DELTA.expr() + len.clone() * 2.expr(),
             ),
             // 弹出7个栈上元素，push 1个栈上元素，所以栈帧相差6
-            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            stack_pointer: ExpressionOutcome::Delta(stack_delta),
             gas_left: ExpressionOutcome::Delta(0.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
 
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
             if i != 2 {
-                constraints.append(&mut config.get_stack_constraints(
-                    meta,
-                    entry.clone(),
-                    i,
-                    NUM_ROW,
-                    // the position of ret_offset, ret_len and success are -5, -6 and -6 respectively.
-                    if i == 0 { -5 } else { -6 }.expr(),
-                    // i==3的state row为将Call调用的结果入栈，所以write=true
-                    i == 3,
-                ));
+                let ret_offset_stack_delta = selector.select(&[-5.expr(), -4.expr(), -4.expr()]);
+                let ret_len_stack_delta = selector.select(&[-6.expr(), -5.expr(), -5.expr()]);
+                constraints.append(
+                    &mut config.get_stack_constraints(
+                        meta,
+                        entry.clone(),
+                        i,
+                        NUM_ROW,
+                        // the position of ret_offset, ret_len and success are -5, -6 and -6 respectively.
+                        if i == 0 {
+                            ret_offset_stack_delta
+                        } else {
+                            ret_len_stack_delta
+                        }
+                        .expr(),
+                        // i==3的state row为将Call调用的结果入栈，所以write=true
+                        i == 3,
+                    ),
+                );
             } else {
                 constraints.append(&mut config.get_call_context_constraints(
                     meta,
@@ -180,7 +214,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(vec![ExecutionState::POST_CALL_1], NUM_ROW, vec![], None),
         ));
         // append opcode constraint
-        constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        constraints.push((
+            "opcode".into(),
+            opcode
+                - selector.select(&[
+                    OpcodeId::CALL.as_u8().expr(),
+                    OpcodeId::STATICCALL.as_u8().expr(),
+                    OpcodeId::DELEGATECALL.as_u8().expr(),
+                ]),
+        ));
         // append core single purpose constraints
         let core_single_delta = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(PC_DELTA.expr()),
@@ -255,13 +297,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        //generate stack read rows
-        let (stack_read_0, ret_offset) = current_state.get_peek_stack_row_value(trace, 6);
-        let (stack_read_1, ret_length) = current_state.get_peek_stack_row_value(trace, 7);
+        let (selector_index, stack_operand_num, ret_len_idx) = match trace.op {
+            OpcodeId::CALL => (
+                OPCODE_SELECTOR_IDX_START,
+                CALL_STACK_OPERAND_NUM,
+                RET_LEN_ON_STACK_IDX,
+            ),
+            OpcodeId::STATICCALL => (
+                OPCODE_SELECTOR_IDX_START + 1,
+                CALL_STACK_OPERAND_NUM - 1,
+                RET_LEN_ON_STACK_IDX - 1,
+            ),
+            OpcodeId::DELEGATECALL => (
+                OPCODE_SELECTOR_IDX_START + 2,
+                CALL_STACK_OPERAND_NUM - 1,
+                RET_LEN_ON_STACK_IDX - 1,
+            ),
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
 
-        // CALL指令使用了7个操作数，在CALL1..CALL4已读取其它字段，post_call读取ret_offset, ret_length后
-        // 将数据全部弹出栈
-        current_state.stack_pointer -= 7;
+        //  在CALL1..CALL4已读取其它字段，post_call读取ret_offset, ret_length后
+        let (stack_read_0, ret_offset) =
+            current_state.get_peek_stack_row_value(trace, ret_len_idx - 1);
+        let (stack_read_1, ret_length) = current_state.get_peek_stack_row_value(trace, ret_len_idx);
+
+        // update stack pointer after call
+        current_state.stack_pointer -= stack_operand_num;
+
         //generate call_context read row
         let call_context_read_row = current_state.get_returndata_call_id_row(false);
         //generate stack_write row
@@ -319,11 +381,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &call_context_read_row,
             &stack_write_row,
         ]);
-        let core_row_0 = ExecutionState::POST_CALL_2.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::POST_CALL_2.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
+        );
+
+        // opcodeid selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
         );
 
         state_rows.extend([

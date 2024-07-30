@@ -756,6 +756,96 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
 
+    pub(crate) fn get_read_value_constraints_by_call(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        prev_exec_state_row: usize,
+        selector: &SimpleSelector<F, 3>,
+        index: usize,
+    ) -> ((Expression<F>, Expression<F>), Vec<(String, Expression<F>)>) {
+        let Auxiliary {
+            state_stamp,
+            stack_pointer,
+            ..
+        } = self.get_auxiliary();
+        let call_id = meta.query_advice(self.call_id, Rotation::cur());
+        let stamp_expr = meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32));
+        let stack_pointer_expr =
+            meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32));
+        let tag = selector.select(&[
+            (state::Tag::Stack as u8).expr(),       // CALL
+            (state::Tag::Memory as u8).expr(),      // STATICCALLL(state::Row::Default())
+            (state::Tag::CallContext as u8).expr(), // DELEGATECALL
+        ]);
+
+        let call_id = selector.select(&[
+            call_id.clone(), // CALL
+            0.expr(),        // STATICCALL(state::Row::Default())
+            call_id.clone(), // DELEGATECALL
+        ]);
+
+        let pointer_lo = selector.select(&[
+            stack_pointer_expr - 2.expr(), // CALL （the position of value is -2）
+            0.expr(),                      // STATICCALLL(state::Row::Default())
+            (state::CallContextTag::Value as u8).expr(), // DELEGATECALL
+        ]);
+
+        let stamp = selector.select(&[
+            stamp_expr.expr() + index.expr(),  // CALL
+            0.expr(),                          // STATICCALLL(state::Row::Default())
+            stamp_expr.clone() + index.expr(), // DELEGATECALL
+        ]);
+
+        self.get_state_constraints(entry.clone(), index, tag, call_id, pointer_lo, stamp, false)
+    }
+
+    pub(crate) fn get_state_constraints(
+        &self,
+        entry: LookupEntry<F>,
+        index: usize,
+        tag: Expression<F>,
+        call_id: Expression<F>,
+        pointer_lo: Expression<F>,
+        stamp: Expression<F>,
+        write: bool,
+    ) -> ((Expression<F>, Expression<F>), Vec<(String, Expression<F>)>) {
+        let (
+            lookup_tag,
+            lookup_stamp,
+            value_hi,
+            value_lo,
+            call_id_contract_addr,
+            pointer_hi,
+            lookup_pointer_lo,
+            is_write,
+            ..,
+        ) = extract_lookup_expression!(state, entry);
+        (
+            (value_hi, value_lo),
+            vec![
+                (format!("state lookup tag[{}]", index), lookup_tag - tag),
+                (
+                    format!("state stamp for state lookup[{}]", index),
+                    lookup_stamp - stamp,
+                ),
+                (
+                    format!("state lookup call id[{}]", index),
+                    call_id_contract_addr - call_id,
+                ),
+                (format!("state lookup pointer_hi[{}]", index), pointer_hi),
+                (
+                    format!("state lookup pointer_lo[{}]", index),
+                    lookup_pointer_lo - pointer_lo,
+                ),
+                (
+                    format!("state lookup is_write[{}]", index),
+                    is_write - (write as u8).expr(),
+                ),
+            ],
+        )
+    }
+
     pub(crate) fn get_stack_constraints_with_state_default(
         &self,
         meta: &mut VirtualCells<F>,
@@ -964,19 +1054,47 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         state_tag: state::Tag,
         write: bool,
     ) -> Vec<(String, Expression<F>)> {
+        self.get_storage_full_constraints_with_tag_stamp_delta(
+            meta,
+            entry,
+            index,
+            prev_exec_state_row,
+            storage_contract_addr_hi,
+            storage_contract_addr_lo,
+            storage_key_hi,
+            storage_key_lo,
+            state_tag,
+            index.expr(),
+            write,
+        )
+    }
+    pub(crate) fn get_storage_full_constraints_with_tag_stamp_delta(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+        index: usize,
+        prev_exec_state_row: usize,
+        storage_contract_addr_hi: Expression<F>,
+        storage_contract_addr_lo: Expression<F>,
+        storage_key_hi: Expression<F>,
+        storage_key_lo: Expression<F>,
+        state_tag: state::Tag,
+        stamp_delta: Expression<F>,
+        write: bool,
+    ) -> Vec<(String, Expression<F>)> {
         let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
             extract_lookup_expression!(storage, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
         vec![
             (
-                format!("state lookup tag[{}] = Storage", index),
+                format!("state lookup tag[{}] = {:?}", index, state_tag),
                 tag - (state_tag as u8).expr(),
             ),
             (
                 format!("state stamp for state lookup[{}]", index),
                 stamp
                     - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - index.expr(),
+                    - stamp_delta,
             ),
             (
                 format!("state lookup contract addr[{}]", index),
@@ -2577,7 +2695,7 @@ impl ExecutionState {
             OpcodeId::CREATE2 => {
                 todo!()
             }
-            OpcodeId::CALL => {
+            OpcodeId::CALL | OpcodeId::STATICCALL => {
                 vec![
                     Self::CALL_1,
                     Self::CALL_2,
@@ -2592,9 +2710,6 @@ impl ExecutionState {
                 todo!()
             }
             OpcodeId::DELEGATECALL => {
-                todo!()
-            }
-            OpcodeId::STATICCALL => {
                 todo!()
             }
             OpcodeId::SELFDESTRUCT => {

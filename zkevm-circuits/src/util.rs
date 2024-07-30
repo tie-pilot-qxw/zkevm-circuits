@@ -332,6 +332,17 @@ pub fn preprocess_trace(trace: &mut GethExecTrace) {
                 mem_tmp.extend_at_least((args_offset + args_size).as_usize());
                 mem_tmp
             }
+            OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
+                // calculate the correct mem usage of call
+                let args_offset = step.stack.nth_last(2).unwrap();
+                let args_size = step.stack.nth_last(3).unwrap();
+                let ret_offset = step.stack.nth_last(4).unwrap();
+                let ret_size = step.stack.nth_last(5).unwrap();
+
+                mem_tmp.extend_at_least((ret_offset + ret_size).as_usize());
+                mem_tmp.extend_at_least((args_offset + args_size).as_usize());
+                mem_tmp
+            }
 
             _ => mem[i].clone(),
         };

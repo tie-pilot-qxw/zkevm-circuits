@@ -480,7 +480,7 @@ impl WitnessExecHelper {
                 OpcodeId::RETURN | OpcodeId::REVERT | OpcodeId::STOP => {
                     prev_is_return_revert_or_stop = true;
                 }
-                OpcodeId::CALL => {
+                OpcodeId::CALL | OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
                     call_step_store.push(step);
                 }
                 _ => {}

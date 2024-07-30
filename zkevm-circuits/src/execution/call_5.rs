@@ -13,12 +13,13 @@ use halo2_proofs::poly::Rotation;
 use eth_types::evm_types::{GasCost, OpcodeId, GAS_STIPEND_CALL_WITH_VALUE};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{select, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::constant::{
-    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, STORAGE_COLUMN_WIDTH, TRACE_GAS_COST_IDX,
-    TRACE_GAS_IDX,
+    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    STORAGE_COLUMN_WIDTH, TRACE_GAS_COST_IDX, TRACE_GAS_IDX,
 };
 use crate::execution::storage::get_multi_inverse;
 use crate::execution::ExecutionState::{CALL_4, CALL_6};
@@ -30,11 +31,17 @@ use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::arithmetic::Tag::{MemoryExpansion, U64Div, U64Overflow};
 use crate::witness::state::Tag::AddrInAccessListStorage;
-use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 
 pub(super) const NUM_ROW: usize = 4;
 const STATE_STAMP_DELTA: usize = 5;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
+const STATE_LOOKUP_IDX: usize = 0;
+const STAMP_INIT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+const GAS_COL: usize = STAMP_INIT_COL + TRACE_GAS_IDX;
+const GAS_COST_COL: usize = STAMP_INIT_COL + TRACE_GAS_COST_IDX;
+const OPCODE_SELECTOR_IDX: usize = GAS_COST_COL + 1;
+const OPCODE_SELECTOR_IDX_START: usize = 0;
 
 /// call_5 前一个指令为call_4,后一个指令为call_6， call_5用于计算call最终的gas费用
 /// call_5 需要参数为三个栈元素，一个存储元素：
@@ -57,14 +64,14 @@ const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 ///         3. value_inv is `value == zero` required parameters;
 ///         4. capped_gas_left is lower degree required parameters;
 ///         
-/// +-----+-------------------+---------------------+---------------------+------------------------+---------------+
-/// | cnt |                   |                     |                     |                        |               |
-/// +-----+-------------------+---------------------+---------------------+------------------------|----------+----+
-/// | 3   | STORAGE_READ(0..11)| STORAGE_WRITE(12..23)| value_inv(24)     | capped_gas_left(25)    |               |
-/// | 2   | U64Div(2..6)      | U64Overflow(7..11)  | U64Overflow(12..16) | MemoryExpansion(17..21)|               |
-/// | 1   | STATE0(0..7)      | STATE1(8..15)       | STATE2(16..23)      |                        |               |
-/// | 0   | dynamic(0..17)    | AUX(18..24)         |   STAMP_INIT(25)    | TRACE_GAS(26) | TRACE_GAS_COST(27)     |
-/// +-----+-------------------+---------------------+---------------------+---------------|-------------------+----+
+/// +-----+-------------------+---------------------+---------------------+------------------------+--------------------+--------------------------+
+/// | cnt |                   |                     |                     |                        |                    |                          |
+/// +-----+-------------------+---------------------+---------------------+------------------------|--------------------+--------------------------+
+/// | 3   | STORAGE_READ(0..11)| STORAGE_WRITE(12..23)| value_inv(24)     | capped_gas_left(25)    |                    |                          |
+/// | 2   | U64Div(2..6)      | U64Overflow(7..11)  | U64Overflow(12..16) | MemoryExpansion(17..21)|                    |                          |
+/// | 1   | STATE0(0..7)      | STATE1(8..15)       | STATE2(16..23)      |                        |                    |                          |
+/// | 0   | DYNAMIC(0..17)    | AUX(18..24)         |   STAMP_INIT(25)    | TRACE_GAS(26)          | TRACE_GAS_COST(27) |  OPCODE_SELECTOR(28..30) |
+/// +-----+-------------------+---------------------+---------------------+------------------------|--------------------+--------------------------+
 
 pub struct Call5Gadget<F: Field> {
     _marker: PhantomData<F>,
@@ -89,11 +96,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let mut constraints = vec![];
+
+        // get tag
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         // stack constraints
         let mut operands = vec![];
-        for i in 0..3 {
-            let entry = config.get_state_lookup(meta, i);
+        for i in 0..2 {
+            let entry = config.get_state_lookup(meta, STATE_LOOKUP_IDX + i);
             constraints.append(&mut config.get_stack_constraints(
                 meta,
                 entry.clone(),
@@ -107,15 +126,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push([value_hi, value_lo]);
         }
 
+        // constraints state entry[2]
+        let entry = config.get_state_lookup(meta, STATE_LOOKUP_IDX + 2);
+        let ((value_hi, value_lo), state_constraints) = config.get_read_value_constraints_by_call(
+            meta,
+            entry,
+            NUM_ROW,
+            &selector,
+            STATE_LOOKUP_IDX + 2,
+        );
+        constraints.extend(state_constraints);
+        operands.push([value_hi, value_lo]);
+
+        // STATICCALL only performs one write operation，while CALL and STATICCALL both perform one read operation and one write operation.
         let mut is_warm: Expression<F> = 0.expr();
         let lookups = [
-            (0, Rotation(-3), 3, false), // is_warm read
-            (1, Rotation(-3), 4, true),  // is_warm write
+            (
+                0,
+                Rotation(-3),
+                3,
+                selector.select(&[3.expr(), 2.expr(), 3.expr()]),
+                false,
+            ), // is_warm read
+            (
+                1,
+                Rotation(-3),
+                4,
+                selector.select(&[4.expr(), 3.expr(), 4.expr()]),
+                true,
+            ), // is_warm write
         ];
 
-        for &(num, rotation, index, is_write) in &lookups {
+        for (num, rotation, index, stamp_delta, is_write) in lookups {
             let entry = config.get_storage_lookup(meta, num, rotation);
-            constraints.extend(config.get_storage_full_constraints_with_tag(
+            constraints.extend(config.get_storage_full_constraints_with_tag_stamp_delta(
                 meta,
                 entry.clone(),
                 index,
@@ -125,6 +169,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 operands[1][0].clone(),
                 operands[1][1].clone(),
                 AddrInAccessListStorage,
+                stamp_delta.clone(),
                 is_write,
             ));
             let extracted = extract_lookup_expression!(storage, entry);
@@ -268,23 +313,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         // call_5 core constraints
-        let state_stamp_init = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        let stamp_init_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation::cur(),
-        );
+        let state_stamp_init =
+            meta.query_advice(config.vers[STAMP_INIT_COL], Rotation(-1 * NUM_ROW as i32));
+        let stamp_init_for_next_gadget =
+            meta.query_advice(config.vers[STAMP_INIT_COL], Rotation::cur());
 
-        let trace_gas_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_IDX],
-            Rotation::cur(),
-        );
-        let trace_gas_cost_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + TRACE_GAS_COST_IDX],
-            Rotation::cur(),
-        );
+        let trace_gas_for_next_gadget = meta.query_advice(config.vers[GAS_COL], Rotation::cur());
+        let trace_gas_cost_for_next_gadget =
+            meta.query_advice(config.vers[GAS_COST_COL], Rotation::cur());
 
         let gas_cost = base_gas.clone() + memory_gas_cost.clone() + call_gas.clone();
         constraints.extend([
@@ -304,8 +340,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
 
+        let state_stamp_dela = selector.select(&[
+            STATE_STAMP_DELTA.expr(),
+            (STATE_STAMP_DELTA - 1).expr(),
+            STATE_STAMP_DELTA.expr(),
+        ]);
         let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            state_stamp: ExpressionOutcome::Delta(state_stamp_dela),
             refund: ExpressionOutcome::Delta(0.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             // todo 当account不为空的时候(目前没有实现，默认都是不为空)，当前的gas_left应该等于call_gas; 当为空时，下一个状态此时相当于还在主合约流程中，此时的current_gas_left计算规则与此不同
@@ -314,8 +355,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta.clone()));
 
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        constraints.extend([("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr())]);
+        constraints.push((
+            "opcode".into(),
+            opcode
+                - selector.select(&[
+                    OpcodeId::CALL.as_u8().expr(),
+                    OpcodeId::STATICCALL.as_u8().expr(),
+                    OpcodeId::DELEGATECALL.as_u8().expr(),
+                ]),
+        ));
         let prev_core_single_delta = CoreSinglePurposeOutcome::default();
         constraints.append(&mut config.get_cur_single_purpose_constraints(
             meta,
@@ -380,8 +428,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let (stack_read_0, gas_in_stack) = current_state.get_peek_stack_row_value(trace, 1);
         let (stack_read_1, addr) = current_state.get_peek_stack_row_value(trace, 2);
-        let (stack_read_2, value) = current_state.get_peek_stack_row_value(trace, 3);
 
+        let ((state_read_value_row, value), selector_index) = match trace.op {
+            OpcodeId::CALL => (
+                current_state.get_peek_stack_row_value(trace, 3),
+                OPCODE_SELECTOR_IDX_START,
+            ),
+            OpcodeId::STATICCALL => (
+                (state::Row::default(), U256::zero()),
+                OPCODE_SELECTOR_IDX_START + 1,
+            ),
+            OpcodeId::DELEGATECALL => {
+                let parent_value = *current_state.value.get(&current_state.call_id).unwrap();
+                let call_context_read_row = current_state
+                    .get_call_context_read_row_with_arbitrary_tag(
+                        state::CallContextTag::Value,
+                        parent_value,
+                        current_state.call_id,
+                    );
+                (
+                    (call_context_read_row, parent_value),
+                    OPCODE_SELECTOR_IDX_START + 2,
+                )
+            }
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
         let (storage_read, is_warm) = current_state.get_addr_access_list_read_row(addr);
         let storage_write = current_state.get_addr_access_list_write_row(addr, true, is_warm);
 
@@ -482,7 +553,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         core_row_2.insert_arithmetic_tiny_lookup(3, &lt_row);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-        core_row_1.insert_state_lookups([&stack_read_0, &stack_read_1, &stack_read_2]);
+        core_row_1.insert_state_lookups([&stack_read_0, &stack_read_1, &state_read_value_row]);
 
         let mut core_row_0 = ExecutionState::CALL_5.into_exec_state_core_row(
             trace,
@@ -492,26 +563,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         let stamp_init = current_state.call_id_new - 1;
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            stamp_init.into()
-        );
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 1],
-            trace.gas.into()
-        );
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
-            trace.gas_cost.into()
-        );
-        let state_rows = vec![
-            stack_read_0,
-            stack_read_1,
-            stack_read_2,
-            storage_read,
-            storage_write,
-        ];
+        assign_or_panic!(core_row_0[STAMP_INIT_COL], stamp_init.into());
+        assign_or_panic!(core_row_0[GAS_COL], trace.gas.into());
+        assign_or_panic!(core_row_0[GAS_COST_COL], trace.gas_cost.into());
 
+        // opcodeid selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+
+        let state_rows = if trace.op == OpcodeId::STATICCALL {
+            vec![stack_read_0, stack_read_1, storage_read, storage_write]
+        } else {
+            vec![
+                stack_read_0,
+                stack_read_1,
+                state_read_value_row,
+                storage_read,
+                storage_write,
+            ]
+        };
         let mut arithmetic = vec![];
         arithmetic.extend(u64_div_row);
         arithmetic.extend(gas_in_stack_u64_overflow_row);
