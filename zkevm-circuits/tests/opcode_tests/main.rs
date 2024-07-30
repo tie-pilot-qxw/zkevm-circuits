@@ -69,6 +69,7 @@ mod number; //43
 mod pc; //58
 mod pop; //50
 mod prevrandao; //44
+mod push0; // 5F
 mod push1; //60
 mod push10; //69
 mod push11; //6A

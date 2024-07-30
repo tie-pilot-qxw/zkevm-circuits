@@ -154,3 +154,6 @@ pub const PUBLIC_NUM_BEGINNING_PADDING_ROW: usize = 15;
 
 /// contains a STOP padding
 pub(crate) const BYTECODE_NUM_PADDING: usize = 33;
+
+/// opcode is push0 idx ,  NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + OPCODE_IS_PUSH0_IDX
+pub(crate) const OPCODE_IS_PUSH0_IDX: usize = 0;

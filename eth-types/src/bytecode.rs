@@ -94,9 +94,9 @@ impl Bytecode {
         self
     }
 
-    /// Push
+    /// Push, value is useless for `PUSH0`
     pub fn push<T: ToWord>(&mut self, n: u8, value: T) -> &mut Self {
-        debug_assert!((1..=32).contains(&n), "invalid push");
+        debug_assert!((0..=32).contains(&n), "invalid push");
         let value = value.to_word();
 
         // Write the op code
@@ -196,9 +196,9 @@ impl Bytecode {
 /// An ASM entry
 #[derive(Clone, PartialEq, Eq)]
 pub enum OpcodeWithData {
-    /// A non-push opcode
+    /// A non-push opcode or `PUSH0`
     Opcode(OpcodeId),
-    /// A push opcode
+    /// A push opcode,`PUSH1` .. `PUSH32`
     Push(u8, Word),
 }
 
@@ -221,20 +221,21 @@ impl FromStr for OpcodeWithData {
         if let Some(push) = op.strip_prefix("PUSH") {
             let n_value: Vec<_> = push.splitn(3, ['(', ')']).collect();
             let n = n_value[0].parse::<u8>().map_err(|_| err())?;
-            if n < 1 || n > 32 {
+            if n > 32 {
                 return Err(err());
             }
-            let value = if n_value[1].starts_with("0x") {
-                Word::from_str_radix(&n_value[1][2..], 16)
-            } else {
-                Word::from_str_radix(n_value[1], 10)
+            if n > 0 {
+                let value = if n_value[1].starts_with("0x") {
+                    Word::from_str_radix(&n_value[1][2..], 16)
+                } else {
+                    Word::from_str_radix(n_value[1], 10)
+                }
+                .map_err(|_| err())?;
+                return Ok(OpcodeWithData::Push(n, value));
             }
-            .map_err(|_| err())?;
-            Ok(OpcodeWithData::Push(n, value))
-        } else {
-            let opcode = OpcodeId::from_str(op).map_err(|_| err())?;
-            Ok(OpcodeWithData::Opcode(opcode))
         }
+        let opcode = OpcodeId::from_str(op).map_err(|_| err())?;
+        Ok(OpcodeWithData::Opcode(opcode))
     }
 }
 
@@ -255,8 +256,9 @@ impl<'a> Iterator for BytecodeIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|byte| {
             let op = OpcodeId::from(byte.value);
-            if op.is_push() {
-                let n = op.data_len();
+            let n = op.data_len();
+            if n > 0 {
+                assert!(op.is_push_with_data());
                 let mut value = vec![0u8; n];
                 for value_byte in value.iter_mut() {
                     *value_byte = self.0.next().unwrap().value;
@@ -277,7 +279,7 @@ impl From<Vec<u8>> for Bytecode {
         while let Some(byte) = input_iter.next() {
             let op = OpcodeId::from(*byte);
             code.write_op(op);
-            if op.is_push() {
+            if op.is_push_with_data() {
                 let n = op.postfix().expect("opcode with postfix");
                 for _ in 0..n {
                     match input_iter.next() {
@@ -315,14 +317,14 @@ macro_rules! bytecode_internal {
     ($code:ident, ) => {};
     // PUSHX op codes
     ($code:ident, $x:ident ($v:expr) $($rest:tt)*) => {{
-        debug_assert!($crate::evm_types::OpcodeId::$x.is_push(), "invalid push");
+        debug_assert!($crate::evm_types::OpcodeId::$x.is_push_with_data(), "invalid push");
         let n = $crate::evm_types::OpcodeId::$x.postfix().expect("opcode with postfix");
         $code.push(n, $v);
         $crate::bytecode_internal!($code, $($rest)*);
     }};
     // Default opcode without any inputs
     ($code:ident, $x:ident $($rest:tt)*) => {{
-        debug_assert!(!$crate::evm_types::OpcodeId::$x.is_push(), "invalid push");
+        debug_assert!(!$crate::evm_types::OpcodeId::$x.is_push_with_data(), "invalid push");
         $code.write_op($crate::evm_types::OpcodeId::$x);
         $crate::bytecode_internal!($code, $($rest)*);
     }};
@@ -336,6 +338,13 @@ macro_rules! bytecode_internal {
         $code.$function($($args,)*);
         $crate::bytecode_internal!($code, $($rest)*);
     }};
+}
+
+impl Bytecode {
+    /// Helper function for `PUSH0`
+    pub fn op_push0(&mut self) -> &mut Self {
+        self.push(0, Word::zero())
+    }
 }
 
 macro_rules! impl_push_n {
@@ -538,6 +547,8 @@ mod tests {
     #[test]
     fn test_bytecode_roundtrip() {
         let code = bytecode! {
+            PUSH0
+            POP
             PUSH8(0x123)
             POP
             PUSH24(0x321)
@@ -556,6 +567,8 @@ mod tests {
     #[test]
     fn test_asm_disasm() {
         let code = bytecode! {
+            PUSH0
+            POP
             PUSH1(5)
             PUSH2(0xa)
             MUL

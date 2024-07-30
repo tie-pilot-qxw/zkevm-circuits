@@ -1,16 +1,19 @@
+use crate::constant::{NUM_AUXILIARY, OPCODE_IS_PUSH0_IDX};
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::Witness;
 use crate::witness::WitnessExecHelper;
+use crate::witness::{assign_or_panic, Witness};
 use eth_types::evm_types::{GasCost, OpcodeId};
-use eth_types::{Field, GethExecStep};
+use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
+
+use super::gas;
 
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
@@ -26,11 +29,12 @@ pub struct PushGadget<F: Field> {
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
+/// where IS_PUSH0(one column) means whether the opcode is PUSH0
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col |  8 col   |
 /// +---+-------+-------+-------+----------+
 /// | 1 | STATE |       |       | BYTEFULL |
-/// | 0 | DYNA_SELECTOR   | AUX            |
+/// | 0 | DYNA_SELECTOR   | AUX    |IS_PUSH0|
 /// +---+-------+-------+-------+----------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PushGadget<F>
@@ -58,12 +62,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let is_push0 = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + OPCODE_IS_PUSH0_IDX],
+            Rotation::cur(),
+        );
+        let gas_left = is_push0.clone() * (-OpcodeId::PUSH0.constant_gas_cost().expr())
+            + (1.expr() - is_push0.clone()) * (-OpcodeId::PUSH1.constant_gas_cost().expr());
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
             // PUSH1-PUSH32 gas cost is FASTEST,
             // Only one of the representatives is used here
-            gas_left: ExpressionOutcome::Delta(-OpcodeId::PUSH1.constant_gas_cost().expr()),
+            gas_left: ExpressionOutcome::Delta(gas_left),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
@@ -82,14 +93,44 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (addr, pc, _, not_code, push_value_hi, push_value_lo, cnt, is_push) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
         constraints.extend([
-            ("opcode is one of push".into(), is_push - 1.expr()),
-            ("value_hi = push_value".into(), push_value_hi - value_hi),
-            ("value_lo = push_value".into(), push_value_lo - value_lo),
+            (
+                "opcode is one of push".into(),
+                is_push0.clone() * is_push.clone()
+                    + (1.expr() - is_push0.clone()) * (is_push.clone() - 1.expr()),
+            ),
+            (
+                "value_hi = push_value".into(),
+                push_value_hi - value_hi.clone(),
+            ),
+            (
+                "value_lo = push_value".into(),
+                push_value_lo - value_lo.clone(),
+            ),
             ("bytecode lookup addr = code_addr".into(), code_addr - addr),
             ("bytecode lookup pc = pc".into(), pc_cur - pc),
-            ("bytecode lookup not_code = 0".into(), not_code),
+            ("bytecode lookup not_code = 0".into(), not_code.clone()),
+            // opcode is push0 constraint
+            (
+                "opcode is push0".into(),
+                is_push0.clone() * (opcode.clone() - OpcodeId::PUSH0.expr()),
+            ),
+            // ispush0 is 0 or 1
+            (
+                "opcode is push0, is_push0 = 0 or 1".into(),
+                is_push0.clone() * (is_push0.clone() - 1.expr()),
+            ),
+            // opcode is push0 ,then value_hi = 0 and value_lo = 0
+            (
+                "opcode is push0, value_hi = 0".into(),
+                is_push0.clone() * (value_hi - 0.expr()),
+            ),
+            (
+                "opcode is push0, value_lo = 0".into(),
+                is_push0.clone() * (value_lo - 0.expr()),
+            ),
         ]);
 
+        constraints.extend([]);
         let delta_core = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(cnt + 1.expr()),
             ..Default::default()
@@ -124,12 +165,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_1.code_addr,
             current_state.stack_top,
         );
-        let core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+        let is_push0 = if trace.op == OpcodeId::PUSH0 {
+            Some(U256::one())
+        } else {
+            Some(U256::zero())
+        };
+        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + OPCODE_IS_PUSH0_IDX] =
+            is_push0;
 
         Witness {
             bytecode: vec![],

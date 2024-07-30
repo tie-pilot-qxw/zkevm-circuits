@@ -2790,7 +2790,7 @@ impl core::Row {
             push_value.map_or(U256::zero(), |x| (x >> 128)),
             push_value.map_or(U256::zero(), |x| (x.low_u128().into())),
             opcode.data_len().into(),
-            (opcode.is_push() as u8).into(),
+            (opcode.is_push_with_data() as u8).into(),
         ]) {
             assign_or_panic!(self[BYTECODE_COLUMN_START_IDX + i], value);
         }
@@ -3167,8 +3167,8 @@ impl Witness {
         while pc < machine_code.len() {
             let op = OpcodeId::from(machine_code[pc]);
             let mut this_op = vec![];
-            if op.is_push() {
-                let mut cnt = (op.as_u64() - OpcodeId::PUSH1.as_u64() + 1) as usize;
+            if op.is_push_with_data() {
+                let mut cnt = (op.as_u64() - OpcodeId::PUSH0.as_u64()) as usize;
                 // if pc >= machine_code.len(), the number of bytes pushed by the pushX instruction is less than X
                 // then padding value
                 if pc + cnt >= machine_code.len() {
@@ -3223,6 +3223,19 @@ impl Witness {
                     i.value_hi = value_hi;
                     i.value_lo = value_lo;
                 }
+            } else if op.is_push() {
+                // 如果为push0,那么bytecode中插入两行
+                this_op.push(bytecode::Row {
+                    addr: Some(addr),
+                    pc: Some(pc.into()),
+                    bytecode: Some(op.as_u64().into()),
+                    hash_hi: Some(hash_hi.into()),
+                    hash_lo: Some(hash_lo.into()),
+                    length: Some(real_machine_code_len.into()),
+                    ..Default::default()
+                });
+
+                pc += 1;
             } else {
                 this_op.push(bytecode::Row {
                     addr: Some(addr),
