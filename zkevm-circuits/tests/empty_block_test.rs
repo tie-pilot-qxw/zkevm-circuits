@@ -13,7 +13,6 @@ const MAX_NUM_ROW: usize = 12200;
 
 #[cfg(all(feature = "fast_test", not(feature = "no_public_hash_lookup")))]
 const MAX_NUM_ROW: usize = 600;
-const MAX_CODESIZE: usize = 1;
 
 #[cfg(all(feature = "fast_test", feature = "no_public_hash_lookup"))]
 const MAX_NUM_ROW: usize = 8133;
@@ -68,13 +67,12 @@ fn test_multi_block_erc20() {
     };
 
     let witness = Witness::new(&chunk);
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW,
-        MAX_CODESIZE,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

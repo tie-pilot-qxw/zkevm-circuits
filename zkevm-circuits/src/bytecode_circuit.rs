@@ -1048,14 +1048,12 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct BytecodeCircuit<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> {
+pub struct BytecodeCircuit<F: Field, const MAX_NUM_ROW: usize> {
     witness: Witness,
     _marker: PhantomData<F>,
 }
 
-impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F>
-    for BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>
-{
+impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for BytecodeCircuit<F, MAX_NUM_ROW> {
     type Config = BytecodeCircuitConfig<F>;
     type Cells = ();
 
@@ -1108,20 +1106,20 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
         (1, 1)
     }
 
-    fn num_rows(_witness: &Witness) -> usize {
+    fn num_rows(witness: &Witness) -> usize {
         let (num_padding_begin, num_padding_end) = Self::unusable_rows();
+        let len = witness.bytecode.len();
         // Check that total number of rows in this sub circuit does not exceed max number of row (a super circuit level parameter)
         assert!(
-            num_padding_begin + MAX_CODESIZE + num_padding_end <= MAX_NUM_ROW,
-            "begin padding {} + MAX_CODESIZE {} + end padding {} > MAX_NUM_ROW {} (consider increase parameter MAX_NUM_ROW)",
+            num_padding_begin + len + num_padding_end <= MAX_NUM_ROW,
+            "begin padding {} + CODELEN {} + end padding {} > MAX_NUM_ROW {} (consider increase parameter MAX_NUM_ROW)",
             num_padding_begin,
-            MAX_CODESIZE,
+            len,
             num_padding_end,
             MAX_NUM_ROW
         );
-        // Max bytecode witness length (a fixed parameter) plus must-have padding in the beginning and end
-        // Not using the real bytecode witness length since the real bytecode witness will be padded to max length
-        num_padding_begin + MAX_CODESIZE + num_padding_end
+
+        num_padding_begin + len + num_padding_end
     }
 }
 
@@ -1129,7 +1127,7 @@ impl<F: Field, const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize> SubCircuit<F
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
+    use crate::constant::MAX_NUM_ROW;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
     use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
@@ -1227,7 +1225,7 @@ mod test {
     /// A standalone circuit for testing
     #[derive(Clone, Default, Debug)]
     pub struct BytecodeTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
-        pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+        pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW>,
         pub fixed_circuit: FixedCircuit<F>,
         pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
@@ -1461,7 +1459,7 @@ mod test {
         let mut witness: Witness = Default::default();
 
         // begin padding
-        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
+        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| witness.bytecode.insert(0, Default::default()));
         (0..PublicCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| witness.public.insert(0, Default::default()));

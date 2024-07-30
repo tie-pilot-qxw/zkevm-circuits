@@ -24,13 +24,12 @@ fn test_call_trace() {
     //print witness
     //witness.print_csv();
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW_FOR_TEST,
-        5000,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

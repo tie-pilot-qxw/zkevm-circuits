@@ -25,13 +25,12 @@ fn test_log_trace() {
         "test_data/log_test/trace/bytecode.json",
     ));
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, 1400, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW,
-        1400,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

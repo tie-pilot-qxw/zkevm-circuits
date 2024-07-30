@@ -24,7 +24,7 @@ use halo2_proofs::transcript::{
 };
 use halo2_proofs::SerdeFormat;
 use rand_chacha::rand_core::OsRng;
-use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::SubCircuit;
 use zkevm_circuits::witness::Witness;
@@ -48,11 +48,7 @@ const VERIFY_PROOF: &str = "[Verify proof]";
 // default ptah to save proof params
 pub const DEFAULT_PROOF_PARAMS_DIR: &str = "./test_data";
 
-pub fn run_benchmark<const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
-    id: &str,
-    chunk_data: &ChunkData,
-    degree: u32,
-) {
+pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData, degree: u32) {
     // get round from environment variables
     let round_val_str = env::var(CMD_ENV_ROUND).unwrap_or_else(|_| "".to_string());
     let bench_round: usize = round_val_str
@@ -65,28 +61,26 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
         .unwrap_or_else(|_| DEFAULT_BENCH_USEFILE);
 
     println!(
-        "{}/id:{}, max_num_row:{}, max_code_size:{}, degree:{}, round:{}, use params file:{}",
-        CIRCUIT_SUMMARY, id, MAX_NUM_ROW, MAX_CODESIZE, degree, bench_round, bench_usefile
+        "{}/id:{}, max_num_row:{}, degree:{}, round:{}, use params file:{}",
+        CIRCUIT_SUMMARY, id, MAX_NUM_ROW, degree, bench_round, bench_usefile
     );
 
     // step1: get proof params
     let get_proof_params_start = start_timer!(|| "get proof params");
     let (proof_params, proof_pk) = if bench_usefile {
-        get_proof_params_from_file::<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+        get_proof_params_from_file::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
             get_default_proof_params_file_path(degree),
             get_default_proof_vk_file_path(degree),
             get_default_proof_pk_file_path(degree),
         )
     } else {
-        gen_proof_params::<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
-            degree, chunk_data,
-        )
+        gen_proof_params::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(degree, chunk_data)
     };
     end_timer!(get_proof_params_start);
 
     // step2: run and verify circuit
     let run_and_verify_circuit_start = start_timer!(|| "run and verify circuit");
-    run_circuit::<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+    run_circuit::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
         id,
         chunk_data,
         bench_round,
@@ -98,11 +92,11 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize, const MAX_CODESIZE: usize>(
 
 fn gen_proof_params_and_write_file(
     degree: u32,
-    circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+    circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
 ) {
     println!(
-        "{}/max_num_row:{}, max_code_size:{}, degree:{}",
-        CIRCUIT_SUMMARY, MAX_NUM_ROW, MAX_CODESIZE, degree
+        "{}/max_num_row:{}, degree:{}",
+        CIRCUIT_SUMMARY, MAX_NUM_ROW, degree
     );
     // gen proof params
     let gen_proof_params_start = start_timer!(|| "gen proof params");
@@ -140,7 +134,6 @@ fn gen_proof_params_and_write_file(
 
 fn get_proof_params_from_file<
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 >(
@@ -156,19 +149,14 @@ fn get_proof_params_from_file<
     // let read_proof_vk_start = start_timer!(|| format!("read proof vk form {}", proof_vk_file_path));
     // let proof_vk = read_proof_vk_from_file::<
     // 	MAX_NUM_ROW,
-    // 	MAX_CODESIZE,
     // 	NUM_STATE_HI_COL,
     // 	NUM_STATE_LO_COL>(proof_vk_file_path);
     // end_timer!(read_proof_vk_start);
 
     let read_proof_pk_start = start_timer!(|| format!("read proof pk form {}", proof_pk_file_path));
-    let proof_pk = read_proof_pk_from_file::<
-        _,
-        MAX_NUM_ROW,
-        MAX_CODESIZE,
-        NUM_STATE_HI_COL,
-        NUM_STATE_LO_COL,
-    >(proof_pk_file_path);
+    let proof_pk = read_proof_pk_from_file::<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+        proof_pk_file_path,
+    );
     end_timer!(read_proof_pk_start);
 
     (proof_params, proof_pk)
@@ -176,7 +164,6 @@ fn get_proof_params_from_file<
 
 fn gen_proof_params<
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 >(
@@ -184,7 +171,7 @@ fn gen_proof_params<
     chunk_data: &ChunkData,
 ) -> (ParamsKZG<Bn256>, ProvingKey<G1Affine>) {
     let witness = Witness::new(chunk_data);
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     // gen proof params
     let gen_proof_params_start = start_timer!(|| "gen proof params");
@@ -206,7 +193,6 @@ fn gen_proof_params<
 
 fn run_circuit<
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 >(
@@ -231,7 +217,7 @@ fn run_circuit<
         CREATE_CIRCUIT, id
     );
     let circuit_start = start_timer!(|| circuit_msg);
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance: Vec<Vec<Fr>> = circuit.instance();
     let instance_refs: Vec<&[Fr]> = instance.iter().map(|v| &v[..]).collect();
@@ -259,7 +245,7 @@ fn run_circuit<
             Challenge255<G1Affine>,
             _,
             Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
-            SuperCircuit<_, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         >(
             &general_params,
             &pk,
@@ -334,7 +320,6 @@ pub fn read_proof_params_from_file<P: AsRef<Path>>(params_file_path: P) -> Param
 pub fn read_proof_vk_from_file<
     P: AsRef<Path>,
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 >(
@@ -344,7 +329,7 @@ pub fn read_proof_vk_from_file<
     let mut reader = BufReader::new(f);
     VerifyingKey::<G1Affine>::read::<
         _,
-        SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     >(&mut reader, SerdeFormat::RawBytes, ())
     .unwrap()
 }
@@ -352,7 +337,6 @@ pub fn read_proof_vk_from_file<
 pub fn read_proof_pk_from_file<
     P: AsRef<Path>,
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 >(
@@ -362,7 +346,7 @@ pub fn read_proof_pk_from_file<
     let mut reader = BufReader::new(f);
     ProvingKey::<G1Affine>::read::<
         _,
-        SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     >(&mut reader, SerdeFormat::RawBytes, ())
     .unwrap()
 }

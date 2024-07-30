@@ -10,7 +10,6 @@ use ethers_core::{
     types::{transaction::response, NameOrAddress, TransactionRequest},
     utils::get_contract_address,
 };
-use ethers_signers::{LocalWallet, Signer};
 use halo2_proofs::halo2curves::{group::ff::PrimeField, secp256k1};
 use num::Integer;
 use num_bigint::BigUint;

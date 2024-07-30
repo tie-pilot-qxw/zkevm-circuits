@@ -14,8 +14,6 @@ use zkevm_circuits::witness::{arithmetic, bitwise, copy, exp, public, state, Wit
 
 const MAX_NUM_ROW: usize = 16384;
 
-const MAX_CODE_SIZE: usize = 5000;
-
 const MAX_COLUMN_NUM: usize = 40; // core电路，不包括comments
 
 const MAX_VALUE_DELTA: usize = 11;
@@ -1384,13 +1382,12 @@ fn mutate_geth_exec_step_storage(
 }
 
 fn get_prover_from_witness(witness: &Witness) -> MockProver<Fr> {
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODE_SIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW,
-        MAX_CODE_SIZE,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

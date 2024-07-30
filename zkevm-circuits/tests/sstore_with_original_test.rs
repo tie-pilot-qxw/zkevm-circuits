@@ -21,14 +21,13 @@ fn test_sstore_with_original() {
     #[cfg(feature = "fast_test")]
     const MAX_NUM_ROW_FOR_TEST: usize = 21000;
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 7000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
 
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW_FOR_TEST,
-        7000,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

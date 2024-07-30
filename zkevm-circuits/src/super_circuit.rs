@@ -202,12 +202,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
 pub struct SuperCircuit<
     F: Field,
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 > {
     pub core_circuit: CoreCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-    pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+    pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW>,
     pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
     pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
     pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
@@ -222,11 +221,9 @@ pub struct SuperCircuit<
 impl<
         F: Field,
         const MAX_NUM_ROW: usize,
-        const MAX_CODESIZE: usize,
         const NUM_STATE_HI_COL: usize,
         const NUM_STATE_LO_COL: usize,
-    > SubCircuit<F>
-    for SuperCircuit<F, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+    > SubCircuit<F> for SuperCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     type Config = SuperCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
     type Cells = ();
@@ -309,7 +306,7 @@ impl<
     fn unusable_rows() -> (usize, usize) {
         let unusable_rows = [
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows(),
-            BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows(),
+            BytecodeCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             StateCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             PublicCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             CopyCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
@@ -327,7 +324,7 @@ impl<
     fn num_rows(witness: &Witness) -> usize {
         let mut num_rows = vec![
             CoreCircuit::<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::num_rows(witness),
-            BytecodeCircuit::<F, MAX_NUM_ROW, MAX_CODESIZE>::num_rows(witness),
+            BytecodeCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             StateCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             PublicCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             CopyCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
@@ -360,11 +357,9 @@ impl<
 impl<
         F: Field,
         const MAX_NUM_ROW: usize,
-        const MAX_CODESIZE: usize,
         const NUM_STATE_HI_COL: usize,
         const NUM_STATE_LO_COL: usize,
-    > Circuit<F>
-    for SuperCircuit<F, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+    > Circuit<F> for SuperCircuit<F, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     type Config = SuperCircuitConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>;
     type FloorPlanner = SimpleFloorPlanner;
@@ -392,7 +387,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+    use crate::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
     use crate::util::{chunk_data_test, log2_ceil};
     use halo2_proofs::dev::{CircuitCost, CircuitGates, MockProver};
     use halo2_proofs::halo2curves::bn256::{Fr, G1};
@@ -401,13 +396,12 @@ mod tests {
         witness: Witness,
     ) -> (
         u32,
-        SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+        SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         MockProver<Fr>,
     ) {
         let k = log2_ceil(SuperCircuit::<
             Fr,
             MAX_NUM_ROW,
-            MAX_CODESIZE,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         >::num_rows(&witness));
@@ -443,7 +437,7 @@ mod tests {
         );
         let gates = CircuitGates::collect::<
             Fr,
-            SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         >(());
         let str = gates.queries_to_csv();
         for line in str.lines() {
@@ -469,7 +463,7 @@ mod tests {
         let (k, circuit, _prover) = test_super_circuit(witness);
         let circuit_cost: CircuitCost<
             G1,
-            SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         > = CircuitCost::measure(k as u32, &circuit);
         // let proof_size: usize = circuit_cost.proof_size(1).into();
         println!("Proof cost {:#?}", circuit_cost);
@@ -480,13 +474,8 @@ mod tests {
             vec!["#"; 20].join("")
         );
         let mut cs = ConstraintSystem::default();
-        let _config = SuperCircuit::<
-            Fr,
-            MAX_NUM_ROW,
-            MAX_CODESIZE,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        >::configure(&mut cs);
+        let _config =
+            SuperCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
         for lookup in cs.lookups() {
             println!("{}: {:?}", lookup.name(), lookup);
         }

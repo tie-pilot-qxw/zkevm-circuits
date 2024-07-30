@@ -9,7 +9,6 @@ use zkevm_circuits::witness::Witness;
 const MAX_NUM_ROW: usize = 262200;
 #[cfg(feature = "fast_test")]
 const MAX_NUM_ROW: usize = 10200;
-const MAX_CODESIZE: usize = 6900;
 
 #[test]
 fn test_multi_trace() {
@@ -39,13 +38,12 @@ fn test_multi_trace() {
     );
 
     let witness = Witness::new(&chunk_data);
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW,
-        MAX_CODESIZE,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

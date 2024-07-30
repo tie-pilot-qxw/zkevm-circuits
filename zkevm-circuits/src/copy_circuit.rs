@@ -930,7 +930,7 @@ mod test {
     use crate::bytecode_circuit::{
         BytecodeCircuit, BytecodeCircuitConfig, BytecodeCircuitConfigArgs,
     };
-    use crate::constant::{MAX_CODESIZE, MAX_NUM_ROW};
+    use crate::constant::MAX_NUM_ROW;
     use crate::copy_circuit::CopyCircuit;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
     use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
@@ -1053,7 +1053,7 @@ mod test {
     #[derive(Clone, Default, Debug)]
     pub struct CopyTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
-        pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW, MAX_CODESIZE>,
+        pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW>,
         pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
         pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
