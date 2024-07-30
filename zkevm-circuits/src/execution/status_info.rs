@@ -16,9 +16,9 @@ const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
 const PC_DELTA: u64 = 1;
-const TAG_IDX: usize = 9;
+const TAG_IDX: usize = 8;
 
-/// StateInfo gadget:
+/// StatusInfo gadget:
 /// The MSIZE opcode returns the size of the memory in bytes.
 /// The PC opcode returns the current value of the program counter.
 /// The GAS opcode returns the amount of gas left. (after this instruction)
@@ -36,17 +36,17 @@ const TAG_IDX: usize = 9;
 /// | 0 | DYNA_SELECTOR         | AUX        |
 /// +---+-------+--------+--------+----------+
 
-pub struct StateInfoGadget<F: Field> {
+pub struct StatusInfoGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for StateInfoGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for StatusInfoGadget<F>
 {
     fn name(&self) -> &'static str {
-        "STATE_INFO"
+        "STATUS_INFO"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::STATE_INFO
+        ExecutionState::STATUS_INFO
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -125,7 +125,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // Extract the value_hi and value_lo from the state lookup expression.
         let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, state_entry);
 
-        // get state info
+        // get status info
         let memory_chunk = meta.query_advice(config.get_auxiliary().memory_chunk, Rotation::cur());
         let pc = meta.query_advice(config.pc, Rotation::cur());
         let gas = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
@@ -153,21 +153,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        assert!(
-            trace.op == OpcodeId::MSIZE || trace.op == OpcodeId::PC || trace.op == OpcodeId::GAS
-        );
-
-        let push_value = match trace.op {
+        let (push_value, selector_index) = match trace.op {
             // get memory size from trace
-            OpcodeId::MSIZE => trace.memory.0.len().into(),
+            OpcodeId::MSIZE => (trace.memory.0.len().into(), 0),
             // get pc from trace
-            OpcodeId::PC => trace.pc.into(),
+            OpcodeId::PC => (trace.pc.into(), 1),
             // get gas left from trace
-            OpcodeId::GAS => (trace.gas - OpcodeId::GAS.constant_gas_cost()).into(),
-            _ => panic!(),
+            OpcodeId::GAS => ((trace.gas - OpcodeId::GAS.constant_gas_cost()).into(), 2),
+            _ => panic!("opcode not match"),
         };
+        assert_eq!(current_state.stack_top.unwrap_or_default(), push_value);
 
         let stack_push = current_state.get_push_stack_row(trace, push_value);
+
         // coew row 1
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([&stack_push]);
@@ -175,17 +173,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         simple_selector_assign(
             &mut core_row_1,
             [TAG_IDX, TAG_IDX + 1, TAG_IDX + 2],
-            match trace.op {
-                OpcodeId::MSIZE => 0,
-                OpcodeId::PC => 1,
-                OpcodeId::GAS => 2,
-                _ => panic!(),
-            },
+            selector_index,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
 
         // core row 0
-        let core_row_0 = ExecutionState::STATE_INFO.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::STATUS_INFO.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -201,7 +194,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(StateInfoGadget {
+    Box::new(StatusInfoGadget {
         _marker: PhantomData,
     })
 }
@@ -215,12 +208,9 @@ mod test {
     #[test]
     fn test_msize() {
         let stack = Stack::from_slice(&[0xffff.into()]);
-        let value_vec = [0x12; 32];
-        let value = U256::from_big_endian(&value_vec);
-
         let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(value),
+            stack_top: Some(U256::from(65536)),
             memory_chunk: 2048u64,
             memory_chunk_prev: 2048u64,
             gas_left: 0x254023u64,
@@ -232,26 +222,21 @@ mod test {
     #[test]
     fn test_pc() {
         let stack = Stack::from_slice(&[0xffff.into()]);
-        let value_vec = [0x12; 32];
-        let value = U256::from_big_endian(&value_vec);
         let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(value),
+            stack_top: Some(U256::from(64)),
             gas_left: 0x254023u64,
             ..WitnessExecHelper::new()
         };
-
         run(stack, current_state, OpcodeId::PC)
     }
 
     #[test]
     fn test_gas() {
         let stack = Stack::from_slice(&[0xffff.into()]);
-        let value_vec = [0x12; 32];
-        let value = U256::from_big_endian(&value_vec);
         let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(value),
+            stack_top: Some(U256::from(0x254023u64)),
             gas_left: 0x254023u64,
             ..WitnessExecHelper::new()
         };
@@ -284,7 +269,6 @@ mod test {
             let mut mem = Vec::new();
             mem.resize((current_state.memory_chunk * 32) as usize, 0);
             trace.memory.0 = mem;
-            //vec![0; 0x10000];
         }
 
         let padding_begin_row = |current_state| {

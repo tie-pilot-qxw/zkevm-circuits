@@ -59,7 +59,7 @@ pub mod sdiv_smod;
 pub mod selfbalance;
 pub mod shl_shr;
 pub mod signextend;
-pub mod state_info;
+pub mod status_info;
 pub mod stop;
 pub mod storage;
 pub mod swap;
@@ -148,7 +148,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::selfbalance::new(),
             crate::execution::shl_shr::new(),
             crate::execution::signextend::new(),
-            crate::execution::state_info::new(),
+            crate::execution::status_info::new(),
             crate::execution::stop::new(),
             crate::execution::storage::new(),
             crate::execution::swap::new(),
@@ -2289,7 +2289,7 @@ pub enum ExecutionState {
     TX_CONTEXT,
     MEMORY,
     MSTORE8,
-    STATE_INFO,
+    STATUS_INFO,
     STORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
@@ -2383,7 +2383,7 @@ impl ExecutionState {
             OpcodeId::MSTORE8 => vec![Self::MSTORE8, Self::MEMORY_GAS, Self::PURE_MEMORY_GAS],
             OpcodeId::JUMP => vec![Self::JUMP],
             OpcodeId::JUMPI => vec![Self::JUMPI],
-            OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATE_INFO],
+            OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATUS_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
 
             OpcodeId::PUSH1
