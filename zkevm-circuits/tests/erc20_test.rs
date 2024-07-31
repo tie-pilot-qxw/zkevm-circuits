@@ -20,14 +20,13 @@ fn test_erc20_t01_a_deploy() {
         "test_data/erc20_test/trace/t01_a_deploy_erc20/tx_receipt.json",
         "test_data/erc20_test/trace/t01_a_deploy_erc20/bytecode.json",
     ));
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 7000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
 
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW_FOR_TEST,
-        7000,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
@@ -46,10 +45,12 @@ fn test_erc20_t02_a_transfer_b_200() {
         "test_data/erc20_test/trace/t02_a_transfer_b_200/bytecode.json",
     ));
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
-    let k = log2_ceil(SuperCircuit::<Fr, MAX_NUM_ROW_FOR_TEST, 5000, 10, 10>::num_rows(&witness));
+    let k = log2_ceil(SuperCircuit::<Fr, MAX_NUM_ROW_FOR_TEST, 10, 10>::num_rows(
+        &witness,
+    ));
     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
     prover.assert_satisfied();
 }
@@ -65,13 +66,12 @@ fn test_erc20_t03_a_approve_c_200() {
         "test_data/erc20_test/trace/t03_a_approve_c_200/bytecode.json",
     ));
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW_FOR_TEST,
-        5000,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));
@@ -90,13 +90,12 @@ fn test_erc20_t04_c_transfer_from_a_b_200() {
         "test_data/erc20_test/trace/t04_c_transfer_from_a_b_200/bytecode.json",
     ));
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     let instance = circuit.instance();
     let k = log2_ceil(SuperCircuit::<
         Fr,
         MAX_NUM_ROW_FOR_TEST,
-        5000,
         NUM_STATE_HI_COL,
         NUM_STATE_LO_COL,
     >::num_rows(&witness));

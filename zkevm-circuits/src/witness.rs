@@ -3253,7 +3253,7 @@ impl Witness {
         // padding zero in the front
         (0..CoreCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::unusable_rows().0)
             .for_each(|_| self.core.insert(0, Default::default()));
-        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE>::unusable_rows().0)
+        (0..BytecodeCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| self.bytecode.insert(0, Default::default()));
         (0..PublicCircuit::<Fr, MAX_NUM_ROW>::unusable_rows().0)
             .for_each(|_| self.public.insert(0, Default::default()));

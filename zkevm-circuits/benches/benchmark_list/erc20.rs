@@ -1,24 +1,18 @@
 use crate::run_benchmark;
-use zkevm_circuits::constant::{MAX_CODESIZE, MAX_NUM_ROW};
+use zkevm_circuits::constant::MAX_NUM_ROW;
 use zkevm_circuits::util::get_chunk_data;
 
 #[cfg(feature = "k_10")]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = 21000;
-#[cfg(feature = "k_10")]
-const DEPLOY_MAX_CODE_SIZE_FOR_TEST: usize = 7000;
+
 #[cfg(feature = "k_10")]
 const CALL_MAX_NUM_ROW_FOR_TEST: usize = 6000;
-#[cfg(feature = "k_10")]
-const CALL_MAX_CODE_SIZE_FOR_TEST: usize = 5000;
 
 #[cfg(not(feature = "k_10"))]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = MAX_NUM_ROW;
-#[cfg(not(feature = "k_10"))]
-const DEPLOY_MAX_CODE_SIZE_FOR_TEST: usize = MAX_CODESIZE;
+
 #[cfg(not(feature = "k_10"))]
 const CALL_MAX_NUM_ROW_FOR_TEST: usize = MAX_NUM_ROW;
-#[cfg(not(feature = "k_10"))]
-const CALL_MAX_CODE_SIZE_FOR_TEST: usize = MAX_CODESIZE;
 
 #[test]
 fn t01_a_deploy_erc20() {
@@ -34,11 +28,7 @@ fn t01_a_deploy_erc20() {
     #[cfg(not(feature = "no_fixed_lookup"))]
     let degree: u32 = 19;
 
-    run_benchmark::<DEPLOY_MAX_NUM_ROW_FOR_TEST, DEPLOY_MAX_CODE_SIZE_FOR_TEST>(
-        "t01_a_deploy_erc20",
-        chunk_data,
-        degree,
-    );
+    run_benchmark::<DEPLOY_MAX_NUM_ROW_FOR_TEST>("t01_a_deploy_erc20", chunk_data, degree);
 }
 #[test]
 fn t02_a_transfer_b_200() {
@@ -54,11 +44,7 @@ fn t02_a_transfer_b_200() {
     #[cfg(not(feature = "no_fixed_lookup"))]
     let degree: u32 = 19;
 
-    run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST, CALL_MAX_CODE_SIZE_FOR_TEST>(
-        "t02_a_transfer_b_200",
-        chunk_data,
-        degree,
-    );
+    run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST>("t02_a_transfer_b_200", chunk_data, degree);
 }
 
 #[test]
@@ -75,11 +61,7 @@ fn t03_a_approve_c_200() {
     #[cfg(not(feature = "no_fixed_lookup"))]
     let degree: u32 = 19;
 
-    run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST, CALL_MAX_CODE_SIZE_FOR_TEST>(
-        "t03_a_approve_c_200",
-        chunk_data,
-        degree,
-    );
+    run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST>("t03_a_approve_c_200", chunk_data, degree);
 }
 
 #[test]
@@ -96,7 +78,7 @@ fn t04_c_transfer_from_a_b_200() {
     #[cfg(not(feature = "no_fixed_lookup"))]
     let degree: u32 = 19;
 
-    run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST, CALL_MAX_CODE_SIZE_FOR_TEST>(
+    run_benchmark::<CALL_MAX_NUM_ROW_FOR_TEST>(
         "t04_c_transfer_from_a_b_200 benchmark",
         chunk_data,
         degree,

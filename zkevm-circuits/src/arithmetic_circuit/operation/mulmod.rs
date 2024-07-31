@@ -573,7 +573,7 @@ mod test {
         let a = 3.into();
         let b = u128::MAX.into();
         let n = 2.into();
-        let (arithmetic, result) = gen_witness(vec![a, b, n]);
+        let (arithmetic, _result) = gen_witness(vec![a, b, n]);
         let witness = Witness {
             arithmetic,
             ..Default::default()

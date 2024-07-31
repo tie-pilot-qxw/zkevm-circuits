@@ -2,7 +2,7 @@ use halo2_proofs::halo2curves::bn256::Fr;
 
 use crate::gen_proof_params_and_write_file;
 use zkevm_circuits::constant::{
-    MAX_CODESIZE, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL, PUBLIC_NUM_BEGINNING_PADDING_ROW,
+    MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL, PUBLIC_NUM_BEGINNING_PADDING_ROW,
 };
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{log2_ceil, SubCircuit};
@@ -23,7 +23,7 @@ fn init_proof_params() {
     });
     public::witness_post_handle(&mut witness);
 
-    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
     gen_proof_params_and_write_file(degree, circuit)
 }

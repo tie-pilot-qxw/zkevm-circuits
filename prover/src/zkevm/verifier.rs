@@ -22,7 +22,6 @@ use crate::util::deserialize_vk;
 #[derive(Debug)]
 pub struct Verifier<
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 > {
@@ -30,12 +29,8 @@ pub struct Verifier<
     vk: VerifyingKey<G1Affine>,
 }
 
-impl<
-        const MAX_NUM_ROW: usize,
-        const MAX_CODESIZE: usize,
-        const NUM_STATE_HI_COL: usize,
-        const NUM_STATE_LO_COL: usize,
-    > Verifier<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+impl<const MAX_NUM_ROW: usize, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    Verifier<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     pub fn new(params: ParamsKZG<Bn256>, vk: VerifyingKey<G1Affine>) -> Self {
         Self { params, vk }
@@ -43,7 +38,7 @@ impl<
 
     pub fn from_dirs(params_dir: &str, assets_dir: &str) -> Self {
         let mut cs = ConstraintSystem::<Fr>::default();
-        SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
+        SuperCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
         let minimum_rows = cs.minimum_rows();
         let rows = MAX_NUM_ROW + minimum_rows;
         let degree = log2_ceil(rows);
@@ -54,9 +49,10 @@ impl<
         let params = read_params(params_dir, &param_file_name).unwrap();
         let raw_vk = try_to_read(assets_dir, &vk_file_name);
 
-        let vk = deserialize_vk::<
-            SuperCircuit<_, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        >(raw_vk.as_ref().unwrap(), ());
+        let vk = deserialize_vk::<SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>(
+            raw_vk.as_ref().unwrap(),
+            (),
+        );
 
         Self::new(params, vk)
     }
@@ -97,7 +93,6 @@ mod test {
     use crate::zkevm::Verifier;
 
     const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = 21000;
-    const DEPLOY_MAX_CODE_SIZE_FOR_TEST: usize = 7000;
 
     const NUM_STATE_HI_COL: usize = 9;
 
@@ -110,12 +105,10 @@ mod test {
         let param_dir = "./src/zkevm/test_data";
         let asset_dir = "./src/zkevm/test_data";
 
-        let verifier = Verifier::<
-            DEPLOY_MAX_NUM_ROW_FOR_TEST,
-            DEPLOY_MAX_CODE_SIZE_FOR_TEST,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        >::from_dirs(param_dir, asset_dir);
+        let verifier =
+            Verifier::<DEPLOY_MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::from_dirs(
+                param_dir, asset_dir,
+            );
 
         let proof = Proof::from_json_file("./src/zkevm/test_data", "k15");
         let result = verifier.verify_chunk_proof(proof.unwrap());

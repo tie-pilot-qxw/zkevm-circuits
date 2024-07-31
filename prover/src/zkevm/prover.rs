@@ -1,42 +1,31 @@
-use anyhow::{anyhow, Context, Result};
-use std::fmt::format;
-use std::fs::File;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{BufReader, BufWriter, Cursor, ErrorKind, Write};
-use std::path::Path;
-use std::{env, io};
+use anyhow::{anyhow, Result};
 
-use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
 use halo2_proofs::plonk::{
-    create_proof, keygen_pk, keygen_vk, verify_proof, Circuit, ConstraintSystem, ProvingKey,
-    VerifyingKey,
+    create_proof, keygen_pk, verify_proof, Circuit, ConstraintSystem, ProvingKey,
 };
-use halo2_proofs::poly::commitment::{Params, ParamsProver};
+use halo2_proofs::poly::commitment::ParamsProver;
 use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
 use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{
     Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
 };
-use halo2_proofs::SerdeFormat;
 use log::info;
 use rand_chacha::rand_core::OsRng;
 
 use eth_types::geth_types::ChunkData;
-use eth_types::{Error, ToAddress};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{log2_ceil, preprocess_trace, SubCircuit};
-use zkevm_circuits::witness::{bytecode, Witness};
+use zkevm_circuits::util::{log2_ceil, SubCircuit};
+use zkevm_circuits::witness::Witness;
 
 use crate::io::{read_params, try_to_read};
 use crate::proof::Proof;
-use crate::util::{deserialize_vk, handler_chunk_data, serialize_instances, serialize_vk};
+use crate::util::{deserialize_vk, handler_chunk_data, serialize_vk};
 
 #[derive(Debug)]
 pub struct Prover<
     const MAX_NUM_ROW: usize,
-    const MAX_CODESIZE: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
 > {
@@ -45,16 +34,12 @@ pub struct Prover<
     raw_vk: Vec<u8>,
 }
 
-impl<
-        const MAX_NUM_ROW: usize,
-        const MAX_CODESIZE: usize,
-        const NUM_STATE_HI_COL: usize,
-        const NUM_STATE_LO_COL: usize,
-    > Prover<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+impl<const MAX_NUM_ROW: usize, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
+    Prover<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
 {
     pub fn from_dirs(params_dir: &str, assets_dir: &str) -> Self {
         let mut cs = ConstraintSystem::<Fr>::default();
-        SuperCircuit::<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
+        SuperCircuit::<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::configure(&mut cs);
         let minimum_rows = cs.minimum_rows();
         let rows = MAX_NUM_ROW + minimum_rows;
         let degree = log2_ceil(rows);
@@ -79,10 +64,7 @@ impl<
     }
 
     pub fn gen_chunk_proof(&mut self, chunk_data: ChunkData) -> Result<Proof> {
-        info!(
-            "enter gen_chunk_proof, MAX_NUM_ROW: {}, MAX_CODESIZE: {}",
-            MAX_NUM_ROW, MAX_CODESIZE
-        );
+        info!("enter gen_chunk_proof, MAX_NUM_ROW: {}", MAX_NUM_ROW);
         let mut start = std::time::Instant::now();
 
         let chunk_data = handler_chunk_data(chunk_data);
@@ -90,13 +72,8 @@ impl<
 
         start = std::time::Instant::now();
         let witness = Witness::new(&chunk_data);
-        let circuit: SuperCircuit<
-            Fr,
-            MAX_NUM_ROW,
-            MAX_CODESIZE,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        > = SuperCircuit::new_from_witness(&witness);
+        let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+            SuperCircuit::new_from_witness(&witness);
         let instance: Vec<Vec<Fr>> = circuit.instance();
         let instance_refs: Vec<&[Fr]> = instance.iter().map(|v| &v[..]).collect();
         let circuit = circuit.clone();
@@ -109,7 +86,7 @@ impl<
             Some(ref pk) => pk.clone(),
             None => {
                 let vk = deserialize_vk::<
-                    SuperCircuit<_, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+                    SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
                 >(&self.raw_vk, ());
                 let pk =
                     keygen_pk(&general_params, vk, &circuit).expect("keygen_vk should not fail");
@@ -127,7 +104,7 @@ impl<
             Challenge255<G1Affine>,
             _,
             Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
-            SuperCircuit<_, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         >(
             &general_params,
             &pk,
@@ -166,7 +143,6 @@ impl<
 
 #[cfg(test)]
 mod test {
-    use anyhow::anyhow;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
     use std::fs::File;
@@ -185,14 +161,11 @@ mod test {
         Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
     };
     use halo2_proofs::SerdeFormat;
-    use log::info;
     use rand_chacha::rand_core::OsRng;
 
-    use crate::io::{read_params, try_to_read};
-    use crate::proof::Proof;
-    use crate::util::{handler_chunk_data, serialize_vk};
+    use crate::io::read_params;
+    use crate::util::handler_chunk_data;
     use eth_types::geth_types::ChunkData;
-    use zkevm_circuits::constant::MAX_NUM_ROW;
     use zkevm_circuits::super_circuit::SuperCircuit;
     use zkevm_circuits::util::{log2_ceil, SubCircuit};
     use zkevm_circuits::witness::{bytecode, public, Witness};
@@ -200,7 +173,6 @@ mod test {
     use crate::zkevm::Prover;
 
     const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = 21000;
-    const DEPLOY_MAX_CODE_SIZE_FOR_TEST: usize = 7000;
 
     const NUM_STATE_HI_COL: usize = 9;
 
@@ -208,10 +180,9 @@ mod test {
 
     impl<
             const MAX_NUM_ROW: usize,
-            const MAX_CODESIZE: usize,
             const NUM_STATE_HI_COL: usize,
             const NUM_STATE_LO_COL: usize,
-        > Prover<MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
+        > Prover<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>
     {
         pub fn test_prover() -> Self {
             let params = read_params("./src/zkevm/test_data", "k15.params").unwrap();
@@ -226,18 +197,12 @@ mod test {
             let chunk_data = handler_chunk_data(chunk_data);
 
             let witness = Witness::new(&chunk_data);
-            let circuit: SuperCircuit<
-                Fr,
-                MAX_NUM_ROW,
-                MAX_CODESIZE,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            > = SuperCircuit::new_from_witness(&witness);
+            let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+                SuperCircuit::new_from_witness(&witness);
 
             let k = log2_ceil(SuperCircuit::<
                 Fr,
                 MAX_NUM_ROW,
-                MAX_CODESIZE,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             >::num_rows(&witness));
@@ -260,7 +225,6 @@ mod test {
             let circuit: SuperCircuit<
                 Fr,
                 DEPLOY_MAX_NUM_ROW_FOR_TEST,
-                DEPLOY_MAX_CODE_SIZE_FOR_TEST,
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             > = SuperCircuit::new_from_witness(&witness);
@@ -296,26 +260,17 @@ mod test {
             let chunk_data = handler_chunk_data(chunk_data);
 
             let witness = Witness::new(&chunk_data);
-            let circuit: SuperCircuit<
-                Fr,
-                MAX_NUM_ROW,
-                MAX_CODESIZE,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            > = SuperCircuit::new_from_witness(&witness);
+            let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+                SuperCircuit::new_from_witness(&witness);
             let instance: Vec<Vec<Fr>> = circuit.instance();
             let instance_refs: Vec<&[Fr]> = instance.iter().map(|v| &v[..]).collect();
             // let circuit2 = circuit.clone();
             let circuit = circuit.clone();
             let general_params = self.params.clone();
 
-            let vk = read_proof_vk_from_file::<
-                _,
-                MAX_NUM_ROW,
-                MAX_CODESIZE,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            >("./src/zkevm/test_data/k15.vk");
+            let vk = read_proof_vk_from_file::<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+                "./src/zkevm/test_data/k15.vk",
+            );
             let pk = keygen_pk(&general_params, vk, &circuit).unwrap();
 
             let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
@@ -397,7 +352,6 @@ mod test {
         let circuit: SuperCircuit<
             Fr,
             DEPLOY_MAX_NUM_ROW_FOR_TEST,
-            DEPLOY_MAX_CODE_SIZE_FOR_TEST,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         > = SuperCircuit::new_from_witness(&witness);
@@ -413,7 +367,6 @@ mod test {
     pub fn read_proof_vk_from_file<
         P: AsRef<Path>,
         const MAX_NUM_ROW: usize,
-        const MAX_CODESIZE: usize,
         const NUM_STATE_HI_COL: usize,
         const NUM_STATE_LO_COL: usize,
     >(
@@ -423,7 +376,7 @@ mod test {
         let mut reader = BufReader::new(f);
         VerifyingKey::<G1Affine>::read::<
             _,
-            SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         >(&mut reader, SerdeFormat::RawBytes, ())
         .unwrap()
     }
@@ -431,7 +384,6 @@ mod test {
     pub fn read_proof_pk_from_file<
         P: AsRef<Path>,
         const MAX_NUM_ROW: usize,
-        const MAX_CODESIZE: usize,
         const NUM_STATE_HI_COL: usize,
         const NUM_STATE_LO_COL: usize,
     >(
@@ -441,7 +393,7 @@ mod test {
         let mut reader = BufReader::new(f);
         ProvingKey::<G1Affine>::read::<
             _,
-            SuperCircuit<Fr, MAX_NUM_ROW, MAX_CODESIZE, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         >(&mut reader, SerdeFormat::RawBytes, ())
         .unwrap()
     }
@@ -457,12 +409,10 @@ mod test {
         let asset_dir = "./src/zkevm/test_data";
         let start = std::time::Instant::now();
 
-        let mut prover = Prover::<
-            DEPLOY_MAX_NUM_ROW_FOR_TEST,
-            DEPLOY_MAX_CODE_SIZE_FOR_TEST,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        >::from_dirs(param_dir, asset_dir);
+        let mut prover =
+            Prover::<DEPLOY_MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::from_dirs(
+                param_dir, asset_dir,
+            );
         println!("init time:{:?}", start.elapsed());
 
         let file =
@@ -482,12 +432,10 @@ mod test {
         let asset_dir = "./src/zkevm/test_data";
         let start = std::time::Instant::now();
 
-        let mut prover = Prover::<
-            DEPLOY_MAX_NUM_ROW_FOR_TEST,
-            DEPLOY_MAX_CODE_SIZE_FOR_TEST,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        >::from_dirs(param_dir, asset_dir);
+        let mut prover =
+            Prover::<DEPLOY_MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::from_dirs(
+                param_dir, asset_dir,
+            );
         println!("init time:{:?}", start.elapsed());
 
         let file =
@@ -502,12 +450,9 @@ mod test {
     #[ignore]
     #[test]
     fn test_prover_circuit() {
-        let prover = Prover::<
-            DEPLOY_MAX_NUM_ROW_FOR_TEST,
-            DEPLOY_MAX_CODE_SIZE_FOR_TEST,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        >::test_prover();
+        let prover =
+            Prover::<DEPLOY_MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::test_prover(
+            );
         let file =
             File::open("./src/zkevm/test_data/chunk_traces.json").expect("file should exist");
         let reader = BufReader::new(file);
@@ -522,12 +467,10 @@ mod test {
     fn test_verify_mock() {
         let param_dir = "./src/zkevm/test_data";
         let asset_dir = "./src/zkevm/test_data";
-        let prover = Prover::<
-            DEPLOY_MAX_NUM_ROW_FOR_TEST,
-            DEPLOY_MAX_CODE_SIZE_FOR_TEST,
-            NUM_STATE_HI_COL,
-            NUM_STATE_LO_COL,
-        >::from_dirs(param_dir, asset_dir);
+        let prover =
+            Prover::<DEPLOY_MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL>::from_dirs(
+                param_dir, asset_dir,
+            );
         let file =
             File::open("./src/zkevm/test_data/chunk_traces.json").expect("file should exist");
         let reader = BufReader::new(file);
