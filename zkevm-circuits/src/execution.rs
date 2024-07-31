@@ -28,7 +28,6 @@ pub mod end_padding;
 pub mod end_tx;
 pub mod exp;
 pub mod extcodecopy;
-pub mod gas;
 pub mod iszero_eq;
 pub mod jump;
 pub mod jumpdest;
@@ -42,7 +41,6 @@ pub mod lt_gt_slt_sgt;
 pub mod memory;
 pub mod memory_copier_gas;
 pub mod memory_gas;
-pub mod msize;
 pub mod mstore8;
 pub mod mulmod;
 pub mod not;
@@ -61,6 +59,7 @@ pub mod sdiv_smod;
 pub mod selfbalance;
 pub mod shl_shr;
 pub mod signextend;
+pub mod status_info;
 pub mod stop;
 pub mod storage;
 pub mod swap;
@@ -124,7 +123,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_tx::new(),
             crate::execution::exp::new(),
             crate::execution::extcodecopy::new(),
-            crate::execution::gas::new(),
             crate::execution::iszero_eq::new(),
             crate::execution::jump::new(),
             crate::execution::jumpdest::new(),
@@ -135,7 +133,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::log_topic_num_addr::new(),
             crate::execution::lt_gt_slt_sgt::new(),
             crate::execution::memory::new(),
-            crate::execution::msize::new(),
             crate::execution::mstore8::new(),
             crate::execution::mulmod::new(),
             crate::execution::not::new(),
@@ -151,6 +148,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::selfbalance::new(),
             crate::execution::shl_shr::new(),
             crate::execution::signextend::new(),
+            crate::execution::status_info::new(),
             crate::execution::stop::new(),
             crate::execution::storage::new(),
             crate::execution::swap::new(),
@@ -2291,7 +2289,7 @@ pub enum ExecutionState {
     TX_CONTEXT,
     MEMORY,
     MSTORE8,
-    MSIZE,
+    STATUS_INFO,
     STORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
@@ -2385,10 +2383,7 @@ impl ExecutionState {
             OpcodeId::MSTORE8 => vec![Self::MSTORE8, Self::MEMORY_GAS, Self::PURE_MEMORY_GAS],
             OpcodeId::JUMP => vec![Self::JUMP],
             OpcodeId::JUMPI => vec![Self::JUMPI],
-            OpcodeId::PC => {
-                todo!()
-            }
-            OpcodeId::MSIZE => vec![Self::MSIZE],
+            OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATUS_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
 
             OpcodeId::PUSH1
@@ -2513,9 +2508,6 @@ impl ExecutionState {
                 vec![Self::SELFBALANCE]
             }
             OpcodeId::SLOAD | OpcodeId::SSTORE => vec![Self::STORAGE],
-            OpcodeId::GAS => {
-                vec![Self::GAS] //TODO: implement this
-            }
             //LOG TOPIC LOG BYTES
             OpcodeId::LOG0 => {
                 vec![
