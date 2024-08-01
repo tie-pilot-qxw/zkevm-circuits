@@ -6,6 +6,7 @@ use zkevm_circuits::util::{chunk_data_test, log2_ceil};
 use crate::run_benchmark;
 
 #[test]
+#[cfg(feature = "evm")]
 fn bench_super_circuit() {
     let degree = log2_ceil(MAX_NUM_ROW);
 

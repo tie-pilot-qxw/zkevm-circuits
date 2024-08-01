@@ -412,6 +412,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "evm")]
     fn test_from_test_data() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code, &[]);
@@ -428,6 +429,7 @@ mod tests {
 
     #[test]
     #[ignore]
+    #[cfg(feature = "evm")]
     fn print_circuit_metrics() {
         // gates
         println!(

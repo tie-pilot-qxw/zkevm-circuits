@@ -652,6 +652,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "evm")]
     fn test_core_parser() {
         let code = bytecode! {
             PUSH1(1)

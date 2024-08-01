@@ -1138,6 +1138,7 @@ mod test {
 
     /// test the functionality of CopyCircuit using CODECOPY and EXTCODECOPY
     #[test]
+    #[cfg(feature = "evm")]
     fn test_copy_parser() {
         let a = U256::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
         let code = bytecode! {
