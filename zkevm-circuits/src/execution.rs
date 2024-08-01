@@ -374,12 +374,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
     }
 
-    pub(crate) fn get_state_lookup(
+    pub(crate) fn get_state_lookup_by_rotation(
         &self,
         meta: &mut VirtualCells<F>,
-        num: usize,
+        at: Rotation,
+        index: usize,
     ) -> LookupEntry<F> {
-        assert!(num < 4);
+        assert!(index < 4);
         let (
             tag,
             stamp,
@@ -390,14 +391,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_lo,
             is_write,
         ) = (
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 0], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 1], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 2], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 3], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 4], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 5], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 6], Rotation::prev()),
-            meta.query_advice(self.vers[num * STATE_COLUMN_WIDTH + 7], Rotation::prev()),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 0], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 1], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 2], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 3], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 4], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 5], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 6], at),
+            meta.query_advice(self.vers[index * STATE_COLUMN_WIDTH + 7], at),
         );
         LookupEntry::State {
             tag,
@@ -409,6 +410,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             pointer_lo,
             is_write,
         }
+    }
+
+    pub(crate) fn get_state_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        index: usize,
+    ) -> LookupEntry<F> {
+        self.get_state_lookup_by_rotation(meta, Rotation::prev(), index)
     }
 
     pub(crate) fn get_returndata_size_state_lookup(
@@ -2695,7 +2704,7 @@ impl ExecutionState {
             OpcodeId::CREATE2 => {
                 todo!()
             }
-            OpcodeId::CALL | OpcodeId::STATICCALL => {
+            OpcodeId::CALL | OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
                 vec![
                     Self::CALL_1,
                     Self::CALL_2,
@@ -2707,9 +2716,6 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::CALLCODE => {
-                todo!()
-            }
-            OpcodeId::DELEGATECALL => {
                 todo!()
             }
             OpcodeId::SELFDESTRUCT => {

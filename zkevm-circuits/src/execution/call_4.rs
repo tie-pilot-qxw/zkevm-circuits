@@ -116,7 +116,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 selector.select(&[
                     -3.expr() - i.expr(), // CALL
                     -2.expr() - i.expr(), // STATICCALL
-                    -3.expr() - i.expr(), // DELEGATECALL
+                    -2.expr() - i.expr(), // DELEGATECALL
                 ]),
                 false,
             ));

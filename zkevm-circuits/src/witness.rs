@@ -2205,8 +2205,11 @@ impl WitnessExecHelper {
         };
 
         // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog	0x0	0x0
-        let value_hi = (self.code_addr >> 128).as_u128();
-        let value_lo = self.code_addr.low_u128();
+
+        // get contract addr
+        let contract_addr = *self.storage_contract_addr.get(&self.call_id).unwrap();
+        let value_hi = (contract_addr >> 128).as_u128();
+        let value_lo = contract_addr.low_u128();
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
@@ -2744,7 +2747,6 @@ impl core::Row {
         state_rows: [&state::Row; NUM_LOOKUP],
     ) {
         // this lookup must be in the row with this cnt
-        assert_eq!(self.cnt, 1.into());
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
         for (j, state_row) in state_rows.into_iter().enumerate() {

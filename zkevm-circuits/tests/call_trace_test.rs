@@ -63,26 +63,26 @@ fn test_staticcall_trace() {
     prover.assert_satisfied();
 }
 
-// #[test]
-// fn test_delegatecall_trace() {
-//     // gen witness
-//     let witness = Witness::new(&get_chunk_data(
-//         "test_data/static_delegate_call_test/trace/staticcall/block_info.json",
-//         "test_data/static_delegate_call_test/trace/staticcall/tx_info.json",
-//         "test_data/static_delegate_call_test/trace/staticcall/tx_debug_trace.json",
-//         "test_data/static_delegate_call_test/trace/staticcall/tx_receipt.json",
-//         "test_data/static_delegate_call_test/trace/staticcall/bytecode.json",
-//     ));
-//     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, 5000, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
-//         SuperCircuit::new_from_witness(&witness);
-//     let instance = circuit.instance();
-//     let k = log2_ceil(SuperCircuit::<
-//         Fr,
-//         MAX_NUM_ROW_FOR_TEST,
-//         5000,
-//         NUM_STATE_HI_COL,
-//         NUM_STATE_LO_COL,
-//     >::num_rows(&witness));
-//     let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
-//     prover.assert_satisfied();
-// }
+#[test]
+fn test_delegatecall_trace() {
+    // gen witness
+    let witness = Witness::new(&get_chunk_data(
+        "test_data/static_delegate_call_test/trace/delegatecall/block_info.json",
+        "test_data/static_delegate_call_test/trace/delegatecall/tx_info.json",
+        "test_data/static_delegate_call_test/trace/delegatecall/tx_debug_trace.json",
+        "test_data/static_delegate_call_test/trace/delegatecall/tx_receipt.json",
+        "test_data/static_delegate_call_test/trace/delegatecall/bytecode.json",
+    ));
+
+    let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+        SuperCircuit::new_from_witness(&witness);
+    let instance = circuit.instance();
+    let k = log2_ceil(SuperCircuit::<
+        Fr,
+        MAX_NUM_ROW_FOR_TEST,
+        NUM_STATE_HI_COL,
+        NUM_STATE_LO_COL,
+    >::num_rows(&witness));
+    let prover = MockProver::<Fr>::run(k, &circuit, instance).unwrap();
+    prover.assert_satisfied();
+}

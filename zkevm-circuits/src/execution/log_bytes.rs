@@ -287,7 +287,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 stack_lookup_1,
             ),
             ("code copy lookup".into(), copy_lookup),
-            ("public lookup".into(), public_lookup),
+            ("log data size public lookup".into(), public_lookup),
             ("arithmetic tiny lookup".into(), arithmetic),
         ]
     }

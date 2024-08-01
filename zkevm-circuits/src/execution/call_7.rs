@@ -20,8 +20,8 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 4;
+pub(super) const NUM_ROW: usize = 3;
+const STATE_STAMP_DELTA: usize = 5;
 const STAMP_INIT_COL_PREV_GADGET: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
 const OPCODE_SELECTOR_IDX: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
 const OPCODE_SELECTOR_IDX_START: usize = 0;
@@ -154,40 +154,56 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // CALL指令需要的addr操作数
         // CALL指令调用的合约地址，与addr相同
         // CALL指令的调用方地址
-        let (addr, storage_contract_addr, sender_addr) = (
+        let (stack_addr_hi_lo, storage_contract_addr_hi_lo, sender_addr_hi_lo) = (
             operands[1].clone(),
             operands[2].clone(),
             operands[3].clone(),
         );
 
-        let storage_contract_addr_expr = storage_contract_addr[0].clone() * pow_of_two::<F>(128)
-            + storage_contract_addr[1].clone();
+        // get sender addr read(For DELEGATECALL, the value of read_sender_addr is parent.senderAddr)
+        let read_sender_entry = config.get_state_lookup_by_rotation(meta, Rotation(-2), 0);
+        let (_, _, read_sender_addr_hi, read_sender_addr_lo, ..) =
+            extract_lookup_expression!(state, read_sender_entry);
 
-        let call_staticcall_contract_addr_expr =
-            addr[0].clone() * pow_of_two::<F>(128) + addr[1].clone();
-        let call_staticcall_sender_addr_expr =
-            sender_addr[0].clone() * pow_of_two::<F>(128) + sender_addr[1].clone();
+        let storage_contract_addr = storage_contract_addr_hi_lo[0].clone() * pow_of_two::<F>(128)
+            + storage_contract_addr_hi_lo[1].clone();
 
-        // 如果是DELEGATECALL， contract_address和sender_addrress只使用lookup约束
-        // 如果是CALL和STATICCALL使用lookup约束，并进行以下约束
+        let stack_addr =
+            stack_addr_hi_lo[0].clone() * pow_of_two::<F>(128) + stack_addr_hi_lo[1].clone();
+        let write_sender_addr =
+            sender_addr_hi_lo[0].clone() * pow_of_two::<F>(128) + sender_addr_hi_lo[1].clone();
+        let read_sender_addr =
+            read_sender_addr_hi.clone() * pow_of_two::<F>(128) + read_sender_addr_lo.clone();
+
         constraints.extend([
             (
-                "opcode==CALL or STATICCALL --> storage_contract_addr == addr hi and storage_contract_addr == addr lo".into(),
-                storage_contract_addr_expr.clone() - selector.select(&[
-                    call_staticcall_contract_addr_expr.clone(),
-                    call_staticcall_contract_addr_expr.clone(),
-                    code_addr_cur.clone(),
-                ]),
+                "opcode==CALL or STATICCALL --> storage_contract_addr == stack_addr, opcode == DELEGATECALL ---> storage_contract_addr==cur_code_addr".into(),
+                storage_contract_addr.clone()
+                    - selector.select(&[
+                    stack_addr.clone(),
+                    stack_addr.clone(),
+                        code_addr_cur.clone(),
+                    ]),
             ),
-            // 约束数据为CALL指令的调用方地址
             (
-                "sender_addr == current code_addr ".into(),
-                call_staticcall_sender_addr_expr.clone() - selector.select(&[
-                    code_addr_cur.clone(),
-                    code_addr_cur.clone(),
-                    // todo: 这里应该是parent的sender-addr
-                    call_staticcall_sender_addr_expr.clone(),
-                ]),
+                "opcode==CALL or STATICCALL --> sender_addr == cur_code_addr, opcode == DELEGATECALL --->  sender_addr== parent_addr".into(),
+                write_sender_addr.clone()
+                    - selector.select(&[
+                        code_addr_cur.clone(),
+                        code_addr_cur.clone(),
+                        read_sender_addr.clone(),
+                    ]),
+            ),
+            // If it is CALL or STATICCALL, the value of read_sender_addr is the sender addr just written(write_sender_addr_expr).
+            // If it is DELEGATECALL, the value of read_sender_addr is the parant addr read.
+            (
+                "read_sender_addr == write sender_addr ".into(),
+                read_sender_addr.clone()
+                    - selector.select(&[
+                        write_sender_addr.clone(),
+                        write_sender_addr.clone(),
+                        write_sender_addr.clone(),
+                    ]),
             ),
         ]);
         // append opcode constraint
@@ -208,7 +224,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id: ExpressionOutcome::To(call_id_new),
             // call指令开始执行，所以next为call的操作数addr
             code_addr: ExpressionOutcome::To(
-                addr[0].clone() * pow_of_two::<F>(128) + addr[1].clone(),
+                stack_addr_hi_lo[0].clone() * pow_of_two::<F>(128) + stack_addr_hi_lo[1].clone(),
             ),
             // tx_id 不变，因为还在同一笔交易执行中
             ..Default::default()
@@ -244,6 +260,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 即将执行的call_id对应的调用方地址
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
 
+        let call_context_sender_read_lookup = query_expression(meta, |meta| {
+            config.get_state_lookup_by_rotation(meta, Rotation(-2), 0)
+        });
+
         // 将core 电路中数据在state电路中lookup
         vec![
             ("stack read gas".into(), stack_lookup_0),
@@ -255,6 +275,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "callcontext write sender_addr".into(),
                 call_context_lookup_1,
+            ),
+            (
+                "callcontext read sender_addr".into(),
+                call_context_sender_read_lookup,
             ),
         ]
     }
@@ -296,21 +320,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id_new,
         );
 
-        //  如果是delegate需要获取parent.senderAddress
-        // let call_context_read_row_1 = if trace.op == OpcodeId::DELEGATECALL {
-        //     current_state.get_call_context_read_row_with_arbitrary_tag(
-        //         state::CallContextTag::SenderAddr,
-        //         sender_addr,
-        //         current_state.call_id,
-        //     )
-        // } else {
-        //     // 为了便于约束的辨析，这里多做一次call_id_new的查询
-        //     current_state.get_call_context_read_row_with_arbitrary_tag(
-        //         state::CallContextTag::SenderAddr,
-        //         sender_addr,
-        //         current_state.call_id_new,
-        //     )
-        // };
+        //  DELEGATECALL的senderAddress需要获取parent.senderAddress
+        let call_context_read_row_1 = if trace.op == OpcodeId::DELEGATECALL {
+            current_state.get_call_context_read_row_with_arbitrary_tag(
+                state::CallContextTag::SenderAddr,
+                sender_addr,
+                current_state.call_id,
+            )
+        } else {
+            // 为了便于约束的编写，这里多做一次call_id_new的查询
+            current_state.get_call_context_read_row_with_arbitrary_tag(
+                state::CallContextTag::SenderAddr,
+                sender_addr,
+                current_state.call_id_new,
+            )
+        };
 
         // 记录CALL指令调用所需的的合约addr和调用方地址
         current_state
@@ -323,6 +347,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 更新stack pointer=0标识开始进行的CALL指令操作；
         current_state.stack_pointer = 0;
+
+        let mut core_row_2 = current_state.get_core_row_without_versatile(trace, 2);
+        core_row_2.insert_state_lookups([&call_context_read_row_1]);
 
         // 在调用方的环境下生成core_row_1/0; 此时code_addr，call_id还未更新为将执行的CALL
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
@@ -359,13 +386,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         current_state.code_addr = addr;
 
         Witness {
-            core: vec![core_row_1, core_row_0],
+            core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![
                 stack_read_0,
                 stack_read_1,
                 call_context_write_row_0,
                 call_context_write_row_1,
-                //call_context_read_row_1,
+                call_context_read_row_1,
             ],
             ..Default::default()
         }
@@ -384,6 +411,7 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
+
     generate_execution_gadget_test_circuit!();
     #[test]
     fn assign_and_constraint() {
