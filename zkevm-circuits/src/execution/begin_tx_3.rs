@@ -158,7 +158,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             Some(current_state.returndata_call_id.into()),
         );
         let mut core_row_2 = current_state.get_core_row_without_versatile(&trace, 2);
-        let public_row = current_state.get_public_tx_is_create_row();
+        let public_row = current_state.get_public_tx_row(public::Tag::TxIsCreateAndStatus, 0);
         core_row_2.insert_public_lookup(0, &public_row);
         let call_data_len = current_state
             .call_data_size

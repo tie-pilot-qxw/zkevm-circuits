@@ -85,7 +85,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_cur_single_purpose_constraints(meta, NUM_ROW, delta_core));
 
-        // constraints for BlockTxLogNumAndDifficulty lookup
+        // constraints for BlockTxLogNumAndPrevrandao lookup
         let tx_log_num_entry = config.get_public_lookup(meta, 0);
         let (_, _, [tx_num, _, _, _]) =
             extract_lookup_expression!(public, tx_log_num_entry.clone());
@@ -93,7 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_public_constraints(
             meta,
             tx_log_num_entry,
-            (public::Tag::BlockTxLogNumAndDifficulty as u8).expr(),
+            (public::Tag::BlockTxLogNumAndPrevrandao as u8).expr(),
             Some(block_idx.clone()),
             [None, None, None, None],
         ));
@@ -198,7 +198,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get the public lookup of BlockTxLogNum
         core_row_2.insert_public_lookup(
             0,
-            &current_state.get_public_tx_row(public::Tag::BlockTxLogNumAndDifficulty, 0),
+            &current_state.get_public_tx_row(public::Tag::BlockTxLogNumAndPrevrandao, 0),
         );
 
         Witness {

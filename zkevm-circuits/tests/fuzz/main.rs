@@ -925,7 +925,7 @@ fn mutate_public_tag(origin_value: public::Tag, mut value_delta: usize) -> publi
         2 => public::Tag::BlockHash,
         3 => public::Tag::BlockCoinbaseAndTimestamp,
         4 => public::Tag::BlockGasLimitAndBaseFee,
-        5 => public::Tag::BlockTxLogNumAndDifficulty,
+        5 => public::Tag::BlockTxLogNumAndPrevrandao,
         6 => public::Tag::TxIsCreateAndStatus,
         7 => public::Tag::TxFromValue,
         8 => public::Tag::TxToCallDataSize,

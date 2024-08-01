@@ -150,12 +150,14 @@ pub struct WitnessExecHelper {
     pub block_gaslimit: U256,
     // 存储当前 block 的 BASEFEE
     pub basefee: U256,
-    // 存储当前 block 的 DIFFICULTY
-    pub difficulty: U256,
+    // 存储当前 block 的 PREVRANDAO (mix hash)
+    pub prevrandao: U256,
     // 存储当前 tx 的 GASLIMIT
     pub tx_gaslimit: U256,
     // 存储当前 tx 的 gasprice
     pub tx_gasprice: U256,
+    // 存储当前的 ChainID
+    pub chain_id: U256,
 }
 
 impl WitnessExecHelper {
@@ -210,9 +212,10 @@ impl WitnessExecHelper {
             coinbase: 0.into(),
             block_gaslimit: 0.into(),
             basefee: 0.into(),
-            difficulty: 0.into(),
+            prevrandao: 0.into(),
             tx_gaslimit: 0.into(),
             tx_gasprice: 0.into(),
+            chain_id: 0.into(),
         }
     }
 
@@ -2070,7 +2073,7 @@ impl WitnessExecHelper {
                     "tx_value[16..]".into(),
                 ]
             }
-            public::Tag::BlockTxLogNumAndDifficulty => {
+            public::Tag::BlockTxLogNumAndPrevrandao => {
                 values = [
                     Some(
                         self.tx_num_in_block
@@ -2086,14 +2089,14 @@ impl WitnessExecHelper {
                             .to_owned()
                             .into(),
                     ),
-                    Some(self.difficulty >> 128),
-                    Some(self.difficulty.low_u128().into()),
+                    Some(self.prevrandao >> 128),
+                    Some(self.prevrandao.low_u128().into()),
                 ];
                 value_comments = [
                     "tx_num_in_block".into(),
                     "log_num_in_block".into(),
-                    "difficulty_hi".into(),
-                    "difficulty_lo".into(),
+                    "prevrandao_hi".into(),
+                    "prevrandao_lo".into(),
                 ];
                 block_tx_idx = self.block_idx;
             }
@@ -2128,6 +2131,70 @@ impl WitnessExecHelper {
                 ];
                 block_tx_idx = 0;
             }
+            public::Tag::TxIsCreateAndStatus => {
+                values = [
+                    Some((self.is_create as u8).into()),
+                    Some(self.call_data_gas_cost().into()),
+                    Some(
+                        self.call_data_size
+                            .get(&self.call_id)
+                            .unwrap_or(&U256::zero())
+                            .into(),
+                    ),
+                    Some(0.into()), // tx_status
+                ];
+                value_comments = [
+                    "is_create".into(),
+                    "call_data_gas_cost".into(),
+                    "call_data_length".into(),
+                    "tx_status".into(),
+                ];
+            }
+            public::Tag::BlockCoinbaseAndTimestamp => {
+                values = [
+                    Some(self.coinbase >> 128),
+                    Some(self.coinbase.low_u128().into()),
+                    Some(self.timestamp >> 128),
+                    Some(self.timestamp.low_u128().into()),
+                ];
+                value_comments = [
+                    "block_coinbase_hi".into(),
+                    "block_coinbase_lo".into(),
+                    "block_timestamp_hi".into(),
+                    "block_timestamp_lo".into(),
+                ];
+                block_tx_idx = self.block_idx;
+            }
+            public::Tag::BlockGasLimitAndBaseFee => {
+                values = [
+                    Some(0.into()),
+                    Some(self.block_gaslimit.into()),
+                    Some(self.basefee >> 128),
+                    Some(self.basefee.low_u128().into()),
+                ];
+                value_comments = [
+                    "0".into(),
+                    "block_gaslimit".into(),
+                    "basefee_hi".into(),
+                    "basefee_lo".into(),
+                ];
+                block_tx_idx = self.block_idx;
+            }
+            public::Tag::ChainId => {
+                values = [
+                    Some(self.chain_id >> 128),
+                    Some(self.chain_id.low_u128().into()),
+                    None,
+                    None,
+                ];
+                value_comments = [
+                    "chain_id_hi".into(),
+                    "chain_id_lo".into(),
+                    "".into(),
+                    "".into(),
+                ];
+                block_tx_idx = 0;
+            }
             _ => panic!(),
         };
 
@@ -2153,35 +2220,7 @@ impl WitnessExecHelper {
         public_row
     }
 
-    pub fn get_public_tx_is_create_row(&self) -> public::Row {
-        let mut comments = HashMap::new();
-        comments.insert(format!("vers_{}", 20), format!("tag={}", "TxIsCreate"));
-        comments.insert(format!("vers_{}", 21), "tx_idx".into());
-        comments.insert(format!("vers_{}", 22), "is_create".into());
-        comments.insert(format!("vers_{}", 23), "call_data_gas_cost".into());
-        comments.insert(format!("vers_{}", 24), "call_data_length".into());
-        comments.insert(format!("vers_{}", 25), "tx_status".into());
-
-        let public_row = public::Row {
-            tag: public::Tag::TxIsCreateAndStatus,
-            block_tx_idx: Some(U256::from(self.get_block_tx_idx())),
-            value_0: Some((self.is_create as u8).into()),
-            value_1: Some(self.call_data_gas_cost().into()),
-            value_2: Some(
-                self.call_data_size
-                    .get(&self.call_id)
-                    .unwrap_or(&U256::zero())
-                    .into(),
-            ),
-            value_3: Some(0.into()), // tx_status
-            comments,
-            ..Default::default()
-        };
-
-        public_row
-    }
-
-    // get public row for codehash or codesize
+    // get public row for codehash or codesize by code_addr
     pub fn get_public_code_info_row(&self, tag: public::Tag, code_addr: U256) -> public::Row {
         let bytecode = self
             .bytecode
@@ -3358,6 +3397,7 @@ impl Witness {
             .number
             .unwrap_or(1.into())
             .as_u64();
+        current_state.chain_id = chunk_data.chain_id;
 
         // insert begin chunk
         witness.insert_begin_chunk(&mut current_state, &execution_gadgets_map);
@@ -3380,7 +3420,7 @@ impl Witness {
             current_state.coinbase = block.eth_block.author.unwrap().as_bytes().into();
             current_state.block_gaslimit = block.eth_block.gas_limit;
             current_state.basefee = block.eth_block.base_fee_per_gas.unwrap();
-            current_state.difficulty = block.eth_block.difficulty;
+            current_state.prevrandao = block.eth_block.mix_hash.unwrap().as_bytes().into();
 
             current_state.preprocess_storage(block);
 

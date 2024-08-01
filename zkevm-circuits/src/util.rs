@@ -2,8 +2,8 @@ use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::geth_types::{Account, ChunkData, GethData};
-use eth_types::ToAddress;
 use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
+use eth_types::{ToAddress, H256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::plonk::{
@@ -362,6 +362,7 @@ pub fn chunk_data_test(
         base_fee_per_gas: Some(1000000000.into()),
         gas_limit: U256::from_str("0x2540b91f8").unwrap_or_default(),
         transactions: vec![tx],
+        mix_hash: Some(H256::zero()), // evm without prevstate default to zero
         ..Default::default()
     };
     let account = Account {
