@@ -693,8 +693,8 @@ impl WitnessExecHelper {
         (res, value)
     }
 
-    pub fn get_call_context_read_row(&mut self, trace_step: &GethExecStep) -> (state::Row, U256) {
-        let (value, tag) = match trace_step.op {
+    pub fn get_call_context_read_row(&mut self, op: OpcodeId) -> (state::Row, U256) {
+        let (value, tag) = match op {
             OpcodeId::CALLDATASIZE => (
                 self.call_data
                     .get(&self.call_id)
@@ -712,8 +712,15 @@ impl WitnessExecHelper {
                 self.value.get(&self.call_id).unwrap().clone(),
                 CallContextTag::Value,
             ),
+            OpcodeId::ADDRESS => (
+                self.storage_contract_addr
+                    .get(&self.call_id)
+                    .unwrap()
+                    .clone(),
+                CallContextTag::StorageContractAddr,
+            ),
             _ => {
-                panic!("not CALLDATASIZE,CALLER or CALLVALUE")
+                panic!("not CALLDATASIZE, CALLER, CALLVALUE or ADDRESS")
             }
         };
 
