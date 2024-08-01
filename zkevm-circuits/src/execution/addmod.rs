@@ -35,7 +35,7 @@ pub struct AddmodGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
-/// Add Execution State layout is as follows
+/// Addmod Execution State layout is as follows
 /// where STATE means state table lookup,
 /// ARITH means arithmetic table lookup,
 /// DYNA_SELECTOR is dynamic selector of the state,
@@ -142,7 +142,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             )
         }));
 
-        // Add constraints for opcode and arithmetic tag.
+        // Addmod constraints for opcode and arithmetic tag.
         constraints.extend([
             ("opcode".into(), opcode - OpcodeId::ADDMOD.as_u8().expr()),
             (
