@@ -195,9 +195,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             [value_0, value_1, value_2, value_3],
         ));
 
-        // opCode constraints
+        // opcode constraints
         constraints.push((
-            "opCode constraints".into(),
+            "opcode constraints".into(),
             selector.select(&[
                 opcode.clone() - OpcodeId::TIMESTAMP.as_u64().expr(),
                 opcode.clone() - OpcodeId::NUMBER.as_u64().expr(),
