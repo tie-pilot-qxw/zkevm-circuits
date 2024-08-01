@@ -1176,6 +1176,7 @@ impl FromStr for OpcodeId {
             "TIMESTAMP" => OpcodeId::TIMESTAMP,
             "NUMBER" => OpcodeId::NUMBER,
             "DIFFICULTY" => OpcodeId::DIFFICULTY,
+            "PREVRANDAO" => OpcodeId::DIFFICULTY,
             "GASLIMIT" => OpcodeId::GASLIMIT,
             "SLOAD" => OpcodeId::SLOAD,
             "SSTORE" => OpcodeId::SSTORE,

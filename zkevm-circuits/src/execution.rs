@@ -2500,10 +2500,8 @@ impl ExecutionState {
             | OpcodeId::NUMBER
             | OpcodeId::GASLIMIT
             | OpcodeId::CHAINID
-            | OpcodeId::BASEFEE => vec![Self::PUBLIC_CONTEXT],
-            OpcodeId::DIFFICULTY => {
-                todo!()
-            }
+            | OpcodeId::BASEFEE
+            | OpcodeId::DIFFICULTY => vec![Self::PUBLIC_CONTEXT],
             OpcodeId::SELFBALANCE => {
                 vec![Self::SELFBALANCE]
             }

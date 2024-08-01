@@ -64,7 +64,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_public_constraints(
             meta,
             tx_num_entry,
-            (public::Tag::BlockTxLogNumAndDifficulty as u8).expr(),
+            (public::Tag::BlockTxLogNumAndPrevrandao as u8).expr(),
             Some(block_idx.clone()),
             [None, None, None, None],
         ));
@@ -148,7 +148,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // core_row_2添加public entry记录总的交易数，
         core_row_2.insert_public_lookup(
             0,
-            &current_state.get_public_tx_row(public::Tag::BlockTxLogNumAndDifficulty, 0),
+            &current_state.get_public_tx_row(public::Tag::BlockTxLogNumAndPrevrandao, 0),
         );
 
         // 根据next exec state 填充core row0 的 下一个状态是begin_tx_1(列25) 还是 end_block(列26),分别在对应的列置为1

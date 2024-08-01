@@ -67,8 +67,8 @@ pub enum Tag {
     BlockCoinbaseAndTimestamp,
     // block gas limit, and the BaseFee
     BlockGasLimitAndBaseFee,
-    // the total number of txs and logs in a block, and the block difficulty
-    BlockTxLogNumAndDifficulty,
+    // the total number of txs and logs in a block, and the block Prevrandao
+    BlockTxLogNumAndPrevrandao,
 
     // TxIsCreateAndStatus :  include tx is create and call data gas cost, and tx status
     TxIsCreateAndStatus,
@@ -257,25 +257,25 @@ impl Row {
             });
 
             let log_num: usize = block.logs.iter().map(|log_data| log_data.logs.len()).sum();
-            // The total number of txs and logs in a block, and Block Difficulty
-            // | BlockTxLogNumAndDifficulty | block index | tx_num | log_num | BlockDifficulty[..16] | BlockDifficulty[16..] |
+            // The total number of txs and logs in a block, and Block prevrandao
+            // | BlockTxLogNumAndPrevrandao | block index | tx_num | log_num | BlockPrevrandao[..16] | BlockPrevrandao[16..] |
             result.push(Row {
-                tag: Tag::BlockTxLogNumAndDifficulty,
+                tag: Tag::BlockTxLogNumAndPrevrandao,
                 // block index
                 block_tx_idx: Some(block_idx.into()),
                 value_0: Some(block.eth_block.transactions.len().into()),
                 value_1: Some(log_num.into()),
-                // difficulty high 16 byte
+                // prevrandao high 16 byte
                 value_2: Some(block_constant.difficulty.to_be_bytes()[..16].into()),
-                // difficulty low 16 byte
+                // prevrandao low 16 byte
                 value_3: Some(block_constant.difficulty.to_be_bytes()[16..].into()),
                 comments: [
                     ("tag".into(), "BlockTxLogNum".into()),
                     ("block_tx_idx".into(), "block index".into()),
                     ("value_0".into(), "tx_num".into()),
                     ("value_1".into(), "log_num".into()),
-                    ("value_2".into(), "BlockDifficulty[..16]".into()),
-                    ("value_3".into(), "BlockDifficulty[16..]".into()),
+                    ("value_2".into(), "BlockPrevrandao[..16]".into()),
+                    ("value_3".into(), "BlockPrevrandao[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),

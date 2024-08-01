@@ -83,7 +83,7 @@ impl<TX> TryFrom<&Block<TX>> for BlockConstants {
             coinbase: block.author.ok_or(Error::IncompleteBlock)?,
             timestamp: block.timestamp,
             number: block.number.ok_or(Error::IncompleteBlock)?,
-            difficulty: block.difficulty,
+            difficulty: block.mix_hash.ok_or(Error::IncompleteBlock)?.to_word(),
             gas_limit: block.gas_limit,
             base_fee: block.base_fee_per_gas.ok_or(Error::IncompleteBlock)?,
         })
