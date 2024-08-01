@@ -2386,7 +2386,8 @@ impl ExecutionState {
             OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATUS_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
 
-            OpcodeId::PUSH1
+            OpcodeId::PUSH0
+            | OpcodeId::PUSH1
             | OpcodeId::PUSH2
             | OpcodeId::PUSH3
             | OpcodeId::PUSH4

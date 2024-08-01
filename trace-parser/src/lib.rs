@@ -40,8 +40,8 @@ pub fn assemble_file<P: AsRef<Path>>(file_path: P) -> Vec<u8> {
         let mut it = line.split_whitespace();
         let opcode = OpcodeId::from_str(it.next().unwrap()).unwrap();
         res.push(opcode.as_u8());
-        if opcode.is_push() {
-            let mut push_length = opcode.as_u64() - OpcodeId::PUSH1.as_u64() + 1;
+        if opcode.is_push_with_data() {
+            let mut push_length = opcode.as_u64() - OpcodeId::PUSH0.as_u64();
             match it.next() {
                 Some(s) => match parse_u256(s) {
                     Ok(mut n) => {
@@ -382,6 +382,6 @@ mod tests {
     fn trace_and_parse() {
         let bytecode = assemble_file("debug/1.txt");
         let trace = trace_program(&bytecode, &[]);
-        assert_eq!(4, trace.struct_logs.len());
+        assert_eq!(5, trace.struct_logs.len());
     }
 }
