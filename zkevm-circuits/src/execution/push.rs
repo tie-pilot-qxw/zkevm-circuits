@@ -1,4 +1,3 @@
-use crate::constant::{NUM_AUXILIARY, OPCODE_IS_PUSH0_IDX};
 use crate::execution::{
     AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -8,17 +7,16 @@ use crate::witness::WitnessExecHelper;
 use crate::witness::{assign_or_panic, Witness};
 use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep, U256};
-use gadgets::util::Expr;
+use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-use super::gas;
-
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 1;
-
+/// opcode is push0 idx in row one  
+const OPCODE_IS_PUSH0_IDX: usize = 8;
 pub struct PushGadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -29,12 +27,12 @@ pub struct PushGadget<F: Field> {
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
-/// where IS_PUSH0(one column) means whether the opcode is PUSH0
+/// where IP0(one column,idx is 8) means whether the opcode is PUSH0
 /// +---+-------+-------+-------+----------+
 /// |cnt| 8 col | 8 col | 8 col |  8 col   |
 /// +---+-------+-------+-------+----------+
-/// | 1 | STATE |       |       | BYTEFULL |
-/// | 0 | DYNA_SELECTOR   | AUX    |IS_PUSH0|
+/// | 1 | STATE |IP0    |       | BYTEFULL |
+/// | 0 | DYNA_SELECTOR   | AUX            |
 /// +---+-------+-------+-------+----------+
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for PushGadget<F>
@@ -63,18 +61,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let pc_cur = meta.query_advice(config.pc, Rotation::cur());
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let is_push0 = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + OPCODE_IS_PUSH0_IDX],
-            Rotation::cur(),
+        let is_push0 = meta.query_advice(config.vers[OPCODE_IS_PUSH0_IDX], Rotation::prev());
+        // PUSH1-PUSH32 gas cost is FASTEST,
+        // PUSH0 gas cost is QUICK,
+        let gas_cost = select::expr(
+            is_push0.clone(),
+            -OpcodeId::PUSH0.constant_gas_cost().expr(),
+            -OpcodeId::PUSH1.constant_gas_cost().expr(),
         );
-        let gas_left = is_push0.clone() * (-OpcodeId::PUSH0.constant_gas_cost().expr())
-            + (1.expr() - is_push0.clone()) * (-OpcodeId::PUSH1.constant_gas_cost().expr());
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            // PUSH1-PUSH32 gas cost is FASTEST,
-            // Only one of the representatives is used here
-            gas_left: ExpressionOutcome::Delta(gas_left),
+            gas_left: ExpressionOutcome::Delta(gas_cost),
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
@@ -95,8 +93,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "opcode is one of push".into(),
-                is_push0.clone() * is_push.clone()
-                    + (1.expr() - is_push0.clone()) * (is_push.clone() - 1.expr()),
+                (1.expr() - is_push0.clone()) * (is_push.clone() - 1.expr()),
             ),
             (
                 "value_hi = push_value".into(),
@@ -129,8 +126,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 is_push0.clone() * (value_lo - 0.expr()),
             ),
         ]);
-
-        constraints.extend([]);
         let delta_core = CoreSinglePurposeOutcome {
             pc: ExpressionOutcome::Delta(cnt + 1.expr()),
             ..Default::default()
@@ -165,19 +160,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_1.code_addr,
             current_state.stack_top,
         );
-        let mut core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
+        let is_push0 = if trace.op == OpcodeId::PUSH0 {
+            U256::one()
+        } else {
+            U256::zero()
+        };
+        assign_or_panic!(core_row_1[OPCODE_IS_PUSH0_IDX], is_push0);
+        let core_row_0 = ExecutionState::PUSH.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        let is_push0 = if trace.op == OpcodeId::PUSH0 {
-            Some(U256::one())
-        } else {
-            Some(U256::zero())
-        };
-        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + OPCODE_IS_PUSH0_IDX] =
-            is_push0;
 
         Witness {
             bytecode: vec![],

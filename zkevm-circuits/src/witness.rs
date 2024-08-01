@@ -3223,19 +3223,6 @@ impl Witness {
                     i.value_hi = value_hi;
                     i.value_lo = value_lo;
                 }
-            } else if op.is_push() {
-                // 如果为push0,那么bytecode中插入两行
-                this_op.push(bytecode::Row {
-                    addr: Some(addr),
-                    pc: Some(pc.into()),
-                    bytecode: Some(op.as_u64().into()),
-                    hash_hi: Some(hash_hi.into()),
-                    hash_lo: Some(hash_lo.into()),
-                    length: Some(real_machine_code_len.into()),
-                    ..Default::default()
-                });
-
-                pc += 1;
             } else {
                 this_op.push(bytecode::Row {
                     addr: Some(addr),
