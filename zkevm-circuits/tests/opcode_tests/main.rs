@@ -111,6 +111,7 @@ mod push8; //67
 mod push9; //68
 mod return_; //F2
              // mod revert; //FD
+mod balance;
 mod codesize; // 38
 mod sar; // 1D
 mod sdiv;
