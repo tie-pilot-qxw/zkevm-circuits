@@ -5,6 +5,8 @@ use eth_types::bytecode;
 fn address_bytecode() {
     let bytecode = bytecode! {
         ADDRESS
+        ADDRESS
+        SUB
         STOP
     };
     test_super_circuit_short_bytecode!(bytecode);

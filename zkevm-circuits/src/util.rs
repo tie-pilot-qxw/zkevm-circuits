@@ -344,7 +344,7 @@ pub fn chunk_data_test(
         history_hashes.push(i.into())
     }
     let mut tx = Transaction::default();
-    let to: Address = [0xaa; 20].into();
+    let to = Address::from_str("0x0000000000000000000000007265636569766572").unwrap_or_default();
     if !is_create {
         tx.input = input.to_vec().into();
         tx.to = Some(to);

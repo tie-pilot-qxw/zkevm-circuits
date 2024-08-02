@@ -255,10 +255,10 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
                     )
                     .unwrap_or_default();
                     // let log_address = H160::from_str(temp_splits[1]).unwrap();
-                    // for in fn chunk_data_test, has assigned code_addr = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+                    // for in fn chunk_data_test, has assigned code_addr = 0x0000000000000000000000007265636569766572,
                     // so not parsed from log result
                     let log_address =
-                        Address::from_str("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+                        Address::from_str("0x0000000000000000000000007265636569766572").unwrap();
                     let block_num: u64 =
                         str::parse(temp_splits[2].strip_prefix("bn=").unwrap_or_default())
                             .unwrap_or_default();

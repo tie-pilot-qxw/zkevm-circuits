@@ -21,11 +21,12 @@ const STATE_STAMP_DELTA: u64 = 4;
 const TAG_IDX: usize = 23;
 const PC_DELTA: u64 = 1;
 
-/// CODEINFO overview:
-///   pop a value from the top of the stack: address, get the corresponding codehash or codesize according to the address,
+/// EXTCODEINFO overview:
+/// pop a value from the top of the stack: address,
+/// get the corresponding codehash or codesize according to the address,
 /// and write the codehash to the top of the stack
 ///
-/// CODEINFO Execution State layout is as follows
+/// EXTCODEINFO Execution State layout is as follows
 /// where STATE means state table lookup,
 /// DYNA_SELECTOR is dynamic selector of the state,
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
@@ -34,7 +35,7 @@ const PC_DELTA: u64 = 1;
 /// WARM_W means is_warm_write lookup
 /// PUBLIC means public lookup
 /// STATE1 means state table lookup(pop)
-/// STATE2 means state table lookup(pop)
+/// STATE2 means state table lookup(push)
 /// ARITH means arithmetic u64overflow lookup
 /// TAG1 means tag for EXTCODEHASH
 /// TAG2 means tag for EXTCODESIZE
@@ -45,17 +46,17 @@ const PC_DELTA: u64 = 1;
 /// | 1 | STATE1 | STATE2 |ARITH|TAG1|TAG2 |
 /// | 0 | DYNA_SELECTOR   | AUX |          |
 /// +---+-------+-------+-------+----------+
-pub struct CodeInfoGadget<F: Field> {
+pub struct ExtCodeInfoGadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for CodeInfoGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for ExtCodeInfoGadget<F>
 {
     fn name(&self) -> &'static str {
-        "CODEINFO"
+        "EXTCODEINFO"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::CODEINFO
+        ExecutionState::EXTCODEINFO
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -278,7 +279,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // row0
-        let core_row_0 = ExecutionState::CODEINFO.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::EXTCODEINFO.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -295,7 +296,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(CodeInfoGadget {
+    Box::new(ExtCodeInfoGadget {
         _marker: PhantomData,
     })
 }
@@ -358,7 +359,7 @@ mod test {
     }
 
     #[test]
-    fn test_codeinfo() {
+    fn test_extcodeinfo() {
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
         let stack = Stack::from_slice(&[code_addr]);
@@ -384,7 +385,7 @@ mod test {
     }
 
     #[test]
-    fn test_codeinfo2() {
+    fn test_extcodeinfo2() {
         let code_addr =
             U256::from_str_radix("0xe7f1725e7734ce288f8367e1bb143e90bb3f0512", 16).unwrap();
         let stack = Stack::from_slice(&[code_addr]);

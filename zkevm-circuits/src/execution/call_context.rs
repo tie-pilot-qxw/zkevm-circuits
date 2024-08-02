@@ -14,12 +14,12 @@ use std::marker::PhantomData;
 const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: u64 = 2;
 const STACK_POINTER_DELTA: i32 = 1;
-const CORE_ROW_1_START_COL_IDX: usize = 29;
+const CORE_ROW_1_START_COL_IDX: usize = 28;
 
-/// CallContextGadget deal OpCodeId:{CALLDATASIZE, CALLER, CALLVALUE}
+/// CallContextGadget deal OpCodeId:{CALLDATASIZE, CALLER, CALLVALUE, ADDRESS}
 /// STATE0 read value from call_context
 /// STATE1 write value to stack
-/// TAGSELECTOR 3 columns
+/// TAGSELECTOR 4 columns
 /// +---+-------+-------+------------------+
 /// |cnt| 8 col | 8 col |     16 col       |
 /// +---+-------+-------+------------------+
@@ -49,13 +49,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
-            // CALLER, CALLVALUE, CALLDATASIZE gas cost is QUICK,
+            // CALLER, CALLVALUE, CALLDATASIZE and ADDRESS gas cost is QUICK,
             // Only one of the representatives is used here
             gas_left: ExpressionOutcome::Delta(-OpcodeId::CALLER.constant_gas_cost().expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
@@ -70,20 +69,40 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev());
         let callvalue_tag =
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev());
+        let address_tag =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev());
         // create a simple selector representing:
         // - CALLDATASIZE,
         // - CALLER,
         // - CALLVALUE,
-        let selector = SimpleSelector::new(&[calldatasize_tag, caller_tag, callvalue_tag]);
+        // - ADDRESS.
+        let selector =
+            SimpleSelector::new(&[calldatasize_tag, caller_tag, callvalue_tag, address_tag]);
+        constraints.extend(selector.get_constraints());
 
-        let mut operands = vec![];
+        // opcode constraints
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        constraints.extend([(
+            "opcode is correct".into(),
+            opcode
+                - selector.select(&[
+                    OpcodeId::CALLDATASIZE.as_u8().expr(),
+                    OpcodeId::CALLER.as_u8().expr(),
+                    OpcodeId::CALLVALUE.as_u8().expr(),
+                    OpcodeId::ADDRESS.as_u8().expr(),
+                ]),
+        )]);
 
+        // select call context tag
         let call_context_tag = selector.select(&[
             (CallContextTag::CallDataSize as u8).expr(),
             (CallContextTag::SenderAddr as u8).expr(),
             (CallContextTag::Value as u8).expr(),
+            (CallContextTag::StorageContractAddr as u8).expr(),
         ]);
 
+        // get operands from lookups and constraints them
+        let mut operands = vec![];
         for i in 0..2 {
             let entry = config.get_state_lookup(meta, i);
 
@@ -103,7 +122,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     entry.clone(),
                     i,
                     NUM_ROW,
-                    1.expr(),
+                    STACK_POINTER_DELTA.expr(),
                     true,
                 ));
             }
@@ -111,31 +130,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             operands.push([value_hi, value_lo]);
         }
-
-        let a = &operands[0];
-        let b = &operands[1];
-
-        constraints.extend(selector.get_constraints());
-
-        // opcode constraints
-        constraints.extend([(
-            "opcode is correct".into(),
-            opcode
-                - selector.select(&[
-                    OpcodeId::CALLDATASIZE.as_u8().expr(),
-                    OpcodeId::CALLER.as_u8().expr(),
-                    OpcodeId::CALLVALUE.as_u8().expr(),
-                ]),
-        )]);
-
+        // constraints call context value = stack push value
+        let call_context_value = &operands[0];
+        let stack_push_value = &operands[1];
         constraints.extend([
             (
-                "pop value_hi = push value_hi".into(),
-                a[0].clone() - b[0].clone(),
+                "call context value hi = stack push value hi".into(),
+                call_context_value[0].clone() - stack_push_value[0].clone(),
             ),
             (
-                "pop value_lo = push value_lo".into(),
-                a[1].clone() - b[1].clone(),
+                "call context value lo = stack push value lo".into(),
+                call_context_value[1].clone() - stack_push_value[1].clone(),
             ),
         ]);
 
@@ -146,17 +151,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         vec![
-            ("call_context pop a".into(), stack_lookup_0),
-            ("stack push b".into(), stack_lookup_1),
+            ("call context read lookup".into(), state_lookup_0),
+            ("stack push lookup".into(), state_lookup_1),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        let (stack_pop_0, value) = current_state.get_call_context_read_row(&trace);
+        let (call_context, value) = current_state.get_call_context_read_row(trace.op);
+        assert_eq!(value, current_state.stack_top.unwrap());
 
-        let stack_push_0 = current_state.get_push_stack_row(trace, value);
+        let stack_push = current_state.get_push_stack_row(trace, value);
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
 
@@ -164,10 +170,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             OpcodeId::CALLDATASIZE => 0,
             OpcodeId::CALLER => 1,
             OpcodeId::CALLVALUE => 2,
-            _ => panic!("not CALLDATASIZE, CALLER or CALLVALUE"),
+            OpcodeId::ADDRESS => 3,
+            _ => panic!("not CALLDATASIZE, CALLER, CALLVALUE or ADDRESS"),
         };
 
-        core_row_1.insert_state_lookups([&stack_pop_0, &stack_push_0]);
+        core_row_1.insert_state_lookups([&call_context, &stack_push]);
         // tag selector
         simple_selector_assign(
             &mut core_row_1,
@@ -175,6 +182,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 CORE_ROW_1_START_COL_IDX,
                 CORE_ROW_1_START_COL_IDX + 1,
                 CORE_ROW_1_START_COL_IDX + 2,
+                CORE_ROW_1_START_COL_IDX + 3,
             ],
             tag,
             |cell, value| assign_or_panic!(*cell, value.into()),
@@ -189,7 +197,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         Witness {
             core: vec![core_row_1, core_row_0],
-            state: vec![stack_pop_0, stack_push_0],
+            state: vec![call_context, stack_push],
             ..Default::default()
         }
     }
@@ -208,111 +216,71 @@ mod test {
     };
     use std::collections::HashMap;
     generate_execution_gadget_test_circuit!();
+
     #[test]
-    fn assign_and_constraint_calldata_size() {
+    fn test_address() {
         let stack = Stack::from_slice(&[]);
-        let stack_pointer = stack.0.len();
+        let mut storage_contract_addr = HashMap::new();
+        storage_contract_addr.insert(0, 0x123.into());
+        let current_state = WitnessExecHelper {
+            stack_pointer: stack.0.len(),
+            stack_top: Some(0x123.into()),
+            gas_left: 0x254023,
+            storage_contract_addr,
+            ..WitnessExecHelper::new()
+        };
+        run(current_state, stack, OpcodeId::ADDRESS);
+    }
+
+    #[test]
+    fn test_calldata_size() {
+        let stack = Stack::from_slice(&[]);
         let mut call_data = HashMap::new();
         call_data.insert(0_u64, vec![1_u8, 2_u8]);
-        let mut current_state = WitnessExecHelper {
+        let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(0xff.into()),
+            stack_top: Some(0x2.into()),
             gas_left: 0x254023,
             call_data,
             ..WitnessExecHelper::new()
         };
-        let gas_left_before_exec = current_state.gas_left + OpcodeId::CALLER.constant_gas_cost();
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALLDATASIZE, stack);
-        trace.gas = gas_left_before_exec;
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(gas_left_before_exec.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 1.into();
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied();
+        run(current_state, stack, OpcodeId::CALLDATASIZE);
     }
 
     #[test]
-    fn assign_and_constraint_caller() {
+    fn test_caller() {
         let stack = Stack::from_slice(&[]);
-        let stack_pointer = stack.0.len();
         let mut sender = HashMap::new();
         sender.insert(0_u64, U256::max_value());
-        let mut current_state = WitnessExecHelper {
+        let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
-            stack_top: Some(0xff.into()),
+            stack_top: Some(U256::max_value()),
             gas_left: 0x254023,
             sender,
             ..WitnessExecHelper::new()
         };
-        let gas_left_before_exec = current_state.gas_left + GasCost::QUICK;
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALLER, stack);
-        trace.gas = gas_left_before_exec;
-        let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
-                Some(gas_left_before_exec.into());
-            row
-        };
-        let padding_end_row = |current_state| {
-            let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
-                &trace,
-                current_state,
-                NUM_STATE_HI_COL,
-                NUM_STATE_LO_COL,
-            );
-            row.pc = 1.into();
-            row
-        };
-        let (witness, prover) =
-            prepare_witness_and_prover!(trace, current_state, padding_begin_row, padding_end_row);
-        witness.print_csv();
-        prover.assert_satisfied();
+        run(current_state, stack, OpcodeId::CALLER);
     }
 
     #[test]
-    fn assign_and_constraint_value() {
+    fn test_call_value() {
         let stack = Stack::from_slice(&[]);
-        let stack_pointer = stack.0.len();
         let mut value = HashMap::new();
-        value.insert(0, U256::zero());
-        let mut current_state = WitnessExecHelper {
+        value.insert(0, 0xff.into());
+        let current_state = WitnessExecHelper {
             stack_pointer: stack.0.len(),
             stack_top: Some(0xff.into()),
             gas_left: 0x254023,
             value,
             ..WitnessExecHelper::new()
         };
-        let gas_left_before_exec = current_state.gas_left + OpcodeId::CALLER.constant_gas_cost();
-        let mut trace = prepare_trace_step!(0, OpcodeId::CALLVALUE, stack);
+        run(current_state, stack, OpcodeId::CALLVALUE);
+    }
+
+    fn run(mut current_state: WitnessExecHelper, stack: Stack, op: OpcodeId) {
+        let stack_pointer = stack.0.len();
+        let gas_left_before_exec = current_state.gas_left + op.constant_gas_cost();
+        let mut trace = prepare_trace_step!(0, op, stack);
         trace.gas = gas_left_before_exec;
         let padding_begin_row = |current_state| {
             let mut row = ExecutionState::END_PADDING.into_exec_state_core_row(
@@ -321,10 +289,10 @@ mod test {
                 NUM_STATE_HI_COL,
                 NUM_STATE_LO_COL,
             );
-            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
-                Some(stack_pointer.into());
             row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] =
                 Some(gas_left_before_exec.into());
+            row[NUM_STATE_HI_COL + NUM_STATE_LO_COL + STACK_POINTER_IDX] =
+                Some(stack_pointer.into());
             row
         };
         let padding_end_row = |current_state| {

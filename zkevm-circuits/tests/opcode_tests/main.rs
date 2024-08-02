@@ -1,7 +1,7 @@
 #![cfg(feature = "evm")]
 mod add; //01
 mod addmod; //08
-            // mod address; //30
+mod address; //30
 mod and; //16
 mod byte; //1A
 mod calldatacopy; //37
