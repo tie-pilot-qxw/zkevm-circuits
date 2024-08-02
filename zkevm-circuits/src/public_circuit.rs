@@ -1203,6 +1203,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "evm")]
     fn test_public_parser() {
         // load instructions
         let machine_code = trace_parser::assemble_file("test_data/1.txt");

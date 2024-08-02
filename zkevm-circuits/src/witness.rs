@@ -3673,6 +3673,7 @@ mod tests {
     use crate::util::chunk_data_test;
 
     #[test]
+    #[cfg(feature = "evm")]
     fn test_data_print_csv() {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code, &[]);

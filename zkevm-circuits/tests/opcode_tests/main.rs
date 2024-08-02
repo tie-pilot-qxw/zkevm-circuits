@@ -1,3 +1,4 @@
+#![cfg(feature = "evm")]
 mod add; //01
 mod addmod; //08
             // mod address; //30
