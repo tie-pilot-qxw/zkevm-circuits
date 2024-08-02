@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::BLOCK_IDX_LEFT_SHIFT_NUM;
+use crate::core_circuit::concat_block_tx_idx_expr;
 use crate::execution::{
     begin_tx_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -83,8 +83,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let tx_is_create = meta.query_advice(config.tx_is_create, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
-        let block_tx_idx =
-            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+        let block_tx_idx = concat_block_tx_idx_expr(block_idx.clone(), tx_idx.clone());
 
         let gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
         let public_entry = config.get_public_lookup(meta, 1);

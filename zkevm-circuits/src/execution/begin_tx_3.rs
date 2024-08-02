@@ -5,7 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::arithmetic_circuit::operation;
-use crate::constant::{BLOCK_IDX_LEFT_SHIFT_NUM, GAS_LEFT_IDX};
+use crate::constant::GAS_LEFT_IDX;
+use crate::core_circuit::concat_block_tx_idx_expr;
 use crate::execution::{
     AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
 };
@@ -73,8 +74,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
-        let block_tx_idx =
-            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+        let block_tx_idx = concat_block_tx_idx_expr(block_idx.clone(), tx_idx.clone());
 
         // auxiliary and single purpose constraints
         let (gas_cost, gas_constraints) =

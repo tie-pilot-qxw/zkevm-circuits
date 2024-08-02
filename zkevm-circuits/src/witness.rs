@@ -176,6 +176,8 @@ pub struct WitnessExecHelper {
     pub call_is_success_offset: usize,
     // call是否调用成功的上下文，主要用于获取next_is_success, 可增可减，遇到return等命令会返回
     pub call_ctx: Vec<CallInfoContext>,
+    // 存储临时值，只作用于当前交易，交易结束会被清空
+    pub transient_storage: HashMap<U256, U256>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -293,6 +295,7 @@ impl WitnessExecHelper {
         self.memory_chunk = 0;
         self.memory_chunk_prev = 0;
         self.state_db.reset_tx();
+        self.transient_storage = HashMap::new();
     }
 
     /// Generate witness of one transaction's trace
@@ -850,6 +853,28 @@ impl WitnessExecHelper {
             pointer_hi: None,
             pointer_lo: Some(offset),
             is_write: Some(1.into()),
+            ..Default::default()
+        };
+        self.state_stamp += 1;
+        res
+    }
+
+    pub fn get_tstorage_row(
+        &mut self,
+        key: U256,
+        value: U256,
+        tstorage_block_tx_idx: U256,
+        is_write: bool,
+    ) -> state::Row {
+        let res = state::Row {
+            tag: Some(Tag::TStorage),
+            stamp: Some(self.state_stamp.into()),
+            value_hi: Some(value >> 128),
+            value_lo: Some(value.low_u128().into()),
+            call_id_contract_addr: Some(tstorage_block_tx_idx),
+            pointer_hi: Some(key >> 128),
+            pointer_lo: Some(key.low_u128().into()),
+            is_write: Some((is_write as u8).into()),
             ..Default::default()
         };
         self.state_stamp += 1;

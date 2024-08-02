@@ -4,7 +4,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::{BLOCK_IDX_LEFT_SHIFT_NUM, NUM_AUXILIARY};
+use crate::constant::NUM_AUXILIARY;
+use crate::core_circuit::concat_block_tx_idx_expr;
 use crate::execution::{
     Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -74,8 +75,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
-        let block_tx_idx =
-            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+        let block_tx_idx = concat_block_tx_idx_expr(block_idx.clone(), tx_idx.clone());
 
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));

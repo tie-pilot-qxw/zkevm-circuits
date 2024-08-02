@@ -11,7 +11,7 @@ use crate::execution::{
     call_3, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
-use crate::table::LookupEntry;
+use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
@@ -130,14 +130,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // contract state lookup entry[0]
         let entry = config.get_state_lookup(meta, STATE_LOOKUP_IDX);
-        let ((value_hi, value_lo), state_constraints) = config.get_read_value_constraints_by_call(
+        constraints.extend(config.get_read_value_constraints_by_call(
             meta,
-            entry,
+            entry.clone(),
             NUM_ROW,
             &selector,
             STATE_LOOKUP_IDX,
-        );
-        constraints.extend(state_constraints);
+        ));
+        let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, entry);
         operands.push([value_hi, value_lo]);
 
         // contract state lookup entry[1] (call context write)
@@ -150,16 +150,17 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stamp_expr.clone() + STATE_LOOKUP_IDX.expr(),
             stamp_expr.clone() + (STATE_LOOKUP_IDX + 1).expr(),
         ]);
-        let ((value_hi, value_lo), state_constraints) = config.get_state_constraints(
+        constraints.extend(config.get_state_constraints(
             entry.clone(),
             STATE_LOOKUP_IDX + 1,
             (state::Tag::CallContext as u8).expr(),
             call_id_new.clone(),
+            0.expr(),
             (state::CallContextTag::Value as u8).expr(),
             stamp,
-            true,
-        );
-        constraints.extend(state_constraints);
+            1.expr(),
+        ));
+        let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, entry);
         operands.push([value_hi, value_lo]);
 
         // append constraints for state_lookup's values

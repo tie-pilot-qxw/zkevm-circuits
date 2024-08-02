@@ -109,8 +109,10 @@ mod push6; //65
 mod push7; //66
 mod push8; //67
 mod push9; //68
-mod return_; //F2
-             // mod revert; //FD
+mod return_; // F2
+mod tload; // 5C
+mod tstore; // 5D
+            // mod revert; //FD
 mod balance;
 mod codesize; // 38
 mod error_invalid_jump;

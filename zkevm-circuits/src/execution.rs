@@ -72,6 +72,7 @@ pub mod status_info;
 pub mod stop;
 pub mod storage;
 pub mod swap;
+pub mod tstorage;
 pub mod tx_context;
 
 use std::collections::BTreeMap;
@@ -134,6 +135,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::iszero_eq::new(),
             crate::execution::jump::new(),
             crate::execution::jumpdest::new(),
+            crate::execution::tstorage::new(),
             crate::execution::jumpi::new(),
             crate::execution::keccak::new(),
             crate::execution::log_bytes::new(),
@@ -720,6 +722,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         res
     }
+
     pub(crate) fn get_stack_constraints(
         &self,
         meta: &mut VirtualCells<F>,
@@ -729,40 +732,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         stack_pointer_delta: Expression<F>, // compare to that of previous state
         is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
-            extract_lookup_expression!(state, entry);
         let Auxiliary {
             state_stamp,
             stack_pointer,
             ..
         } = self.get_auxiliary();
-        vec![
-            (
-                format!("state lookup tag[{}] = stack", index),
-                tag - (state::Tag::Stack as u8).expr(),
-            ),
-            (
-                format!("state stamp for state lookup[{}]", index),
-                stamp
-                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - index.expr(),
-            ),
-            (
-                format!("state lookup call id[{}]", index),
-                call_id_contract_addr - meta.query_advice(self.call_id, Rotation::cur()),
-            ),
-            (format!("pointer_hi (stack pointer)[{}]", index), pointer_hi),
-            (
-                format!("pointer_lo (stack pointer)[{}]", index),
-                pointer_lo
-                    - meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
-                    - stack_pointer_delta,
-            ),
-            (
-                format!("is_write[{}]", index),
-                lookup_is_write - (is_write as u8).expr(),
-            ),
-        ]
+        self.get_state_constraints(
+            entry,
+            index,
+            (state::Tag::Stack as u8).expr(),
+            meta.query_advice(self.call_id, Rotation::cur()),
+            0.expr(),
+            meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
+                + stack_pointer_delta,
+            meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                + index.expr(),
+            (is_write as u8).expr(),
+        )
     }
 
     pub(crate) fn get_read_value_constraints_by_call(
@@ -772,7 +758,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         prev_exec_state_row: usize,
         selector: &SimpleSelector<F, 3>,
         index: usize,
-    ) -> ((Expression<F>, Expression<F>), Vec<(String, Expression<F>)>) {
+    ) -> Vec<(String, Expression<F>)> {
         let Auxiliary {
             state_stamp,
             stack_pointer,
@@ -806,7 +792,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             stamp_expr.clone() + index.expr(), // DELEGATECALL
         ]);
 
-        self.get_state_constraints(entry.clone(), index, tag, call_id, pointer_lo, stamp, false)
+        self.get_state_constraints(
+            entry,
+            index,
+            tag,
+            call_id,
+            0.expr(),
+            pointer_lo,
+            stamp,
+            0.expr(),
+        )
     }
 
     pub(crate) fn get_state_constraints(
@@ -814,45 +809,45 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         entry: LookupEntry<F>,
         index: usize,
         tag: Expression<F>,
-        call_id: Expression<F>,
+        call_id_or_contract_addr: Expression<F>,
+        pointer_hi: Expression<F>,
         pointer_lo: Expression<F>,
         stamp: Expression<F>,
-        is_write: bool,
-    ) -> ((Expression<F>, Expression<F>), Vec<(String, Expression<F>)>) {
+        is_write: Expression<F>,
+    ) -> Vec<(String, Expression<F>)> {
         let (
             lookup_tag,
             lookup_stamp,
-            value_hi,
-            value_lo,
+            _value_hi,
+            _value_lo,
             call_id_contract_addr,
-            pointer_hi,
+            lookup_pointer_hi,
             lookup_pointer_lo,
             lookup_is_write,
-            ..,
         ) = extract_lookup_expression!(state, entry);
-        (
-            (value_hi, value_lo),
-            vec![
-                (format!("state lookup tag[{}]", index), lookup_tag - tag),
-                (
-                    format!("state stamp for state lookup[{}]", index),
-                    lookup_stamp - stamp,
-                ),
-                (
-                    format!("state lookup call id[{}]", index),
-                    call_id_contract_addr - call_id,
-                ),
-                (format!("state lookup pointer_hi[{}]", index), pointer_hi),
-                (
-                    format!("state lookup pointer_lo[{}]", index),
-                    lookup_pointer_lo - pointer_lo,
-                ),
-                (
-                    format!("state lookup is_write[{}]", index),
-                    lookup_is_write - (is_write as u8).expr(),
-                ),
-            ],
-        )
+        vec![
+            (format!("state lookup tag[{}]", index), lookup_tag - tag),
+            (
+                format!("state stamp for state lookup[{}]", index),
+                lookup_stamp - stamp,
+            ),
+            (
+                format!("state lookup call id[{}]", index),
+                call_id_contract_addr - call_id_or_contract_addr,
+            ),
+            (
+                format!("state lookup pointer_hi[{}]", index),
+                lookup_pointer_hi - pointer_hi,
+            ),
+            (
+                format!("state lookup pointer_lo[{}]", index),
+                lookup_pointer_lo - pointer_lo,
+            ),
+            (
+                format!("state lookup is_write[{}]", index),
+                lookup_is_write - is_write,
+            ),
+        ]
     }
 
     pub(crate) fn get_stack_constraints_with_state_default(
@@ -866,55 +861,31 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         is_default: Expression<F>,
         is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
-            extract_lookup_expression!(state, entry);
         let Auxiliary {
             state_stamp,
             stack_pointer,
             ..
         } = self.get_auxiliary();
-        vec![
-            (
-                format!("state lookup tag[{}] = stack", index),
-                is_default.clone() * tag.clone()
-                    + (1.expr() - is_default.clone()) * (tag - (state::Tag::Stack as u8).expr()),
-            ),
-            (
-                format!("state stamp for state lookup[{}]", index),
-                is_default.clone() * stamp.clone()
-                    + (1.expr() - is_default.clone())
-                        * (stamp
-                            - meta.query_advice(
-                                state_stamp,
-                                Rotation(-1 * prev_exec_state_row as i32),
-                            )
-                            - state_stamp_delta),
-            ),
-            (
-                format!("state lookup call id[{}]", index),
-                is_default.clone() * call_id_contract_addr.clone()
-                    + (1.expr() - is_default.clone())
-                        * (call_id_contract_addr
-                            - meta.query_advice(self.call_id, Rotation::cur())),
-            ),
-            (format!("pointer_hi (stack pointer)[{}]", index), pointer_hi),
-            (
-                format!("pointer_lo (stack pointer)[{}]", index),
-                is_default.clone() * pointer_lo.clone()
-                    + (1.expr() - is_default.clone())
-                        * (pointer_lo.clone()
-                            - meta.query_advice(
-                                stack_pointer,
-                                Rotation(-1 * prev_exec_state_row as i32),
-                            )
-                            - stack_pointer_delta),
-            ),
-            (
-                format!("is_write[{}]", index),
-                is_default.clone() * lookup_is_write.clone()
-                    + (1.expr() - is_default) * (lookup_is_write - (is_write as u8).expr()),
-            ),
-        ]
+        self.get_state_constraints(
+            entry,
+            index,
+            is_default.clone() * 0.expr()
+                + (1.expr() - is_default.clone()) * (state::Tag::Stack as u8).expr(),
+            is_default.clone() * 0.expr()
+                + (1.expr() - is_default.clone())
+                    * meta.query_advice(self.call_id, Rotation::cur()),
+            0.expr(),
+            is_default.clone() * 0.expr()
+                + (1.expr() - is_default.clone())
+                    * (meta.query_advice(stack_pointer, Rotation(-1 * prev_exec_state_row as i32))
+                        + stack_pointer_delta),
+            is_default.clone() * 0.expr()
+                + (1.expr() - is_default.clone())
+                    * (meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                        + state_stamp_delta),
+            is_default.clone() * 0.expr()
+                + (1.expr() - is_default.clone()) * (is_write as u8).expr(),
+        )
     }
 
     pub(crate) fn get_memory_constraints(
@@ -926,37 +897,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         memory_pointer_lo: Expression<F>,
         is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
-            extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
-        vec![
-            (
-                format!("state lookup tag[{}] = memory", index),
-                tag - (state::Tag::Memory as u8).expr(),
-            ),
-            (
-                format!("state stamp for state lookup[{}]", index),
-                stamp
-                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - index.expr(),
-            ),
-            (
-                format!("state lookup call id[{}]", index),
-                call_id_contract_addr - meta.query_advice(self.call_id, Rotation::cur()),
-            ),
-            (
-                format!("pointer_hi (memory pointer)[{}]", index),
-                pointer_hi,
-            ),
-            (
-                format!("pointer_lo (memory pointer)[{}]", index),
-                pointer_lo - memory_pointer_lo,
-            ),
-            (
-                format!("is_write[{}]", index),
-                lookup_is_write - (is_write as u8).expr(),
-            ),
-        ]
+        self.get_state_constraints(
+            entry,
+            index,
+            (state::Tag::Memory as u8).expr(),
+            meta.query_advice(self.call_id, Rotation::cur()),
+            0.expr(),
+            memory_pointer_lo,
+            meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                + index.expr(),
+            (is_write as u8).expr(),
+        )
     }
 
     pub(crate) fn get_lookup_constraints(
@@ -1015,39 +967,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         storage_key_lo: Expression<F>,
         is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write) =
-            extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
-        vec![
-            (
-                format!("state lookup tag[{}] = Storage", index),
-                tag - (state::Tag::Storage as u8).expr(),
-            ),
-            (
-                format!("state stamp for state lookup[{}]", index),
-                stamp
-                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - index.expr(),
-            ),
-            (
-                format!("state lookup call id[{}]", index),
-                call_id_contract_addr
-                    - storage_contract_addr_hi * pow_of_two::<F>(128)
-                    - storage_contract_addr_lo,
-            ),
-            (
-                format!("pointer_hi (storage key)[{}]", index),
-                pointer_hi - storage_key_hi,
-            ),
-            (
-                format!("pointer_lo (storage key)[{}]", index),
-                pointer_lo - storage_key_lo,
-            ),
-            (
-                format!("is_write[{}]", index),
-                lookup_is_write - (is_write as u8).expr(),
-            ),
-        ]
+        self.get_state_constraints(
+            entry,
+            index,
+            (state::Tag::Storage as u8).expr(),
+            storage_contract_addr_hi * pow_of_two::<F>(128) + storage_contract_addr_lo,
+            storage_key_hi,
+            storage_key_lo,
+            meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                + index.expr(),
+            (is_write as u8).expr(),
+        )
     }
 
     pub(crate) fn get_storage_full_constraints_with_tag(
@@ -1222,37 +1153,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         call_context_tag: Expression<F>,
         call_id: Expression<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write) =
-            extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
-        vec![
-            (
-                format!("state lookup tag[{}] = CallContext", index),
-                tag - (state::Tag::CallContext as u8).expr(),
-            ),
-            (
-                format!("state stamp for state lookup[{}]", index),
-                stamp
-                    - meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
-                    - index.expr(),
-            ),
-            (
-                format!("call id[{}]", index),
-                call_id_contract_addr - call_id,
-            ),
-            (
-                format!("pointer_hi (CallContext pointer)[{}]", index),
-                pointer_hi,
-            ),
-            (
-                format!("pointer_lo (CallContext pointer)[{}]", index),
-                pointer_lo - call_context_tag,
-            ),
-            (
-                format!("is_write[{}]", index),
-                lookup_is_write - (is_write as u8).expr(),
-            ),
-        ]
+        self.get_state_constraints(
+            entry,
+            index,
+            (state::Tag::CallContext as u8).expr(),
+            call_id,
+            0.expr(),
+            call_context_tag,
+            meta.query_advice(state_stamp, Rotation(-1 * prev_exec_state_row as i32))
+                + index.expr(),
+            (is_write as u8).expr(),
+        )
     }
 
     pub(crate) fn get_bitwise_constraints(
@@ -2431,6 +2343,7 @@ pub enum ExecutionState {
     MSTORE8,
     STATUS_INFO,
     STORAGE,
+    TSTORAGE,
     CALL_CONTEXT,
     CALLDATALOAD,
     CALLDATACOPY,
@@ -2528,7 +2441,7 @@ impl ExecutionState {
             OpcodeId::JUMPI => vec![Self::JUMPI],
             OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATUS_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
-
+            OpcodeId::TLOAD | OpcodeId::TSTORE => vec![Self::TSTORAGE],
             OpcodeId::PUSH0
             | OpcodeId::PUSH1
             | OpcodeId::PUSH2

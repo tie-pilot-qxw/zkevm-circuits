@@ -45,6 +45,7 @@ pub enum Tag {
     Memory,
     Stack,
     Storage,
+    TStorage,
     CallContext,
     CallData,
     // 对应EVM里的AddressInAccessList， key是address
