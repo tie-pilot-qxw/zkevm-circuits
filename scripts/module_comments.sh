@@ -1,3 +1,9 @@
+# Copyright (C) SAFIT. All rights reserved.
+# Copyright (C) BABEC. All rights reserved.
+# Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 #!/bin/bash
 
 # Note：如果您的分支有未commit代码，请不要使用该脚本

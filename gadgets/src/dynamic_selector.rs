@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 //! The Dynamic selector chip implements selector that reduces the number of columns.
 //! Reduce N columns to about 2sqrt(N) columns.
 //!

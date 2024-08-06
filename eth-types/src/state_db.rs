@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 //! EVM state db struct, Storage of values during the transaction process
 use crate::{Word, U256};
 use std::collections::{BTreeMap, HashMap, HashSet};

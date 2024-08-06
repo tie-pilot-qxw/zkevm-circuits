@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::constant::{END_CALL_NEXT_IS_END_TX, END_CALL_NEXT_IS_POST_CALL, NUM_AUXILIARY};
 use crate::execution::{
     end_tx, post_call_1, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome,

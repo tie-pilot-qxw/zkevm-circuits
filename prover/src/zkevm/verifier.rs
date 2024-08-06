@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use halo2_proofs::halo2curves::bn256::Fr;
 use halo2_proofs::plonk::{keygen_pk, verify_proof, Circuit, ConstraintSystem};
 use halo2_proofs::poly::commitment::{Params, ParamsProver};
