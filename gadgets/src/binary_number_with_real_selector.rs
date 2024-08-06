@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 //! The binary number chip implements functionality to represent any given value
 //! in binary bits, which can be compared against a value or expression for
 //! equality.

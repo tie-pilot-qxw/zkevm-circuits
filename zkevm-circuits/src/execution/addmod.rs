@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 /// This module contains the implementation of the `AddmodGadget` struct, which is an execution gadget for the ADDMOD opcode in the EVM.
 /// The `AddmodGadget` struct implements the `ExecutionGadget` trait and provides methods for generating constraints and witnesses for the ADDMOD opcode.
 /// It also includes test cases for the `AddmodGadget` struct.

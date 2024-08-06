@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::arithmetic_circuit::operation::{OperationConfig, OperationGadget};
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256};

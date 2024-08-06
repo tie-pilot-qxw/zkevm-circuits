@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};

@@ -1,3 +1,9 @@
+# Copyright (C) SAFIT. All rights reserved.
+# Copyright (C) BABEC. All rights reserved.
+# Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 #!/bin/bash
 
 # 用途: 做bench测试,将测试结果写入log文件,系统cpu采样数据写入cpu.stats文件,系统采样内存数据写入mem.stats文件

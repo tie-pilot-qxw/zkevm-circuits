@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::constant::{END_TX_NEXT_IS_BEGIN_TX1, END_TX_NEXT_IS_END_BLOCK, NUM_AUXILIARY};
 use crate::execution::{begin_tx_1, end_block, ExecStateTransition};
 use crate::execution::{AuxiliaryOutcome, ExecutionConfig, ExecutionGadget, ExecutionState};

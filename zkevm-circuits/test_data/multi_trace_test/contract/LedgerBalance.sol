@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 pragma solidity ^0.8.17;
 
 contract LedgerBalance {
@@ -15,7 +21,10 @@ contract LedgerBalance {
         balances[_to] += 1;
     }
 
-    function transfer(address _to, uint256 _value) public  returns (bool success) {
+    function transfer(
+        address _to,
+        uint256 _value
+    ) public returns (bool success) {
         require(balances[msg.sender] >= _value);
         require(balances[_to] + _value >= balances[_to]);
         balances[msg.sender] -= _value;

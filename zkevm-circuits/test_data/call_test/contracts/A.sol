@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: MIT
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 pragma solidity ^0.8.0;
 
 contract MyContract {
@@ -22,10 +27,12 @@ contract MyContract {
         require(msg.sender == A, "Only A can call B");
 
         // 在这里调用BContract合约的getValue函数
-        (bool success, bytes memory data) = B.call(abi.encodeWithSignature("getValue()"));
+        (bool success, bytes memory data) = B.call(
+            abi.encodeWithSignature("getValue()")
+        );
         require(success, "Call to B failed");
         resultFromB = abi.decode(data, (uint256));
-        
+
         // 获取returndatasize和returndata
         (returndatasizeFromB, returndataFromB) = getResultData();
 

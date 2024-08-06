@@ -1,3 +1,9 @@
+# Copyright (C) SAFIT. All rights reserved.
+# Copyright (C) BABEC. All rights reserved.
+# Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 #!/bin/bash
 # 用途: 跑bench测试,将测试结果写入mysql数据库,删除跑测试时生成的中间文件
 
