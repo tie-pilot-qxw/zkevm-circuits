@@ -11,14 +11,12 @@
 #![deny(unsafe_code)]
 #![deny(clippy::debug_assert_with_mut_call)]
 
-pub mod batched_is_zero;
 pub mod binary_number;
 pub mod binary_number_with_real_selector;
 pub mod dynamic_selector;
 pub mod is_zero;
 pub mod is_zero_with_rotation;
 pub mod less_than;
-pub mod mul_add;
 pub mod simple_binary_number;
 pub mod simple_is_zero;
 pub mod simple_lt;
