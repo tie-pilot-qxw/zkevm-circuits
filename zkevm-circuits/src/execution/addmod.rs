@@ -48,7 +48,7 @@ pub struct AddmodGadget<F: Field> {
 /// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
 /// AUX means auxiliary such as state stamp
 /// +---+-------+-------+-------+----------+
-/// |cnt| 8 col | 8 col | 8 col | not used |
+/// |cnt| 8 col | 8 col | 8 col | 8 col    |
 /// +---+-------+-------+-------+----------+
 /// | 2 | ARITH  |      |       |          |
 /// | 1 | STATE | STATE | STATE | STATE    |
