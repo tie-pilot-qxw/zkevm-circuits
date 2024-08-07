@@ -491,6 +491,7 @@ impl_other_opcodes! {
     // (op_jumpdest, JUMPDEST), manually implemented
     (op_tload, TLOAD, offset: O),
     (op_tstore, TSTORE, offset: O, value: V),
+    (op_mcopy, MCOPY, dest_offset: D, offset: B, size: C),
     (op_dup1, DUP1),
     (op_dup2, DUP2),
     (op_dup3, DUP3),

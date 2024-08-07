@@ -35,8 +35,8 @@ const STACK_POINTER_DELTA: i32 = -4;
 const PC_DELTA: u64 = 1;
 
 /// Extcodecopy Execution State layout is as follows
-/// where COPY means copy table lookup , 9 cols
-/// ZEROCOPY means padding copy table lookup 9,cols
+/// where COPY means copy table lookup , 11 cols
+/// ZEROCOPY means padding copy table lookup 11,cols
 /// LENGTH(9) means length arithmetic table lookup, 9cols
 /// PUB_CODE_SIZE(6) means public table lookup, 9 cols
 /// LENGTH_INV means size's multiplicative inverse;

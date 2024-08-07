@@ -1315,6 +1315,74 @@ impl WitnessExecHelper {
         )
     }
 
+    pub fn get_mcopy_rows<F: Field>(
+        &mut self,
+        trace: &GethExecStep,
+        dest_offset: U256,
+        offset: U256,
+        length: U256,
+    ) -> (Vec<copy::Row>, Vec<state::Row>) {
+        let dest_offset = dest_offset.low_u64();
+        let offset = offset.low_u64();
+        let length = length.low_u64();
+
+        let (mut copy_rows, mut state_rows) = (vec![], vec![]);
+
+        let mut acc_pre = U256::from(0);
+        let temp_256_f = F::from(256);
+        let stamp = self.state_stamp;
+
+        // get memory copy rows and state read rows
+        for i in 0..length {
+            let byte = trace
+                .memory
+                .0
+                .get((offset + i) as usize)
+                .cloned()
+                .unwrap_or_default();
+
+            // calc acc
+            let acc: U256 = if i == 0 {
+                byte.into()
+            } else {
+                let mut acc_f = convert_u256_to_f::<F>(&acc_pre);
+                let byte_f = convert_u256_to_f::<F>(&U256::from(byte));
+                acc_f = byte_f + acc_f * temp_256_f;
+                convert_f_to_u256(&acc_f)
+            };
+            acc_pre = acc;
+
+            copy_rows.push(copy::Row {
+                byte: byte.into(),
+                src_type: copy::Tag::Memory,
+                src_id: self.call_id.into(),
+                src_pointer: offset.into(),
+                src_stamp: stamp.into(),
+                dst_type: copy::Tag::Memory,
+                dst_id: self.call_id.into(),
+                dst_pointer: dest_offset.into(),
+                dst_stamp: (stamp + length).into(), // writing to memory happens after reading from memory
+                cnt: i.into(),
+                len: U256::from(length),
+                acc,
+            });
+            state_rows.push(self.get_memory_read_row(trace, U256::from(offset + i)));
+        }
+
+        // get state write rows
+        for i in 0..length {
+            let byte = trace
+                .memory
+                .0
+                .get((offset + i) as usize)
+                .cloned()
+                .unwrap_or_default();
+            state_rows.push(self.get_memory_write_row(U256::from(dest_offset + i), byte));
+        }
+
+        (copy_rows, state_rows)
+    }
+
     pub fn get_call_return_data_copy_rows<F: Field>(
         &mut self,
         dst: U256,

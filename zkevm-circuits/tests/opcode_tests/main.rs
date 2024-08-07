@@ -68,6 +68,7 @@ mod log1; //A1
 mod log2; //A2
 mod log3; //A3
 mod log4; //A4
+mod mcopy; // 5E
 mod mload; //51
 mod msize; //59
 mod mstore; //52

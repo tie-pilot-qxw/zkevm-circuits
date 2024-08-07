@@ -47,6 +47,7 @@ pub mod log_gas;
 pub mod log_topic;
 pub mod log_topic_num_addr;
 pub mod lt_gt_slt_sgt;
+pub mod mcopy;
 pub mod memory;
 pub mod memory_copier_gas;
 pub mod memory_gas;
@@ -136,6 +137,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::jump::new(),
             crate::execution::jumpdest::new(),
             crate::execution::tstorage::new(),
+            crate::execution::mcopy::new(),
             crate::execution::jumpi::new(),
             crate::execution::keccak::new(),
             crate::execution::log_bytes::new(),
@@ -2362,6 +2364,7 @@ pub enum ExecutionState {
     SAR_1,
     SAR_2,
     KECCAK,
+    MCOPY,
     CODECOPY,
     EXTCODECOPY,
     SELFBALANCE,
@@ -2442,6 +2445,7 @@ impl ExecutionState {
             OpcodeId::MSIZE | OpcodeId::PC | OpcodeId::GAS => vec![Self::STATUS_INFO],
             OpcodeId::JUMPDEST => vec![Self::JUMPDEST],
             OpcodeId::TLOAD | OpcodeId::TSTORE => vec![Self::TSTORAGE],
+            OpcodeId::MCOPY => vec![Self::MCOPY, Self::MEMORY_GAS, Self::MEMORY_COPIER_GAS],
             OpcodeId::PUSH0
             | OpcodeId::PUSH1
             | OpcodeId::PUSH2
