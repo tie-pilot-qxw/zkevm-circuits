@@ -125,7 +125,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = vec![];
 
-        // get tag
         // Create a simple selector with opcode
         let selector = SimpleSelector::new(&[
             meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),

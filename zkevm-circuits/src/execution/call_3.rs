@@ -111,14 +111,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = vec![];
 
-        // get tag
-        let tag_call = meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur());
-        let tag_staticcall =
-            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur());
-        let tag_delegatecall =
-            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur());
-        // Create a simple selector with tag
-        let selector = SimpleSelector::new(&[tag_call, tag_staticcall, tag_delegatecall]);
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
         // Add constraints for the selector.
         constraints.extend(selector.get_constraints());
 

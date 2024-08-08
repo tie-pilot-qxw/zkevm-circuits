@@ -38,13 +38,15 @@ const OPCODE_SELECTOR_IDX_START: usize = 0;
 ///     1. read gas, addr from stack (temporarily not popped)
 ///     2. set call_context's storage_contract_addr = addr, caller = current code_addr
 /// Table layout:
-///     1. State lookup(stack read gas), src: Core circuit, target: State circuit table, 8 columns
-///     2. State lookup(stack read addr), src: Core circuit, target: State circuit table, 8 columns
-///     3. State lookup(call_context write storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
-///     4. State lookup(call_context write caller), src: Core circuit, target: State circuit table, 8 columns
+///     1. State1 lookup(stack read gas), src: Core circuit, target: State circuit table, 8 columns
+///     2. State2 lookup(stack read addr), src: Core circuit, target: State circuit table, 8 columns
+///     3. State3 lookup(call_context write storage_contract_addr), src: Core circuit, target: State circuit table, 8 columns
+///     4. State4 lookup(call_context write sender addr), src: Core circuit, target: State circuit table, 8 columns
+///     5. State5 lookup(call_context read sender addr), src: Core circuit, target: State circuit table, 8 columns
 /// +-----+--------------+----------------+------------------------+----------------+
 /// | cnt |              |               |                         |                |
 /// +-----+--------------+---------------+-------------------------+----------------+
+/// | 1 | STATE5(0..7)   |               |                         |                |
 /// | 1 | STATE1(0..7)   | STATE2(8..15) | STATE3(16..23)          | STATE4(24..31) |
 /// | 0 | DYNAMIC(0..17) | AUX(18..24)   | OPCODE_SELECTOR(25..27) |                |
 /// +---+------- --------+--------------+--------------------------+----------------+
@@ -74,8 +76,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         // 获取CALL指令的调用方地址
-        let code_addr_cur = meta.query_advice(config.code_addr, Rotation::cur());
+        let caller_code_addr = meta.query_advice(config.code_addr, Rotation::cur());
         let Auxiliary { stack_pointer, .. } = config.get_auxiliary();
         // CALL指令开始时 state_stamp值（即在call_1.rs中gadget生成witness之前的值）
         let state_stamp_init = meta.query_advice(
@@ -94,7 +97,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = vec![];
 
-        // get tag
         // Create a simple selector with opcode
         let selector = SimpleSelector::new(&[
             meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
@@ -160,14 +162,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands[3].clone(),
         );
 
-        // get sender addr read(For DELEGATECALL, the value of read_sender_addr is parent.senderAddr)
+        // get sender addr read(For DELEGATECALL, the value of read_sender_addr is caller.sender_addr)
         let read_sender_entry = config.get_state_lookup_by_rotation(meta, Rotation(-2), 0);
         let (_, _, read_sender_addr_hi, read_sender_addr_lo, ..) =
-            extract_lookup_expression!(state, read_sender_entry);
+            extract_lookup_expression!(state, read_sender_entry.clone());
+        constraints.append(&mut config.get_call_context_constraints(
+            meta,
+            read_sender_entry,
+            4,
+            NUM_ROW,
+            false,
+            (state::CallContextTag::SenderAddr as u8).expr(),
+            selector.select(&[call_id_new.clone(), call_id_new.clone(), call_id.clone()]),
+        ));
 
+        // constraint contract addr and sender addr
         let storage_contract_addr = storage_contract_addr_hi_lo[0].clone() * pow_of_two::<F>(128)
             + storage_contract_addr_hi_lo[1].clone();
-
         let stack_addr =
             stack_addr_hi_lo[0].clone() * pow_of_two::<F>(128) + stack_addr_hi_lo[1].clone();
         let write_sender_addr =
@@ -177,33 +188,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([
             (
-                "opcode==CALL or STATICCALL --> storage_contract_addr == stack_addr, opcode == DELEGATECALL ---> storage_contract_addr==cur_code_addr".into(),
+                "opcode==CALL or STATICCALL --> storage_contract_addr == stack_addr, opcode == DELEGATECALL ---> storage_contract_addr==caller.code_addr".into(),
                 storage_contract_addr.clone()
                     - selector.select(&[
-                    stack_addr.clone(),
-                    stack_addr.clone(),
-                        code_addr_cur.clone(),
+                        stack_addr.clone(),
+                        stack_addr.clone(),
+                        caller_code_addr.clone(),
                     ]),
             ),
             (
-                "opcode==CALL or STATICCALL --> sender_addr == cur_code_addr, opcode == DELEGATECALL --->  sender_addr== parent_addr".into(),
+                "opcode==CALL or STATICCALL --> sender_addr == cur_code_addr, opcode == DELEGATECALL --->  sender_addr== parent_addr(caller.sender_addr)".into(),
                 write_sender_addr.clone()
                     - selector.select(&[
-                        code_addr_cur.clone(),
-                        code_addr_cur.clone(),
+                        caller_code_addr.clone(),
+                        caller_code_addr.clone(),
                         read_sender_addr.clone(),
                     ]),
             ),
-            // If it is CALL or STATICCALL, the value of read_sender_addr is the sender addr just written(write_sender_addr_expr).
-            // If it is DELEGATECALL, the value of read_sender_addr is the parant addr read.
+            // make sure the sender addr written is consistent with the sender addr obtained
             (
-                "read_sender_addr == write sender_addr ".into(),
-                read_sender_addr.clone()
-                    - selector.select(&[
-                        write_sender_addr.clone(),
-                        write_sender_addr.clone(),
-                        write_sender_addr.clone(),
-                    ]),
+                "write sender_addr == read_sender_addr".into(),
+                write_sender_addr.clone() - read_sender_addr.clone()
             ),
         ]);
         // append opcode constraint

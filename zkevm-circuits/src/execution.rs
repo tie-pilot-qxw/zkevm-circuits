@@ -727,9 +727,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
         prev_exec_state_row: usize,
         stack_pointer_delta: Expression<F>, // compare to that of previous state
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
             extract_lookup_expression!(state, entry);
         let Auxiliary {
             state_stamp,
@@ -760,7 +760,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(),
+                lookup_is_write - (is_write as u8).expr(),
             ),
         ]
     }
@@ -817,7 +817,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         call_id: Expression<F>,
         pointer_lo: Expression<F>,
         stamp: Expression<F>,
-        write: bool,
+        is_write: bool,
     ) -> ((Expression<F>, Expression<F>), Vec<(String, Expression<F>)>) {
         let (
             lookup_tag,
@@ -827,7 +827,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             call_id_contract_addr,
             pointer_hi,
             lookup_pointer_lo,
-            is_write,
+            lookup_is_write,
             ..,
         ) = extract_lookup_expression!(state, entry);
         (
@@ -849,7 +849,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 ),
                 (
                     format!("state lookup is_write[{}]", index),
-                    is_write - (write as u8).expr(),
+                    lookup_is_write - (is_write as u8).expr(),
                 ),
             ],
         )
@@ -864,9 +864,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         stack_pointer_delta: Expression<F>, // compare to that of previous state
         state_stamp_delta: Expression<F>,
         is_default: Expression<F>,
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
             extract_lookup_expression!(state, entry);
         let Auxiliary {
             state_stamp,
@@ -911,8 +911,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_default.clone() * is_write.clone()
-                    + (1.expr() - is_default) * (is_write - (write as u8).expr()),
+                is_default.clone() * lookup_is_write.clone()
+                    + (1.expr() - is_default) * (lookup_is_write - (is_write as u8).expr()),
             ),
         ]
     }
@@ -924,9 +924,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
         prev_exec_state_row: usize,
         memory_pointer_lo: Expression<F>,
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
             extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
         vec![
@@ -954,7 +954,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(),
+                lookup_is_write - (is_write as u8).expr(),
             ),
         ]
     }
@@ -1013,9 +1013,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         storage_contract_addr_lo: Expression<F>,
         storage_key_hi: Expression<F>,
         storage_key_lo: Expression<F>,
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write) =
             extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
         vec![
@@ -1045,7 +1045,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(),
+                lookup_is_write - (is_write as u8).expr(),
             ),
         ]
     }
@@ -1061,7 +1061,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         storage_key_hi: Expression<F>,
         storage_key_lo: Expression<F>,
         state_tag: state::Tag,
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
         self.get_storage_full_constraints_with_tag_stamp_delta(
             meta,
@@ -1074,7 +1074,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             storage_key_lo,
             state_tag,
             index.expr(),
-            write,
+            is_write,
         )
     }
     pub(crate) fn get_storage_full_constraints_with_tag_stamp_delta(
@@ -1089,9 +1089,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         storage_key_lo: Expression<F>,
         state_tag: state::Tag,
         stamp_delta: Expression<F>,
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write, ..) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write, ..) =
             extract_lookup_expression!(storage, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
         vec![
@@ -1121,7 +1121,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(),
+                lookup_is_write - (is_write as u8).expr(),
             ),
         ]
     }
@@ -1134,7 +1134,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
         prev_exec_state_row: usize,
         stack_pointer_delta: Expression<F>, // compare to that of previous state
-        write: bool,
+        is_write: bool,
         selector: Expression<F>,
     ) -> Vec<(String, Expression<F>)> {
         let constraints_raw = self.get_stack_constraints(
@@ -1143,7 +1143,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             index,
             prev_exec_state_row,
             stack_pointer_delta,
-            write,
+            is_write,
         );
 
         let res: Vec<(String, Expression<F>)> = constraints_raw
@@ -1165,7 +1165,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         storage_contract_addr_lo: Expression<F>,
         storage_key_hi: Expression<F>,
         storage_key_lo: Expression<F>,
-        write: bool,
+        is_write: bool,
         selector: Expression<F>,
     ) -> Vec<(String, Expression<F>)> {
         let constraints_raw = self.get_storage_constraints(
@@ -1177,7 +1177,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             storage_contract_addr_lo,
             storage_key_hi,
             storage_key_lo,
-            write,
+            is_write,
         );
 
         let res: Vec<(String, Expression<F>)> = constraints_raw
@@ -1194,14 +1194,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         entry: LookupEntry<F>,
         index: usize,
         prev_exec_state_row: usize,
-        write: bool,
+        is_write: bool,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = self.get_call_context_constraints(
             meta,
             entry.clone(),
             index,
             prev_exec_state_row,
-            write,
+            is_write,
             (CallContextTag::ReturnDataCallId as u8).expr(),
             0.expr(),
         );
@@ -1218,11 +1218,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         entry: LookupEntry<F>,
         index: usize,
         prev_exec_state_row: usize,
-        write: bool,
+        is_write: bool,
         call_context_tag: Expression<F>,
         call_id: Expression<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, is_write) =
+        let (tag, stamp, _, _, call_id_contract_addr, pointer_hi, pointer_lo, lookup_is_write) =
             extract_lookup_expression!(state, entry);
         let Auxiliary { state_stamp, .. } = self.get_auxiliary();
         vec![
@@ -1250,7 +1250,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 format!("is_write[{}]", index),
-                is_write - (write as u8).expr(),
+                lookup_is_write - (is_write as u8).expr(),
             ),
         ]
     }

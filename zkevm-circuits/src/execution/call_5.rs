@@ -99,7 +99,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         let mut constraints = vec![];
 
-        // get tag
         // Create a simple selector with opcode
         let selector = SimpleSelector::new(&[
             meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
@@ -146,15 +145,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 Rotation(-3),
                 3,
                 selector.select(&[3.expr(), 2.expr(), 3.expr()]),
-                false,
-            ), // is_warm read
+                false, // is_warm read
+            ),
             (
                 1,
                 Rotation(-3),
                 4,
                 selector.select(&[4.expr(), 3.expr(), 4.expr()]),
-                true,
-            ), // is_warm write
+                true, // is_warm write
+            ),
         ];
 
         for (num, rotation, index, stamp_delta, is_write) in lookups {
