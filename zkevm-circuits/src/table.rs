@@ -367,13 +367,7 @@ impl<F: Field> BytecodeTable<F> {
 
         match entry {
             LookupEntry::Bytecode { addr, pc, opcode } => {
-                //let not_code = 0.expr();
-                vec![
-                    (addr, table_addr),
-                    (pc, table_pc),
-                    (opcode, table_bytecode),
-                    //(not_code, table_not_code),
-                ]
+                vec![(addr, table_addr), (pc, table_pc), (opcode, table_bytecode)]
             }
             LookupEntry::BytecodeFull {
                 addr,

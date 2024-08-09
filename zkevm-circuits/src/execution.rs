@@ -7,6 +7,7 @@
 pub mod add_sub_mul_div_mod;
 pub mod addmod;
 pub mod and_or_xor;
+pub mod balance;
 pub mod begin_block;
 pub mod begin_chunk;
 pub mod begin_tx_1;
@@ -163,6 +164,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::memory_copier_gas::new(),
             crate::execution::pure_memory_gas::new(),
             crate::execution::log_gas::new(),
+            crate::execution::balance::new(),
         ]
     }};
 }
@@ -2340,6 +2342,7 @@ pub enum ExecutionState {
     MEMORY_COPIER_GAS,
     PURE_MEMORY_GAS,
     LOG_GAS,
+    BALANCE,
 }
 
 impl ExecutionState {
@@ -2475,7 +2478,7 @@ impl ExecutionState {
                 vec![Self::KECCAK]
             }
             OpcodeId::BALANCE => {
-                todo!()
+                vec![Self::BALANCE]
             }
             OpcodeId::ORIGIN | OpcodeId::GASPRICE => vec![Self::TX_CONTEXT],
             OpcodeId::CALLER | OpcodeId::CALLVALUE | OpcodeId::CALLDATASIZE | OpcodeId::ADDRESS => {
