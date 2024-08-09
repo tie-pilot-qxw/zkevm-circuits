@@ -4,6 +4,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fs;
+use std::io::Cursor;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Once;
+
 use chrono::Utc;
 use halo2_proofs::halo2curves::bn256::{Fr, G1Affine};
 use halo2_proofs::plonk::{Circuit, VerifyingKey};
@@ -13,11 +19,6 @@ use log4rs::append::console::{ConsoleAppender, Target};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Root};
 use log4rs::Config;
-use std::fs;
-use std::io::{BufReader, Cursor};
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Once;
 
 use eth_types::geth_types::ChunkData;
 use zkevm_circuits::util::preprocess_trace;
@@ -49,12 +50,8 @@ pub fn serialize_vk(vk: &VerifyingKey<G1Affine>) -> Vec<u8> {
 }
 
 pub fn deserialize_vk<C: Circuit<Fr>>(raw_vk: &[u8], params: C::Params) -> VerifyingKey<G1Affine> {
-    VerifyingKey::<G1Affine>::read::<_, C>(
-        &mut BufReader::new(raw_vk),
-        SerdeFormat::RawBytes,
-        params,
-    )
-    .unwrap()
+    VerifyingKey::<G1Affine>::read::<_, C>(&mut Cursor::new(raw_vk), SerdeFormat::RawBytes, params)
+        .unwrap()
 }
 
 pub fn serialize_instances(instances: Vec<Vec<Fr>>) -> Vec<u8> {

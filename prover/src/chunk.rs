@@ -4,12 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod batch;
-pub mod chunk;
-pub mod constants;
-pub mod io;
-pub mod proof;
-pub mod util;
+pub mod prover;
+pub mod verifier;
 
-#[cfg(test)]
-pub mod test;
+pub use self::prover::Prover;
+
+pub use self::verifier::Verifier;
