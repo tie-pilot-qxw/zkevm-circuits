@@ -27,4 +27,6 @@ pub enum Tag {
     Or,
     // The tag for (Opcode,PUSH number,PUSH number>15)
     Bytecode,
+    // Opcode for non-zero constant gas consumption
+    ConstantGasCost,
 }

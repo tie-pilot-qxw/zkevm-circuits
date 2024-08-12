@@ -26,7 +26,7 @@ use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 
 /// Overview
 ///   Constraints for invalid jump
-///   
+///
 /// Table Layout:
 ///     State0: next_pc stack
 ///     State1: JUMPI condition
