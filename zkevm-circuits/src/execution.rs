@@ -33,6 +33,7 @@ pub mod end_call_2;
 pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
+pub mod error_invalid_jump;
 pub mod exp;
 pub mod extcodecopy;
 pub mod extcodeinfo;
@@ -165,6 +166,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::pure_memory_gas::new(),
             crate::execution::log_gas::new(),
             crate::execution::balance::new(),
+            crate::execution::error_invalid_jump::new(),
             crate::execution::end_call_1::new(),
             crate::execution::end_call_2::new(),
         ]
@@ -2345,6 +2347,7 @@ pub enum ExecutionState {
     PURE_MEMORY_GAS,
     LOG_GAS,
     BALANCE,
+    ERROR_INVALID_JUMP,
     END_CALL_1,
     END_CALL_2,
 }
@@ -2603,9 +2606,9 @@ impl ExecutionState {
     pub fn from_error(opcode: OpcodeId, exec_error: ExecError) -> Vec<Self> {
         match opcode {
             // example
-            // OpcodeId::JUMP | OpcodeId::JUMPI if matches!(exec_error, ExecError::InvalidJump)  => {
-            //     vec![Self::ERROR_INVALID_JUMP, Self::END_CALL_1, Self::END_CALL_2]
-            // }
+            OpcodeId::JUMP | OpcodeId::JUMPI if matches!(exec_error, ExecError::InvalidJump) => {
+                vec![Self::ERROR_INVALID_JUMP, Self::END_CALL_1, Self::END_CALL_2]
+            }
             _ => {
                 unreachable!("{opcode} error not implement")
             }
@@ -2871,7 +2874,26 @@ mod test {
             }
         }};
     }
+
+    macro_rules! prepare_error_trace_step {
+        ($pc:expr, $op:expr, $stack: expr, $error: expr) => {{
+            GethExecStep {
+                pc: $pc,
+                op: $op,
+                gas: 100,
+                gas_cost: 1,
+                refund: 0,
+                depth: 1,
+                error: $error,
+                stack: $stack,
+                memory: Default::default(),
+                storage: Default::default(),
+            }
+        }};
+    }
+
     pub(crate) use {
-        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_error_trace_step, prepare_trace_step,
+        prepare_witness_and_prover,
     };
 }

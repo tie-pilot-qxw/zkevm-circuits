@@ -165,6 +165,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             trace.op,
             core_row_1.code_addr,
             current_state.stack_top,
+            false,
         );
         let is_push0 = if trace.op == OpcodeId::PUSH0 {
             U256::one()

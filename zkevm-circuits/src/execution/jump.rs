@@ -138,6 +138,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             OpcodeId::JUMPDEST,
             core_row_1.code_addr,
             Some(0.into()),
+            false,
         );
 
         let core_row_0 = ExecutionState::JUMP.into_exec_state_core_row(

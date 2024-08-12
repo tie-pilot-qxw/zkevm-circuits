@@ -2971,6 +2971,7 @@ impl core::Row {
         opcode: OpcodeId,
         code_addr: U256,
         push_value: Option<U256>,
+        not_code: bool,
     ) {
         // this lookup must be in the row with this cnt
         assert_eq!(self.cnt, 1.into());
@@ -2978,7 +2979,7 @@ impl core::Row {
             code_addr,
             pc.into(),
             opcode.as_u8().into(),
-            U256::zero(), // non_code must be 0
+            (not_code as u8).into(), // non_code must be 0
             push_value.map_or(U256::zero(), |x| (x >> 128)),
             push_value.map_or(U256::zero(), |x| (x.low_u128().into())),
             opcode.data_len().into(),

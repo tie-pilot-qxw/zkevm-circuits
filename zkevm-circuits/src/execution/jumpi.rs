@@ -239,7 +239,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             0_u64
         };
 
-        core_row_1.insert_bytecode_full_lookup(pc, next_op, code_addr, Some(0.into()));
+        core_row_1.insert_bytecode_full_lookup(pc, next_op, code_addr, Some(0.into()), false);
 
         let core_row_0 = ExecutionState::JUMPI.into_exec_state_core_row(
             trace,

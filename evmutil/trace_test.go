@@ -76,6 +76,88 @@ STOP
 	}
 }
 
+func TestRootInvalidJumpDestMaxCode(t *testing.T) {
+	calleeOpcode := `
+PUSH1 0x1
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+JUMP
+PUSH1 0x0
+PUSH1 0x0
+JUMPDEST
+STOP
+`
+
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 100
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 2, 1, "root_invalid_jump_dest_max_code")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestRootInvalidJumpi(t *testing.T) {
+	calleeOpcode := `
+PUSH1 0x1
+PUSH1 0xC
+JUMPI
+PUSH1 0x0
+PUSH1 0x0
+JUMPDEST
+STOP
+`
+
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 100
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 2, 1, "root_invalid_jumpi")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
 func TestSubCallInvalidJump(t *testing.T) {
 	callerOpcode := `
 PUSH1 0x0

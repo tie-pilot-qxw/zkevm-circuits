@@ -113,6 +113,7 @@ mod return_; //F2
              // mod revert; //FD
 mod balance;
 mod codesize; // 38
+mod error_invalid_jump;
 mod sar; // 1D
 mod sdiv;
 mod selfbalance; //47
@@ -150,7 +151,7 @@ macro_rules! test_super_circuit_short_bytecode {
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
-        let (trace, receipt_log) = trace_parser::trace_program_with_log(&machine_code, &[]);
+        let (mut trace, receipt_log) = trace_parser::trace_program_with_log(&machine_code, &[]);
         let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,
