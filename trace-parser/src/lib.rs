@@ -12,8 +12,11 @@ use eth_types::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::remove_file;
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output};
+use std::time::UNIX_EPOCH;
 use std::{
     fs::File,
     io::{BufRead, BufReader},
@@ -183,30 +186,67 @@ pub fn get_geth_exec_trace(res: &Output) -> GethExecTrace {
 
     geth_exec_trace
 }
-pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
-    let gas = compute_first_step_gas(calldata);
-    let cmd_string = if calldata.is_empty() {
-        format!(
-            "./evm --code {} --json  --nomemory=false run --gas {}",
-            hex::encode(bytecode),
-            gas
-        )
-        .to_string()
-    } else {
-        format!(
-            "./evm --code {} --input {} --debug --json  --nomemory=false run --gas {}",
-            hex::encode(bytecode),
-            hex::encode(calldata),
-            gas
-        )
-        .to_string()
-    };
 
+pub fn make_evm_cmd(bytecode: &[u8], calldata: &[u8]) -> (String, String, String) {
+    let size_limit = 20 * 1024; // here set 20kb, for linux cmd arg size limit is  200kb in general
+    let gas = compute_first_step_gas(calldata);
+    let mut cmd_string = "./evm ".to_string();
+    let mut code_file_name = "".to_string();
+    let mut call_data_file_name = "".to_string();
+    if !calldata.is_empty() {
+        let hex_call_data = hex::encode(calldata);
+        if hex_call_data.len() > size_limit {
+            call_data_file_name = format!(
+                "{}.input",
+                std::time::SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards")
+                    .as_secs()
+            );
+            let mut fd = File::create(Path::new(&call_data_file_name)).unwrap();
+            fd.write_all(hex_call_data.as_bytes()).unwrap();
+            cmd_string.push_str(&format!(" --inputfile {} --debug ", &call_data_file_name));
+        } else {
+            cmd_string.push_str(&format!(" --input {} --debug ", hex_call_data));
+        }
+    }
+    let hex_code = hex::encode(bytecode);
+    if hex_code.len() > size_limit {
+        code_file_name = format!(
+            "{}.code",
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_secs()
+        );
+        let mut fd = File::create(Path::new(&code_file_name)).unwrap();
+        fd.write_all(hex_code.as_bytes()).unwrap();
+        cmd_string.push_str(&format!(" --codefile {} ", &code_file_name));
+    } else {
+        cmd_string.push_str(&format!(" --code {} ", hex_code));
+    }
+    cmd_string.push_str(&format!(" --json  --nomemory=false run --gas {}", gas));
+
+    return (
+        cmd_string.to_string(),
+        code_file_name.to_string(),
+        call_data_file_name.to_string(),
+    );
+}
+
+pub fn trace_program(bytecode: &[u8], calldata: &[u8]) -> GethExecTrace {
+    let (cmd_string, code_file_name, call_data_file_name) = make_evm_cmd(bytecode, calldata);
     let res = Command::new("sh")
         .arg("-c")
         .arg(cmd_string)
         .output()
         .expect("error");
+    if !code_file_name.is_empty() {
+        remove_file(Path::new(&code_file_name)).unwrap();
+    }
+    if !call_data_file_name.is_empty() {
+        remove_file(Path::new(&call_data_file_name)).unwrap();
+    }
     if !res.status.success() {
         panic!("Tracing machine code FAILURE")
     }
