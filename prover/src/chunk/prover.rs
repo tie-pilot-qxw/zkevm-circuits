@@ -4,20 +4,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::hash::{Hash, Hasher};
-use std::io::Write;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
-use halo2_proofs::plonk::{keygen_pk, Circuit, ProvingKey};
-use halo2_proofs::poly::commitment::{Params, ParamsProver};
+use halo2_proofs::plonk::{keygen_pk, ProvingKey};
+
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
-use halo2_proofs::transcript::{TranscriptReadBuffer, TranscriptWriterBuffer};
+
 use snark_verifier_sdk::halo2::gen_snark_shplonk;
 
 use eth_types::geth_types::ChunkData;
-use eth_types::ToAddress;
+
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::SubCircuit;
 use zkevm_circuits::witness::Witness;

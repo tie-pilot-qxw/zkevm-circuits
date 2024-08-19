@@ -269,7 +269,7 @@ fn main() {
     );
 
     let file = File::create("./evm_verifier.bin");
-    file.unwrap().write_all(&_deployment_code);
+    file.unwrap().write_all(&_deployment_code).unwrap();
 
     write_proof_and_instances(&_proof, &_instances, prefix, &snarks);
 

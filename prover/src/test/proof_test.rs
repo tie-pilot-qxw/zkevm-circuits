@@ -10,9 +10,9 @@ use std::path::Path;
 
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
 use halo2_proofs::plonk::{keygen_vk, ProvingKey, VerifyingKey};
-use halo2_proofs::poly::commitment::{Params, ParamsProver};
+use halo2_proofs::poly::commitment::Params;
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
-use halo2_proofs::transcript::{TranscriptReadBuffer, TranscriptWriterBuffer};
+
 use halo2_proofs::SerdeFormat;
 use once_cell::sync::Lazy;
 use rand_chacha::rand_core::OsRng;
@@ -165,42 +165,37 @@ mod test {
     use std::fs::File;
     use std::io;
     use std::io::BufReader;
-    use std::io::{BufWriter, Write};
+
     use std::path::Path;
 
-    use anyhow::anyhow;
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
-    use halo2_proofs::plonk::{
-        create_proof, keygen_pk, keygen_vk, verify_proof, ProvingKey, VerifyingKey,
-    };
-    use halo2_proofs::poly::commitment::{Params, ParamsProver};
+    use halo2_proofs::plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, ProvingKey};
+    use halo2_proofs::poly::commitment::ParamsProver;
     use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
     use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
     use halo2_proofs::poly::kzg::strategy::SingleStrategy;
     use halo2_proofs::transcript::{
         Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
     };
-    use halo2_proofs::SerdeFormat;
-    use log::info;
+
     use rand_chacha::rand_core::OsRng;
 
     use eth_types::geth_types::ChunkData;
-    use zkevm_circuits::constant::MAX_NUM_ROW;
+
     use zkevm_circuits::super_circuit::SuperCircuit;
     use zkevm_circuits::util::{log2_ceil, SubCircuit};
-    use zkevm_circuits::witness::{bytecode, public, Witness};
+    use zkevm_circuits::witness::Witness;
 
     use crate::chunk::Prover;
     use crate::constants::{MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
-    use crate::io::{read_params, try_to_read};
-    use crate::proof::Proof;
+    use crate::io::read_params;
+
     use crate::test::proof_test::{
         get_default_chunk_trace_json, get_default_proof_vk_file_path, read_proof_vk_from_file,
         CHUNK_TEST_INIT, DEFAULT_PROOF_PARAMS_DIR,
     };
     use crate::util::handler_chunk_data;
-    use crate::util::serialize_vk;
 
     impl<
             const MAX_NUM_ROW: usize,

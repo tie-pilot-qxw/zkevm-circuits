@@ -11,25 +11,22 @@ use crate::io::{force_to_read, read_params, try_to_read};
 use crate::proof::batch::BatchProof;
 use crate::proof::chunk::ChunkProof;
 use crate::proof::Proof;
-use crate::util::deserialize_vk;
+
 use anyhow::Result;
 use ark_std::{end_timer, start_timer};
-use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
-use halo2_proofs::plonk::{keygen_pk, keygen_vk, Circuit, ProvingKey, VerifyingKey};
+use halo2_proofs::halo2curves::bn256::{Bn256, G1Affine};
+use halo2_proofs::plonk::{keygen_vk, ProvingKey};
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
-use halo2_proofs::SerdeFormat;
+
 use sha2::{Digest, Sha256};
-use snark_verifier_sdk::evm::{gen_evm_proof_shplonk, gen_evm_verifier_shplonk};
+use snark_verifier_sdk::evm::gen_evm_proof_shplonk;
 use snark_verifier_sdk::halo2::aggregation::{
     AggregationCircuit, AggregationConfigParams, VerifierUniversality,
 };
 use snark_verifier_sdk::snark_verifier::halo2_base::gates::circuit::CircuitBuilderStage;
-use snark_verifier_sdk::{gen_pk, read_pk, CircuitExt, Snark, SHPLONK};
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
-use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::{log2_ceil, preprocess_trace, SubCircuit};
+use snark_verifier_sdk::{gen_pk, CircuitExt, Snark, SHPLONK};
+
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct Prover<const AGG_DEGREE: usize> {

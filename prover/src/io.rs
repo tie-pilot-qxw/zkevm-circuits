@@ -10,7 +10,7 @@ use std::io::{BufReader, Read};
 use std::path::PathBuf;
 
 use halo2_proofs::halo2curves::bn256::Bn256;
-use halo2_proofs::plonk::Circuit;
+
 use halo2_proofs::poly::commitment::Params;
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
 
