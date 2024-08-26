@@ -1,0 +1,73 @@
+{
+  "chain_id": 1338,
+  "history_hashes": [],
+  "block_constants": {
+    "coinbase": "0x0000000000000000000000000000000000000000",
+    "timestamp": "0x75bcd15",
+    "number": "0xcafe",
+    "difficulty": "0x200000",
+    "gas_limit": "0x2386f26fc10000",
+    "base_fee": "0x0"
+  },
+  "accounts": {
+    "0x000000000000000000000000000000000000cafe": {
+      "address": "0x000000000000000000000000000000000000cafe",
+      "nonce": "0x0",
+      "balance": "0x29",
+      "code": "0x",
+      "storage": {}
+    },
+    "0x00000000000000000000000000000000cafecafe": {
+      "address": "0x00000000000000000000000000000000cafecafe",
+      "nonce": "0x0",
+      "balance": "0x29",
+      "code": "0x600060006000600060287f000000000000000000000000fefefefefefefefefefefefefefefefefefefefe612710f15a00",
+      "storage": {}
+    },
+    "0xfefefefefefefefefefefefefefefefefefefefe": {
+      "address": "0xfefefefefefefefefefefefefefefefefefefefe",
+      "nonce": "0x0",
+      "balance": "0x1",
+      "code": "0x600060006000601c60507f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff612710f15a00",
+      "storage": {}
+    },
+    "0xffffffffffffffffffffffffffffffffffffffff": {
+      "address": "0xffffffffffffffffffffffffffffffffffffffff",
+      "nonce": "0x0",
+      "balance": "0x56bc75e2d63100000",
+      "code": "0x6000600200",
+      "storage": {}
+    }
+  },
+  "transactions": [
+    {
+      "tx_type": "PreEip155",
+      "from": "0x000000000000000000000000000000000000cafe",
+      "to": "0x00000000000000000000000000000000cafecafe",
+      "nonce": "0x0",
+      "gas_limit": "0x186a0",
+      "value": "0x0",
+      "gas_price": null,
+      "gas_fee_cap": "0x0",
+      "gas_tip_cap": "0x0",
+      "call_data": "0x",
+      "access_list": [],
+      "v": 0,
+      "r": "0x0",
+      "s": "0x0",
+      "hash": "0x02cb47b82ae198013f6a344189fa3b8af2213961eab85cc6d97e673943b05176"
+    }
+  ],
+  "logger_config": {
+    "EnableMemory": false,
+    "DisableStack": true,
+    "DisableStorage": false,
+    "EnableReturnData": true
+  },
+  "chain_config": {
+    "ArchimedesBlock": null,
+    "ShanghaiTime": 0,
+    "TerminalTotalDifficulty": 0,
+    "TerminalTotalDifficultyPassed": true
+  }
+}

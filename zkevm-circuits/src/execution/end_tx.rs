@@ -89,7 +89,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::END_CALL],
+                vec![ExecutionState::END_CALL_2],
                 NUM_ROW,
                 vec![
                     // 非区块中最后一笔交易时（即tx_id_diff>0），约束下一个状态为begin_tx_1
@@ -213,7 +213,7 @@ mod test {
 
         let trace = prepare_trace_step!(0, OpcodeId::STOP, stack);
         let padding_begin_row = |current_state| {
-            let mut row = ExecutionState::END_CALL.into_exec_state_core_row(
+            let mut row = ExecutionState::END_CALL_2.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

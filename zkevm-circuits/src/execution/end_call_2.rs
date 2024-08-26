@@ -50,17 +50,17 @@ pub(crate) const RETURNDATA_SIZE_COL_IDX: usize = 2;
 /// | 1 | STATE1| STATE2| STATE3| STATE4   |
 /// | 0 | DYNA_SELECTOR   | AUX    |SUCCESS(1)| PARENT_CALL_ID_INV(1)| RETURNDATA_SIZE(1)|
 /// +---+-------+-------+-------+----------+
-pub struct EndCallGadget<F: Field> {
+pub struct EndCall2Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
-    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for EndCallGadget<F>
+    ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for EndCall2Gadget<F>
 {
     fn name(&self) -> &'static str {
         "END_CALL"
     }
     fn execution_state(&self) -> ExecutionState {
-        ExecutionState::END_CALL
+        ExecutionState::END_CALL_2
     }
     fn num_row(&self) -> usize {
         NUM_ROW
@@ -205,7 +205,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::PURE_MEMORY_GAS, ExecutionState::STOP],
+                vec![
+                    ExecutionState::PURE_MEMORY_GAS,
+                    ExecutionState::STOP,
+                    ExecutionState::END_CALL_1,
+                ],
                 NUM_ROW,
                 vec![
                     // 当为root call时，约束接下来的状态为END_TX(交易执行结束)
@@ -304,7 +308,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &call_context_read_row_3,
         ]);
 
-        let mut core_row_0 = ExecutionState::END_CALL.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::END_CALL_2.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
@@ -315,7 +319,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // returndata_size为当前Call执行后返回的数据字节
         // parent_call_id_inv为父调用的CALLID，与parent_call_id结合使用SimpleZero，在约束
         // 时判断当前的调用是否为root call，为root call时，parent_call_id_inv与parent_call_id=0
-        let success = U256::from(1);
         let parent_call_id_inv = U256::from_little_endian(
             F::from_u128(current_state.parent_call_id[&current_state.call_id] as u128)
                 .invert()
@@ -325,7 +328,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         assign_or_panic!(
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            success
+            (current_state.return_success as usize).into()
         );
         assign_or_panic!(
             core_row_0
@@ -380,7 +383,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 }
 pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>(
 ) -> Box<dyn ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>> {
-    Box::new(EndCallGadget {
+    Box::new(EndCall2Gadget {
         _marker: PhantomData,
     })
 }

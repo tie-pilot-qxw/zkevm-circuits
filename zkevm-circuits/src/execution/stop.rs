@@ -6,8 +6,8 @@
 
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
-    ExecutionGadget, ExecutionState,
+    end_call_1, end_call_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+    ExecutionConfig, ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
@@ -19,8 +19,7 @@ use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
-pub(crate) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: u64 = 2;
+pub(crate) const NUM_ROW: usize = 1;
 
 pub struct StopGadget<F: Field> {
     _marker: PhantomData<F>,
@@ -57,7 +56,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, super::end_call::NUM_ROW) // end unusable rows is super::end_call::NUM_ROW
+        (NUM_ROW, end_call_1::NUM_ROW) // end unusable rows is super::end_call::NUM_ROW
     }
 
     fn get_constraints(
@@ -65,63 +64,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
-        let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        let call_id = meta.query_advice(config.call_id, Rotation::cur());
-        let returndata_size_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation::cur(),
-        );
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             gas_left: ExpressionOutcome::Delta(-OpcodeId::STOP.constant_gas_cost().expr()),
-            refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
-
-        //constraint returndata_size == 0
-        constraints.extend([(
-            "returndata_size_for_next == 0".into(),
-            returndata_size_for_next,
-        )]);
-
-        // append state_lookup constraints
-        let mut operands = vec![];
-        for i in 0..2 {
-            let state_entry = config.get_state_lookup(meta, i);
-
-            constraints.append(
-                &mut config.get_call_context_constraints(
-                    meta,
-                    state_entry.clone(),
-                    i,
-                    NUM_ROW,
-                    true,
-                    if i == 0 {
-                        state::CallContextTag::ReturnDataCallId as u8
-                    } else {
-                        state::CallContextTag::ReturnDataSize as u8
-                    }
-                    .expr(),
-                    if i == 0 { 0.expr() } else { call_id.clone() }, // when CallContextTag is ReturnDataCallId, the call_id is 0.
-                ),
-            );
-
-            let (_, _, value_hi, value_lo, _, _, _, _) =
-                extract_lookup_expression!(state, state_entry);
-            operands.push([value_hi, value_lo]);
-        }
-        // append constraints for state lookup's values
-        constraints.extend([
-            ("returndata_call_id hi == 0".into(), operands[0][0].clone()),
-            (
-                "returndata_call_id lo == call_id".into(),
-                operands[0][1].clone() - call_id.clone(),
-            ),
-            ("returndata_size hi == 0".into(), operands[1][0].clone()),
-            ("returndata_size lo == 0".into(), operands[1][1].clone()),
-        ]);
 
         // append core single purpose constraints
         let delta = CoreSinglePurposeOutcome {
@@ -130,6 +78,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
         //constraint for opcode
+        let opcode = meta.query_advice(config.opcode, Rotation::cur());
         constraints.extend([("opcode is STOP".into(), opcode - OpcodeId::STOP.expr())]);
         // next execution state should be END_CALL
         constraints.extend(config.get_exec_state_constraints(
@@ -137,7 +86,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(
                 vec![],
                 NUM_ROW,
-                vec![(ExecutionState::END_CALL, end_call::NUM_ROW, None)],
+                vec![(ExecutionState::END_CALL_1, end_call_1::NUM_ROW, None)],
                 None,
             ),
         ));
@@ -149,61 +98,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
-        vec![
-            (
-                "state lookup, call_context write returndata_call_id".into(),
-                state_lookup_0,
-            ),
-            (
-                "state lookup, call_context write returndata_size".into(),
-                state_lookup_1,
-            ),
-        ]
+        vec![]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         assert_eq!(trace.op, OpcodeId::STOP);
-
-        //update returndata,returndata_call_id, returndata_call_size and return_success
-        current_state.returndata_call_id = current_state.call_id.clone();
-        current_state
-            .return_data
-            .insert(current_state.call_id, vec![]);
-        current_state.returndata_size = 0.into();
         current_state.return_success = true;
 
-        //get call_context write rows.
-        let call_context_write_row_0 = current_state.get_call_context_write_row(
-            state::CallContextTag::ReturnDataCallId,
-            current_state.returndata_call_id.into(),
-            0,
-        );
-        let call_context_write_row_1 = current_state.get_call_context_write_row(
-            state::CallContextTag::ReturnDataSize,
-            current_state.returndata_size,
-            current_state.returndata_call_id,
-        );
-        //generate core rows
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        //insert lookup: Core ---> State
-        core_row_1.insert_state_lookups([&call_context_write_row_0, &call_context_write_row_1]);
-
-        let mut core_row_0 = ExecutionState::STOP.into_exec_state_core_row(
+        let core_row_0 = ExecutionState::STOP.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + 2],
-            0.into()
-        ); // let returndata_size_store = 0
 
         Witness {
-            core: vec![core_row_1, core_row_0],
-            state: vec![call_context_write_row_0, call_context_write_row_1],
+            core: vec![core_row_0],
+            state: vec![],
             ..Default::default()
         }
     }
@@ -239,7 +150,7 @@ mod test {
             )
         };
         let padding_end_row = |current_state| {
-            ExecutionState::END_CALL.into_exec_state_core_row(
+            ExecutionState::END_CALL_1.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

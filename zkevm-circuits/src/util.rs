@@ -8,7 +8,9 @@ use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::geth_types::{Account, ChunkData, GethData};
-use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
+use eth_types::{
+    Address, Block, Field, GethCallTrace, GethExecTrace, ReceiptLog, Transaction, U256,
+};
 use eth_types::{ToAddress, H256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
@@ -334,6 +336,9 @@ pub fn preprocess_trace(trace: &mut GethExecTrace) {
 
             _ => mem[i].clone(),
         };
+    }
+    if trace.call_trace.is_empty() {
+        trace.call_trace = GethCallTrace::get_call_trace_for_test(&trace.struct_logs);
     }
 }
 

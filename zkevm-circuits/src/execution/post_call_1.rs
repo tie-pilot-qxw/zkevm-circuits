@@ -14,7 +14,7 @@ use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 
 use crate::constant::NUM_AUXILIARY;
-use crate::execution::end_call::RETURNDATA_SIZE_COL_IDX;
+use crate::execution::end_call_2::RETURNDATA_SIZE_COL_IDX;
 use crate::execution::{
     post_call_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
@@ -68,6 +68,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = vec![];
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
+        // 1. call_context constraints
         let mut operands = vec![];
         for i in 0..3 {
             // 约束填入core电路的state 状态值
@@ -96,25 +97,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operands.push(value_lo);
         }
 
-        // prev_step_gas - cur_step_gas = CALL_OP_GAS_COST - CALL_OP_GAS
-        let gas_cost = operands[1].clone() - operands[0].clone();
-
-        // 2. auxiliary constraints
-        let delta = AuxiliaryOutcome {
-            gas_left: ExpressionOutcome::Delta(-gas_cost.expr()),
-            refund: ExpressionOutcome::Delta(0.expr()),
-            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
-            stack_pointer: ExpressionOutcome::Delta(0.expr()),
-            memory_chunk: ExpressionOutcome::To(operands[2].clone()),
-            ..Default::default()
-        };
-        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
-
-        // 3. opcode and state_init constraints
+        // 2. opcode and state_init constraints
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         constraints.push(("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr()));
 
-        // 4. return_success and return_data_size constraints
+        // 3. return_success and return_data_size constraints
         let return_success_for_next = meta.query_advice(
             config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
             Rotation::cur(),
@@ -137,13 +124,36 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "return_success".into(),
-                return_success_for_next - return_success_prev,
+                return_success_for_next.clone() - return_success_prev,
             ),
             (
                 "return_data_size".into(),
                 return_data_size_for_next - return_data_size_prev,
             ),
         ]);
+
+        // 4. auxiliary constraints
+
+        // 4.1 if call is success, then cur_step_gas - prev_step_gas = CALL_OP_GAS - CALL_OP_GAS_COST
+        // 4.2 if call not success, then cur_step_gas = CALL_OP_GAS - CALL_OP_GAS_COST
+        let gas_cost = operands[0].clone() - operands[1].clone();
+        let cur_gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
+        let prev_gas_left = meta.query_advice(
+            config.get_auxiliary().gas_left,
+            Rotation(-1 * NUM_ROW as i32),
+        );
+        constraints.push((
+            "gas left prev - cur".into(),
+            cur_gas_left - return_success_for_next * prev_gas_left - gas_cost,
+        ));
+
+        let delta = AuxiliaryOutcome {
+            gas_left: ExpressionOutcome::Any,
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            memory_chunk: ExpressionOutcome::To(operands[2].clone()),
+            ..Default::default()
+        };
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
 
         // 5. prev and current core constraints
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
@@ -153,7 +163,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::END_CALL],
+                vec![ExecutionState::END_CALL_2],
                 NUM_ROW,
                 vec![(ExecutionState::POST_CALL_2, post_call_2::NUM_ROW, None)],
                 None,
@@ -283,7 +293,7 @@ mod test {
         let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);
 
         let padding_begin_row = |current_state| {
-            let row = ExecutionState::END_CALL.into_exec_state_core_row(
+            let row = ExecutionState::END_CALL_2.into_exec_state_core_row(
                 &trace,
                 current_state,
                 NUM_STATE_HI_COL,

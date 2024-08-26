@@ -14,6 +14,8 @@ pub use opcode_ids::OpcodeId;
 pub use stack::{Stack, StackAddress};
 pub use storage::Storage;
 
+/// Maximum bytecode size to permit for a contract.
+pub const MAX_CODE_SIZE: u64 = 24576;
 /// According to EIP-3541, disallow new code starting with 0xEF to be deployed.
 pub const INVALID_INIT_CODE_FIRST_BYTE: u8 = 0xef;
 /// Once per word of the init code when creating a contract.

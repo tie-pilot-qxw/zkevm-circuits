@@ -9,6 +9,33 @@
 //#![deny(unsafe_code)] Allowed now until we find a
 // better way to handle downcasting from Operation into it's variants.
 #![allow(clippy::upper_case_acronyms)] // Too pedantic
+#![feature(lazy_cell)]
+
+use std::fmt::{Display, Formatter};
+use std::sync::LazyLock;
+use std::{collections::HashMap, fmt, str::FromStr};
+
+use ethers_core::types::{self, Log};
+pub use ethers_core::{
+    abi::ethereum_types::{BigEndianHash, U512},
+    types::{
+        transaction::{eip2930::AccessList, response::Transaction},
+        Address, Block, Bytes, Signature, H160, H256, H64, U256, U64,
+    },
+};
+use halo2_proofs::halo2curves::{
+    bn256::{Fq, Fr},
+    ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
+};
+use serde::{de, Deserialize, Serialize};
+
+pub use bytecode::Bytecode;
+pub use error::Error;
+pub use keccak::{keccak256, Keccak};
+pub use state_db::StateDB;
+pub use uint_types::DebugU256;
+
+use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
 
 #[macro_use]
 pub mod macros;
@@ -21,28 +48,6 @@ pub mod geth_types;
 pub mod keccak;
 pub mod sign_types;
 pub mod state_db;
-
-pub use bytecode::Bytecode;
-pub use error::Error;
-use halo2_proofs::halo2curves::{
-    bn256::{Fq, Fr},
-    ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
-};
-pub use keccak::{keccak256, Keccak};
-pub use state_db::StateDB;
-
-use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
-use ethers_core::types::{self, Log};
-pub use ethers_core::{
-    abi::ethereum_types::{BigEndianHash, U512},
-    types::{
-        transaction::{eip2930::AccessList, response::Transaction},
-        Address, Block, Bytes, Signature, H160, H256, H64, U256, U64,
-    },
-};
-
-use serde::{de, Deserialize, Serialize};
-use std::{collections::HashMap, fmt, str::FromStr};
 
 /// Trait used to reduce verbosity with the declaration of the [`PrimeField`]
 /// trait and its repr.
@@ -115,7 +120,6 @@ mod uint_types {
         pub struct DebugU256(4);
     }
 }
-pub use uint_types::DebugU256;
 
 impl<'de> Deserialize<'de> for DebugU256 {
     fn deserialize<D>(deserializer: D) -> Result<DebugU256, D::Error>
@@ -471,6 +475,97 @@ pub struct GethExecTrace {
     /// Vector of geth execution steps of the trace.
     #[serde(rename = "structLogs")]
     pub struct_logs: Vec<GethExecStep>,
+    /// call trace from trace
+    #[serde(rename = "callTrace", default)]
+    pub call_trace: GethCallTrace,
+}
+
+/// The call trace returned by geth RPC debug_trace* methods.
+/// using callTracer
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+pub struct GethCallTrace {
+    #[serde(default)]
+    calls: Vec<GethCallTrace>,
+    error: Option<String>,
+    #[serde(rename = "gasUsed")]
+    gas_used: U256,
+    #[serde(rename = "type")]
+    call_type: String,
+    // value: U256,
+}
+
+impl GethCallTrace {
+    /// generate call_is_success vector from call_trace
+    pub fn gen_call_is_success(&self, mut call_is_success: Vec<bool>) -> Vec<bool> {
+        // root会先push一次
+        call_is_success.push(self.error.is_none());
+        // 递归call_trace
+        for call in &self.calls {
+            call_is_success = call.gen_call_is_success(call_is_success);
+        }
+        call_is_success
+    }
+    /// 主要是用来兼容两种情况：
+    /// 1. 用debug_transaction获取的旧的trace里不携带callTrace信息，但是由于之前我们都是成功执行的trace，所以可以使用该方法直接构造成功情况下的callTrace，
+    /// 如果debug_transaction获取的是一个失败的trace信息，则不应该调用此方法，因为仅通过trace信息无法获得具体错误原因，必须结合callTracer来实现；
+    /// 2. 用./evm的形式，由于没有办法使用callTracer，也可以使用该方法，如果./evm模拟的是一个错误示例，同样可以使用该方法，只是此时callTrace没有任何作用，可以
+    /// 仅当作一个mock值，因为./evm模拟的错误示例里，出错的step会携带error信息，此时在witness处理阶段会直接判断出错误。
+    pub fn get_call_trace_for_test(struct_logs: &Vec<GethExecStep>) -> Self {
+        let root_calls = GethCallTrace {
+            calls: Vec::new(),
+            error: None,
+            call_type: "root".to_string(), // 区别正式的type 我们测试里可以使用这种字段做区分，目前这个字段没有其他用途
+            gas_used: U256::from(100),
+        };
+
+        let mut stack: Vec<GethCallTrace> = vec![root_calls];
+
+        for step in struct_logs {
+            while stack.len() > step.depth as usize {
+                let finished_call = stack.pop().unwrap();
+                if let Some(last) = stack.last_mut() {
+                    last.calls.push(finished_call);
+                }
+            }
+
+            if matches!(
+                step.op,
+                OpcodeId::CALL
+                    | OpcodeId::CALLCODE
+                    | OpcodeId::DELEGATECALL
+                    | OpcodeId::STATICCALL
+                    | OpcodeId::CREATE
+                    | OpcodeId::CREATE2
+            ) {
+                let new_call = GethCallTrace {
+                    calls: Vec::new(),
+                    error: None,
+                    call_type: step.depth.to_string(),
+                    gas_used: U256::from(100),
+                };
+
+                stack.push(new_call);
+            }
+        }
+
+        // Unwind remaining stack
+        while stack.len() > 1 {
+            let finished_call = stack.pop().unwrap();
+            if let Some(last) = stack.last_mut() {
+                last.calls.push(finished_call);
+            }
+        }
+
+        stack.pop().unwrap()
+    }
+
+    /// check GethCallTrace is empty, empty return true
+    pub fn is_empty(&self) -> bool {
+        self.call_type == ""
+            && self.calls.len() == 0
+            && self.error == None
+            && self.gas_used == U256::zero()
+    }
 }
 
 ///  type build to deal with Log
@@ -594,6 +689,149 @@ pub struct WrapAccounts {
     pub result: Vec<WrapAccount>,
 }
 
+/// Errors of StructLogger Result from Geth
+/// 注：这里的error对应的是EVM执行后提供的报错信息，与ExecError不同
+/// 类比Opcode 与 ExecutionState之间的关系，
+/// 比如OutOfGas, EVM执行发生错误后，只会提示OutOfGas，而不会提示具体对应哪个Opcode
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum GethExecError {
+    /// out of gas
+    OutOfGas,
+    /// contract creation code storage out of gas
+    CodeStoreOutOfGas,
+    /// max call depth exceeded
+    Depth,
+    /// insufficient balance for transfer
+    InsufficientBalance,
+    /// contract address collision
+    ContractAddressCollision,
+    /// execution reverted
+    ExecutionReverted,
+    /// max initcode size exceeded
+    MaxInitCodeSizeExceeded,
+    /// max code size exceeded
+    MaxCodeSizeExceeded,
+    /// invalid jump destination
+    InvalidJump,
+    /// write protection
+    WriteProtection,
+    /// return data out of bounds
+    ReturnDataOutOfBounds,
+    /// gas uint64 overflow
+    GasUintOverflow,
+    /// invalid code: must not begin with 0xef
+    InvalidCode,
+    /// nonce uint64 overflow
+    NonceUintOverflow,
+    /// stack underflow
+    StackUnderflow {
+        /// stack length
+        stack_len: u64,
+        /// required length
+        required: u64,
+    },
+    /// stack limit reached
+    StackOverflow {
+        /// stack length
+        stack_len: u64,
+        /// stack limit
+        limit: u64,
+    },
+    /// invalid opcode
+    InvalidOpcode(OpcodeId),
+}
+
+impl GethExecError {
+    /// Returns the error as a string constant.
+    pub fn error(self) -> &'static str {
+        match self {
+            GethExecError::OutOfGas => "out of gas",
+            GethExecError::CodeStoreOutOfGas => "contract creation code storage out of gas",
+            GethExecError::Depth => "max call depth exceeded",
+            GethExecError::InsufficientBalance => "insufficient balance for transfer",
+            GethExecError::ContractAddressCollision => "contract address collision",
+            GethExecError::ExecutionReverted => "execution reverted",
+            GethExecError::MaxInitCodeSizeExceeded => "max initcode size exceeded",
+            GethExecError::MaxCodeSizeExceeded => "max code size exceeded",
+            GethExecError::InvalidJump => "invalid jump destination",
+            GethExecError::WriteProtection => "write protection",
+            GethExecError::ReturnDataOutOfBounds => "return data out of bounds",
+            GethExecError::GasUintOverflow => "gas uint64 overflow",
+            GethExecError::InvalidCode => "invalid code: must not begin with 0xef",
+            GethExecError::NonceUintOverflow => "nonce uint64 overflow",
+            GethExecError::StackUnderflow { .. } => "stack underflow",
+            GethExecError::StackOverflow { .. } => "stack limit reached",
+            GethExecError::InvalidOpcode(_) => "invalid opcode",
+        }
+    }
+}
+
+impl Display for GethExecError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            GethExecError::StackUnderflow {
+                stack_len,
+                required,
+            } => {
+                write!(f, "stack underflow ({stack_len} <=> {required})")
+            }
+            GethExecError::StackOverflow { stack_len, limit } => {
+                write!(f, "stack limit reached {stack_len} ({limit})")
+            }
+            GethExecError::InvalidOpcode(op) => {
+                write!(f, "invalid opcode: {op}")
+            }
+            _ => f.write_str(self.error()),
+        }
+    }
+}
+
+static STACK_UNDERFLOW_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^stack underflow \((\d+) <=> (\d+)\)$").unwrap());
+static STACK_OVERFLOW_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^stack limit reached (\d+) \((\d+)\)$").unwrap());
+impl From<&str> for GethExecError {
+    fn from(value: &str) -> Self {
+        match value {
+            "out of gas" => GethExecError::OutOfGas,
+            "contract creation code storage out of gas" => GethExecError::CodeStoreOutOfGas,
+            "max call depth exceeded" => GethExecError::Depth,
+            "insufficient balance for transfer" => GethExecError::InsufficientBalance,
+            "contract address collision" => GethExecError::ContractAddressCollision,
+            "execution reverted" => GethExecError::ExecutionReverted,
+            "max initcode size exceeded" => GethExecError::MaxInitCodeSizeExceeded,
+            "max code size exceeded" => GethExecError::MaxCodeSizeExceeded,
+            "invalid jump destination" => GethExecError::InvalidJump,
+            "write protection" => GethExecError::WriteProtection,
+            "return data out of bounds" => GethExecError::ReturnDataOutOfBounds,
+            "gas uint64 overflow" => GethExecError::GasUintOverflow,
+            "invalid code: must not begin with 0xef" => GethExecError::InvalidCode,
+            "nonce uint64 overflow" => GethExecError::NonceUintOverflow,
+            _ if value.starts_with("stack underflow") => {
+                let caps = STACK_UNDERFLOW_RE.captures(value).unwrap();
+                let stack_len = caps.get(1).unwrap().as_str().parse::<u64>().unwrap();
+                let required = caps.get(2).unwrap().as_str().parse::<u64>().unwrap();
+                GethExecError::StackUnderflow {
+                    stack_len,
+                    required,
+                }
+            }
+            _ if value.starts_with("stack limit reached") => {
+                let caps = STACK_OVERFLOW_RE.captures(value).unwrap();
+                let stack_len = caps.get(1).unwrap().as_str().parse::<u64>().unwrap();
+                let limit = caps.get(2).unwrap().as_str().parse::<u64>().unwrap();
+                GethExecError::StackOverflow { stack_len, limit }
+            }
+            _ if value.starts_with("invalid opcode") => value
+                .strip_prefix("invalid opcode: ")
+                .map(|s| OpcodeId::from_str(s).unwrap())
+                .map(GethExecError::InvalidOpcode)
+                .unwrap(),
+            _ => panic!("invalid value: {}", value),
+        }
+    }
+}
+
 #[macro_export]
 /// Create an [`Address`] from a hex string.  Panics on invalid input.
 macro_rules! address {
@@ -629,8 +867,9 @@ macro_rules! word_map {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::evm_types::{memory::Memory, opcode_ids::OpcodeId, stack::Stack};
+
+    use super::*;
 
     #[test]
     fn deserialize_geth_exec_trace2() {
@@ -763,6 +1002,7 @@ mod tests {
                         ]),
                     }
                 ],
+                call_trace: Default::default(),
             }
         );
     }
@@ -826,9 +1066,11 @@ mod tests {
 
 #[cfg(test)]
 mod eth_types_test {
-    use super::*;
-    use crate::{Error, Word};
     use std::str::FromStr;
+
+    use crate::{Error, Word};
+
+    use super::*;
 
     #[test]
     fn address() {
@@ -922,5 +1164,54 @@ mod eth_types_test {
         let req: ethers_core::types::TransactionRequest = tx.into();
         assert_eq!(req.to, None);
         Ok(())
+    }
+
+    #[test]
+    fn get_call_trace_from_geth_trace() {
+        let trace = GethExecTrace {
+            gas: 1000,
+            failed: false,
+            return_value: "".to_string(),
+            struct_logs: vec![
+                GethExecStep {
+                    pc: 1,
+                    depth: 1,
+                    op: OpcodeId::CALL,
+                    error: None,
+                    ..Default::default()
+                },
+                GethExecStep {
+                    pc: 2,
+                    depth: 2,
+                    op: OpcodeId::GAS,
+                    error: None,
+                    ..Default::default()
+                },
+                GethExecStep {
+                    pc: 3,
+                    depth: 2,
+                    op: OpcodeId::CALL,
+                    error: None,
+                    ..Default::default()
+                },
+                GethExecStep {
+                    pc: 4,
+                    depth: 3,
+                    op: OpcodeId::GASLIMIT,
+                    error: None,
+                    ..Default::default()
+                },
+                GethExecStep {
+                    pc: 5,
+                    depth: 1,
+                    op: OpcodeId::CALL,
+                    error: None,
+                    ..Default::default()
+                },
+            ],
+            call_trace: GethCallTrace::default(),
+        };
+        let call_trace = GethCallTrace::get_call_trace_for_test(&trace.struct_logs);
+        println!("call_trace:{:?}", call_trace)
     }
 }

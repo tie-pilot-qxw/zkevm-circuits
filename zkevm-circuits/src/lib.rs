@@ -22,6 +22,7 @@ pub mod public_circuit;
 #[path = "public_circuit_no_hash.rs"]
 pub mod public_circuit;
 
+pub mod error;
 pub mod state_circuit;
 pub mod super_circuit;
 pub mod table;
