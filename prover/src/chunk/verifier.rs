@@ -5,12 +5,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use halo2_proofs::halo2curves::bn256::Fr;
-use halo2_proofs::plonk::{keygen_pk, verify_proof};
-use halo2_proofs::poly::commitment::{Params, ParamsProver};
-use halo2_proofs::poly::kzg::commitment::KZGCommitmentScheme;
+use halo2_proofs::plonk::verify_proof;
+use halo2_proofs::poly::commitment::ParamsProver;
+
 use halo2_proofs::poly::kzg::multiopen::VerifierSHPLONK;
-use halo2_proofs::poly::kzg::strategy::{AccumulatorStrategy, SingleStrategy};
-use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
+use halo2_proofs::poly::kzg::strategy::AccumulatorStrategy;
+
 use halo2_proofs::{
     halo2curves::bn256::{Bn256, G1Affine},
     plonk::VerifyingKey,
@@ -22,10 +22,9 @@ use snark_verifier_sdk::NativeLoader;
 
 use crate::constants::{CHUNK_PARAMS_FILENAME, CHUNK_VK_FILENAME};
 use zkevm_circuits::super_circuit::SuperCircuit;
-use zkevm_circuits::util::log2_ceil;
 
 use crate::io::{read_params, try_to_read};
-use crate::proof::chunk::ChunkProof;
+
 use crate::proof::Proof;
 use crate::util::{deserialize_vk, serialize_vk};
 

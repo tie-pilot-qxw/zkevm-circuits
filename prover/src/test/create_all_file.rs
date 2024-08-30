@@ -35,7 +35,9 @@ use crate::constants::{
     CHUNK_PARAMS_FILENAME, CHUNK_PROTOCOL_FILENAME, CHUNK_VK_FILENAME, DEFAULT_PROOF_PARAMS_DIR,
     DEPLOYMENT_CODE_FILENAME, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
 };
+use crate::proof::batch::BatchProof;
 use crate::proof::chunk::ChunkProof;
+use crate::proof::Proof;
 use crate::test::proof_test::{
     get_default_chunk_trace_json, get_default_proof_params_file_path,
     get_default_proof_vk_file_path, write_proof_params, write_proof_vk,
@@ -158,6 +160,14 @@ pub fn complete_process(need_gen_batch_proof: bool) {
         let proof_time = start_timer!(|| "generate proof");
         let instances = agg_circuit.instances();
         let proof = gen_evm_proof_shplonk(&agg_params, &pk, agg_circuit.clone(), instances.clone());
+        let b_proof = Proof::new(proof.clone(), &instances, Some(&pk));
+        let batch_proof = BatchProof::from(b_proof);
+        batch_proof
+            .dump(
+                DEFAULT_PROOF_PARAMS_DIR,
+                format!("k{}", agg_degree).as_str(),
+            )
+            .unwrap();
         end_timer!(proof_time);
 
         let verify_time = start_timer!(|| "verify proof");

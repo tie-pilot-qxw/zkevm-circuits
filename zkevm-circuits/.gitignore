@@ -1,3 +1,4 @@
 evm
 demo.html
 test_data/deploy-*
+test_data/tmp/*
