@@ -253,7 +253,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.returndata_size
         );
 
-        // 如果下一个状态为END_CALL,设置NUM_VERS - 1为1
+        // 如果下一个状态为END_CALL_1,设置NUM_VERS - 1为1
         match current_state.next_exec_state {
             Some(ExecutionState::END_CALL_2) => {
                 assign_or_panic!(core_row_0[NUM_VERS - 1], U256::one());

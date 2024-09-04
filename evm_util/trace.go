@@ -163,8 +163,7 @@ func Trace(config TraceConfig) ([]*ExecutionResult, UsedGas, error) {
 		return nil, usedGas, fmt.Errorf("txs total gas: %d Exceeds block gas limit: %d", txsGasLimit, blockGasLimit)
 	}
 
-	// For opcode PREVRANDAO
-	randao := common.BigToHash(hexBigToBigInt(config.Block.Difficulty)) // TODO: fix
+	prevrandao := common.BigToHash(hexBigToBigInt(config.Block.MixHash))
 
 	blockCtx := vm.BlockContext{
 		CanTransfer: core.CanTransfer,
@@ -181,7 +180,7 @@ func Trace(config TraceConfig) ([]*ExecutionResult, UsedGas, error) {
 		BlockNumber: hexBigToBigInt(config.Block.Number),
 		Time:        hexBigToBigInt(config.Block.Timestamp).Uint64(),
 		Difficulty:  hexBigToBigInt(config.Block.Difficulty),
-		Random:      &randao,
+		Random:      &prevrandao,
 		BaseFee:     hexBigToBigInt(config.Block.BaseFee),
 		GasLimit:    blockGasLimit,
 	}

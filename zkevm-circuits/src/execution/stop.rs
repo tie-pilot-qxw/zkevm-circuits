@@ -4,20 +4,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::NUM_AUXILIARY;
-use crate::execution::{
-    end_call_1, end_call_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
-    ExecutionConfig, ExecutionGadget, ExecutionState,
-};
-use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
+use std::marker::PhantomData;
+
+use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
+use halo2_proofs::poly::Rotation;
+
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
-use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
-use halo2_proofs::poly::Rotation;
-use std::marker::PhantomData;
+
+use crate::execution::{
+    end_call_1, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    ExecutionGadget, ExecutionState,
+};
+use crate::table::LookupEntry;
+use crate::util::ExpressionOutcome;
+use crate::witness::{Witness, WitnessExecHelper};
 
 pub(crate) const NUM_ROW: usize = 1;
 
@@ -35,8 +37,7 @@ pub struct StopGadget<F: Field> {
 /// +---+-------+-------+-------+---------+
 /// |cnt| 8 col | 8 col | 8 col |  8col   |
 /// +---+-------+-------+-------+---------+
-/// | 1 | STATE1| STATE2|                 |
-/// | 0 | DYNA_SELECTOR   | AUX     |RETURNDATASIZE(1) |
+/// | 0 | DYNA_SELECTOR   | AUX     |     |
 /// +---+-------+-------+-------+---------+
 ///
 /// Note: here we constraint RETURNDATASIZE == 0.expr()
@@ -56,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn unusable_rows(&self) -> (usize, usize) {
-        (NUM_ROW, end_call_1::NUM_ROW) // end unusable rows is super::end_call::NUM_ROW
+        (NUM_ROW, end_call_1::NUM_ROW) // end unusable rows is super::end_call_1::NUM_ROW
     }
 
     fn get_constraints(
@@ -80,7 +81,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //constraint for opcode
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
         constraints.extend([("opcode is STOP".into(), opcode - OpcodeId::STOP.expr())]);
-        // next execution state should be END_CALL
+        // next execution state should be END_CALL_1
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -132,6 +133,7 @@ mod test {
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
+
     generate_execution_gadget_test_circuit!();
 
     #[test]

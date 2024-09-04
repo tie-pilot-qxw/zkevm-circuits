@@ -26,7 +26,7 @@ pub struct EndCall1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
 
-/// Stop Execution State layout is as follows
+/// END_CALL_1 Execution State layout is as follows
 /// where STATE1 means state table lookup (call_context write returndata_call_id),
 /// STATE2 means state table lookup (call_context write returndata_size),
 /// RETURNDATASIZE means the updated returndata_size used by the next execution state (END_CALL),

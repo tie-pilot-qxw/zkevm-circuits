@@ -29,7 +29,7 @@ pub(crate) const PARENT_CALL_ID_INV_COL_IDX: usize = 1;
 pub(crate) const RETURNDATA_SIZE_COL_IDX: usize = 2;
 
 /// 当evm 操作码为 STOP、REVERT、RETURN时，先执行对应的指令的gadget，
-/// 再执行END_CALL gadget，进行父状态的恢复
+/// 再执行END_CALL_2 gadget，进行父状态的恢复
 /// EndCall recovers the current state from the callee to the caller.
 /// More precisely, it reads parent_call_id, parent_pc, parent_stack_pointer and parent_code_addr
 /// from call_context, and constraint the next state's call_id, pc and code_addr
@@ -57,7 +57,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for EndCall2Gadget<F>
 {
     fn name(&self) -> &'static str {
-        "END_CALL"
+        "END_CALL_2"
     }
     fn execution_state(&self) -> ExecutionState {
         ExecutionState::END_CALL_2

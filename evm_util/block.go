@@ -20,7 +20,8 @@ type Block struct {
 	Coinbase   common.Address `json:"coinbase"`
 	Timestamp  *hexutil.Big   `json:"timestamp"`
 	Number     *hexutil.Big   `json:"number"`
-	Difficulty *hexutil.Big   `json:"difficulty"`
+	Difficulty *hexutil.Big   `json:"difficulty"` // 对应randao
+	MixHash    *hexutil.Big   `json:"mix_hash"`   // 对应PREVRANDAO
 	GasLimit   *hexutil.Big   `json:"gas_limit"`
 	BaseFee    *hexutil.Big   `json:"base_fee"`
 }
