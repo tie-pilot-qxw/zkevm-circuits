@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::thread::sleep;
 
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -9,7 +10,7 @@ use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::{select, Expr};
+use gadgets::util::{pow_of_two, select, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::arithmetic_circuit::operation::get_lt_operations;
@@ -25,18 +26,27 @@ use crate::witness::state::Row;
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 
 /// Overview
-///   pop an element from the top of the stack as the target PC value to jump to，and the target PC must be JUMPDEST.
+///   Constraints for invalid jump
 ///   
 /// Table Layout:
-///    STATE: State lookup(stack_top0), src: Core circuit, target: State circuit table, 8 columns
-///    BYTECODE: Bytecode lookup, make sure the target PC exists in Bytecode, src: Core circuit, target: Bytecode circuit table, 8 columns
-/// +---+-------+-------+-------+------------+-------------+---------------------------+-----------------+------------+
-/// |cnt| 8 col | 8 col | 8 col | 20         | 21          | 22                        | 23              |   8col     |
-/// +---+-------+-------+-------+------------+-------------+---------------------------+-----------------+------------+
-/// | 2 |       |       |       |  lt_hi     |  lt_lo      | lt_diff_hi                | lt_diff_lo      |   PUBLIC   |
-/// | 1 | STATE |       |       |  JUMP_TAG  |  JUMPI_TAG  | code_diff_inv(JUMPDEST)   | condition_inv   |   BYTECODE |
-/// | 0 | DYNA_SELECTOR   | AUX |            |             |                           |                 |            |
-/// +---+-------+-------+-------+------------+-------------+---------------------------+-----------------+------------+
+///     State0: next_pc stack
+///     State1: JUMPI condition
+///     LT,DIFF: next_pc <? code_size;
+///     DIFF_INV: next_code =? JUMPDEST
+///     COND: JUMPI condition =? 0
+///     JUMP, JUMPI: opcode selector
+///     bytecode_full_lookup: next_code lookup
+///     arithmetic_tiny_0: next_pc u64overflow
+///     arithmetic_tiny_1: diff u64overflow
+///     public_lookup: code_size lookup
+///
+/// +---+--------------------------+---------------------------+-------+---------+-----------+---------------+-----------+-----------+------------+-------------------------+
+/// |cnt| 8 col                    | 8 col                     | 8 col |         |           |               |           |           |            |                         |
+/// +---+--------------------------+---------------------------+-------+---------+-----------+---------------+-----------+-----------+------------+-------------------------+
+/// | 2 | Arithemetic_tiny_0 (2..6) | Arithemetic_tiny_1 (7..11) |       |         |           |               |           |           |            | public (26..31)         |
+/// | 1 | STATE0                    | STATE1                    |       | LT (18) | DIFF (19) | DIFF_INV (20) | COND (21) | JUMP (22) | JUMPI (23) | bytecode_full (24..31) |
+/// | 0 | DYNA_SELECTOR             | AUX                       |       |         |           |               |           |           |            |                         |
+/// +---+--------------------------+---------------------------+-------+---------+-----------+---------------+-----------+-----------+------------+-------------------------+
 
 const NUM_ROW: usize = 3;
 const LT_INDEX: usize = 18;
@@ -80,6 +90,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_jump = meta.query_advice(config.vers[JUMP_INDEX], Rotation::prev());
         let is_jumpi = meta.query_advice(config.vers[JUMPI_INDEX], Rotation::prev());
         let selector = SimpleSelector::new(&[is_jump.clone(), is_jumpi.clone()]);
+        constraints.extend(selector.get_constraints());
         // 1.1 opcode is JUMP or JUMPI
         constraints.push((
             "opcode is JUMP or JUMPI".into(),
@@ -163,8 +174,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
         ]);
         // 3.1 获取next_pc与code_size之间的大小比较
-        let (_, _, [_, _, _, code_size_lo]) =
-            extract_lookup_expression!(public, config.get_public_lookup(meta, 0));
+        let public_entry = config.get_public_lookup(meta, 0);
+        let (tag, _, [code_addr_hi, code_addr_lo, code_size_hi, code_size_lo]) =
+            extract_lookup_expression!(public, public_entry.clone());
+        constraints.extend([
+            (
+                "public tag is CodeSize".into(),
+                tag - (CodeSize as u8).expr(),
+            ),
+            (
+                "code address = (public_value[0] << 128) + public_values[1]".into(),
+                code_addr_hi.clone() * pow_of_two::<F>(128) + code_addr_lo.clone()
+                    - code_addr.clone(),
+            ),
+            ("code_size hi is zero".into(), code_size_hi),
+        ]);
 
         let next_pc = select::expr(
             next_pc_not_overflow.expr(),
@@ -222,6 +246,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &condition_inv,
             String::from("jumpi_condition"),
         );
+        constraints.extend(is_condition_zero.get_constraints());
 
         constraints.extend([(
             "if opcode == JUMPI, then condition is not zero".to_string(),
@@ -280,6 +305,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        assert!(trace.op == OpcodeId::JUMPI || trace.op == OpcodeId::JUMP);
         // error 之后应该返回失败的标志
         current_state.return_success = false;
 
@@ -407,7 +433,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state,
-            public: vec![public_row],
             arithmetic,
             ..Default::default()
         }
@@ -424,9 +449,9 @@ pub(crate) fn new<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_CO
 mod test {
     use std::collections::HashMap;
 
-    use crate::constant::GAS_LEFT_IDX;
     use eth_types::Bytecode;
 
+    use crate::constant::GAS_LEFT_IDX;
     use crate::execution::test::{
         generate_execution_gadget_test_circuit, prepare_error_trace_step,
         prepare_witness_and_prover,

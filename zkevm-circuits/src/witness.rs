@@ -2992,7 +2992,7 @@ impl core::Row {
 			(format!("vers_{}", 24), "code_addr".into()),
 			(format!("vers_{}", 25), "pc".into()),
 			(format!("vers_{}", 26), format!("opcode={}", opcode)),
-			(format!("vers_{}", 27), "non_code must be 0".into()),
+			(format!("vers_{}", 27), "non_code".into()),
 			(format!("vers_{}", 28), "push_value_hi".into()),
 			(format!("vers_{}", 29), "push_value_lo".into()),
 			(format!("vers_{}", 30), "X for PUSHX".into()),
