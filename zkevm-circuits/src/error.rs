@@ -1,5 +1,5 @@
+use eth_types::error::GethExecError;
 use eth_types::evm_types::OpcodeId;
-use eth_types::GethExecError;
 
 /// Out of Gas errors by opcode
 #[derive(Clone, Debug, PartialEq, Eq)]

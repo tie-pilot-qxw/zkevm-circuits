@@ -11,12 +11,8 @@
 #![allow(clippy::upper_case_acronyms)] // Too pedantic
 #![feature(lazy_cell)]
 
-use std::fmt::{Display, Formatter};
-use std::sync::LazyLock;
+use std::fmt::Display;
 use std::{collections::HashMap, fmt, str::FromStr};
-
-use crate::call_types::GethCallTrace;
-use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
 
 use ethers_core::types::{self, Log};
 pub use ethers_core::{
@@ -31,6 +27,9 @@ use halo2_proofs::halo2curves::{
     ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
 };
 use serde::{de, Deserialize, Serialize};
+
+use crate::call_types::GethCallTrace;
+use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
 
 #[macro_use]
 pub mod macros;

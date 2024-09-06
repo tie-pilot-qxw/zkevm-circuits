@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package evm_util
+package evmutil
 
 import (
 	"encoding/json"

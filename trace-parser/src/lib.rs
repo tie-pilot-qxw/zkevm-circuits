@@ -16,12 +16,12 @@ use std::{
 use serde::{Deserialize, Serialize};
 use uint::FromStrRadixErr;
 
+use eth_types::call_types::GethCallTrace;
 use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
 use eth_types::geth_types::Account;
 use eth_types::{
-    Address, Block, Bytes, GethCallTrace, GethExecStep, GethExecTrace, ReceiptLog,
-    ResultGethExecTrace, Transaction, WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction,
-    H256, U256,
+    Address, Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace,
+    Transaction, WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, H256, U256,
 };
 
 /// Converts a string slice to U256. Supports radixes of 10 and 16 (with '0x' prefix)

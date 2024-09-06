@@ -785,7 +785,8 @@ pub fn public_rows_hash_inputs(rows: &[Row]) -> Vec<u8> {
 mod test {
     use crate::util::chunk_data_test;
     use crate::witness::public::Row;
-    use eth_types::{Bytes, GethCallTrace, GethExecTrace, ReceiptLog, H160, H256, U256, U64};
+    use eth_types::call_types::GethCallTrace;
+    use eth_types::{Bytes, GethExecTrace, ReceiptLog, H160, H256, U256, U64};
     use ethers_core::types::Log;
     use std::str::FromStr;
 

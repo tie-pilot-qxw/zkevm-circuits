@@ -1,3 +1,5 @@
+//! EVM call trace struct
+
 use crate::evm_types::OpcodeId;
 use crate::{GethExecStep, U256};
 use serde::{Deserialize, Serialize};
