@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use eth_types::evm_types::{OpcodeId, MAX_CODE_SIZE};
 use eth_types::geth_types::{ChunkData, GethData};
-use eth_types::{Bytecode, Field, GethExecError, GethExecStep, StateDB, Word, U256};
+use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
 use gadgets::dynamic_selector::get_dynamic_selector_assignments;
 use gadgets::simple_seletor::simple_selector_assign;
 
@@ -320,7 +320,7 @@ impl WitnessExecHelper {
             .get(index)
             .unwrap()
             .call_trace
-            .gen_call_is_success(vec![]);
+            .gen_call_is_success();
         self.call_is_success = call_is_success;
 
         self.call_cnt = 1;
@@ -407,7 +407,7 @@ impl WitnessExecHelper {
                 && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
 
             let exec_error = self.handle_step_error(step, next_step);
-            self.check_call_context(step);
+            self.update_call_context(step);
 
             if exec_error.is_some() {
                 prev_step_is_error = true;
@@ -512,10 +512,10 @@ impl WitnessExecHelper {
         exec_error: Option<ExecError>,
     ) -> Witness {
         let mut res = Witness::default();
-        let execution_states = if exec_error.is_none() {
-            ExecutionState::from_opcode(trace_step.op)
+        let execution_states = if let Some(exec_error) = exec_error {
+            ExecutionState::from_error(trace_step.op, exec_error)
         } else {
-            ExecutionState::from_error(trace_step.op, exec_error.unwrap())
+            ExecutionState::from_opcode(trace_step.op)
         };
         let execution_states_len = execution_states.len();
         let next_state = self.next_exec_state;
@@ -675,7 +675,8 @@ impl WitnessExecHelper {
         None
     }
 
-    fn check_call_context(&mut self, step: &GethExecStep) {
+    /// 根据opcode更新call_ctx中的变量以及call_is_success_offset
+    fn update_call_context(&mut self, step: &GethExecStep) {
         match step.op {
             OpcodeId::CALL
             | OpcodeId::CALLCODE
@@ -2663,6 +2664,7 @@ macro_rules! assign_or_panic {
     };
 }
 pub(crate) use assign_or_panic;
+use eth_types::error::GethExecError;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {

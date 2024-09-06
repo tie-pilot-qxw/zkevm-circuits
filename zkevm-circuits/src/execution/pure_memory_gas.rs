@@ -186,13 +186,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints
             .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
         // return, revert 下一个状态是END_CALL
-        let next_is_end_call = meta.query_advice(config.vers[NUM_VERS - 1], Rotation::cur());
+        let next_is_end_call_2 = meta.query_advice(config.vers[NUM_VERS - 1], Rotation::cur());
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
                 vec![ExecutionState::MEMORY_GAS],
                 NUM_ROW,
-                vec![(END_CALL_2, end_call_2::NUM_ROW, Some(next_is_end_call))],
+                vec![(END_CALL_2, end_call_2::NUM_ROW, Some(next_is_end_call_2))],
                 Some(vec![is_return_or_revert]),
             ),
         ));
@@ -253,7 +253,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.returndata_size
         );
 
-        // 如果下一个状态为END_CALL_1,设置NUM_VERS - 1为1
+        // 如果下一个状态为END_CALL_2,设置NUM_VERS - 1为1
         match current_state.next_exec_state {
             Some(ExecutionState::END_CALL_2) => {
                 assign_or_panic!(core_row_0[NUM_VERS - 1], U256::one());

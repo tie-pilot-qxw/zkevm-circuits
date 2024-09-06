@@ -186,7 +186,7 @@ pub fn get_geth_exec_trace(res: &Output) -> GethExecTrace {
         }
     }
 
-    handler_evm_test_error(&mut geth_exec_trace);
+    handle_evm_test_error(&mut geth_exec_trace);
 
     geth_exec_trace
 }
@@ -392,7 +392,7 @@ pub fn read_accounts_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<Accoun
 // "op": "JUMP", stack, error: "invalid jump"
 // 未处理前，./evm模拟的错误如上述格式，处理后则如下格式：
 // "op": "JUMP", stack: [0x1, 0x2], error: "invalid jump"
-pub fn handler_evm_test_error(trace: &mut GethExecTrace) {
+pub fn handle_evm_test_error(trace: &mut GethExecTrace) {
     let mut new_logs = Vec::with_capacity(trace.struct_logs.len());
 
     let mut skip_next = false;

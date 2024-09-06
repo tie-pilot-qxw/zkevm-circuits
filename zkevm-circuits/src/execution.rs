@@ -125,7 +125,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::codesize::new(),
             crate::execution::dup::new(),
             crate::execution::end_block::new(),
-            crate::execution::end_call_2::new(),
             crate::execution::end_chunk::new(),
             crate::execution::end_padding::new(),
             crate::execution::end_tx::new(),
@@ -167,6 +166,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::log_gas::new(),
             crate::execution::balance::new(),
             crate::execution::end_call_1::new(),
+            crate::execution::end_call_2::new(),
         ]
     }};
 }

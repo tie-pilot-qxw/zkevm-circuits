@@ -205,11 +205,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![
-                    ExecutionState::PURE_MEMORY_GAS,
-                    ExecutionState::STOP,
-                    ExecutionState::END_CALL_1,
-                ],
+                vec![ExecutionState::PURE_MEMORY_GAS, ExecutionState::END_CALL_1],
                 NUM_ROW,
                 vec![
                     // 当为root call时，约束接下来的状态为END_TX(交易执行结束)

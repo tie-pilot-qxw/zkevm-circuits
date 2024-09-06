@@ -127,8 +127,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
 
-        // next execution state should be END_CALL
-        // 前一个状态还需要对应error 例如 error_invalid_jump
+        // todo 前一个状态还需要对应error 例如 error_invalid_jump
+        // next execution state should be END_CALL_2
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
