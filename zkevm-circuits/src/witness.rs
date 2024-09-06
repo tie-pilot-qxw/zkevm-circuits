@@ -396,6 +396,7 @@ impl WitnessExecHelper {
 
         let mut prev_is_return_revert_or_stop = false;
         let mut call_step_store: Vec<&GethExecStep> = vec![];
+        let mut memory_chunk_map: HashMap<u64, u64> = HashMap::new();
         let mut prev_step_is_error = false;
         for step in trace {
             let next_step = iter_for_next_step.next();
@@ -3566,7 +3567,7 @@ impl Witness {
 
     /// Generate witness of one transaction's trace
     pub fn new(chunk_data: &ChunkData) -> Self {
-        assert!(U256::from(usize::MAX) >= U256::from(u64::MAX),"struct Memory doesn't support evm's memory because the range of usize is smaller than that of u64");
+        assert!(U256::from(usize::MAX) >= U256::from(u64::MAX), "struct Memory doesn't support evm's memory because the range of usize is smaller than that of u64");
 
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,

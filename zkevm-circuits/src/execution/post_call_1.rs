@@ -219,6 +219,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let parent_trace_gas_cost = current_state.parent_gas_cost[&current_state.call_id];
         let parant_memory_chunk = current_state.parent_memory_chunk[&current_state.call_id];
 
+        println!(
+            "post call1, get call_id:{:?}, parent_memory_chunk:{:x}",
+            current_state.call_id, parant_memory_chunk
+        );
+
         let call_context_read_0 = current_state.get_call_context_read_row_with_arbitrary_tag(
             state::CallContextTag::ParentGas,
             parent_trace_gas.into(),
