@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": [
+    {
+      "bytecode": "0x7f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff3f",
+      "contract_addr": "0xfefefefefefefefefefefefefefefefefefefefe",
+      "storage": {}
+    },
+    {
+      "bytecode": "0x6001600100",
+      "contract_addr": "0xffffffffffffffffffffffffffffffffffffffff",
+      "storage": {}
+    }
+  ]
+}
