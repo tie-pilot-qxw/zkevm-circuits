@@ -28,7 +28,8 @@ pub mod codecopy;
 pub mod codesize;
 pub mod dup;
 pub mod end_block;
-pub mod end_call;
+pub mod end_call_1;
+pub mod end_call_2;
 pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
@@ -82,7 +83,7 @@ use crate::witness::state::CallContextTag;
 use crate::witness::{arithmetic, bitwise, WitnessExecHelper};
 use crate::witness::{copy, state, Witness};
 use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep};
+use eth_types::{Error, Field, GethExecStep};
 use gadgets::dynamic_selector::DynamicSelectorConfig;
 use gadgets::is_zero_with_rotation::IsZeroWithRotationConfig;
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -124,7 +125,6 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::codesize::new(),
             crate::execution::dup::new(),
             crate::execution::end_block::new(),
-            crate::execution::end_call::new(),
             crate::execution::end_chunk::new(),
             crate::execution::end_padding::new(),
             crate::execution::end_tx::new(),
@@ -165,6 +165,8 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::pure_memory_gas::new(),
             crate::execution::log_gas::new(),
             crate::execution::balance::new(),
+            crate::execution::end_call_1::new(),
+            crate::execution::end_call_2::new(),
         ]
     }};
 }
@@ -176,6 +178,7 @@ use crate::constant::{
     STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
+use crate::error::ExecError;
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
@@ -2331,7 +2334,6 @@ pub enum ExecutionState {
     CALL_7,
     POST_CALL_1,
     POST_CALL_2,
-    END_CALL,
     END_TX,
     SDIV_SMOD,
     GAS,
@@ -2343,13 +2345,15 @@ pub enum ExecutionState {
     PURE_MEMORY_GAS,
     LOG_GAS,
     BALANCE,
+    END_CALL_1,
+    END_CALL_2,
 }
 
 impl ExecutionState {
     // a mapping from opcode to execution state(s)
     pub fn from_opcode(opcode: OpcodeId) -> Vec<Self> {
         match opcode {
-            OpcodeId::STOP => vec![Self::STOP, Self::END_CALL],
+            OpcodeId::STOP => vec![Self::STOP, Self::END_CALL_1, Self::END_CALL_2],
             OpcodeId::ADD | OpcodeId::MUL | OpcodeId::SUB | OpcodeId::DIV | OpcodeId::MOD => {
                 vec![Self::ADD_SUB_MUL_DIV_MOD]
             }
@@ -2468,7 +2472,7 @@ impl ExecutionState {
                     Self::RETURN_REVERT,
                     Self::MEMORY_GAS,
                     Self::PURE_MEMORY_GAS,
-                    Self::END_CALL,
+                    Self::END_CALL_2,
                 ]
             }
             OpcodeId::INVALID(_) => {
@@ -2592,6 +2596,18 @@ impl ExecutionState {
             }
             OpcodeId::SELFDESTRUCT => {
                 todo!()
+            }
+        }
+    }
+
+    pub fn from_error(opcode: OpcodeId, exec_error: ExecError) -> Vec<Self> {
+        match opcode {
+            // example
+            // OpcodeId::JUMP | OpcodeId::JUMPI if matches!(exec_error, ExecError::InvalidJump)  => {
+            //     vec![Self::ERROR_INVALID_JUMP, Self::END_CALL_1, Self::END_CALL_2]
+            // }
+            _ => {
+                unreachable!("{opcode} error not implement")
             }
         }
     }

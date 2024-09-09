@@ -4,13 +4,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::geth_types::Account;
-use eth_types::{
-    Address, Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace,
-    Transaction, WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, H256, U256,
-};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, remove_file};
 use std::io::Write;
@@ -22,7 +15,17 @@ use std::{
     io::{BufRead, BufReader},
     str::FromStr,
 };
+
+use serde::{Deserialize, Serialize};
 use uint::FromStrRadixErr;
+
+use eth_types::call_types::GethCallTrace;
+use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
+use eth_types::geth_types::Account;
+use eth_types::{
+    Address, Block, Bytes, GethExecStep, GethExecTrace, ReceiptLog, ResultGethExecTrace,
+    Transaction, WrapAccounts, WrapBlock, WrapReceiptLog, WrapTransaction, H256, U256,
+};
 
 /// Converts a string slice to U256. Supports radixes of 10 and 16 (with '0x' prefix)
 fn parse_u256(s: &str) -> Result<U256, FromStrRadixErr> {
@@ -160,6 +163,7 @@ pub fn get_geth_exec_trace(res: &Output) -> GethExecTrace {
         failed: false,
         return_value: "".into(),
         struct_logs: vec![],
+        call_trace: GethCallTrace::default(),
     };
 
     let s = std::str::from_utf8(&res.stdout).unwrap().split('\n');
@@ -176,13 +180,16 @@ pub fn get_geth_exec_trace(res: &Output) -> GethExecTrace {
                 gas: result.gas_used.as_u64(),
                 failed: result.error.is_some(),
                 return_value: result.output.to_string(),
-                struct_logs,
+                struct_logs: struct_logs.clone(),
+                call_trace: GethCallTrace::get_call_trace_for_test(&struct_logs),
             };
             break;
         } else {
             unreachable!("function trace_program cannot reach here")
         }
     }
+
+    handle_evm_test_error(&mut geth_exec_trace);
 
     geth_exec_trace
 }
@@ -288,7 +295,7 @@ pub fn trace_program_with_log(bytecode: &[u8], calldata: &[u8]) -> (GethExecTrac
         panic!("Tracing machine code FAILURE")
     }
     let mut receipt_log = ReceiptLog::default();
-    let mut geth_exec_trace = get_geth_exec_trace(&res);
+    let geth_exec_trace = get_geth_exec_trace(&res);
     // parse log from stderr
     if !res.stderr.is_empty() {
         let mut lines = std::str::from_utf8(&res.stderr).unwrap().split('\n');
@@ -426,6 +433,38 @@ pub fn read_accounts_from_api_result_file<P: AsRef<Path>>(path: P) -> Vec<Accoun
         accounts.push(account);
     }
     accounts
+}
+
+// 这里的作用如下：
+// "op": "JUMP", stack:[0x1, 0x2], error: nil
+// "op": "JUMP", stack, error: "invalid jump"
+// 未处理前，./evm模拟的错误如上述格式，处理后则如下格式：
+// "op": "JUMP", stack: [0x1, 0x2], error: "invalid jump"
+pub fn handle_evm_test_error(trace: &mut GethExecTrace) {
+    let mut new_logs = Vec::with_capacity(trace.struct_logs.len());
+
+    let mut skip_next = false;
+    for (index, step) in trace.struct_logs.iter().enumerate() {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+
+        if let Some(next_step) = trace.struct_logs.get(index + 1) {
+            if next_step.error.is_some() {
+                let mut new_step = step.clone();
+                new_step.error = next_step.error.clone();
+                new_logs.push(new_step);
+                skip_next = true;
+            } else {
+                new_logs.push(step.clone());
+            }
+        } else {
+            new_logs.push(step.clone());
+        }
+    }
+
+    trace.struct_logs = new_logs;
 }
 
 #[cfg(test)]

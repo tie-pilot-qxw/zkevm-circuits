@@ -4,16 +4,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod arithmetic;
-pub mod bitwise;
-pub mod bytecode;
-pub mod copy;
-pub mod core;
-pub mod exp;
-pub mod fixed;
-pub mod public;
-pub mod state;
-mod util;
+use std::collections::{HashMap, HashSet};
+use std::io::Write;
+
+use halo2_proofs::halo2curves::bn256::Fr;
+use serde::Serialize;
+
+use eth_types::evm_types::{OpcodeId, MAX_CODE_SIZE};
+use eth_types::geth_types::{ChunkData, GethData};
+use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
+use gadgets::dynamic_selector::get_dynamic_selector_assignments;
+use gadgets::simple_seletor::simple_selector_assign;
 
 use crate::arithmetic_circuit::{operation, ArithmeticCircuit};
 use crate::bitwise_circuit::BitwiseCircuit;
@@ -24,12 +25,12 @@ use crate::constant::{
     BYTECODE_COLUMN_START_IDX, BYTECODE_NUM_PADDING, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY,
     EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
     MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS,
-    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_BEGINNING_PADDING_ROW,
-    PUBLIC_NUM_VALUES, PUBLIC_NUM_VALUES_U8_ROW, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH,
-    STORAGE_COLUMN_WIDTH,
+    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
+    STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
+use crate::error::{get_step_reported_error, DepthError, ExecError};
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::exp_circuit::ExpCircuit;
 use crate::keccak_circuit::keccak_packed_multi::{calc_keccak, calc_keccak_hi_lo};
@@ -42,15 +43,17 @@ use crate::util::{
 use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
 use crate::witness::util::{extract_address_from_tx, handle_sstore};
-use eth_types::evm_types::{Memory, OpcodeId, Stack, Storage};
-use eth_types::geth_types::{ChunkData, GethData};
-use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
-use gadgets::dynamic_selector::get_dynamic_selector_assignments;
-use gadgets::simple_seletor::simple_selector_assign;
-use halo2_proofs::halo2curves::bn256::Fr;
-use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use std::io::Write;
+
+pub mod arithmetic;
+pub mod bitwise;
+pub mod bytecode;
+pub mod copy;
+pub mod core;
+pub mod exp;
+pub mod fixed;
+pub mod public;
+pub mod state;
+mod util;
 
 #[derive(Debug, Default, Clone)]
 pub struct Witness {
@@ -164,65 +167,25 @@ pub struct WitnessExecHelper {
     pub tx_gasprice: U256,
     // 存储当前的 ChainID
     pub chain_id: U256,
+    // callTrace 中读取到的变量，初始化后该值不会发生变化
+    pub call_is_success: Vec<bool>,
+    // CALLX, CREATEX 的次数，递增的值，不会减小
+    pub call_cnt: usize,
+    // call_is_success的偏移量，当is_precheck_not_ok+1, 递增值
+    pub call_is_success_offset: usize,
+    // call是否调用成功的上下文，主要用于获取next_is_success, 可增可减，遇到return等命令会返回
+    pub call_ctx: Vec<CallInfoContext>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct CallInfoContext {
+    pub is_success: bool,
+    pub is_static: bool,
 }
 
 impl WitnessExecHelper {
     pub fn new() -> Self {
-        Self {
-            stack_pointer: 0,
-            parent_stack_pointer: HashMap::new(),
-            call_data: HashMap::new(),
-            call_data_size: HashMap::new(),
-            return_data: HashMap::new(),
-            value: HashMap::new(),
-            sender: HashMap::new(),
-            block_idx: 0,
-            tx_idx: 0,
-            block_num_in_chunk: 0,
-            tx_num_in_block: HashMap::new(),
-            log_num_in_block: HashMap::new(),
-            call_id: 0,
-            call_id_new: 0,
-            parent_call_id: HashMap::new(),
-            returndata_call_id: 0,
-            returndata_size: 0.into(),
-            return_success: false,
-            code_addr: 0.into(),
-            parent_code_addr: HashMap::new(),
-            storage_contract_addr: HashMap::new(),
-            state_stamp: 0,
-            log_stamp: 0,
-            gas_left: 0,
-            refund: 0,
-            memory_chunk: 0,
-            parent_memory_chunk: HashMap::new(),
-            memory_chunk_prev: 0,
-            read_only: 0,
-            bytecode: HashMap::new(),
-            stack_top: None,
-            topic_left: 0,
-            sar: None,
-            tx_value: 0.into(),
-            parent_pc: HashMap::new(),
-            next_exec_state: None,
-            state_db: StateDB::new(),
-            is_create: false,
-            call_data_gas_cost: HashMap::new(),
-            memory_gas_cost: 0,
-            parent_gas: HashMap::new(),
-            parent_gas_cost: HashMap::new(),
-            new_memory_size: None,
-            length_in_stack: None,
-            block_number_first_block: 0,
-            timestamp: 0.into(),
-            coinbase: 0.into(),
-            block_gaslimit: 0.into(),
-            basefee: 0.into(),
-            prevrandao: 0.into(),
-            tx_gaslimit: 0.into(),
-            tx_gasprice: 0.into(),
-            chain_id: 0.into(),
-        }
+        Self::default()
     }
 
     pub fn get_block_tx_idx(&self) -> usize {
@@ -352,6 +315,21 @@ impl WitnessExecHelper {
         let call_id = self.state_stamp + 1;
         self.call_id = call_id;
 
+        let call_is_success = geth_data
+            .geth_traces
+            .get(index)
+            .unwrap()
+            .call_trace
+            .gen_call_is_success();
+        self.call_is_success = call_is_success;
+
+        self.call_cnt = 1;
+        let call = CallInfoContext {
+            is_success: !geth_data.geth_traces.get(index).unwrap().failed,
+            is_static: false,
+        };
+        self.call_ctx = vec![call];
+        self.call_is_success_offset = 0;
         // due to we decide to start idx at 1 in witness
         // if contract-create tx, calculate `to`, else convert `to`
         let to = tx.to.map_or_else(
@@ -415,11 +393,24 @@ impl WitnessExecHelper {
                 .unwrap()
                 .gen_witness(first_step, self),
         );
+
         let mut prev_is_return_revert_or_stop = false;
         let mut call_step_store: Vec<&GethExecStep> = vec![];
+        let mut prev_step_is_error = false;
         for step in trace {
-            if let Some(next_step) = iter_for_next_step.next() {
+            let next_step = iter_for_next_step.next();
+            if let Some(next_step) = next_step {
                 self.update_from_next_step(next_step);
+            }
+
+            let need_exit_call = prev_step_is_error
+                && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
+
+            let exec_error = self.handle_step_error(step, next_step);
+            self.update_call_context(step);
+
+            if exec_error.is_some() {
+                prev_step_is_error = true;
             }
 
             let memory_usage = (step.memory.0.len() / 32) as u64;
@@ -435,6 +426,7 @@ impl WitnessExecHelper {
             if step.op == OpcodeId::RETURN
                 || step.op == OpcodeId::REVERT
                 || step.op == OpcodeId::STOP
+                || exec_error.is_some()
             {
                 // 若为root-call则,下一个状态为end-tx
                 if self.parent_call_id[&self.call_id] == 0 {
@@ -443,7 +435,8 @@ impl WitnessExecHelper {
                     self.next_exec_state = Some(ExecutionState::POST_CALL_1);
                 }
             }
-            if prev_is_return_revert_or_stop {
+
+            if prev_is_return_revert_or_stop || need_exit_call {
                 // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
                 // 如果调用到POST_CALL,说明在CALL的流程并准备结束，此时POST_CALL的gas应该与CALL opcode时的gas保持一致，也即step.gas
@@ -460,6 +453,7 @@ impl WitnessExecHelper {
                 // 因此对于下面的self.gas_left = step.gas - step.gas_cost操作没有放在update_from_next_step中，
                 // 因为在执行到PUSH1(4)时，我们需要PUSH1(4)的gas_left = step.gas - step.gas_cost.
                 self.gas_left = step.gas;
+
                 res.append(
                     execution_gadgets_map
                         .get(&ExecutionState::POST_CALL_1)
@@ -473,11 +467,14 @@ impl WitnessExecHelper {
                         .gen_witness(call_trace_step, self),
                 );
                 prev_is_return_revert_or_stop = false;
+                if need_exit_call {
+                    prev_step_is_error = false;
+                }
             }
             // 执行状态后的gas计算下移，不放在update_from_next中，因为在POST_CALL中会改变这个值
             // 这里self.gas_left没有直接赋值为next_step.gas的原因是CALL里STOP时的gas_left应该为cur_gas - cur_gas_cost，而不是next_step.gas
             self.gas_left = step.gas - step.gas_cost;
-            res.append(self.generate_execution_witness(step, &execution_gadgets_map));
+            res.append(self.generate_execution_witness(step, &execution_gadgets_map, exec_error));
 
             match step.op {
                 OpcodeId::RETURN | OpcodeId::REVERT | OpcodeId::STOP => {
@@ -512,9 +509,14 @@ impl WitnessExecHelper {
             ExecutionState,
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
         >,
+        exec_error: Option<ExecError>,
     ) -> Witness {
         let mut res = Witness::default();
-        let execution_states = ExecutionState::from_opcode(trace_step.op);
+        let execution_states = if let Some(exec_error) = exec_error {
+            ExecutionState::from_error(trace_step.op, exec_error)
+        } else {
+            ExecutionState::from_opcode(trace_step.op)
+        };
         let execution_states_len = execution_states.len();
         let next_state = self.next_exec_state;
         for (index, execution_state) in execution_states.iter().enumerate() {
@@ -531,6 +533,182 @@ impl WitnessExecHelper {
             }
         }
         res
+    }
+
+    fn handle_step_error(
+        &self,
+        step: &GethExecStep,
+        next_step: Option<&GethExecStep>,
+    ) -> Option<ExecError> {
+        if matches!(step.op, OpcodeId::INVALID(_)) {
+            return Some(ExecError::InvalidOpcode);
+        }
+
+        if let Some(ref error) = step.error {
+            let geth_error = GethExecError::from(error.as_str());
+            return Some(get_step_reported_error(&step.op, geth_error));
+        }
+
+        let cur_call_is_success = self.call_ctx.last().unwrap().is_success;
+        let cur_call_is_static = self.call_ctx.last().unwrap().is_static;
+
+        if next_step.is_none() {
+            // 1.正常结束的opcode
+            if matches!(
+                step.op,
+                OpcodeId::STOP | OpcodeId::REVERT | OpcodeId::SELFDESTRUCT
+            ) {
+                return None;
+            }
+            // 2. 调用合约，op为Return，表示正常返回
+            if !self.is_create && step.op == OpcodeId::RETURN {
+                return None;
+            }
+            // 3. 创建合约，call_trace为success且正常Return
+            if self.is_create && cur_call_is_success && step.op == OpcodeId::RETURN {
+                return None;
+            }
+        }
+
+        // 默认为0，因为root函数depth == 1
+        let next_depth = next_step.map(|s| s.depth).unwrap_or(0);
+        let value = match step.op {
+            OpcodeId::CALL | OpcodeId::CALLCODE => step.stack.nth_last(2).unwrap(),
+            OpcodeId::CREATE | OpcodeId::CREATE2 => step.stack.last().unwrap(),
+            _ => Word::zero(),
+        };
+
+        if step.depth == next_depth + 1 && !cur_call_is_success {
+            if !matches!(step.op, OpcodeId::RETURN) {
+                return match step.op {
+                    OpcodeId::JUMP | OpcodeId::JUMPI => Some(ExecError::InvalidJump),
+                    OpcodeId::RETURNDATACOPY => Some(ExecError::ReturnDataOutOfBounds),
+                    OpcodeId::REVERT => None,
+                    OpcodeId::SSTORE
+                    | OpcodeId::CREATE
+                    | OpcodeId::CREATE2
+                    | OpcodeId::SELFDESTRUCT
+                    | OpcodeId::LOG0
+                    | OpcodeId::LOG1
+                    | OpcodeId::LOG2
+                    | OpcodeId::LOG3
+                    | OpcodeId::LOG4
+                        if cur_call_is_static =>
+                    {
+                        Some(ExecError::WriteProtection)
+                    }
+                    OpcodeId::CALL if cur_call_is_static && !value.is_zero() => {
+                        Some(ExecError::WriteProtection)
+                    }
+                    _ => panic!("call failure without return"),
+                };
+            } else {
+                if self.is_create {
+                    let offset = step.stack.last().unwrap();
+                    let length = step.stack.nth_last(1).unwrap();
+                    if length > Word::from(MAX_CODE_SIZE) {
+                        return Some(ExecError::MaxCodeSizeExceeded);
+                    } else if length > Word::zero()
+                        && !step.memory.is_empty()
+                        && step.memory.0.get(offset.low_u64() as usize) == Some(&0xef)
+                    {
+                        return Some(ExecError::InvalidCreationCode);
+                    } else if Word::from(200u64) * length > Word::from(step.gas) {
+                        return Some(ExecError::CodeStoreOutOfGas);
+                    } else {
+                        panic!("failure in RETURN from CREATE, CREATE2");
+                    }
+                } else {
+                    panic!("failure in RETURN")
+                }
+            }
+        }
+
+        if step.depth == next_depth + 1
+            && cur_call_is_success
+            && !matches!(
+                step.op,
+                OpcodeId::RETURN | OpcodeId::STOP | OpcodeId::SELFDESTRUCT
+            )
+        {
+            panic!("success result without RETURN, STOP, SELFDESTRUCT")
+        }
+
+        let next_pc = next_step.map(|s| s.pc).unwrap_or(1);
+        let next_is_success = self
+            .call_is_success
+            .get(self.call_cnt - self.call_is_success_offset)
+            .map_or(true, |v| *v);
+        if matches!(
+            step.op,
+            OpcodeId::CALL
+                | OpcodeId::CALLCODE
+                | OpcodeId::DELEGATECALL
+                | OpcodeId::STATICCALL
+                | OpcodeId::CREATE
+                | OpcodeId::CREATE2
+        ) && !next_is_success
+            && next_pc != 0
+        {
+            if step.depth == 1025 {
+                return Some(ExecError::Depth(match step.op {
+                    OpcodeId::CALL
+                    | OpcodeId::CALLCODE
+                    | OpcodeId::DELEGATECALL
+                    | OpcodeId::STATICCALL => DepthError::Call,
+                    OpcodeId::CREATE => DepthError::Create,
+                    OpcodeId::CREATE2 => DepthError::Create2,
+                    _ => unreachable!("ErrDepth cannot occur in {0}", step.op),
+                }));
+            }
+
+            // todo 需要实现AccountNotFound，这个需要考虑如何拉取链上账户信息
+            // todo InsufficientBalanceError 目前还未实现
+            // todo NonceUintOverflow 目前还未实现
+            // todo ContractAddressCollision
+            // todo Precompile call failures.
+
+            // 在这个逻辑分支里，表示已经出现错误，因为上述指令并没有被执行，所以最后我们需要panic
+            panic!("*CALL*/CREATE* code not executed");
+        }
+
+        None
+    }
+
+    /// 根据opcode更新call_ctx中的变量以及call_is_success_offset
+    fn update_call_context(&mut self, step: &GethExecStep) {
+        match step.op {
+            OpcodeId::CALL
+            | OpcodeId::CALLCODE
+            | OpcodeId::STATICCALL
+            | OpcodeId::DELEGATECALL
+            | OpcodeId::CREATE
+            | OpcodeId::CREATE2 => {
+                // todo 这里检查理论应该满足：
+                // 1.对于CALLX: depth < 1025 && (!is_call_or_callcode || caller_balance >= call_value)
+                // 2.对于CREATEX: depth < 1025 && caller_balance >= callee_value && caller_nonce < u64::MAX;
+                // 因为我们目前还没加入balance，暂时可以先简单过滤其中一种情况，后续可以继续完善
+                if step.depth < 1025 {
+                    let call = CallInfoContext {
+                        is_success: self
+                            .call_is_success
+                            .get(self.call_cnt - self.call_is_success_offset)
+                            .unwrap()
+                            .clone(),
+                        is_static: step.op == OpcodeId::STATICCALL
+                            || self.call_ctx.last().unwrap().is_static,
+                    };
+                    self.call_ctx.push(call);
+                } else {
+                    self.call_is_success_offset += 1
+                }
+                self.call_cnt += 1;
+            }
+            OpcodeId::RETURN | OpcodeId::REVERT | OpcodeId::STOP => {
+                self.call_ctx.pop().unwrap();
+            }
+            _ => {}
+        }
     }
 
     pub fn get_core_row_without_versatile(
@@ -2486,6 +2664,7 @@ macro_rules! assign_or_panic {
     };
 }
 pub(crate) use assign_or_panic;
+use eth_types::error::GethExecError;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
@@ -3682,8 +3861,9 @@ impl ExecutionState {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::util::chunk_data_test;
+
+    use super::*;
 
     #[test]
     #[cfg(feature = "evm")]

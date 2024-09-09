@@ -8,7 +8,7 @@ use crate::arithmetic_circuit::operation;
 
 use crate::constant::NUM_AUXILIARY;
 use crate::execution::{
-    end_call, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
+    end_call_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
     ExecutionGadget, ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
@@ -220,7 +220,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 config.vers[NUM_STATE_HI_COL
                     + NUM_STATE_LO_COL
                     + NUM_AUXILIARY
-                    + end_call::RETURNDATA_SIZE_COL_IDX],
+                    + end_call_2::RETURNDATA_SIZE_COL_IDX],
                 Rotation(-1 * NUM_ROW as i32),
             );
             let copy_len = meta.query_advice(config.vers[START_COL_IDX], Rotation(-2));

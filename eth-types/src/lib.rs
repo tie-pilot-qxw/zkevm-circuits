@@ -9,29 +9,11 @@
 //#![deny(unsafe_code)] Allowed now until we find a
 // better way to handle downcasting from Operation into it's variants.
 #![allow(clippy::upper_case_acronyms)] // Too pedantic
+#![feature(lazy_cell)]
 
-#[macro_use]
-pub mod macros;
-#[macro_use]
-pub mod error;
-#[macro_use]
-pub mod bytecode;
-pub mod evm_types;
-pub mod geth_types;
-pub mod keccak;
-pub mod sign_types;
-pub mod state_db;
+use std::fmt::Display;
+use std::{collections::HashMap, fmt, str::FromStr};
 
-pub use bytecode::Bytecode;
-pub use error::Error;
-use halo2_proofs::halo2curves::{
-    bn256::{Fq, Fr},
-    ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
-};
-pub use keccak::{keccak256, Keccak};
-pub use state_db::StateDB;
-
-use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
 use ethers_core::types::{self, Log};
 pub use ethers_core::{
     abi::ethereum_types::{BigEndianHash, U512},
@@ -40,9 +22,33 @@ pub use ethers_core::{
         Address, Block, Bytes, Signature, H160, H256, H64, U256, U64,
     },
 };
-
+use halo2_proofs::halo2curves::{
+    bn256::{Fq, Fr},
+    ff::{Field as Halo2Field, FromUniformBytes, PrimeField},
+};
 use serde::{de, Deserialize, Serialize};
-use std::{collections::HashMap, fmt, str::FromStr};
+
+use crate::call_types::GethCallTrace;
+use crate::evm_types::{memory::Memory, stack::Stack, storage::Storage, OpcodeId};
+
+#[macro_use]
+pub mod macros;
+#[macro_use]
+pub mod error;
+#[macro_use]
+pub mod bytecode;
+pub mod call_types;
+pub mod evm_types;
+pub mod geth_types;
+pub mod keccak;
+pub mod sign_types;
+pub mod state_db;
+
+pub use bytecode::Bytecode;
+pub use error::Error;
+pub use keccak::{keccak256, Keccak};
+pub use state_db::StateDB;
+pub use uint_types::DebugU256;
 
 /// Trait used to reduce verbosity with the declaration of the [`PrimeField`]
 /// trait and its repr.
@@ -115,7 +121,6 @@ mod uint_types {
         pub struct DebugU256(4);
     }
 }
-pub use uint_types::DebugU256;
 
 impl<'de> Deserialize<'de> for DebugU256 {
     fn deserialize<D>(deserializer: D) -> Result<DebugU256, D::Error>
@@ -471,6 +476,9 @@ pub struct GethExecTrace {
     /// Vector of geth execution steps of the trace.
     #[serde(rename = "structLogs")]
     pub struct_logs: Vec<GethExecStep>,
+    /// call trace from trace
+    #[serde(rename = "callTrace", default)]
+    pub call_trace: GethCallTrace,
 }
 
 ///  type build to deal with Log
@@ -629,8 +637,9 @@ macro_rules! word_map {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::evm_types::{memory::Memory, opcode_ids::OpcodeId, stack::Stack};
+
+    use super::*;
 
     #[test]
     fn deserialize_geth_exec_trace2() {
@@ -763,6 +772,7 @@ mod tests {
                         ]),
                     }
                 ],
+                call_trace: Default::default(),
             }
         );
     }
@@ -826,9 +836,11 @@ mod tests {
 
 #[cfg(test)]
 mod eth_types_test {
-    use super::*;
-    use crate::{Error, Word};
     use std::str::FromStr;
+
+    use crate::{Error, Word};
+
+    use super::*;
 
     #[test]
     fn address() {

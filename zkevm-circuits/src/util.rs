@@ -6,6 +6,7 @@
 
 use crate::constant::CREATE_ADDRESS_PREFIX;
 use crate::witness::Witness;
+use eth_types::call_types::GethCallTrace;
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::geth_types::{Account, ChunkData, GethData};
 use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
@@ -334,6 +335,9 @@ pub fn preprocess_trace(trace: &mut GethExecTrace) {
 
             _ => mem[i].clone(),
         };
+    }
+    if trace.call_trace.is_empty() {
+        trace.call_trace = GethCallTrace::get_call_trace_for_test(&trace.struct_logs);
     }
 }
 
