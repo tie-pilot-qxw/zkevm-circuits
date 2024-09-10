@@ -108,7 +108,7 @@ pub fn complete_process(need_gen_batch_proof: bool) {
     // 5.写入agg_k25.pk文件，这个文件大概42GB左右，写入时注意磁盘空间，在测试中生成文件后，可以大大减少后面主程序生成时间
     // 在生成的同时，会直接写入文件
     let agg_key_time = start_timer!(|| "generate agg key and write to file");
-    let pk = gen_pk(
+    let pk = gen_pk::<AggregationCircuit>(
         &agg_params,
         &agg_circuit,
         Some(Path::new(&format!(

@@ -113,7 +113,11 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
 
         let gen_key_time = start_timer!(|| "Generating key");
         if self.pk.is_none() {
-            let pk = gen_pk(&self.params, &agg_circuit, Some(self.pk_path.as_path()));
+            let pk = gen_pk::<AggregationCircuit>(
+                &self.params,
+                &agg_circuit,
+                Some(self.pk_path.as_path()),
+            );
             self.pk = Some(pk);
         }
         let pk = self.pk.as_ref().unwrap();
