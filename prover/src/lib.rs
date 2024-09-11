@@ -9,7 +9,6 @@ pub mod chunk;
 pub mod constants;
 pub mod io;
 pub mod proof;
-pub mod util;
-
 #[cfg(test)]
 pub mod test;
+pub mod util;
