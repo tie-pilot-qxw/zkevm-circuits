@@ -13,25 +13,28 @@ use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::Expr;
+use gadgets::util::{pow_of_two, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::constant::{GAS_LEFT_IDX, LENGTH_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY};
-use crate::execution::ExecutionState::LOG_TOPIC_NUM_ADDR;
+use crate::error::ExecError;
+use crate::execution::ExecutionState::{END_CALL_1, LOG_TOPIC_NUM_ADDR};
 use crate::execution::{
-    log_topic_num_addr, memory_gas, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome,
-    ExecStateTransition, ExecutionConfig, ExecutionGadget, ExecutionState,
+    end_call_1, log_topic_num_addr, memory_gas, Auxiliary, AuxiliaryOutcome,
+    CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
+    ExecutionState,
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
-use crate::util::{query_expression, ExpressionOutcome};
+use crate::util::{convert_f_to_u256, query_expression, ExpressionOutcome};
 use crate::witness::arithmetic::Tag::U64Overflow;
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 
-const PC_DELTA: usize = 1;
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 0;
 
 const CORE_ROW_1_START_COL_IDX: usize = 7;
+const LOG_GAS_NEXT_IS_LOG_TOPIC_NUM_ADDR: usize = 0;
+const LOG_GAS_NEXT_IS_END_CALL_1: usize = 1;
 
 /// log_gas 前一个指令为 memory_gas
 /// 对应的opcode: LOG0, LOG1, LOG2, LOG3, LOG4
@@ -40,12 +43,14 @@ const CORE_ROW_1_START_COL_IDX: usize = 7;
 ///     cnt = 1:
 ///         1. U64OVERFLOW is `gas_left u64 constraints`.
 ///         2. SELECTOR is opcode selector.
-///
+///         3. ISOVERFLOW check whether gas_left - gas_cost < 0 ,if true 1;else 0.
+///         4. NIEC is 1 when next call is end_call_1
+///         5. NILT is 1 when next call is log_topic_num_addr
 /// +-----+--------------+--------------+-----------------------+
 /// | cnt |              |              |                       |
 /// +-----+--------------+--------------+-----------------------+
-/// | 1   | U64OVERFLOW  | SELECTOR(7..11)  |                   |
-/// | 0   | DYNAMIC(0..17) | AUX(18..24)|                       |
+/// | 1   | U64OVERFLOW  | SELECTOR(7..11)  | ISOVERFLOW        |
+/// | 0   | DYNAMIC(0..17) | AUX(18..24)|NILT|NIEC              |
 /// +-----+--------------+--------------+-----------------------+
 
 pub struct LogGasGadget<F: Field> {
@@ -76,7 +81,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // current gas left is u64
         let Auxiliary { gas_left, .. } = config.get_auxiliary();
         let current_gas_left = meta.query_advice(gas_left, Rotation::cur());
-
+        let gas_left_lt_gas_cost =
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 5], Rotation::prev());
         let (tag, [gas_left_hi, gas_left_lo, overflow, overflow_inv]) = extract_lookup_expression!(
             arithmetic_tiny,
             config.get_arithmetic_tiny_lookup_with_rotation(meta, 0, Rotation::prev())
@@ -92,11 +98,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("gas_left_hi == 0".into(), gas_left_hi.clone()),
             (
-                "gas_left_lo = current_gas_left".into(),
-                gas_left_lo - current_gas_left.clone(),
+                "(1 - gas_left_lt_gas_cost)* (gas_left_lo - current_gas_left) = 0".into(),
+                (1.expr() - gas_left_lt_gas_cost.clone())
+                    * (gas_left_lo.clone() - current_gas_left.clone()),
             ),
             (
-                "gas_left not overflow".into(),
+                "gas_left_not_overflow is true".into(),
                 1.expr() - gas_left_not_overflow.expr(),
             ),
         ]);
@@ -142,11 +149,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             + GasCost::LOG.expr()
             + topic_gas
             + length * GasCost::LOG_DATA_GAS.expr();
+        // 在这里约束
+        constraints.extend([(
+            "gas_left < gas_cost, then gas_cost = current_gas_left + gas_left_lo".into(),
+            gas_left_lt_gas_cost.clone()
+                * (gas_cost.clone() - current_gas_left - gas_left_lo.clone()),
+        )]);
 
+        let gas_cost_delta = (1.expr() - gas_left_lt_gas_cost.clone()) * gas_cost;
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
-            gas_left: ExpressionOutcome::Delta(-gas_cost),
+            gas_left: ExpressionOutcome::Delta(-gas_cost_delta),
             ..Default::default()
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -161,14 +175,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let core_single_delta: CoreSinglePurposeOutcome<F> = CoreSinglePurposeOutcome::default();
         constraints
             .append(&mut config.get_next_single_purpose_constraints(meta, core_single_delta));
+
+        let next_call_is_log_topic = meta.query_advice(
+            config.vers[NUM_STATE_HI_COL
+                + NUM_STATE_LO_COL
+                + NUM_AUXILIARY
+                + LOG_GAS_NEXT_IS_LOG_TOPIC_NUM_ADDR],
+            Rotation::cur(),
+        );
+        let next_call_is_end_call_1 = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LOG_GAS_NEXT_IS_END_CALL_1],
+            Rotation::cur(),
+        );
         // 下一个状态是LOG_TOPIC_NUM_ADDR
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
                 vec![ExecutionState::MEMORY_GAS],
                 NUM_ROW,
-                vec![(LOG_TOPIC_NUM_ADDR, log_topic_num_addr::NUM_ROW, None)],
-                None,
+                vec![
+                    (
+                        LOG_TOPIC_NUM_ADDR,
+                        log_topic_num_addr::NUM_ROW,
+                        Some(next_call_is_log_topic),
+                    ),
+                    (
+                        END_CALL_1,
+                        end_call_1::NUM_ROW,
+                        Some(next_call_is_end_call_1),
+                    ),
+                ],
+                Some(vec![
+                    1.expr() - gas_left_lt_gas_cost.clone(),
+                    gas_left_lt_gas_cost.clone(),
+                ]),
             ),
         ));
 
@@ -195,9 +236,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             OpcodeId::LOG4 => 4,
             _ => panic!("pure memory gas not supported opcode"),
         };
+        let mut overflow_rows = vec![];
 
-        let (overflow_rows, _) =
-            operation::u64overflow::gen_witness::<F>(vec![U256::from(current_state.gas_left)]);
+        let mut gas_left_lt_gas_cost = 0 as u64;
+        match current_state.error {
+            Some(ExecError::OutOfGas(..)) => {
+                (overflow_rows, _) =
+                    operation::u64overflow::gen_witness::<F>(vec![convert_f_to_u256(
+                        &(F::from(trace.gas_cost) - F::from(current_state.gas_left)),
+                    )]);
+                gas_left_lt_gas_cost = 1;
+            }
+            _ => {
+                (overflow_rows, _) = operation::u64overflow::gen_witness::<F>(vec![U256::from(
+                    current_state.gas_left,
+                )]);
+            }
+        };
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         core_row_1.insert_arithmetic_tiny_lookup(0, &overflow_rows);
@@ -214,13 +269,35 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             tag_selector_index as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
+        // assign overflow flag
+        assign_or_panic!(
+            core_row_1[CORE_ROW_1_START_COL_IDX + 5],
+            U256::from(gas_left_lt_gas_cost)
+        );
 
-        let core_row_0 = ExecutionState::LOG_GAS.into_exec_state_core_row(
+        let mut core_row_0 = ExecutionState::LOG_GAS.into_exec_state_core_row(
             trace,
             current_state,
             NUM_STATE_HI_COL,
             NUM_STATE_LO_COL,
         );
+        if gas_left_lt_gas_cost == 0 {
+            assign_or_panic!(
+                core_row_0[NUM_STATE_HI_COL
+                    + NUM_STATE_LO_COL
+                    + NUM_AUXILIARY
+                    + LOG_GAS_NEXT_IS_LOG_TOPIC_NUM_ADDR],
+                U256::one()
+            );
+        } else {
+            assign_or_panic!(
+                core_row_0[NUM_STATE_HI_COL
+                    + NUM_STATE_LO_COL
+                    + NUM_AUXILIARY
+                    + LOG_GAS_NEXT_IS_END_CALL_1],
+                U256::one()
+            );
+        }
 
         let mut arithmetic = vec![];
         arithmetic.extend(overflow_rows);

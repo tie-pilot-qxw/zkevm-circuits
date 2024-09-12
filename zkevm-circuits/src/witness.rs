@@ -178,6 +178,8 @@ pub struct WitnessExecHelper {
     pub call_ctx: Vec<CallInfoContext>,
     // 存储临时值，只作用于当前交易，交易结束会被清空
     pub transient_storage: HashMap<U256, U256>,
+    // error
+    pub error: Option<ExecError>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -447,7 +449,8 @@ impl WitnessExecHelper {
             }
             let exec_error = self.handle_step_error(step, next_step);
             self.update_call_context(step);
-
+            // 这里把是否为error暂存到ExecWitnessHelper中
+            self.error = exec_error.clone();
             if exec_error.is_some() {
                 prev_step_is_error = true;
             }
