@@ -78,6 +78,7 @@ pub mod storage;
 pub mod swap;
 pub mod tstorage;
 pub mod tx_context;
+pub mod unsupported;
 
 use std::collections::BTreeMap;
 
@@ -178,6 +179,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_call_2::new(),
             crate::execution::error_oog_account_access::new(),
             crate::execution::error_oog_constant::new(),
+            crate::execution::unsupported::new(),
             crate::execution::error_oog_log::new(),
         ]
     }};
@@ -2419,6 +2421,7 @@ pub enum ExecutionState {
     END_CALL_2,
     ERROR_OOG_ACCOUNT_ACCESS,
     ERROR_OOG_LOG,
+    UNSUPPORTED,
 }
 
 impl ExecutionState {
@@ -2642,10 +2645,12 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::CREATE => {
-                todo!()
+                log::warn!("Opcode CREATE Unsupported!");
+                vec![Self::UNSUPPORTED]
             }
             OpcodeId::CREATE2 => {
-                todo!()
+                log::warn!("Opcode CREATE2 Unsupported!");
+                vec![Self::UNSUPPORTED]
             }
             OpcodeId::CALL | OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
                 vec![
@@ -2659,10 +2664,12 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::CALLCODE => {
-                todo!()
+                log::warn!("Opcode CALLCODE Unsupported!");
+                vec![Self::UNSUPPORTED]
             }
             OpcodeId::SELFDESTRUCT => {
-                todo!()
+                log::warn!("Opcode SELFDESTRUCT Unsupported!");
+                vec![Self::UNSUPPORTED]
             }
         }
     }

@@ -17,6 +17,7 @@ rand = "0.8"
 rand_chacha = "0.3"
 sha3 = "0.10"
 log = "0.4.17"
+env_logger = "0.10"
 gadgets = { path = "../gadgets" }
 anyhow = "1.0"
 lazy_static = "1.4"
