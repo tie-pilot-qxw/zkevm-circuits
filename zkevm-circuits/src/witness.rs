@@ -2979,7 +2979,7 @@ impl core::Row {
             code_addr,
             pc.into(),
             opcode.as_u8().into(),
-            (not_code as u8).into(), // non_code must be 0
+            (not_code as u8).into(),
             push_value.map_or(U256::zero(), |x| (x >> 128)),
             push_value.map_or(U256::zero(), |x| (x.low_u128().into())),
             opcode.data_len().into(),

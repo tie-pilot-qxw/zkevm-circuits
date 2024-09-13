@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::thread::sleep;
 
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -10,7 +9,7 @@ use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::{pow_of_two, select, Expr};
+use gadgets::util::{or, pow_of_two, select, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::arithmetic_circuit::operation::get_lt_operations;
@@ -107,12 +106,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             selector.select(&[JUMP_STAMP_OR_STACK.expr(), JUMPI_STAMP_OR_STACK.expr()]);
         let stack_pointer_delta =
             selector.select(&[-JUMP_STAMP_OR_STACK.expr(), -JUMPI_STAMP_OR_STACK.expr()]);
-        let gas_left = selector.select(&[
+        let gas_cost = selector.select(&[
             -OpcodeId::JUMP.constant_gas_cost().expr(),
             -OpcodeId::JUMPI.constant_gas_cost().expr(),
         ]);
         let auxiliary_delta = AuxiliaryOutcome {
-            gas_left: ExpressionOutcome::Delta(gas_left),
+            gas_left: ExpressionOutcome::Delta(gas_cost),
             state_stamp: ExpressionOutcome::Delta(state_stamp_delta.clone()),
             stack_pointer: ExpressionOutcome::Delta(stack_pointer_delta.clone()),
             ..Default::default()
@@ -197,7 +196,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
         let lt = meta.query_advice(config.vers[LT_INDEX], Rotation::prev());
         let diff = meta.query_advice(config.vers[DIFF_INDEX], Rotation::prev());
-        let (tag, [_, _, overflow, overflow_inv]) =
+        let (tag, [diff_hi, diff_lo, overflow, overflow_inv]) =
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 1));
         let not_overflow = SimpleIsZero::new(&overflow, &overflow_inv, "diff not overflow".into());
         constraints.extend([
@@ -206,37 +205,41 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 tag - (U64Overflow as u8).expr(),
             ),
             ("diff not overflow".into(), 1.expr() - not_overflow.expr()),
+            ("diff_hi == 0".into(), diff_hi),
+            ("diff_lo == diff".into(), diff_lo - diff.clone()),
         ]);
 
         let is_lt = SimpleLtGadget::<F, 8>::new(&next_pc, &code_size_lo, &lt, &diff);
         constraints.extend(is_lt.get_constraints());
 
         // 3.2 获取not_code信息及next_code信息
-        let (lookup_addr, _, next_opcode, not_code, _, _, _, _) =
+        let (lookup_addr, pc, next_opcode, not_code, _, _, _, _) =
             extract_lookup_expression!(bytecode, config.get_bytecode_full_lookup(meta));
 
         // is_code_diff_zero = 0, next_opcode != JUMPDEST
         let code_diff = next_opcode - OpcodeId::JUMPDEST.as_u8().expr();
         let code_diff_inv = meta.query_advice(config.vers[DIFF_INV_INDEX], Rotation::prev());
 
-        let is_code_diff_zero = SimpleIsZero::new(
+        let is_jumpdest = SimpleIsZero::new(
             &code_diff,
             &code_diff_inv,
             String::from("next_code - JUMPDEST"),
         );
-        constraints.extend(is_code_diff_zero.get_constraints());
+        constraints.extend(is_jumpdest.get_constraints());
 
+        let expect_pc = select::expr(is_lt.expr(), next_pc, code_size_lo);
         constraints.extend([
             (
                 // 3.3 如果next_pc < code_size，next_opcode != JUMPDEST 或 not_code == 1
-                "if next_pc < code_size, then next_opcode != JUMPDEST or not_code == 1".into(),
-                lt.expr() * (1.expr() - not_code) * is_code_diff_zero.expr(),
+                "if next_pc < code_size, then not_code == 1 or next_opcode != JUMPDEST".into(),
+                lt.expr() * (1.expr() - not_code.clone()) * is_jumpdest.expr(),
             ),
             (
                 // 3.4 bytecode lookup addr = code addr
                 "bytecode lookup addr = code addr".into(),
                 code_addr - lookup_addr,
             ),
+            ("pc == expect_pc".into(), pc - expect_pc),
         ]);
 
         // 4.如果opcode是JUMPI，则condition为true，即非0.
@@ -250,7 +253,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         constraints.extend([(
             "if opcode == JUMPI, then condition is not zero".to_string(),
-            // is_condition_zero == 1, means condition == 0;
             is_jumpi.clone() * is_condition_zero.expr(),
         )]);
 
@@ -363,7 +365,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let opcode_id = OpcodeId::from(code.value);
         let is_code = code.is_code;
         let pc = if lt { next_pc } else { code_size };
-        // 如果是push之类的操作，应该等于value
+        // 如果是opcode，则code.value应该是opcode对应的值，此时bytecode table中的value应该为0
+        // 否则，code.value可能是push后的值
         let value = if is_code { 0 } else { code.value };
 
         // 2.1 判断next_code opcode_id是否为JUMPDEST
@@ -453,8 +456,7 @@ mod test {
 
     use crate::constant::GAS_LEFT_IDX;
     use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_error_trace_step,
-        prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
 
     generate_execution_gadget_test_circuit!();
@@ -476,7 +478,7 @@ mod test {
         };
 
         let mut trace =
-            prepare_error_trace_step!(0, OpcodeId::JUMP, stack, Some(String::from("Invalid Jump")));
+            prepare_trace_step!(0, OpcodeId::JUMP, stack, Some(String::from("Invalid Jump")));
         trace.gas = gas_left_before_exec;
 
         let padding_begin_row = |current_state| {

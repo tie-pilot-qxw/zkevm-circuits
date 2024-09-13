@@ -151,7 +151,7 @@ macro_rules! test_super_circuit_short_bytecode {
         use zkevm_circuits::witness::Witness;
 
         let machine_code = $bytecode.to_vec();
-        let (mut trace, receipt_log) = trace_parser::trace_program_with_log(&machine_code, &[]);
+        let (trace, receipt_log) = trace_parser::trace_program_with_log(&machine_code, &[]);
         let witness = Witness::new(&chunk_data_test(
             trace,
             &machine_code,

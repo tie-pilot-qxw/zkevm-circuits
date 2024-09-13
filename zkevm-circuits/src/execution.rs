@@ -2873,9 +2873,6 @@ mod test {
                 storage: Default::default(),
             }
         }};
-    }
-
-    macro_rules! prepare_error_trace_step {
         ($pc:expr, $op:expr, $stack: expr, $error: expr) => {{
             GethExecStep {
                 pc: $pc,
@@ -2893,7 +2890,6 @@ mod test {
     }
 
     pub(crate) use {
-        generate_execution_gadget_test_circuit, prepare_error_trace_step, prepare_trace_step,
-        prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
 }
