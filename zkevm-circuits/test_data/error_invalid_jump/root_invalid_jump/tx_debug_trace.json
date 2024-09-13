@@ -1,0 +1,65 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "gas": 100000,
+    "failed": true,
+    "returnValue": "",
+    "structLogs": [
+      {
+        "pc": 0,
+        "op": "PUSH1",
+        "gas": 79000,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [],
+        "memory": []
+      },
+      {
+        "pc": 2,
+        "op": "PUSH1",
+        "gas": 78997,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x1"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 4,
+        "op": "JUMP",
+        "gas": 78994,
+        "gasCost": 8,
+        "depth": 1,
+        "stack": [
+          "0x1",
+          "0x1"
+        ],
+        "memory": []
+      }
+    ],
+    "prestate": {
+      "0x0000000000000000000000000000000000000000": {
+        "balance": "0x0"
+      },
+      "0x000000000000000000000000000000000000cafe": {
+        "balance": "0x8ac7230489e80000"
+      },
+      "0xffffffffffffffffffffffffffffffffffffffff": {
+        "balance": "0x56bc75e2d63100000",
+        "code": "0x6001600156600060005b00"
+      }
+    },
+    "callTrace": {
+      "from": "0x000000000000000000000000000000000000cafe",
+      "gas": "0x186a0",
+      "gasUsed": "0x186a0",
+      "to": "0xffffffffffffffffffffffffffffffffffffffff",
+      "input": "0x",
+      "error": "invalid jump destination",
+      "value": "0x0",
+      "type": "CALL"
+    }
+  }
+}

@@ -132,7 +132,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
-                vec![ExecutionState::STOP],
+                vec![ExecutionState::STOP, ExecutionState::ERROR_INVALID_JUMP],
                 NUM_ROW,
                 vec![(ExecutionState::END_CALL_2, end_call_2::NUM_ROW, None)],
                 None,

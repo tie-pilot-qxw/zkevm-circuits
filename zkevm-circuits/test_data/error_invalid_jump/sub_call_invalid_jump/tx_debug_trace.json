@@ -1,0 +1,198 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "gas": 33621,
+    "failed": false,
+    "returnValue": "",
+    "structLogs": [
+      {
+        "pc": 0,
+        "op": "PUSH1",
+        "gas": 79000,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [],
+        "memory": []
+      },
+      {
+        "pc": 2,
+        "op": "PUSH1",
+        "gas": 78997,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x0"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 4,
+        "op": "PUSH1",
+        "gas": 78994,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x0",
+          "0x0"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 6,
+        "op": "PUSH1",
+        "gas": 78991,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x0",
+          "0x0",
+          "0x0"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 8,
+        "op": "PUSH1",
+        "gas": 78988,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 10,
+        "op": "PUSH32",
+        "gas": 78985,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 43,
+        "op": "PUSH2",
+        "gas": 78982,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0",
+          "0xffffffffffffffffffffffffffffffffffffffff"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 46,
+        "op": "CALL",
+        "gas": 78979,
+        "gasCost": 12600,
+        "depth": 1,
+        "stack": [
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0",
+          "0x0",
+          "0xffffffffffffffffffffffffffffffffffffffff",
+          "0x2710"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 0,
+        "op": "PUSH1",
+        "gas": 10000,
+        "gasCost": 3,
+        "depth": 2,
+        "stack": [],
+        "memory": []
+      },
+      {
+        "pc": 2,
+        "op": "PUSH1",
+        "gas": 9997,
+        "gasCost": 3,
+        "depth": 2,
+        "stack": [
+          "0x1"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 4,
+        "op": "JUMP",
+        "gas": 9994,
+        "gasCost": 8,
+        "depth": 2,
+        "stack": [
+          "0x1",
+          "0x1"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 47,
+        "op": "STOP",
+        "gas": 66379,
+        "gasCost": 0,
+        "depth": 1,
+        "stack": [
+          "0x0"
+        ],
+        "memory": []
+      }
+    ],
+    "prestate": {
+      "0x0000000000000000000000000000000000000000": {
+        "balance": "0x0"
+      },
+      "0x000000000000000000000000000000000000cafe": {
+        "balance": "0x8ac7230489e80000"
+      },
+      "0xfefefefefefefefefefefefefefefefefefefefe": {
+        "balance": "0x56bc75e2d63100000",
+        "code": "0x600060006000600060007f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff612710f100"
+      },
+      "0xffffffffffffffffffffffffffffffffffffffff": {
+        "balance": "0x56bc75e2d63100000",
+        "code": "0x6001600156600060005b00"
+      }
+    },
+    "callTrace": {
+      "from": "0x000000000000000000000000000000000000cafe",
+      "gas": "0x186a0",
+      "gasUsed": "0x8355",
+      "to": "0xfefefefefefefefefefefefefefefefefefefefe",
+      "input": "0x",
+      "calls": [
+        {
+          "from": "0xfefefefefefefefefefefefefefefefefefefefe",
+          "gas": "0x2710",
+          "gasUsed": "0x2710",
+          "to": "0xffffffffffffffffffffffffffffffffffffffff",
+          "input": "0x",
+          "error": "invalid jump destination",
+          "value": "0x0",
+          "type": "CALL"
+        }
+      ],
+      "value": "0x0",
+      "type": "CALL"
+    }
+  }
+}

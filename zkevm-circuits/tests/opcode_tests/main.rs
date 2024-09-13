@@ -113,6 +113,7 @@ mod return_; //F2
              // mod revert; //FD
 mod balance;
 mod codesize; // 38
+mod error_invalid_jump;
 mod sar; // 1D
 mod sdiv;
 mod selfbalance; //47
