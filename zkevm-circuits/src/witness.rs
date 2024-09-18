@@ -10,6 +10,7 @@ use std::io::Write;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 
+use eth_types::error::GethExecError;
 use eth_types::evm_types::{OpcodeId, MAX_CODE_SIZE};
 use eth_types::geth_types::{ChunkData, GethData};
 use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
@@ -407,37 +408,10 @@ impl WitnessExecHelper {
             let need_exit_call = prev_step_is_error
                 && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
 
-            let exec_error = self.handle_step_error(step, next_step);
-            self.update_call_context(step);
-
-            if exec_error.is_some() {
-                prev_step_is_error = true;
-            }
-
-            let memory_usage = (step.memory.0.len() / 32) as u64;
-            let memory_chunk = self.memory_chunk;
-            self.memory_chunk_prev = memory_chunk;
-
-            if memory_usage > memory_chunk {
-                self.memory_chunk = memory_usage;
-            } else {
-                self.memory_chunk = memory_chunk;
-            }
-
-            if step.op == OpcodeId::RETURN
-                || step.op == OpcodeId::REVERT
-                || step.op == OpcodeId::STOP
-                || exec_error.is_some()
-            {
-                // 若为root-call则,下一个状态为end-tx
-                if self.parent_call_id[&self.call_id] == 0 {
-                    self.next_exec_state = Some(ExecutionState::END_TX)
-                } else {
-                    self.next_exec_state = Some(ExecutionState::POST_CALL_1);
-                }
-            }
-
             if prev_is_return_revert_or_stop || need_exit_call {
+                // 如果上一个step是RETURN或者REVERT，说明上一个call已经结束，需要恢复上一个call的状态
+                // 使用上一个call最后的memory_chunk来处理POST_CALL
+                self.memory_chunk = *memory_chunk_map.get(&self.call_id).unwrap();
                 // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
                 // 如果调用到POST_CALL,说明在CALL的流程并准备结束，此时POST_CALL的gas应该与CALL opcode时的gas保持一致，也即step.gas
@@ -470,6 +444,38 @@ impl WitnessExecHelper {
                 prev_is_return_revert_or_stop = false;
                 if need_exit_call {
                     prev_step_is_error = false;
+                }
+            }
+
+            let exec_error = self.handle_step_error(step, next_step);
+            self.update_call_context(step);
+
+            if exec_error.is_some() {
+                prev_step_is_error = true;
+            }
+
+            // 根据当前STEP更新MEMORY_CHUNK
+            let memory_usage = (step.memory.0.len() / 32) as u64;
+            let memory_chunk = self.memory_chunk;
+            self.memory_chunk_prev = memory_chunk;
+
+            if memory_usage > memory_chunk {
+                self.memory_chunk = memory_usage;
+            } else {
+                self.memory_chunk = memory_chunk;
+            }
+            memory_chunk_map.insert(self.call_id, memory_chunk);
+
+            if step.op == OpcodeId::RETURN
+                || step.op == OpcodeId::REVERT
+                || step.op == OpcodeId::STOP
+                || exec_error.is_some()
+            {
+                // 若为root-call则,下一个状态为end-tx
+                if self.parent_call_id[&self.call_id] == 0 {
+                    self.next_exec_state = Some(ExecutionState::END_TX)
+                } else {
+                    self.next_exec_state = Some(ExecutionState::POST_CALL_1);
                 }
             }
             // 执行状态后的gas计算下移，不放在update_from_next中，因为在POST_CALL中会改变这个值
@@ -2668,7 +2674,6 @@ macro_rules! assign_or_panic {
     };
 }
 pub(crate) use assign_or_panic;
-use eth_types::error::GethExecError;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
