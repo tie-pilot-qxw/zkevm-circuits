@@ -39,7 +39,7 @@ const OPCODE_SELECTOR_IDX: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUX
 /// post_call_2 is one of the last steps of opcode CALL, which is
 /// located after the callee's all execution states.
 ///
-/// Algorithn overview:
+/// Algorithm overview:
 ///     1. read ret_offset and ret_len from stack
 ///     2. read returndata_call_id from call_context
 ///     3. copy bytes from returndata to memory[ret_offset:ret_offset+ret_len]

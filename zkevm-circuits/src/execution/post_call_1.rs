@@ -208,6 +208,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // 到这里说明上一个call已经结束，需要恢复上一个call的状态（主要是memory_chunk）
+        current_state.memory_chunk = *current_state
+            .parent_memory_chunk
+            .get(&current_state.call_id)
+            .unwrap();
         let selector_index = match trace.op {
             OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,
             OpcodeId::STATICCALL => OPCODE_SELECTOR_IDX_START + 1,

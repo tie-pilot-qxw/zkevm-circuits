@@ -397,21 +397,13 @@ impl WitnessExecHelper {
 
         let mut prev_is_return_revert_or_stop = false;
         let mut call_step_store: Vec<&GethExecStep> = vec![];
-        let mut memory_chunk_map: HashMap<u64, u64> = HashMap::new();
         let mut prev_step_is_error = false;
         for step in trace {
             let next_step = iter_for_next_step.next();
-            if let Some(next_step) = next_step {
-                self.update_from_next_step(next_step);
-            }
-
             let need_exit_call = prev_step_is_error
                 && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
 
             if prev_is_return_revert_or_stop || need_exit_call {
-                // 如果上一个step是RETURN或者REVERT，说明上一个call已经结束，需要恢复上一个call的状态
-                // 使用上一个call最后的memory_chunk来处理POST_CALL
-                self.memory_chunk = *memory_chunk_map.get(&self.call_id).unwrap();
                 // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
                 // 如果调用到POST_CALL,说明在CALL的流程并准备结束，此时POST_CALL的gas应该与CALL opcode时的gas保持一致，也即step.gas
@@ -447,6 +439,9 @@ impl WitnessExecHelper {
                 }
             }
 
+            if let Some(next_step) = next_step {
+                self.update_from_next_step(next_step);
+            }
             let exec_error = self.handle_step_error(step, next_step);
             self.update_call_context(step);
 
@@ -464,7 +459,6 @@ impl WitnessExecHelper {
             } else {
                 self.memory_chunk = memory_chunk;
             }
-            memory_chunk_map.insert(self.call_id, memory_chunk);
 
             if step.op == OpcodeId::RETURN
                 || step.op == OpcodeId::REVERT
