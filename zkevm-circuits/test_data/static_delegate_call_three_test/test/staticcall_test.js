@@ -53,12 +53,12 @@ describe("STATICCALL_TEST", function () {
         const [afterAData] = await AContract.getData();
         const [afterBData] = await BContract.getData();
         const [afterCData] = await CContract.getData();
-        const [aferDData] = await DContract.getData();
+        const [afterDData] = await DContract.getData();
 
         console.log(`after call, A contract, data: ${afterAData.toString()}`);
         console.log(`after call, B contract, data: ${afterBData.toString()}`);
-        console.log(`after call, B contract, data: ${afterCData.toString()}`);
-        console.log(`after call, C contract, data: ${aferDData.toString()}`);
+        console.log(`after call, C contract, data: ${afterCData.toString()}`);
+        console.log(`after call, D contract, data: ${afterDData.toString()}`);
         console.log();
 
         // 断言
@@ -73,7 +73,7 @@ describe("STATICCALL_TEST", function () {
         expect(CMsgSender).to.equal(BContractAddr);
 
         expect(DSetData).to.equal(setValue);
-        expect(aferDData).to.equal(setValue);
+        expect(afterDData).to.equal(setValue);
         expect(DMsgSender).to.equal(CContractAddr);
     });
 
@@ -114,11 +114,11 @@ describe("STATICCALL_TEST", function () {
         console.log("[after call]")
         const [afterBData] = await BContract.getData();
         const [afterCData] = await CContract.getData();
-        const [aferDData] = await DContract.getData();
+        const [afterDData] = await DContract.getData();
 
         console.log(`after call, B contract, data: ${afterBData.toString()}`);
-        console.log(`after call, B contract, data: ${afterCData.toString()}`);
-        console.log(`after call, C contract, data: ${aferDData.toString()}`);
+        console.log(`after call, C contract, data: ${afterCData.toString()}`);
+        console.log(`after call, D contract, data: ${afterDData.toString()}`);
         console.log();
 
         // 断言
@@ -130,7 +130,7 @@ describe("STATICCALL_TEST", function () {
         expect(CMsgSender).to.equal(BContractAddr);
 
         expect(DSetData).to.equal(setValue);
-        expect(aferDData).to.equal(setValue);
+        expect(afterDData).to.equal(setValue);
         expect(DMsgSender).to.equal(CContractAddr);
     });
 
