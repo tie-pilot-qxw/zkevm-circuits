@@ -4,7 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::{GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NUM_AUXILIARY};
+use crate::constant::{
+    GAS_LEFT_IDX, MEMORY_CHUNK_PREV_IDX, NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+};
 use crate::execution::{
     call_2, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
@@ -15,6 +17,7 @@ use crate::witness::{assign_or_panic, copy, state, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -24,6 +27,16 @@ pub(super) const NUM_ROW: usize = 3;
 const STATE_STAMP_DELTA: usize = 3;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
 const LEN_LO_INV_COL_IDX: usize = 24;
+
+const STAMP_INIT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+
+const MEMORY_CHUNK_PREV_COL: usize = STAMP_INIT_COL + MEMORY_CHUNK_PREV_IDX;
+
+const OPCODE_SELECTOR_IDX: usize = MEMORY_CHUNK_PREV_COL + 1;
+
+const GAS_LEFT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX;
+
+const OPCODE_SELECTOR_IDX_START: usize = 0;
 
 /// call_1..call_7为 CALL指令调用之前的操作，即此时仍在父CALL环境，
 /// 读取接下来CALL需要的各种操作数，每个call_* gadget负责不同的操作数.
@@ -43,13 +56,14 @@ const LEN_LO_INV_COL_IDX: usize = 24;
 ///     COPY:   Copy lookup(copy args_len bytes from memory to calldata), src:Core circuit, target:Copy circuit table, 11 columns
 ///     LEN_INV: the inverse of copy lookup's len, used to check whether copy lookup's len == 0
 ///     STATE_STAMP_INIT: the state stamp just before the execution of opcode CALL, which will be used by the next execution states
-/// +---+-------+-------+-------+---------------------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col               |
-/// +---+-------+-------+-------+---------------------+
-/// | 2 | COPY  |                                     |
-/// | 1 | STATE1| STATE2| STATE3|LEN_INV(1)           |
-/// | 0 | DYNA_SELECTOR   | AUX | STATE_STAMP_INIT(1) |
-/// +---+-------+-------+-------+---------------------+
+///     OPCODE_SELECTOR: Selector for CALL, STATICALL, DELEGATECALL， 3 columns
+/// +---+------------------------+------------------+---------------------+----------------+----------------------+------------------------+
+/// |cnt|                        |                 |                      |                |                     |                         |
+/// +---+------------------------+-----------------+----------------------+----------------+---------------------+-------------------------+
+/// | 2 | COPY(0..10)            |                 |                      |                |                     |                         |
+/// | 1 | STATE1(0..7)           | STATE2(8..15)   | STATE3(16..23)       | LEN_INV(24)    |                     |                         |
+/// | 0 | DYNA_SELECTOR(0..17)   | AUX(18..24)     | STATE_STAMP_INIT(25) |                |MEMORY_CHUNK_PREV(27)| OPCODE_SELECTOR(28..30) |
+/// +---+------------------------+-----------------+----------------------+----------------+--------------------+--------------------------+
 ///
 /// Note: call_context write's call_id should be callee's
 pub struct Call1Gadget<F: Field> {
@@ -83,15 +97,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..
         } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
-        let stamp_init_for_next_gadget = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation::cur(),
-        );
-        let memory_chunk_prev_for_next = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
-            Rotation::cur(),
-        );
+        let stamp_init_for_next_gadget =
+            meta.query_advice(config.vers[STAMP_INIT_COL], Rotation::cur());
+        let memory_chunk_prev_for_next =
+            meta.query_advice(config.vers[MEMORY_CHUNK_PREV_COL], Rotation::cur());
         let memory_chunk_prev = meta.query_advice(memory_chunk, Rotation(-1 * NUM_ROW as i32));
 
         let call_id_new = state_stamp_prev.clone() + 1.expr();
@@ -113,8 +122,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             refund: ExpressionOutcome::Delta(0.expr()),
             ..Default::default()
         };
+
+        let mut constraints = vec![];
+
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         // append auxiliary constraints
-        let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+
         // append stack constraints and call_context constraints
         let mut operands = vec![];
         for i in 0..3 {
@@ -127,8 +149,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     entry.clone(),
                     i,
                     NUM_ROW,
-                    // the position of args_offset and args_len are -3 and -5 respectively.
-                    if i == 0 { -3 } else { -4 }.expr(),
+                    // CALL: the position of args_offset and args_len are -3 and -4 respectively.
+                    // STATICCALL or DELEGATECALL: the position of args_offset and args_len are -2 and -3 respectively.
+                    if i == 0 {
+                        selector.select(&[-3.expr(), -2.expr(), -2.expr()])
+                    } else {
+                        selector.select(&[-4.expr(), -3.expr(), -3.expr()])
+                    },
                     false,
                 ));
             } else {
@@ -191,7 +218,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
         // append opcode constraint
         constraints.extend([
-            ("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr()),
+            (
+                "opcode".into(),
+                opcode
+                    - selector.select(&[
+                        OpcodeId::CALL.as_u8().expr(),
+                        OpcodeId::STATICCALL.as_u8().expr(),
+                        OpcodeId::DELEGATECALL.as_u8().expr(),
+                    ]),
+            ),
             (
                 "state_init_for_next_gadget correct".into(),
                 stamp_init_for_next_gadget - state_stamp_prev,
@@ -243,9 +278,25 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         current_state.call_id_new = current_state.state_stamp + 1;
         let stamp_init = current_state.state_stamp;
         // 读取CALL指令栈上操作数 argsOffset，argsLength（Note：非弹出栈操作）
-        let (stack_read_0, args_offset) = current_state.get_peek_stack_row_value(trace, 4);
-        let (stack_read_1, args_len) = current_state.get_peek_stack_row_value(trace, 5);
 
+        let ((stack_read_0, args_offset), (stack_read_1, args_len)) = match trace.op {
+            OpcodeId::CALL => (
+                current_state.get_peek_stack_row_value(trace, 4),
+                current_state.get_peek_stack_row_value(trace, 5),
+            ),
+            OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => (
+                current_state.get_peek_stack_row_value(trace, 3),
+                current_state.get_peek_stack_row_value(trace, 4),
+            ),
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
+
+        let selector_index = match trace.op {
+            OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,
+            OpcodeId::STATICCALL => OPCODE_SELECTOR_IDX_START + 1,
+            OpcodeId::DELEGATECALL => OPCODE_SELECTOR_IDX_START + 2,
+            _ => unreachable!(),
+        };
         // 记录CALL指令需要的参数长度
         let call_context_write_row = current_state.get_call_context_write_row(
             state::CallContextTag::CallDataSize,
@@ -302,17 +353,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             NUM_STATE_LO_COL,
         );
         // core_row_0写入stamp_init状态
-        assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            stamp_init.into()
-        );
+        assign_or_panic!(core_row_0[STAMP_INIT_COL], stamp_init.into());
         // core_row_0写入memory_chunk_prev, 向下传至memory gas计算部分
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + MEMORY_CHUNK_PREV_IDX],
+            core_row_0[MEMORY_CHUNK_PREV_COL],
             current_state.memory_chunk_prev.into()
         );
         // CALL1到CALL4时还未进行gas计算，此时gas_left为trace.gas
-        core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + GAS_LEFT_IDX] = Some(trace.gas.into());
+        core_row_0[GAS_LEFT_COL] = Some(trace.gas.into());
+
+        // tag selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
 
         state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);
         Witness {

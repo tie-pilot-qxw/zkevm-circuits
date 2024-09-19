@@ -11,7 +11,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 
-use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
+use crate::witness::{assign_or_panic, public, state, Witness, WitnessExecHelper};
 
 use crate::util::{query_expression, ExpressionOutcome};
 use eth_types::evm_types::OpcodeId;
@@ -23,22 +23,19 @@ use std::marker::PhantomData;
 
 // core rows
 /// LogTopicNumAddr Execution State layout is as follows
-/// LOG_LEFT_X means selectors LOG_LEFT_4~LOG_LEFT_0, 5 cols, vers_8~vers_12
-/// PUBLIC means public table lookup for log, 6 cols, vers_26~vers31
-/// DYNA_SELECTOR is dynamic selector of the state,
-/// which uses NUM_STATE_HI_COL + NUM_STATE_LO_COL columns
-/// AUX means auxiliary such as state stamp
+///     STATE: contract address reading
+///     LOG_LEFT_X: selectors LOG_LEFT_4~LOG_LEFT_0, 5 cols, vers_8~vers_12
 /// +---+-------+------------+----------+----------+
 /// |cnt| 8 col |    8 col   |  8 col  |   8 col   |
 /// +---+-------+------------+---------+-----------+
 /// | 2 | not used | not used | not used | PUBLIC(6)|
-/// | 1 | not used|LOG_LEFT_X(5)|not used| not used |
+/// | 1 | STATE(8)|LOG_LEFT_X(5)|not used| not used |
 /// | 0 | DYNA_SELECTOR           | AUX            |
 /// +---+-------+------------+--------- +---------+
 ///
 
 pub(crate) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 0;
+const STATE_STAMP_DELTA: u64 = 1;
 const STACK_POINTER_DELTA: i32 = 0;
 const PC_DELTA: u64 = 1;
 const LOG_STAMP_DELTA: u64 = 1;
@@ -67,6 +64,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
         let block_tx_idx =
@@ -100,6 +98,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let selector = config.get_log_left_selector(meta);
         constraints.extend(selector.get_constraints());
 
+        // get contract addr
+        let contract_addr_read_entry = config.get_state_lookup(meta, 0);
+        let (_, _, contract_addr_hi, contract_addr_lo, ..) =
+            extract_lookup_expression!(state, contract_addr_read_entry.clone());
+
+        constraints.append(&mut config.get_call_context_constraints(
+            meta,
+            contract_addr_read_entry,
+            0,
+            NUM_ROW,
+            false,
+            (state::CallContextTag::StorageContractAddr as u8).expr(),
+            call_id,
+        ));
+
         // append public log lookup (addrWithXLog) constraints
         let (
             public_tag,
@@ -125,9 +138,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 public_values[1].clone() - (opcode.clone() - OpcodeId::LOG0.as_u8().expr()),
             ),
             (
-                "public log addr hi and lo is code_addr".into(),
-                public_values[2].clone() * pow_of_two::<F>(128) + public_values[3].clone()
-                    - code_addr,
+                "public log addr hi is contract addr hi".into(),
+                public_values[2].clone() - contract_addr_hi,
+            ),
+            (
+                "public log addr lo is contract addr lo".into(),
+                public_values[3].clone() - contract_addr_lo,
             ),
         ]);
 
@@ -193,15 +209,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         vec![
             ("state lookup for topic".into(), stack_lookup),
-            ("public lookup".into(), public_lookup),
+            ("log topic num addr public lookup".into(), public_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
-        // get topic from stack top
-
-        // core_row_1: state lookup (vers_0~vers_7) + selector LOG_LEFT_X (vers_8~vers_12) + Public Log LookUp (vers_26~vers_31)
-        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
-        // core_row_1: insert lookUp: Core ---> State
+        let contract_addr = *current_state
+            .storage_contract_addr
+            .get(&current_state.call_id)
+            .unwrap();
+        let read_contract_addr_row = current_state.get_call_context_read_row_with_arbitrary_tag(
+            state::CallContextTag::StorageContractAddr,
+            contract_addr,
+            current_state.call_id,
+        );
 
         // init topic_left
         match trace.op {
@@ -213,6 +233,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             _ => panic!(),
         }
 
+        // core_row_1: state lookup (vers_0~vers_7) + selector LOG_LEFT_X (vers_8~vers_12)
+        let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
+        core_row_1.insert_state_lookups([&read_contract_addr_row]);
         // core_row_1: insert selector LOG_LEFT_4, LOG_LEFT_3, LOG_LEFT_2, LOG_LEFT_1, LOG_LEFT_0
         core_row_1.insert_log_left_selector(current_state.topic_left);
 
@@ -245,6 +268,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         }
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
+            state: vec![read_contract_addr_row],
             ..Default::default()
         }
     }
@@ -282,6 +306,9 @@ mod test {
             gas_left: 100,
             ..WitnessExecHelper::new()
         };
+        current_state
+            .storage_contract_addr
+            .insert(call_id, current_state.code_addr);
 
         let trace = prepare_trace_step!(0, opcode, stack);
         let padding_begin_row = |current_state| {

@@ -207,7 +207,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         vec![
             ("state lookup for topic".into(), stack_lookup),
-            ("public lookup".into(), public_lookup),
+            ("log topic public lookup".into(), public_lookup),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {

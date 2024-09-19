@@ -125,12 +125,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let parent_stack_pointer = operands[2][1].clone();
         let parent_code_addr =
             operands[3][0].clone() * pow_of_two::<F>(128) + operands[3][1].clone();
+
+        let parent_call_id_inv = meta.query_advice(
+            config.vers
+                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + PARENT_CALL_ID_INV_COL_IDX],
+            Rotation::cur(),
+        );
+        let parent_call_id_is_zero = SimpleIsZero::new(
+            &parent_call_id.clone(),
+            &parent_call_id_inv,
+            String::from("parent_call_id"),
+        );
+        constraints.extend(parent_call_id_is_zero.get_constraints());
+
         // append auxiliary constraints
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             // stack_pointer will recover to parent_stack_pointer if parent_call_id != 0
             stack_pointer: ExpressionOutcome::Delta(
-                parent_call_id.clone() * (parent_stack_pointer - stack_pointer_prev),
+                (1.expr() - parent_call_id_is_zero.expr())
+                    * (parent_stack_pointer - stack_pointer_prev),
             ),
             gas_left: ExpressionOutcome::Delta(0.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
@@ -179,17 +193,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 .collect(),
         );
 
-        let parent_call_id_inv = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + PARENT_CALL_ID_INV_COL_IDX],
-            Rotation::cur(),
-        );
-        let parent_call_id_is_zero = SimpleIsZero::new(
-            &parent_call_id,
-            &parent_call_id_inv,
-            String::from("parent_call_id"),
-        );
-        constraints.extend(parent_call_id_is_zero.get_constraints());
         let next_is_end_tx = meta.query_advice(
             config.vers
                 [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + END_CALL_NEXT_IS_END_TX],

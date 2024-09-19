@@ -11,9 +11,10 @@ use halo2_proofs::poly::Rotation;
 
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::Expr;
 
-use crate::constant::NUM_AUXILIARY;
+use crate::constant::{NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::execution::end_call_2::RETURNDATA_SIZE_COL_IDX;
 use crate::execution::{
     post_call_2, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionConfig,
@@ -26,6 +27,12 @@ use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 3;
 
+const RETURN_DATA_SUCCESS_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
+const RETURN_DATA_SIZE_COL: usize = RETURN_DATA_SUCCESS_COL + RETURNDATA_SIZE_COL_IDX;
+
+const OPCODE_SELECTOR_IDX: usize = RETURN_DATA_SIZE_COL + 1;
+const OPCODE_SELECTOR_IDX_START: usize = 0;
+
 /// POST_CALL_1 用于处理gas相关的call_context操作，在call_6时write trace.gas 和 trace.gas_cost
 /// 在POST_CALL_1时read call_context, 从而完成 POST_CALL_1的gas约束
 ///
@@ -36,12 +43,12 @@ const STATE_STAMP_DELTA: usize = 3;
 ///     cnt == 1:
 ///         CALLCONTEXT_READ_0: read trace.gas
 ///         CALLCONTEXT_READ_1: read trace.gas_cost
-/// +-----+---------------------+---------------------+---------------------+----------------------+
-/// | cnt |                     |                     |                     |                      |
-/// +-----+---------------------+---------------------+---------------------+----------------------+
-/// | 1   | CALLCONTEXT_READ_0 | CALLCONTEXT_READ_1   | CALLCONTEXT_READ_2  |                      |
-/// | 0   | DYNA_SELECTOR       | AUX                 | RETURN_SUCCESS (25) | RETURNDATA_SIZE (27) |
-/// +-----+---------------------+---------------------+---------------------+----------------------+
+/// +-----+---------------------+---------------------+---------------------+----------------------+--------------------------+
+/// | cnt |                     |                     |                     |                      |                          |
+/// +-----+---------------------+---------------------+---------------------+----------------------+--------------------------+
+/// | 1   | CALLCONTEXT_READ_0 | CALLCONTEXT_READ_1   | CALLCONTEXT_READ_2  |                      |                          |
+/// | 0   | DYNA_SELECTOR       | AUX                 | RETURN_SUCCESS (25) | RETURNDATA_SIZE (27) | OPCODE_SELECTOR(28..30)  |
+/// +-----+---------------------+---------------------+---------------------+----------------------+--------------------------+
 pub struct PostCall1Gadget<F: Field> {
     _marker: PhantomData<F>,
 }
@@ -66,6 +73,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut VirtualCells<F>,
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
+
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
 
         // 1. call_context constraints
@@ -99,25 +116,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 2. opcode and state_init constraints
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
-        constraints.push(("opcode".into(), opcode - OpcodeId::CALL.as_u8().expr()));
+        constraints.push((
+            "opcode".into(),
+            opcode
+                - selector.select(&[
+                    OpcodeId::CALL.as_u8().expr(),
+                    OpcodeId::STATICCALL.as_u8().expr(),
+                    OpcodeId::DELEGATECALL.as_u8().expr(),
+                ]),
+        ));
 
         // 3. return_success and return_data_size constraints
-        let return_success_for_next = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
-            Rotation::cur(),
-        );
-        let return_data_size_for_next = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
-            Rotation::cur(),
-        );
+        let return_success_for_next =
+            meta.query_advice(config.vers[RETURN_DATA_SUCCESS_COL], Rotation::cur());
+        let return_data_size_for_next =
+            meta.query_advice(config.vers[RETURN_DATA_SIZE_COL], Rotation::cur());
         let return_success_prev = meta.query_advice(
-            config.vers[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            config.vers[RETURN_DATA_SUCCESS_COL],
             Rotation(-1 * NUM_ROW as i32),
         );
         let return_data_size_prev = meta.query_advice(
-            config.vers
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
+            config.vers[RETURN_DATA_SIZE_COL],
             Rotation(-1 * NUM_ROW as i32),
         );
 
@@ -189,9 +208,26 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
+        // 到这里说明上一个call已经结束，需要恢复上一个call的状态（主要是memory_chunk）
+        current_state.memory_chunk = *current_state
+            .parent_memory_chunk
+            .get(&current_state.call_id)
+            .unwrap();
+        let selector_index = match trace.op {
+            OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,
+            OpcodeId::STATICCALL => OPCODE_SELECTOR_IDX_START + 1,
+            OpcodeId::DELEGATECALL => OPCODE_SELECTOR_IDX_START + 2,
+            _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
+        };
+
         let parent_trace_gas = current_state.parent_gas[&current_state.call_id];
         let parent_trace_gas_cost = current_state.parent_gas_cost[&current_state.call_id];
         let parant_memory_chunk = current_state.parent_memory_chunk[&current_state.call_id];
+
+        println!(
+            "post call1, get call_id:{:?}, parent_memory_chunk:{:x}",
+            current_state.call_id, parant_memory_chunk
+        );
 
         let call_context_read_0 = current_state.get_call_context_read_row_with_arbitrary_tag(
             state::CallContextTag::ParentGas,
@@ -226,15 +262,27 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         assign_or_panic!(
-            core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY],
+            core_row_0[RETURN_DATA_SUCCESS_COL],
             (current_state.return_success as u8).into()
         );
 
         assign_or_panic!(
-            core_row_0
-                [NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + RETURNDATA_SIZE_COL_IDX],
+            core_row_0[RETURN_DATA_SIZE_COL],
             current_state.returndata_size
         );
+
+        // opcodeid selector
+        simple_selector_assign(
+            &mut core_row_0,
+            [
+                OPCODE_SELECTOR_IDX,
+                OPCODE_SELECTOR_IDX + 1,
+                OPCODE_SELECTOR_IDX + 2,
+            ],
+            selector_index,
+            |cell, value| assign_or_panic!(*cell, value.into()),
+        );
+
         Witness {
             core: vec![core_row_1, core_row_0],
             state: vec![

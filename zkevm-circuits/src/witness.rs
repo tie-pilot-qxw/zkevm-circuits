@@ -10,6 +10,7 @@ use std::io::Write;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 
+use eth_types::error::GethExecError;
 use eth_types::evm_types::{OpcodeId, MAX_CODE_SIZE};
 use eth_types::geth_types::{ChunkData, GethData};
 use eth_types::{Bytecode, Field, GethExecStep, StateDB, Word, U256};
@@ -399,42 +400,8 @@ impl WitnessExecHelper {
         let mut prev_step_is_error = false;
         for step in trace {
             let next_step = iter_for_next_step.next();
-            if let Some(next_step) = next_step {
-                self.update_from_next_step(next_step);
-            }
-
             let need_exit_call = prev_step_is_error
                 && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
-
-            let exec_error = self.handle_step_error(step, next_step);
-            self.update_call_context(step);
-
-            if exec_error.is_some() {
-                prev_step_is_error = true;
-            }
-
-            let memory_usage = (step.memory.0.len() / 32) as u64;
-            let memory_chunk = self.memory_chunk;
-            self.memory_chunk_prev = memory_chunk;
-
-            if memory_usage > memory_chunk {
-                self.memory_chunk = memory_usage;
-            } else {
-                self.memory_chunk = memory_chunk;
-            }
-
-            if step.op == OpcodeId::RETURN
-                || step.op == OpcodeId::REVERT
-                || step.op == OpcodeId::STOP
-                || exec_error.is_some()
-            {
-                // 若为root-call则,下一个状态为end-tx
-                if self.parent_call_id[&self.call_id] == 0 {
-                    self.next_exec_state = Some(ExecutionState::END_TX)
-                } else {
-                    self.next_exec_state = Some(ExecutionState::POST_CALL_1);
-                }
-            }
 
             if prev_is_return_revert_or_stop || need_exit_call {
                 // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
@@ -471,6 +438,40 @@ impl WitnessExecHelper {
                     prev_step_is_error = false;
                 }
             }
+
+            if let Some(next_step) = next_step {
+                self.update_from_next_step(next_step);
+            }
+            let exec_error = self.handle_step_error(step, next_step);
+            self.update_call_context(step);
+
+            if exec_error.is_some() {
+                prev_step_is_error = true;
+            }
+
+            // 根据当前STEP更新MEMORY_CHUNK
+            let memory_usage = (step.memory.0.len() / 32) as u64;
+            let memory_chunk = self.memory_chunk;
+            self.memory_chunk_prev = memory_chunk;
+
+            if memory_usage > memory_chunk {
+                self.memory_chunk = memory_usage;
+            } else {
+                self.memory_chunk = memory_chunk;
+            }
+
+            if step.op == OpcodeId::RETURN
+                || step.op == OpcodeId::REVERT
+                || step.op == OpcodeId::STOP
+                || exec_error.is_some()
+            {
+                // 若为root-call则,下一个状态为end-tx
+                if self.parent_call_id[&self.call_id] == 0 {
+                    self.next_exec_state = Some(ExecutionState::END_TX)
+                } else {
+                    self.next_exec_state = Some(ExecutionState::POST_CALL_1);
+                }
+            }
             // 执行状态后的gas计算下移，不放在update_from_next中，因为在POST_CALL中会改变这个值
             // 这里self.gas_left没有直接赋值为next_step.gas的原因是CALL里STOP时的gas_left应该为cur_gas - cur_gas_cost，而不是next_step.gas
             self.gas_left = step.gas - step.gas_cost;
@@ -480,7 +481,7 @@ impl WitnessExecHelper {
                 OpcodeId::RETURN | OpcodeId::REVERT | OpcodeId::STOP => {
                     prev_is_return_revert_or_stop = true;
                 }
-                OpcodeId::CALL => {
+                OpcodeId::CALL | OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
                     call_step_store.push(step);
                 }
                 _ => {}
@@ -2205,8 +2206,11 @@ impl WitnessExecHelper {
         };
 
         // tx_log	tx_idx	log_stamp=0	log_tag=addrWithXLog	0x0	0x0
-        let value_hi = (self.code_addr >> 128).as_u128();
-        let value_lo = self.code_addr.low_u128();
+
+        // get contract addr
+        let contract_addr = *self.storage_contract_addr.get(&self.call_id).unwrap();
+        let value_hi = (contract_addr >> 128).as_u128();
+        let value_lo = contract_addr.low_u128();
 
         let mut comments = HashMap::new();
         comments.insert(format!("vers_{}", 26), format!("tag={}", "TxLog"));
@@ -2664,7 +2668,6 @@ macro_rules! assign_or_panic {
     };
 }
 pub(crate) use assign_or_panic;
-use eth_types::error::GethExecError;
 
 impl core::Row {
     pub fn insert_exp_lookup(&mut self, base: U256, index: U256, power: U256) {
@@ -2744,7 +2747,6 @@ impl core::Row {
         state_rows: [&state::Row; NUM_LOOKUP],
     ) {
         // this lookup must be in the row with this cnt
-        assert_eq!(self.cnt, 1.into());
         assert!(NUM_LOOKUP <= 4);
         assert!(NUM_LOOKUP > 0);
         for (j, state_row) in state_rows.into_iter().enumerate() {
@@ -3564,7 +3566,7 @@ impl Witness {
 
     /// Generate witness of one transaction's trace
     pub fn new(chunk_data: &ChunkData) -> Self {
-        assert!(U256::from(usize::MAX) >= U256::from(u64::MAX),"struct Memory doesn't support evm's memory because the range of usize is smaller than that of u64");
+        assert!(U256::from(usize::MAX) >= U256::from(u64::MAX), "struct Memory doesn't support evm's memory because the range of usize is smaller than that of u64");
 
         let execution_gadgets: Vec<
             Box<dyn ExecutionGadget<Fr, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
