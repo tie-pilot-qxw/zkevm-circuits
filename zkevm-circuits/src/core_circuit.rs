@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::NUM_VERS;
+use crate::constant::{BLOCK_IDX_LEFT_SHIFT_NUM, NUM_VERS};
 use crate::execution::{ExecutionConfig, ExecutionGadgets, ExecutionState};
 use crate::keccak_circuit::keccak_packed_multi::calc_keccak_with_rlc;
 use crate::table::{
@@ -23,7 +23,9 @@ use gadgets::is_zero::IsZeroInstruction;
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
 use gadgets::util::Expr;
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, SecondPhase, Selector};
+use halo2_proofs::plonk::{
+    Advice, Column, ConstraintSystem, Error, Expression, SecondPhase, Selector,
+};
 use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 use strum::EnumCount;
@@ -72,6 +74,17 @@ pub struct CoreCircuitConfig<F: Field, const NUM_STATE_HI_COL: usize, const NUM_
     public_table: PublicTable,
     fixed_table: FixedTable,
     exp_table: ExpTable,
+}
+
+pub fn concat_block_tx_idx_expr<F: Field>(
+    block_idx: Expression<F>,
+    tx_idx: Expression<F>,
+) -> Expression<F> {
+    (block_idx * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx
+}
+
+pub fn concat_block_tx_idx(block_idx: U256, tx_idx: U256) -> U256 {
+    (block_idx << BLOCK_IDX_LEFT_SHIFT_NUM) + tx_idx
 }
 
 pub struct CoreCircuitConfigArgs<F> {

@@ -94,7 +94,10 @@ pub enum OpcodeId {
     MSIZE,
     /// `JUMPDEST`
     JUMPDEST,
-
+    /// `TLOAD`
+    TLOAD,
+    /// `TSTORE`
+    TSTORE,
     // PUSHn
     /// `PUSH0`
     PUSH0,
@@ -408,6 +411,8 @@ impl OpcodeId {
             OpcodeId::PC => 0x58u8,
             OpcodeId::MSIZE => 0x59u8,
             OpcodeId::JUMPDEST => 0x5bu8,
+            OpcodeId::TLOAD => 0x5cu8,
+            OpcodeId::TSTORE => 0x5du8,
             OpcodeId::PUSH0 => 0x5fu8,
             OpcodeId::PUSH1 => 0x60u8,
             OpcodeId::PUSH2 => 0x61u8,
@@ -587,6 +592,8 @@ impl OpcodeId {
             OpcodeId::MSIZE => GasCost::QUICK,
             OpcodeId::GAS => GasCost::QUICK,
             OpcodeId::JUMPDEST => GasCost::ONE,
+            OpcodeId::TLOAD => GasCost::WARM_ACCESS,
+            OpcodeId::TSTORE => GasCost::WARM_ACCESS,
             OpcodeId::PUSH0 => GasCost::QUICK,
             OpcodeId::PUSH1 => GasCost::FASTEST,
             OpcodeId::PUSH2 => GasCost::FASTEST,
@@ -742,6 +749,8 @@ impl OpcodeId {
             OpcodeId::MSIZE => (1, 1024),
             OpcodeId::GAS => (1, 1024),
             OpcodeId::JUMPDEST => (0, 1024),
+            OpcodeId::TLOAD => (0, 1023),
+            OpcodeId::TSTORE => (0, 1022),
             OpcodeId::PUSH0 => (1, 1024),
             OpcodeId::PUSH1 => (1, 1024),
             OpcodeId::PUSH2 => (1, 1024),
@@ -945,6 +954,8 @@ impl From<u8> for OpcodeId {
             0x58u8 => OpcodeId::PC,
             0x59u8 => OpcodeId::MSIZE,
             0x5bu8 => OpcodeId::JUMPDEST,
+            0x5cu8 => OpcodeId::TLOAD,
+            0x5du8 => OpcodeId::TSTORE,
             0x5fu8 => OpcodeId::PUSH0,
             0x60u8 => OpcodeId::PUSH1,
             0x61u8 => OpcodeId::PUSH2,
@@ -1099,6 +1110,8 @@ impl FromStr for OpcodeId {
             "PC" => OpcodeId::PC,
             "MSIZE" => OpcodeId::MSIZE,
             "JUMPDEST" => OpcodeId::JUMPDEST,
+            "TLOAD" => OpcodeId::TLOAD,
+            "TSTORE" => OpcodeId::TSTORE,
             "PUSH0" => OpcodeId::PUSH0,
             "PUSH1" => OpcodeId::PUSH1,
             "PUSH2" => OpcodeId::PUSH2,

@@ -127,14 +127,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // constraints state entry[2]
         let entry = config.get_state_lookup(meta, STATE_LOOKUP_IDX + 2);
-        let ((value_hi, value_lo), state_constraints) = config.get_read_value_constraints_by_call(
+        constraints.extend(config.get_read_value_constraints_by_call(
             meta,
-            entry,
+            entry.clone(),
             NUM_ROW,
             &selector,
             STATE_LOOKUP_IDX + 2,
-        );
-        constraints.extend(state_constraints);
+        ));
+        let (_, _, value_hi, value_lo, ..) = extract_lookup_expression!(state, entry);
         operands.push([value_hi, value_lo]);
 
         // STATICCALL only performs one write operation，while CALL and STATICCALL both perform one read operation and one write operation.

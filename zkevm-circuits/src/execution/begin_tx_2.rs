@@ -12,7 +12,7 @@ use halo2_proofs::poly::Rotation;
 use eth_types::{Field, GethExecStep};
 use gadgets::util::Expr;
 
-use crate::constant::BLOCK_IDX_LEFT_SHIFT_NUM;
+use crate::core_circuit::concat_block_tx_idx_expr;
 use crate::execution::{
     begin_tx_3, AuxiliaryOutcome, ExecStateTransition, ExecutionConfig, ExecutionGadget,
     ExecutionState,
@@ -121,8 +121,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         //constraint public lookup
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
-        let block_tx_idx =
-            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+        let block_tx_idx = concat_block_tx_idx_expr(block_idx.clone(), tx_idx.clone());
 
         let public_entry = config.get_public_lookup(meta, 0);
         constraints.extend(config.get_public_constraints(

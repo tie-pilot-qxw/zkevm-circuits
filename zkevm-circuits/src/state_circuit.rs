@@ -202,6 +202,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             let return_condition = config.tag.value_equals(Tag::ReturnData, Rotation::cur())(meta);
             let endpadding_condition =
                 config.tag.value_equals(Tag::EndPadding, Rotation::cur())(meta);
+            let tstorage_condition = config.tag.value_equals(Tag::TStorage, Rotation::cur())(meta);
             let pointer_hi = meta.query_advice(config.pointer_hi, Rotation::cur());
             let prev_value_hi = meta.query_advice(config.value_hi, Rotation::prev());
             let prev_value_lo = meta.query_advice(config.value_lo, Rotation::prev());
@@ -329,6 +330,22 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
                     "pre_cnt + 1 = cur_cnt not in endpadding or pre_cnt = cur_cnt in endpadding",
                     q_enable.clone()
                         * (prev_cnt.clone() - cur_cnt.clone() + 1.expr() - endpadding_condition),
+                ),
+                (
+                    "tstorage_first_access && is_write=0 ==> value_hi=0",
+                    q_enable.clone()
+                        * tstorage_condition.clone()
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone())
+                        * value_hi.clone(),
+                ),
+                (
+                    "tstorage_first_access && is_write=0 ==> value_lo=0",
+                    q_enable.clone()
+                        * tstorage_condition.clone()
+                        * is_first_access.clone()
+                        * (1.expr() - is_write.clone())
+                        * value_lo.clone(),
                 ),
             ];
 

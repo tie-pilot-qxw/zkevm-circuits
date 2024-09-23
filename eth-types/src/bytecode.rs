@@ -489,6 +489,8 @@ impl_other_opcodes! {
     (op_msize, MSIZE),
     (op_gas, GAS),
     // (op_jumpdest, JUMPDEST), manually implemented
+    (op_tload, TLOAD, offset: O),
+    (op_tstore, TSTORE, offset: O, value: V),
     (op_dup1, DUP1),
     (op_dup2, DUP2),
     (op_dup3, DUP3),

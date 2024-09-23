@@ -5,21 +5,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::arithmetic_circuit::operation;
+use crate::constant::{
+    GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX, NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
+};
+use crate::core_circuit::concat_block_tx_idx_expr;
 use crate::execution::{
     memory_gas, Auxiliary, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
     ExecutionConfig, ExecutionGadget, ExecutionState,
 };
-
 use crate::table::{extract_lookup_expression, LookupEntry};
-
-use crate::witness::{arithmetic, assign_or_panic, copy, public, Witness, WitnessExecHelper};
-
-use crate::constant::{
-    BLOCK_IDX_LEFT_SHIFT_NUM, GAS_LEFT_IDX, LENGTH_IDX, MEMORY_CHUNK_PREV_IDX,
-    NEW_MEMORY_SIZE_OR_GAS_COST_IDX, NUM_AUXILIARY,
-};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::public::LogTag;
+use crate::witness::{arithmetic, assign_or_panic, copy, public, Witness, WitnessExecHelper};
 use eth_types::GethExecStep;
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
@@ -79,8 +76,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_id = meta.query_advice(config.call_id, Rotation::cur());
         let tx_idx = meta.query_advice(config.tx_idx, Rotation::cur());
         let block_idx = meta.query_advice(config.block_idx, Rotation::cur());
-        let block_tx_idx =
-            (block_idx.clone() * (1u64 << BLOCK_IDX_LEFT_SHIFT_NUM).expr()) + tx_idx.clone();
+        let block_tx_idx = concat_block_tx_idx_expr(block_idx.clone(), tx_idx.clone());
 
         let Auxiliary { log_stamp, .. } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
