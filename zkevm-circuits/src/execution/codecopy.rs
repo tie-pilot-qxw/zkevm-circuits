@@ -47,8 +47,8 @@ use std::marker::PhantomData;
 ///   use the Length operation method of the arithmetic circuit to calculate real_length, zero_length based on length, offset, len(Bytecode)
 ///
 /// Table layout:
-///     COPY: normal length Copy Lookup, src:Core circuit, target:Copy circuit table, 9 columns
-///     ZEROCOPY: zero length Copy Lookup, src:Core circuit, target:Copy circuit table, 9 columns
+///     COPY: normal length Copy Lookup, src:Core circuit, target:Copy circuit table, 11 columns
+///     ZEROCOPY: zero length Copy Lookup, src:Core circuit, target:Copy circuit table, 11 columns
 ///     LENGTH：arithmetic Length LookUp, src:Core circuit, target:Arithmetic circuit table, 9cols
 ///     PUB_CODE_SIZE：Codesize Lookup, src:Core circuit, target:Public circuit table, 6 cols
 ///     LENGTH_INV:  original codecopy length's multiplicative inverse

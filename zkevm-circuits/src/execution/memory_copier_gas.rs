@@ -139,6 +139,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 1], Rotation::prev()),
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 2], Rotation::prev()),
             meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 3], Rotation::prev()),
+            meta.query_advice(config.vers[CORE_ROW_1_START_COL_IDX + 4], Rotation::prev()),
         ]);
         constraints.extend(selector.get_constraints());
         constraints.push((
@@ -148,6 +149,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 opcode.clone() - OpcodeId::CODECOPY.as_u8().expr(),
                 opcode.clone() - OpcodeId::RETURNDATACOPY.as_u8().expr(),
                 opcode.clone() - OpcodeId::EXTCODECOPY.as_u8().expr(),
+                opcode.clone() - OpcodeId::MCOPY.as_u8().expr(),
             ]),
         ));
 
@@ -161,6 +163,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             base_gas.clone() + OpcodeId::CODECOPY.constant_gas_cost().expr(),
             base_gas.clone() + OpcodeId::RETURNDATACOPY.constant_gas_cost().expr(),
             base_gas.clone() + warm_gas.clone(),
+            base_gas.clone() + OpcodeId::MCOPY.constant_gas_cost().expr(),
         ]);
 
         let delta = AuxiliaryOutcome {
@@ -216,6 +219,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             OpcodeId::CODECOPY => 1,
             OpcodeId::RETURNDATACOPY => 2,
             OpcodeId::EXTCODECOPY => 3,
+            OpcodeId::MCOPY => 4,
             _ => panic!("memory gas not supported opcode"),
         };
 
@@ -238,6 +242,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 CORE_ROW_1_START_COL_IDX + 1,
                 CORE_ROW_1_START_COL_IDX + 2,
                 CORE_ROW_1_START_COL_IDX + 3,
+                CORE_ROW_1_START_COL_IDX + 4,
             ],
             tag_selector_index as usize,
             |cell, value| assign_or_panic!(*cell, value.into()),
