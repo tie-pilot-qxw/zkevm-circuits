@@ -477,6 +477,7 @@ impl WitnessExecHelper {
             }
             // 执行状态后的gas计算下移，不放在update_from_next中，因为在POST_CALL中会改变这个值
             // 这里self.gas_left没有直接赋值为next_step.gas的原因是CALL里STOP时的gas_left应该为cur_gas - cur_gas_cost，而不是next_step.gas
+            // 若所报错误为OutOfGas,则gas_left不变,仍然为step.gas, 在相应的错误处理gadget中通过约束prev_gas_left - cur_gas_left = 0来约束
             if let Some(err) = exec_error.clone() {
                 match err {
                     ExecError::OutOfGas { .. } => {

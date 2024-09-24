@@ -6,12 +6,14 @@
 
 use crate::arithmetic_circuit::operation::get_lt_operations;
 use crate::table::{extract_lookup_expression, LookupEntry};
+use crate::util::ExpressionOutcome;
 use crate::witness::arithmetic::{self, Tag};
 use crate::witness::state;
 use crate::{
     constant::NUM_AUXILIARY,
     execution::{
-        end_call_1, CoreSinglePurposeOutcome, ExecStateTransition, ExecutionGadget, ExecutionState,
+        end_call_1, AuxiliaryOutcome, CoreSinglePurposeOutcome, ExecStateTransition,
+        ExecutionGadget, ExecutionState,
     },
     util::query_expression,
     witness::assign_or_panic,
@@ -36,6 +38,8 @@ const TAG_EXTCODEHASH_OFFSET: usize = 1;
 const TAG_EXTCODESIZE_OFFSET: usize = 2;
 const GAS_LEFT_LT_GAS_COST: usize = 24;
 const GAS_LEFT_LT_GAS_COST_DIFF: usize = 25;
+const STATE_STAMP_DELTA: u64 = 3;
+const STACK_POINTER_DELTA: i32 = -1;
 
 /// ErrorOutOfGasAccountAccess overview:
 /// pop a value from the top of the stack: address,
@@ -216,6 +220,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // gas left constraint
             ("gas left < gas cost".into(), lt - 1.expr()),
         ]);
+        // auxiliary constraints
+        let delta = AuxiliaryOutcome {
+            state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
+            gas_left: ExpressionOutcome::Delta(0.expr()),
+            stack_pointer: ExpressionOutcome::Delta(STACK_POINTER_DELTA.expr()),
+            refund: ExpressionOutcome::Delta(0.expr()),
+            ..Default::default()
+        };
+        constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
+
         constraints
     }
 

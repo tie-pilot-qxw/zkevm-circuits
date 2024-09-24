@@ -34,7 +34,7 @@ pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
 pub mod error_invalid_jump;
-pub mod error_out_of_gas_account_access;
+pub mod error_oog_account_access;
 pub mod exp;
 pub mod extcodecopy;
 pub mod extcodeinfo;
@@ -174,7 +174,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::error_invalid_jump::new(),
             crate::execution::end_call_1::new(),
             crate::execution::end_call_2::new(),
-            crate::execution::error_out_of_gas_account_access::new(),
+            crate::execution::error_oog_account_access::new(),
         ]
     }};
 }
