@@ -9,9 +9,10 @@ package evmutil
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"os"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 func TestInnerCallJumpInvalid(t *testing.T) {
@@ -357,6 +358,292 @@ STOP
 	}
 
 	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "call_no_execution")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestBalanceOutOfGas(t *testing.T) {
+	bytecode := `
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+BALANCE
+`
+	calleeOpcode := `
+PUSH1 0x1
+PUSH1 0x1
+STOP
+`
+
+	gas := ReturnOufOfGas(bytecode, false)
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x100")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(bytecode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(gas)
+	}
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1000
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "balance_out_of_gas")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+func TestSubCallBalanceOutOfGas(t *testing.T) {
+	callerOpcode := `
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+PUSH2 0x2710
+CALL
+STOP
+`
+	calleeOpcode := `
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+BALANCE
+STOP
+`
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(callerOpcode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "sub_call_balance_out_of_gas")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestExtcodesizeOutOfGas(t *testing.T) {
+	bytecode := `
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+EXTCODESIZE
+`
+	calleeOpcode := `
+PUSH1 0x1
+PUSH1 0x1
+STOP
+`
+
+	gas := ReturnOufOfGas(bytecode, false)
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x100")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(bytecode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(gas)
+	}
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1000
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "extcodesize_out_of_gas")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestSubCallExtcodesizeOutOfGas(t *testing.T) {
+	callerOpcode := `
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+PUSH2 0x2710
+CALL
+STOP
+`
+	calleeOpcode := `
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+EXTCODESIZE
+STOP
+`
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(callerOpcode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "sub_call_extcodesize_out_of_gas")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestExtcodehashOutOfGas(t *testing.T) {
+	bytecode := `
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+EXTCODEHASH
+`
+	calleeOpcode := `
+PUSH1 0x1
+PUSH1 0x1
+STOP
+`
+
+	gas := ReturnOufOfGas(bytecode, false)
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x100")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(bytecode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(gas)
+	}
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1000
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "extcodehash_out_of_gas")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+func TestSubCallExtcodehashOutOfGas(t *testing.T) {
+	callerOpcode := `
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+PUSH2 0x2710
+CALL
+STOP
+`
+	calleeOpcode := `
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+EXTCODEHASH
+STOP
+`
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(callerOpcode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "sub_call_extcodehash_out_of_gas")
 	if err != nil {
 		t.Fatal("expected error, err", err)
 	}

@@ -34,6 +34,7 @@ pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
 pub mod error_invalid_jump;
+pub mod error_oog_account_access;
 pub mod exp;
 pub mod extcodecopy;
 pub mod extcodeinfo;
@@ -173,6 +174,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::error_invalid_jump::new(),
             crate::execution::end_call_1::new(),
             crate::execution::end_call_2::new(),
+            crate::execution::error_oog_account_access::new(),
         ]
     }};
 }
@@ -184,7 +186,7 @@ use crate::constant::{
     STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
-use crate::error::ExecError;
+use crate::error::{ExecError, OogError};
 use crate::util::ExpressionOutcome;
 pub(crate) use get_every_execution_gadgets;
 
@@ -2393,6 +2395,7 @@ pub enum ExecutionState {
     ERROR_INVALID_JUMP,
     END_CALL_1,
     END_CALL_2,
+    ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
 }
 
 impl ExecutionState {
@@ -2646,6 +2649,15 @@ impl ExecutionState {
             // example
             OpcodeId::JUMP | OpcodeId::JUMPI if matches!(exec_error, ExecError::InvalidJump) => {
                 vec![Self::ERROR_INVALID_JUMP, Self::END_CALL_1, Self::END_CALL_2]
+            }
+            OpcodeId::BALANCE | OpcodeId::EXTCODEHASH | OpcodeId::EXTCODESIZE
+                if matches!(exec_error, ExecError::OutOfGas(OogError::AccountAccess)) =>
+            {
+                vec![
+                    Self::ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
+                    Self::END_CALL_1,
+                    Self::END_CALL_2,
+                ]
             }
             _ => {
                 unreachable!("{opcode} error not implement")
