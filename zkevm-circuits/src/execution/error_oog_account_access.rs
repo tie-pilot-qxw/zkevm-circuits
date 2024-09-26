@@ -190,12 +190,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         // pc no change
-        constraints.append(&mut config.get_next_single_purpose_constraints(
-            meta,
-            CoreSinglePurposeOutcome {
-                ..Default::default()
-            },
-        ));
+        constraints.extend(
+            config.get_next_single_purpose_constraints(meta, CoreSinglePurposeOutcome::default()),
+        );
         // next execution state should be END_CALL_1
         constraints.extend(config.get_exec_state_constraints(
             meta,
