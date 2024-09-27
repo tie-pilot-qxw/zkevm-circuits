@@ -1,0 +1,66 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "gas": 21008,
+    "failed": true,
+    "returnValue": "",
+    "structLogs": [
+      {
+        "pc": 0,
+        "op": "PUSH1",
+        "gas": 8,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [],
+        "memory": []
+      },
+      {
+        "pc": 2,
+        "op": "PUSH32",
+        "gas": 5,
+        "gasCost": 3,
+        "depth": 1,
+        "stack": [
+          "0x1"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 35,
+        "op": "PUSH1",
+        "gas": 2,
+        "gasCost": 3,
+        "depth": 1,
+        "error": "out of gas",
+        "stack": [
+          "0x1",
+          "0xffffffffffffffffffffffffffffffffffffffff"
+        ],
+        "memory": []
+      }
+    ],
+    "prestate": {
+      "0x0000000000000000000000000000000000000000": {
+        "balance": "0x0"
+      },
+      "0x000000000000000000000000000000000000cafe": {
+        "balance": "0x100"
+      },
+      "0xfefefefefefefefefefefefefefefefefefefefe": {
+        "balance": "0x56bc75e2d63100000",
+        "code": "0x60017f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff6001"
+      }
+    },
+    "callTrace": {
+      "from": "0x000000000000000000000000000000000000cafe",
+      "gas": "0x5210",
+      "gasUsed": "0x5210",
+      "to": "0xfefefefefefefefefefefefefefefefefefefefe",
+      "input": "0x",
+      "error": "out of gas",
+      "value": "0x0",
+      "type": "CALL"
+    }
+  }
+}

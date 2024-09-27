@@ -24,10 +24,10 @@ use crate::constant::{
     ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BLOCK_IDX_LEFT_SHIFT_NUM,
     BYTECODE_COLUMN_START_IDX, BYTECODE_NUM_PADDING, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY,
-    EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
-    MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS,
-    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
-    STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    EXP_COLUMN_START_IDX, FIXED_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE,
+    MAX_NUM_ROW, MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES,
+    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -3099,6 +3099,38 @@ impl core::Row {
 			(format!("vers_{}", 30), "X for PUSHX".into()),
 			(format!("vers_{}", 31), "is_push".into()),
 		]);
+    }
+
+    pub fn insert_fixed_lookup(
+        &mut self,
+        tag: fixed::Tag,
+        value_0: U256,
+        value_1: U256,
+        value_2: U256,
+    ) {
+        assign_or_panic!(self[FIXED_COLUMN_START_IDX], (tag as u8).into());
+        assign_or_panic!(self[FIXED_COLUMN_START_IDX + 1], value_0);
+        assign_or_panic!(self[FIXED_COLUMN_START_IDX + 2], value_1);
+        assign_or_panic!(self[FIXED_COLUMN_START_IDX + 3], value_2);
+
+        self.comments.extend([
+            (
+                format!("vers_{}", FIXED_COLUMN_START_IDX),
+                "fixed tag".into(),
+            ),
+            (
+                format!("vers_{}", FIXED_COLUMN_START_IDX + 1),
+                "value_0".into(),
+            ),
+            (
+                format!("vers_{}", FIXED_COLUMN_START_IDX + 2),
+                "value_1".into(),
+            ),
+            (
+                format!("vers_{}", FIXED_COLUMN_START_IDX + 3),
+                "value_2".into(),
+            ),
+        ]);
     }
 
     pub fn insert_arithmetic_tiny_lookup(

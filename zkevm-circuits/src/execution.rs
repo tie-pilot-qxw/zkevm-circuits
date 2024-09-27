@@ -35,6 +35,7 @@ pub mod end_padding;
 pub mod end_tx;
 pub mod error_invalid_jump;
 pub mod error_oog_account_access;
+pub mod error_oog_constant;
 pub mod exp;
 pub mod extcodecopy;
 pub mod extcodeinfo;
@@ -175,15 +176,16 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_call_1::new(),
             crate::execution::end_call_2::new(),
             crate::execution::error_oog_account_access::new(),
+            crate::execution::error_oog_constant::new(),
         ]
     }};
 }
 use crate::constant::{
     self, ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BYTECODE_COLUMN_START_IDX,
-    COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX,
-    MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH,
-    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX, FIXED_COLUMN_START_IDX,
+    LOG_SELECTOR_COLUMN_START_IDX, MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, PUBLIC_COLUMN_START_IDX,
+    PUBLIC_COLUMN_WIDTH, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::constant::{NUM_VERS, PUBLIC_NUM_VALUES};
 use crate::error::{ExecError, OogError};
@@ -1257,6 +1259,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             value_lo,
             cnt,
             is_push,
+        }
+    }
+
+    pub(crate) fn get_fixed_lookup(
+        &self,
+        meta: &mut VirtualCells<F>,
+        at: Rotation,
+    ) -> LookupEntry<F> {
+        let (tag, value_0, value_1, value_2) = (
+            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX], at),
+            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX + 1], at),
+            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX + 2], at),
+            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX + 3], at),
+        );
+        LookupEntry::Fixed {
+            tag,
+            values: [value_0, value_1, value_2],
         }
     }
     pub(crate) fn get_stamp_cnt_lookup(&self, meta: &mut VirtualCells<F>) -> LookupEntry<F> {
@@ -2393,6 +2412,7 @@ pub enum ExecutionState {
     LOG_GAS,
     BALANCE,
     ERROR_INVALID_JUMP,
+    ERROR_OOG_CONSTANT,
     END_CALL_1,
     END_CALL_2,
     ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
@@ -2658,6 +2678,9 @@ impl ExecutionState {
                     Self::END_CALL_1,
                     Self::END_CALL_2,
                 ]
+            }
+            _ if matches!(exec_error, ExecError::OutOfGas(OogError::Constant)) => {
+                vec![Self::ERROR_OOG_CONSTANT, Self::END_CALL_1, Self::END_CALL_2]
             }
             _ => {
                 unreachable!("{opcode} error not implement")

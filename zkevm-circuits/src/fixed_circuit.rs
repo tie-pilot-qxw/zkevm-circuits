@@ -96,6 +96,18 @@ impl<F: Field> FixedCircuitConfig<F> {
             });
         }
 
+        // assign non-zero constant gas consumption
+        for opcode in OpcodeId::valid_opcodes() {
+            if opcode.constant_gas_cost() > 0 {
+                vec.push(fixed::Row {
+                    tag: fixed::Tag::ConstantGasCost,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    value_1: Some(U256::from(opcode.constant_gas_cost())),
+                    ..Default::default()
+                })
+            }
+        }
+
         // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
         let operand_num = 1 << 8;

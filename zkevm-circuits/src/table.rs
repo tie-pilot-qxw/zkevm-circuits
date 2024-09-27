@@ -111,7 +111,10 @@ macro_rules! extract_lookup_expression {
         }
     };
     (fixed, $value:expr) => {
-        todo!()
+        match $value {
+            LookupEntry::Fixed { tag, values } => (tag, values),
+            _ => panic!("Pattern doesn't match!"),
+        }
     };
     (copy, $value:expr) => {
         match $value {
