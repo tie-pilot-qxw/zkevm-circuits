@@ -35,6 +35,7 @@ pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
 pub mod error_invalid_jump;
+pub mod error_invalid_opcode;
 pub mod error_oog_account_access;
 pub mod error_oog_constant;
 pub mod error_oog_log;
@@ -183,6 +184,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::error_oog_constant::new(),
             crate::execution::unsupported::new(),
             crate::execution::error_oog_log::new(),
+            crate::execution::error_invalid_opcode::new(),
         ]
     }};
 }
@@ -2419,6 +2421,7 @@ pub enum ExecutionState {
     LOG_GAS,
     BALANCE,
     ERROR_INVALID_JUMP,
+    ERROR_INVALID_OPCODE,
     ERROR_OOG_CONSTANT,
     END_CALL_1,
     END_CALL_2,
@@ -2986,7 +2989,25 @@ mod test {
         }};
     }
 
+    macro_rules! prepare_error_trace_step {
+        ($pc:expr, $op:expr, $stack: expr, $error: expr) => {{
+            GethExecStep {
+                pc: $pc,
+                op: $op,
+                gas: 100,
+                gas_cost: 1,
+                refund: 0,
+                depth: 1,
+                error: $error,
+                stack: $stack,
+                memory: Default::default(),
+                storage: Default::default(),
+            }
+        }};
+    }
+
     pub(crate) use {
-        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_error_trace_step, prepare_trace_step,
+        prepare_witness_and_prover,
     };
 }
