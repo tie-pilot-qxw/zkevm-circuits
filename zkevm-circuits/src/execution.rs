@@ -2417,7 +2417,7 @@ pub enum ExecutionState {
     ERROR_OOG_CONSTANT,
     END_CALL_1,
     END_CALL_2,
-    ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
+    ERROR_OOG_ACCOUNT_ACCESS,
     ERROR_OOG_LOG,
 }
 
@@ -2677,7 +2677,7 @@ impl ExecutionState {
                 if matches!(exec_error, ExecError::OutOfGas(OogError::AccountAccess)) =>
             {
                 vec![
-                    Self::ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
+                    Self::ERROR_OOG_ACCOUNT_ACCESS,
                     Self::END_CALL_1,
                     Self::END_CALL_2,
                 ]

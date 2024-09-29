@@ -76,11 +76,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for ErrorOutOfGasAccountAccess<F>
 {
     fn name(&self) -> &'static str {
-        "ERROR_OUT_OF_GAS_ACCOUNT_ACCESS"
+        "ERROR_OOG_ACCOUNT_ACCESS"
     }
 
     fn execution_state(&self) -> super::ExecutionState {
-        ExecutionState::ERROR_OUT_OF_GAS_ACCOUNT_ACCESS
+        ExecutionState::ERROR_OOG_ACCOUNT_ACCESS
     }
 
     fn num_row(&self) -> usize {
@@ -309,8 +309,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let (u64_overflow_rows, _) = operation::u64overflow::gen_witness::<F>(vec![diff.into()]);
         core_row_1.insert_arithmetic_tiny_lookup(2, &u64_overflow_rows);
 
-        let mut core_row_0 = ExecutionState::ERROR_OUT_OF_GAS_ACCOUNT_ACCESS
-            .into_exec_state_core_row(trace, current_state, NUM_STATE_HI_COL, NUM_STATE_LO_COL);
+        let mut core_row_0 = ExecutionState::ERROR_OOG_ACCOUNT_ACCESS.into_exec_state_core_row(
+            trace,
+            current_state,
+            NUM_STATE_HI_COL,
+            NUM_STATE_LO_COL,
+        );
         let tag = match trace.op {
             OpcodeId::BALANCE => 0,
             OpcodeId::EXTCODEHASH => 1,

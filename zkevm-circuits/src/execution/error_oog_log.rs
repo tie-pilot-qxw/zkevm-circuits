@@ -99,7 +99,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             SimpleIsZero::new(&stack_pop_values[3], &len_lo_inv, String::from("length_lo"));
 
         constraints.append(&mut is_zero_len.get_constraints());
-        // next state should be log_topic_num_addr.
+        // next state should be memory_gas.
         constraints.extend(config.get_exec_state_constraints(
             meta,
             ExecStateTransition::new(
@@ -214,7 +214,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         // get offset、length from stack top
-        // let (stack_pop_dst_offset, dst_offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_offset, offset) = current_state.get_pop_stack_row_value(&trace);
         let (stack_pop_length, length) = current_state.get_pop_stack_row_value(&trace);
         // generate core rows
@@ -243,11 +242,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         assign_or_panic!(core_row_1[LEN_LO_INV_COL_IDX], len_lo_inv);
 
         // insert lookUp: Core ---> State
-        core_row_1.insert_state_lookups([
-            // &stack_pop_dst_offset,
-            &stack_pop_offset,
-            &stack_pop_length,
-        ]);
+        core_row_1.insert_state_lookups([&stack_pop_offset, &stack_pop_length]);
 
         // core_row_0
         let mut core_row_0 = ExecutionState::ERROR_OOG_LOG.into_exec_state_core_row(
@@ -282,6 +277,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
             length.into()
         );
+        // 加上length,方便在后面计算gas_cost使用
+        current_state.length_in_stack = Some(length.as_u64());
 
         let state_rows = vec![stack_pop_offset, stack_pop_length];
 

@@ -373,6 +373,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_0[NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY + LENGTH_IDX],
             length.into()
         );
+        // 加上length,方便在后面计算gas_cost使用
+        current_state.length_in_stack = Some(length.as_u64());
 
         let mut state_rows = vec![stack_pop_offset, stack_pop_length];
         state_rows.extend(memory_state_rows);
