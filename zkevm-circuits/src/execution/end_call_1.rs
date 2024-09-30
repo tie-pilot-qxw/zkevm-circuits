@@ -134,9 +134,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ExecStateTransition::new(
                 vec![
                     ExecutionState::STOP,
-                    ExecutionState::ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
+                    ExecutionState::ERROR_OOG_ACCOUNT_ACCESS,
                     ExecutionState::ERROR_INVALID_JUMP,
                     ExecutionState::ERROR_OOG_CONSTANT,
+                    ExecutionState::LOG_GAS,
                 ],
                 NUM_ROW,
                 vec![(ExecutionState::END_CALL_2, end_call_2::NUM_ROW, None)],

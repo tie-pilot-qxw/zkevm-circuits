@@ -335,6 +335,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     ExecutionState::RETURN_REVERT,
                     ExecutionState::LOG_BYTES,
                     ExecutionState::MCOPY,
+                    ExecutionState::ERROR_OOG_LOG,
                 ],
                 NUM_ROW,
                 vec![

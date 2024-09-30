@@ -36,6 +36,7 @@ pub mod end_tx;
 pub mod error_invalid_jump;
 pub mod error_oog_account_access;
 pub mod error_oog_constant;
+pub mod error_oog_log;
 pub mod exp;
 pub mod extcodecopy;
 pub mod extcodeinfo;
@@ -177,6 +178,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::end_call_2::new(),
             crate::execution::error_oog_account_access::new(),
             crate::execution::error_oog_constant::new(),
+            crate::execution::error_oog_log::new(),
         ]
     }};
 }
@@ -2415,7 +2417,8 @@ pub enum ExecutionState {
     ERROR_OOG_CONSTANT,
     END_CALL_1,
     END_CALL_2,
-    ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
+    ERROR_OOG_ACCOUNT_ACCESS,
+    ERROR_OOG_LOG,
 }
 
 impl ExecutionState {
@@ -2674,13 +2677,24 @@ impl ExecutionState {
                 if matches!(exec_error, ExecError::OutOfGas(OogError::AccountAccess)) =>
             {
                 vec![
-                    Self::ERROR_OUT_OF_GAS_ACCOUNT_ACCESS,
+                    Self::ERROR_OOG_ACCOUNT_ACCESS,
                     Self::END_CALL_1,
                     Self::END_CALL_2,
                 ]
             }
             _ if matches!(exec_error, ExecError::OutOfGas(OogError::Constant)) => {
                 vec![Self::ERROR_OOG_CONSTANT, Self::END_CALL_1, Self::END_CALL_2]
+            }
+            OpcodeId::LOG0 | OpcodeId::LOG1 | OpcodeId::LOG2 | OpcodeId::LOG3 | OpcodeId::LOG4
+                if matches!(exec_error, ExecError::OutOfGas(OogError::Log)) =>
+            {
+                vec![
+                    Self::ERROR_OOG_LOG,
+                    Self::MEMORY_GAS,
+                    Self::LOG_GAS,
+                    Self::END_CALL_1,
+                    Self::END_CALL_2,
+                ]
             }
             _ => {
                 unreachable!("{opcode} error not implement")
