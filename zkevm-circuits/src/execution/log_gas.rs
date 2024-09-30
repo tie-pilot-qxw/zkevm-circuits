@@ -27,17 +27,17 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{convert_f_to_u256, query_expression, ExpressionOutcome};
-use crate::witness::arithmetic::Tag::U64Overflow;
+use crate::witness::arithmetic::Tag::{self, U64Overflow};
 use crate::witness::{assign_or_panic, Witness, WitnessExecHelper};
 
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 0;
 
-const CORE_ROW_1_START_COL_IDX: usize = 7;
+const CORE_ROW_1_START_COL_IDX: usize = 12;
 const LOG_GAS_NEXT_IS_LOG_TOPIC_NUM_ADDR: usize = 0;
 const LOG_GAS_NEXT_IS_END_CALL_1: usize = 1;
-const CORE_ROW_1_GAS_LEFT_LT_GAS_COST_IDX: usize = 12;
-const CORE_ROW_1_GAS_LEFT_LT_GAS_COST_DIFF_IDX: usize = 13;
+const CORE_ROW_1_GAS_LEFT_LT_GAS_COST_IDX: usize = 17;
+const CORE_ROW_1_GAS_LEFT_LT_GAS_COST_DIFF_IDX: usize = 18;
 
 /// log_gas 前一个指令为 memory_gas
 /// 对应的opcode: LOG0, LOG1, LOG2, LOG3, LOG4
@@ -45,15 +45,16 @@ const CORE_ROW_1_GAS_LEFT_LT_GAS_COST_DIFF_IDX: usize = 13;
 /// Table layout:
 ///     cnt = 1:
 ///         1. U64OVERFLOW is `gas_left u64 constraints`.
-///         2. SELECTOR is opcode selector.
-///         3. ISLT check whether gas_left - gas_cost < 0 ,if true 1;else 0.
-///         4. LTDIFF record prev_gas_left - gas_cost
-///         5. NIEC is 1 when next call is end_call_1
-///         6. NILT is 1 when next call is log_topic_num_addr
+///         2. DIFFOVERFLOW is gas_left_lt_gas_cost diff u64 overflow constraint
+///         3. SELECTOR is opcode selector.
+///         4. ISLT check whether gas_left - gas_cost < 0 ,if true 1;else 0.
+///         5. LTDIFF record prev_gas_left - gas_cost
+///         6. NIEC is 1 when next call is end_call_1
+///         7. NILT is 1 when next call is log_topic_num_addr
 /// +-----+--------------+--------------+-----------------------+
 /// | cnt |              |              |                       |
 /// +-----+--------------+--------------+-----------------------+
-/// | 1   | U64OVERFLOW  | SELECTOR(7..11)  | ISLT|LTDIF|       |
+/// | 1   |U64OVERFLOW|DIFFOVERFLOW|SELECTOR(12..16)|ISLT|LTDIF||
 /// | 0   | DYNAMIC(0..17) | AUX(18..24)|NILT|NIEC              |
 /// +-----+--------------+--------------+-----------------------+
 
@@ -94,30 +95,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             config.vers[CORE_ROW_1_GAS_LEFT_LT_GAS_COST_DIFF_IDX],
             Rotation::prev(),
         );
-        let (tag, [gas_left_hi, gas_left_lo, overflow, overflow_inv]) = extract_lookup_expression!(
-            arithmetic_tiny,
-            config.get_arithmetic_tiny_lookup_with_rotation(meta, 0, Rotation::prev())
-        );
-        let gas_left_not_overflow =
-            SimpleIsZero::new(&overflow, &overflow_inv, "gas_left_u64_overflow".into());
-        constraints.extend(gas_left_not_overflow.get_constraints());
-
-        constraints.extend([
-            (
-                "tag is U64Overflow".into(),
-                tag - (U64Overflow as u8).expr(),
-            ),
-            ("gas_left_hi == 0".into(), gas_left_hi.clone()),
-            (
-                "(1 - gas_left_lt_gas_cost)* (gas_left_lo - current_gas_left) = 0".into(),
-                (1.expr() - gas_left_lt_gas_cost.clone())
-                    * (gas_left_lo.clone() - current_gas_left.clone()),
-            ),
-            (
-                "gas_left_not_overflow is true".into(),
-                1.expr() - gas_left_not_overflow.expr(),
-            ),
-        ]);
 
         // core constraints
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
@@ -160,12 +137,33 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             + GasCost::LOG.expr()
             + topic_gas
             + length * GasCost::LOG_DATA_GAS.expr();
-        // 在这里约束,若gas_left < gas_cost,则gas_cost = current_gas_left + gas_left_lo
-        constraints.extend([(
-            "gas_left < gas_cost, then gas_cost = current_gas_left + gas_left_lo".into(),
-            gas_left_lt_gas_cost.clone()
-                * (gas_cost.clone() - current_gas_left - gas_left_lo.clone()),
-        )]);
+        let (tag, [gas_left_hi, gas_left_lo, overflow, overflow_inv]) = extract_lookup_expression!(
+            arithmetic_tiny,
+            config.get_arithmetic_tiny_lookup_with_rotation(meta, 0, Rotation::prev())
+        );
+        let gas_left_not_overflow =
+            SimpleIsZero::new(&overflow, &overflow_inv, "gas_left_u64_overflow".into());
+        constraints.extend(gas_left_not_overflow.get_constraints());
+
+        constraints.extend([
+            (
+                "tag is U64Overflow".into(),
+                tag - (U64Overflow as u8).expr(),
+            ),
+            ("gas_left_hi == 0".into(), gas_left_hi.clone()),
+            (
+                "if gas_left < gas_cost,then gas_cost = gas_left_lo + current_gas_left;else gas_left_lo = current_gas_left".into(),
+                (1.expr() - gas_left_lt_gas_cost.clone())
+                    * (gas_left_lo.clone() - current_gas_left.clone())
+                    + gas_left_lt_gas_cost.clone()
+                        * (gas_cost.clone() - gas_left_lo.clone() - current_gas_left.clone()),
+            ),
+            (
+                "gas_left_not_overflow is true".into(),
+                1.expr() - gas_left_not_overflow.expr(),
+            ),
+        ]);
+
         // 在这里约束一下LT和DIFF
         let lt_constraint: SimpleLtGadget<F, 8> = SimpleLtGadget::new(
             &prev_gas_left,
@@ -174,6 +172,29 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &gas_left_lt_diff,
         );
         constraints.extend(lt_constraint.get_constraints());
+        // diff not overflow
+        let (tag, [diff_hi, diff_lo, overflow, overflow_inv]) = extract_lookup_expression!(
+            arithmetic_tiny,
+            config.get_arithmetic_tiny_lookup_with_rotation(meta, 1, Rotation::prev())
+        );
+        let diff_not_overflow =
+            SimpleIsZero::new(&overflow, &overflow_inv, "diff_u64_overflow".into());
+        constraints.extend([
+            (
+                "tag is U64Overflow".into(),
+                tag - (Tag::U64Overflow as u8).expr(),
+            ),
+            ("diff_hi == 0".into(), diff_hi.clone()),
+            (
+                "diff_lo = gas_left_lt_diff".into(),
+                diff_lo - gas_left_lt_diff.clone(),
+            ),
+            (
+                "diff not overflow".into(),
+                1.expr() - diff_not_overflow.expr(),
+            ),
+        ]);
+
         let gas_cost_delta = (1.expr() - gas_left_lt_gas_cost.clone()) * gas_cost;
         let delta = AuxiliaryOutcome {
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
@@ -252,8 +273,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let overflow = query_expression(meta, |meta| {
             config.get_arithmetic_tiny_lookup_with_rotation(meta, 0, Rotation::prev())
         });
+        let diff_overflow = query_expression(meta, |meta| {
+            config.get_arithmetic_tiny_lookup_with_rotation(meta, 1, Rotation::prev())
+        });
 
-        vec![("memory copier gas overflow".into(), overflow)]
+        vec![
+            ("memory copier gas overflow".into(), overflow),
+            ("gas_left_lt_gas_cost diff overflow".into(), diff_overflow),
+        ]
     }
 
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -273,7 +300,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             + GasCost::LOG
             + tag_selector_index * GasCost::LOG
             + length_in_stack * GasCost::LOG_DATA_GAS;
-
         let (gas_left_lt_gas_cost, diff, _) = match current_state.error {
             Some(ExecError::OutOfGas(..)) => {
                 (overflow_rows, _) =
@@ -301,6 +327,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         core_row_1.insert_arithmetic_tiny_lookup(0, &overflow_rows);
+        // insert diff overflow
+        let (u64_overflow_rows, _) = operation::u64overflow::gen_witness::<F>(vec![diff.into()]);
+        core_row_1.insert_arithmetic_tiny_lookup(1, &u64_overflow_rows);
+        overflow_rows.extend(u64_overflow_rows);
         // tag selector
         simple_selector_assign(
             &mut core_row_1,
