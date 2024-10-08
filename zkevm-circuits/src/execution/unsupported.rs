@@ -44,6 +44,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, LookupEntry<F>)> {
         vec![]
     }
+    // Func gen_witness(...) is supposed to emtpy.
+    // But trivially set it to be emtpy will fail for
+    // it will not pass the mockProver.
+    // So we set it to be the same with the one in keccak.rs.
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         let (stack_pop_0, _) = current_state.get_pop_stack_row_value(&trace);
 
