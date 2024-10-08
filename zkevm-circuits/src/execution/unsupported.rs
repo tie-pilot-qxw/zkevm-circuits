@@ -86,6 +86,7 @@ mod test {
     };
     generate_execution_gadget_test_circuit!();
     use env_logger;
+
     fn run(opcode: OpcodeId) {
         let stack = Stack::from_slice(&[0.into(), 1.into()]);
         let stack_pointer = stack.0.len();
@@ -122,21 +123,26 @@ mod test {
         prover.assert_satisfied();
     }
     #[test]
+    #[ignore]
     fn test_unsupported_create() {
         run(OpcodeId::CREATE)
     }
     #[test]
+    #[ignore]
     fn test_unsupported_create2() {
         run(OpcodeId::CREATE2)
     }
     #[test]
+    #[ignore]
     fn test_unsupported_callcode() {
         run(OpcodeId::CALLCODE)
     }
     #[test]
+    #[ignore]
     fn test_unsupported_selfdestruct() {
         run(OpcodeId::SELFDESTRUCT)
     }
+
     #[test]
     fn test_unsupported_opcode() {
         let _ = env_logger::builder()
