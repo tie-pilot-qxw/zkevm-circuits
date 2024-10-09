@@ -6,8 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"] }
-snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = [
+    "circuit-params",
+    "derive_serde",
+] }
+snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = [
+    "loader_halo2",
+    "loader_evm",
+    "halo2-pse",
+    "display",
+] }
 eth-types = { path = "../eth-types" }
 keccak256 = { path = "../keccak256" }
 
@@ -29,7 +37,7 @@ strum_macros = "0.24"
 itertools = "0.10"
 genco = { version = "0.17", optional = true }
 convert_case = { version = "0.6", optional = true }
-proc-macro2 = { optional = true } #version = "=1.0.55",
+proc-macro2 = { optional = true }                         #version = "=1.0.55",
 csv2html = { path = "../csv2html" }
 ark-std = { version = "0.3", features = ["print-trace"] }
 
