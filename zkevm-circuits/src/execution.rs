@@ -2558,7 +2558,7 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::INVALID(_) => {
-                todo!()
+                vec![Self::ERROR_INVALID_OPCODE]
             }
             OpcodeId::SHA3 => {
                 vec![Self::KECCAK]
@@ -2708,6 +2708,9 @@ impl ExecutionState {
                     Self::END_CALL_1,
                     Self::END_CALL_2,
                 ]
+            }
+            OpcodeId::INVALID(_) if matches!(exec_error, ExecError::InvalidOpcode) => {
+                vec![Self::ERROR_INVALID_OPCODE, Self::END_CALL_1, Self::END_CALL_2]
             }
             _ => {
                 unreachable!("{opcode} error not implement")
@@ -2989,25 +2992,8 @@ mod test {
         }};
     }
 
-    macro_rules! prepare_error_trace_step {
-        ($pc:expr, $op:expr, $stack: expr, $error: expr) => {{
-            GethExecStep {
-                pc: $pc,
-                op: $op,
-                gas: 100,
-                gas_cost: 1,
-                refund: 0,
-                depth: 1,
-                error: $error,
-                stack: $stack,
-                memory: Default::default(),
-                storage: Default::default(),
-            }
-        }};
-    }
-
     pub(crate) use {
-        generate_execution_gadget_test_circuit, prepare_error_trace_step, prepare_trace_step,
+        generate_execution_gadget_test_circuit, prepare_trace_step,
         prepare_witness_and_prover,
     };
 }

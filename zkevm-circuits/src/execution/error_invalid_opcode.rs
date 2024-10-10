@@ -13,7 +13,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::query_expression;
-use crate::witness::{assign_or_panic, fixed, Witness, WitnessExecHelper};
+use crate::witness::{fixed, Witness, WitnessExecHelper};
 
 /// Overview
 ///   Circuit constraints when an invalid opcode is encountered.
@@ -58,9 +58,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let opcode = meta.query_advice(config.opcode, Rotation::cur());
 
-        let auxiliary_delta = AuxiliaryOutcome {
-            ..Default::default()
-        };
+        let auxiliary_delta = AuxiliaryOutcome::default();
+
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
@@ -157,10 +156,7 @@ mod test {
     use std::collections::HashMap;
 
     use crate::constant::GAS_LEFT_IDX;
-    use crate::execution::test::{
-        generate_execution_gadget_test_circuit, prepare_error_trace_step,
-        prepare_witness_and_prover,
-    };
+    use crate::execution::test::{generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover};
     use eth_types::Bytecode;
 
     generate_execution_gadget_test_circuit!();
@@ -175,7 +171,7 @@ mod test {
             ..WitnessExecHelper::new()
         };
 
-        let mut trace = prepare_error_trace_step!(
+        let mut trace = prepare_trace_step!(
             0,
             OpcodeId::INVALID(0xfe),
             stack,
