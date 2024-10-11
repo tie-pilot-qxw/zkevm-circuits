@@ -2710,7 +2710,11 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::INVALID(_) if matches!(exec_error, ExecError::InvalidOpcode) => {
-                vec![Self::ERROR_INVALID_OPCODE, Self::END_CALL_1, Self::END_CALL_2]
+                vec![
+                    Self::ERROR_INVALID_OPCODE,
+                    Self::END_CALL_1,
+                    Self::END_CALL_2,
+                ]
             }
             _ => {
                 unreachable!("{opcode} error not implement")
@@ -2993,7 +2997,6 @@ mod test {
     }
 
     pub(crate) use {
-        generate_execution_gadget_test_circuit, prepare_trace_step,
-        prepare_witness_and_prover,
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
 }

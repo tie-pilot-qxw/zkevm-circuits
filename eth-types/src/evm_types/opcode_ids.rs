@@ -915,6 +915,14 @@ impl OpcodeId {
             acc
         })
     }
+
+    /// Returns all opcodes (both valid and invalid).
+    pub fn all_opcodes() -> Vec<Self> {
+        (u8::MIN..=u8::MAX).fold(vec![], |mut acc, val| {
+            acc.push(val.into());
+            acc
+        })
+    }
 }
 
 impl From<u8> for OpcodeId {

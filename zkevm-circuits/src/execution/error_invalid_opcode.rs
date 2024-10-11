@@ -19,7 +19,7 @@ use crate::witness::{fixed, Witness, WitnessExecHelper};
 ///   Circuit constraints when an invalid opcode is encountered.
 ///
 /// Table Layout:
-///     fixed_lookup: check whether opcode is valid.
+///     fixed_lookup: check whether opcode is invalid.
 /// +-----+-------------------+------+------+---------+------------------+-----------------------+-----------+
 /// | cnt | 8 col             | 8col |                             8col                                      |
 /// +-----+-------------------+------+------+---------+------------------+-----------------------+-----------+
@@ -60,7 +60,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let auxiliary_delta = AuxiliaryOutcome::default();
 
-
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
         let (tag, [opcode_in_fixed, is_invalid_opcode, _]) =
@@ -75,18 +74,16 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("opcode == opcode_in_fixed".into(), opcode - opcode_in_fixed),
         ]);
 
-        // 是否为invalid opcode
+        // 为invalid opcode
         constraints.push((
             "check if opcode is invalid".into(),
             1.expr() - is_invalid_opcode,
         ));
 
-        constraints.append(&mut config.get_next_single_purpose_constraints(
-            meta,
-            CoreSinglePurposeOutcome {
-                ..Default::default()
-            },
-        ));
+        constraints.append(
+            &mut config
+                .get_next_single_purpose_constraints(meta, CoreSinglePurposeOutcome::default()),
+        );
 
         constraints.extend(config.get_exec_state_constraints(
             meta,
@@ -115,12 +112,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
         current_state.return_success = false;
         let opcode = trace.op.as_u8();
-
-        let is_invalid_flag = if OpcodeId::invalid_opcodes().contains(&OpcodeId::from(opcode)) {
-            1u8 // invalid opcode
-        } else {
-            0u8 // valid opcode
-        };
+        assert!(
+            OpcodeId::invalid_opcodes().contains(&OpcodeId::from(opcode)),
+            "Invalid opcode encountered"
+        );
+        let is_invalid_flag = 1u8;
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         core_row_1.insert_fixed_lookup(
@@ -156,7 +152,9 @@ mod test {
     use std::collections::HashMap;
 
     use crate::constant::GAS_LEFT_IDX;
-    use crate::execution::test::{generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover};
+    use crate::execution::test::{
+        generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
+    };
     use eth_types::Bytecode;
 
     generate_execution_gadget_test_circuit!();

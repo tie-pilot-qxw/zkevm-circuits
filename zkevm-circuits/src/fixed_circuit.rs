@@ -107,25 +107,15 @@ impl<F: Field> FixedCircuitConfig<F> {
                 })
             }
         }
-
-        for opcode in OpcodeId::invalid_opcodes() {
+        for opcode in OpcodeId::all_opcodes() {
+            let is_invalid = matches!(opcode, OpcodeId::INVALID(_));
             vec.push(fixed::Row {
                 tag: fixed::Tag::IsInvalidOpcode,
                 value_0: Some(U256::from(opcode.as_u8())),
-                value_1: Some(U256::from(1)),
+                value_1: Some(U256::from(if is_invalid { 1 } else { 0 })),
                 ..Default::default()
             });
         }
-
-        for opcode in OpcodeId::valid_opcodes() {
-            vec.push(fixed::Row {
-                tag: fixed::Tag::IsInvalidOpcode,
-                value_0: Some(U256::from(opcode.as_u8())),
-                value_1: Some(U256::from(0)),
-                ..Default::default()
-            });
-        }
-
         // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
         let operand_num = 1 << 8;
@@ -398,5 +388,7 @@ mod test {
         let f = |_row: &_, _index| -> Result<(), Error> { Ok(()) };
         let num_rows = FixedCircuitConfig::<Fp>::assign(f).unwrap();
         println!("Number of rows in fixed table: {}", num_rows);
+        // 判断行数是否超过2^18
+        assert!(num_rows <= (1 << 18), "Number of rows exceeds 2^18!");
     }
 }
