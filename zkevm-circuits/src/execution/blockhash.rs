@@ -14,6 +14,7 @@ use crate::witness::arithmetic;
 use crate::witness::{assign_or_panic, public, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
+use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::util::{pow_of_two, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -74,10 +75,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ) -> Vec<(String, Expression<F>)> {
         let mut constraints = vec![];
 
-        // get hash tag
+        // get hash tag and constraints with other operands as follows:
+        // hash_tag == 0 <=> public blockhash lookup is empty;
+        // hash_tag == 0 <=> stack pushes 0;
+        // hash_tag == 0 <= u64_overflow_arith overflow;
+        // hash_tag == 1 => u64_overflow_arith does not overflow;
+        // hash_tag == 0 <= sub_arith dividend >= 256;
+        // hash_tag == 1 => sub_arith dividend < 256;
+        // hash_tag == 0 => u64_div_arith dividend is 0;
+        // hash_tag == 1 <=> u64_div_arith dividend is the block number corresponding to the hash;
+        // hash_tag == 0 => right_tag is 0;
+        // hash_tag == 1 => right_tag indicates whether the hash is on the left or right;
         let hash_tag = meta.query_advice(config.vers[HASH_TAG_COL_OFFSET], Rotation::prev());
 
-        // get right tag
+        // get right tag and constraints with other operands as follows:
+        // If the returned hash is not null, `right_tag` is determined by the parity of the block number corresponding to the
+        // hash. (block_num / 2, the remainder of the division by u64 div is equal to 1 - `right_tag`)
+        // Otherwise, `right_tag` is set to 0 (in this case, the division by u64 div is 0 / 2).
         let right_tag = meta.query_advice(config.vers[RIGHT_TAG_COL_OFFSET], Rotation::prev());
 
         // constraints all tag is 0 or 1
@@ -154,8 +168,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ));
 
         // constraints for block hash
-        // When hash tag is 1, constrants hash_push = hash_pub
-        // otherwise, hash_push = hash_pub = 0
+        // constraints hash_push = hash_pub;
+        // when hash_tag is 0, hash_push = hash_pub = 0
         let hash_pub_hi = (1.expr() - right_tag.clone()) * first_hash_hi.clone()
             + right_tag.clone() * second_hash_hi.clone();
         let hash_pub_lo = (1.expr() - right_tag.clone()) * first_hash_lo.clone()
@@ -206,6 +220,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // get u64 overflow arithmetic entry
         let (arith_tag_0, [num_hi, num_lo, overflow, overflow_inv]) =
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 0));
+        // if not overflow, u64_not_overflow == 1, otherwise 0.
+        let u64_not_overflow =
+            SimpleIsZero::new(&overflow, &overflow_inv, "u64_overflow".into()).expr();
+
         // constraints for block number u64 overflow
         constraints.extend([
             (
@@ -222,7 +240,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             (
                 "if not overflow, block_number_pop_hi = 0".into(),
-                (1.expr() - overflow.clone() * overflow_inv.clone()) * block_number_pop_hi.clone(),
+                u64_not_overflow.clone() * block_number_pop_hi.clone(),
             ),
         ]);
 
@@ -230,15 +248,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             (
                 "if hash_tag = 1, not overflow".into(),
-                hash_tag.clone() * overflow.clone() * overflow_inv.clone(),
+                hash_tag.clone() * (1.expr() - u64_not_overflow.clone()),
             ),
             (
                 "if hash_tag = 1, within_range_tag = 1".into(),
                 hash_tag.clone() * (1.expr() - within_range_tag.clone()),
             ),
             (
-                "if hash_tag = 0, within_range_tag = 0 || overflow".into(),
-                // overflow_inv is enough here
+                "if hash_tag = 0, within_range_tag == 0 || overflow".into(),
+                // use overflow_inv is enough here.
                 (1.expr() - hash_tag.clone()) * within_range_tag.clone() * overflow_inv.clone(),
             ),
         ]);
@@ -309,7 +327,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
         let stack_pop_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
-        let stack_push_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
+        let stack_push_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let public_lookup_0 = query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         let public_lookup_1 = query_expression(meta, |meta| config.get_public_lookup(meta, 1));
         let arith_tiny_lookup_0 =
@@ -419,8 +437,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             - F::ONE; // U8: 0-255, so -1
         let diff = U256::from_little_endian(diff_f.to_repr().as_ref());
 
-        let (div_row, _) = operation::sub::gen_witness(vec![diff, 256.into()]);
-        core_row_1.insert_arithmetic_lookup(2, &div_row);
+        let (sub_row, _) = operation::sub::gen_witness(vec![diff, 256.into()]);
+        core_row_1.insert_arithmetic_lookup(2, &sub_row);
 
         assign_or_panic!(core_row_1[HASH_TAG_COL_OFFSET], hash_tag.into());
         assign_or_panic!(core_row_1[RIGHT_TAG_COL_OFFSET], right_tag.into());
@@ -436,6 +454,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut arithmetic_rows = vec![];
         arithmetic_rows.extend(u64_overflow_row);
         arithmetic_rows.extend(u64_div_row);
+        arithmetic_rows.extend(sub_row);
+
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
             state: vec![stack_pop_row, stack_push_row],
@@ -458,7 +478,6 @@ mod test {
         generate_execution_gadget_test_circuit, prepare_trace_step, prepare_witness_and_prover,
     };
     use std::collections::HashMap;
-    use std::u128;
     generate_execution_gadget_test_circuit!();
 
     fn run(stack: Stack, block_idx: usize, block_hash_list: HashMap<u64, U256>, stack_top: U256) {

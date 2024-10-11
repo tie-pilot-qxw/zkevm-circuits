@@ -9,6 +9,7 @@ mod add; //01
 mod addmod; //08
 mod address; //30
 mod and; //16
+mod blockhash; //40
 mod byte; //1A
 mod calldatacopy; //37
 mod calldataload; //35

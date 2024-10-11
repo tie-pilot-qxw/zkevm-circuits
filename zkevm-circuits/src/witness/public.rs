@@ -173,7 +173,6 @@ impl Row {
             ..Default::default()
         });
 
-        #[cfg(not(feature = "no_block_hash"))]
         assert_eq!(
             chunk_data.history_hashes.len(),
             chunk_data.blocks.len() + 256
@@ -183,13 +182,20 @@ impl Row {
         if block_number_first % 2 == 0 {
             hash_list.insert(0, 0.into());
         }
-        #[cfg(not(feature = "no_block_hash"))]
         for (i, hash) in hash_list.chunks(2).enumerate() {
             let (first_hash, second_hash) =
                 (hash[0], if hash.len() == 1 { 0.into() } else { hash[1] });
             let max_block_idx = 2 * i + 1; // start from 1
 
+            // Skip rows where both hashes are empty.
+            // In tests, history_hashes are generally all zeros,
+            // which greatly reduces the number of rows in the public table during testing.
+            if first_hash.is_zero() && second_hash.is_zero() {
+                continue;
+            }
+
             // | BlockHash | max_block_idx | first hash[..16] | first hash[16..] | second hash[..16] | second hash[16..] |
+            // max_block_idx indicates the maximum block index within the chunk (including itself) that can read the first hash
             // first hash means the block number is odd, second hash means the block number is even.
             result.push(Row {
                 tag: Tag::BlockHash,
@@ -216,7 +222,7 @@ impl Row {
                 ..Default::default()
             });
         }
-        #[cfg(not(feature = "no_block_hash"))]
+
         // push all 0 row for overflow blockhash
         result.push(Row {
             tag: Tag::BlockHash,
