@@ -173,37 +173,76 @@ impl Row {
             ..Default::default()
         });
 
-        #[cfg(not(feature = "no_block_hash"))]
         assert_eq!(
             chunk_data.history_hashes.len(),
             chunk_data.blocks.len() + 256
         );
 
-        #[cfg(not(feature = "no_block_hash"))]
-        for (i, hash) in chunk_data.history_hashes.iter().enumerate() {
-            // max block idx means the last block which can access this hash
-            let max_block_idx = i + 1;
+        let mut hash_list = chunk_data.history_hashes.clone();
+        if block_number_first % 2 == 0 {
+            hash_list.insert(0, 0.into());
+        }
+        for (i, hash) in hash_list.chunks(2).enumerate() {
+            let (first_hash, second_hash) =
+                (hash[0], if hash.len() == 1 { 0.into() } else { hash[1] });
+            let max_block_idx = 2 * i + 1; // start from 1
 
-            // | BlockHash | max_block_idx | hash[..16] | hash[16..] | 0 | 0 |
+            // Skip rows where both hashes are empty.
+            // In tests, history_hashes are generally all zeros,
+            // which greatly reduces the number of rows in the public table during testing.
+            if first_hash.is_zero() && second_hash.is_zero() {
+                continue;
+            }
+
+            // | BlockHash | max_block_idx | first hash[..16] | first hash[16..] | second hash[..16] | second hash[16..] |
+            // max_block_idx indicates the maximum block index within the chunk (including itself) that can read the first hash
+            // first hash means the block number is odd, second hash means the block number is even.
             result.push(Row {
                 tag: Tag::BlockHash,
                 // max_block_idx
                 block_tx_idx: Some(max_block_idx.into()),
-                // hash high 16 byte
-                value_0: Some(hash.to_be_bytes()[..16].into()),
-                // hash low 16 byte
-                value_1: Some(hash.to_be_bytes()[16..].into()),
+                // first hash high 16 byte
+                value_0: Some(first_hash.to_be_bytes()[..16].into()),
+                // first hash low 16 byte
+                value_1: Some(first_hash.to_be_bytes()[16..].into()),
+                // second hash high 16 byte
+                value_2: Some(second_hash.to_be_bytes()[..16].into()),
+                // second hash low 16 byte
+                value_3: Some(second_hash.to_be_bytes()[16..].into()),
                 comments: [
                     ("tag".into(), "BlockHash".into()),
                     ("block_tx_idx".into(), "max_block_idx".into()),
-                    ("value_0".into(), "hash[..16]".into()),
-                    ("value_1".into(), "hash[16..]".into()),
+                    ("value_0".into(), "first hash[..16]".into()),
+                    ("value_1".into(), "first hash[16..]".into()),
+                    ("value_2".into(), "second hash[..16]".into()),
+                    ("value_3".into(), "second hash[16..]".into()),
                 ]
                 .into_iter()
                 .collect(),
                 ..Default::default()
             });
         }
+
+        // push all 0 row for overflow blockhash
+        result.push(Row {
+            tag: Tag::BlockHash,
+            block_tx_idx: None,
+            value_0: None,
+            value_1: None,
+            value_2: None,
+            value_3: None,
+            comments: [
+                ("tag".into(), "BlockHash".into()),
+                ("block_tx_idx".into(), "max_block_idx".into()),
+                ("value_0".into(), "first hash[..16]".into()),
+                ("value_1".into(), "first hash[16..]".into()),
+                ("value_2".into(), "second hash[..16]".into()),
+                ("value_3".into(), "second hash[16..]".into()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        });
 
         for (i, block) in chunk_data.blocks.iter().enumerate() {
             let block_constant: BlockConstants = (&block.eth_block).try_into()?;

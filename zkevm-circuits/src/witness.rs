@@ -180,6 +180,8 @@ pub struct WitnessExecHelper {
     pub transient_storage: HashMap<U256, U256>,
     // error
     pub error: Option<ExecError>,
+    // 存放区块的hash值，key为区块的block number，value为区块的hash值
+    pub block_hash_list: HashMap<u64, U256>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -2517,6 +2519,64 @@ impl WitnessExecHelper {
         public_row
     }
 
+    // get blockHash public row
+    // if hash_tag is true, then return the row of the hash;
+    // otherwise, return the full zero row.
+    pub fn get_public_block_hash_row(&self, block_number: U256, hash_tag: bool) -> public::Row {
+        let mut comments = HashMap::new();
+        comments.insert(format!("vers_{}", 26), "tag=BlockHash".into());
+        comments.insert(format!("vers_{}", 27), "max_block_idx".into());
+        comments.insert(format!("vers_{}", 28), "first_block_hash_hi".into());
+        comments.insert(format!("vers_{}", 29), "first_block_hash_lo".into());
+        comments.insert(format!("vers_{}", 30), "second_block_hash_hi".into());
+        comments.insert(format!("vers_{}", 31), "second_block_hash_lo".into());
+
+        let block_number = if hash_tag { block_number.as_u64() } else { 0 };
+        let (max_block_idx, first_hash, second_hash) = if hash_tag {
+            let hash = self.block_hash_list.get(&block_number).unwrap().clone();
+            let right_tag = 1 - (block_number % 2);
+            let max_block_idx = block_number + 256 - self.block_number_first_block + 1 - right_tag;
+            if block_number % 2 == 1 {
+                // odd, the hash is the first hash
+                (
+                    max_block_idx.into(),
+                    hash.clone(),
+                    self.block_hash_list
+                        .get(&(block_number + 1)) // it's guaranteed by history_hashes that it exists
+                        .unwrap()
+                        .clone(),
+                )
+            } else {
+                // even, the hash is the second hash
+                (
+                    max_block_idx.into(),
+                    if block_number == 0 {
+                        U256::zero()
+                    } else {
+                        self.block_hash_list
+                            .get(&(block_number - 1))
+                            .unwrap_or(&U256::zero())
+                            .clone()
+                    },
+                    hash.clone(),
+                )
+            }
+        } else {
+            (U256::zero(), U256::zero(), U256::zero())
+        };
+
+        public::Row {
+            tag: public::Tag::BlockHash,
+            block_tx_idx: Some(max_block_idx),
+            value_0: Some(first_hash >> 128),
+            value_1: Some(first_hash.low_u128().into()),
+            value_2: Some(second_hash >> 128),
+            value_3: Some(second_hash.low_u128().into()),
+            comments,
+            ..Default::default()
+        }
+    }
+
     // get public row for codehash or codesize by code_addr
     pub fn get_public_code_info_row(&self, tag: public::Tag, code_addr: U256) -> public::Row {
         let bytecode = self
@@ -3727,6 +3787,16 @@ impl Witness {
             .unwrap_or(1.into())
             .as_u64();
         current_state.chain_id = chunk_data.chain_id;
+
+        for (hash_idx, hash) in chunk_data.history_hashes.iter().enumerate() {
+            if hash.is_zero() {
+                continue;
+            }
+            current_state.block_hash_list.insert(
+                current_state.block_number_first_block + hash_idx as u64 - 1,
+                hash.clone(),
+            );
+        }
 
         // insert begin chunk
         witness.insert_begin_chunk(&mut current_state, &execution_gadgets_map);

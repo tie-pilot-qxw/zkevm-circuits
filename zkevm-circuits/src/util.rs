@@ -359,11 +359,7 @@ pub fn chunk_data_test(
     is_create: bool,
     receipt_log: ReceiptLog,
 ) -> ChunkData {
-    let mut history_hashes = vec![];
-    #[cfg(not(feature = "no_block_hash"))]
-    for i in 0..=256 {
-        history_hashes.push(i.into())
-    }
+    let history_hashes = vec![U256::zero(); 257];
     let mut tx = Transaction::default();
     let to = Address::from_str("0x0000000000000000000000007265636569766572").unwrap_or_default();
     if !is_create {
@@ -443,10 +439,7 @@ pub fn get_chunk_data<P: AsRef<Path>>(
 
     // make fake history hashes
     // TODO read hashes from file
-    let mut history_hashes = vec![];
-    for i in 0..=256 {
-        history_hashes.push(i.into())
-    }
+    let history_hashes = vec![U256::zero(); 257];
 
     // build and return chunk_data
     ChunkData {
@@ -507,10 +500,7 @@ pub fn get_multi_trace_chunk_data<P: AsRef<Path>>(
 
     // make fake history hashes
     // TODO read hashes from file
-    let mut history_hashes = vec![];
-    for i in 0..=256 {
-        history_hashes.push(i.into())
-    }
+    let history_hashes = vec![U256::zero(); 257];
 
     // build and return chunk_data
     ChunkData {

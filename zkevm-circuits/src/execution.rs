@@ -13,6 +13,7 @@ pub mod begin_chunk;
 pub mod begin_tx_1;
 pub mod begin_tx_2;
 pub mod begin_tx_3;
+pub mod blockhash;
 pub mod byte;
 pub mod call_1;
 pub mod call_2;
@@ -114,6 +115,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::begin_tx_1::new(),
             crate::execution::begin_tx_2::new(),
             crate::execution::begin_tx_3::new(),
+            crate::execution::blockhash::new(),
             crate::execution::byte::new(),
             crate::execution::call_1::new(),
             crate::execution::call_2::new(),
@@ -2365,6 +2367,7 @@ pub enum ExecutionState {
     //JUMP_ERR_OUTOFBOUND,
     JUMPI,
     PUBLIC_CONTEXT,
+    BLOCKHASH,
     TX_CONTEXT,
     MEMORY,
     MSTORE8,
@@ -2580,7 +2583,7 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::BLOCKHASH => {
-                todo!()
+                vec![Self::BLOCKHASH]
             }
             OpcodeId::COINBASE
             | OpcodeId::TIMESTAMP
