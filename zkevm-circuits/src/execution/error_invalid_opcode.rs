@@ -62,7 +62,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
-        let (tag, [opcode_in_fixed, is_invalid_opcode, _]) =
+        let (tag, [opcode_in_fixed, _, _]) =
             extract_lookup_expression!(fixed, config.get_fixed_lookup(meta, Rotation::prev()));
 
         //  约束tag和当前的opcode
@@ -73,12 +73,6 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             ("opcode == opcode_in_fixed".into(), opcode - opcode_in_fixed),
         ]);
-
-        // 为invalid opcode
-        constraints.push((
-            "check if opcode is invalid".into(),
-            1.expr() - is_invalid_opcode,
-        ));
 
         constraints.append(
             &mut config

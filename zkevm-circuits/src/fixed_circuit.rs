@@ -88,14 +88,19 @@ impl<F: Field> FixedCircuitConfig<F> {
         // assign invalid opcode
         // otherwise the bytecode containing invalid opcodes cannot lookup into this circuit
         for opcode in OpcodeId::invalid_opcodes() {
-            vec.push(fixed::Row {
-                tag: fixed::Tag::Bytecode,
-                // bytecode
-                value_0: Some(U256::from(opcode.as_u8())),
-                ..Default::default()
-            });
+            vec.extend([
+                fixed::Row {
+                    tag: fixed::Tag::Bytecode,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    ..Default::default()
+                },
+                fixed::Row {
+                    tag: fixed::Tag::IsInvalidOpcode,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    ..Default::default()
+                },
+            ]);
         }
-
         // assign non-zero constant gas consumption
         for opcode in OpcodeId::valid_opcodes() {
             if opcode.constant_gas_cost() > 0 {
@@ -106,15 +111,6 @@ impl<F: Field> FixedCircuitConfig<F> {
                     ..Default::default()
                 })
             }
-        }
-        for opcode in OpcodeId::all_opcodes() {
-            let is_invalid = matches!(opcode, OpcodeId::INVALID(_));
-            vec.push(fixed::Row {
-                tag: fixed::Tag::IsInvalidOpcode,
-                value_0: Some(U256::from(opcode.as_u8())),
-                value_1: Some(U256::from(if is_invalid { 1 } else { 0 })),
-                ..Default::default()
-            });
         }
         // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
