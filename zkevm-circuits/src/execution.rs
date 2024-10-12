@@ -35,6 +35,7 @@ pub mod end_chunk;
 pub mod end_padding;
 pub mod end_tx;
 pub mod error_invalid_jump;
+pub mod error_invalid_opcode;
 pub mod error_oog_account_access;
 pub mod error_oog_constant;
 pub mod error_oog_log;
@@ -183,6 +184,7 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::error_oog_constant::new(),
             crate::execution::unsupported::new(),
             crate::execution::error_oog_log::new(),
+            crate::execution::error_invalid_opcode::new(),
         ]
     }};
 }
@@ -2419,6 +2421,7 @@ pub enum ExecutionState {
     LOG_GAS,
     BALANCE,
     ERROR_INVALID_JUMP,
+    ERROR_INVALID_OPCODE,
     ERROR_OOG_CONSTANT,
     END_CALL_1,
     END_CALL_2,
@@ -2555,7 +2558,7 @@ impl ExecutionState {
                 ]
             }
             OpcodeId::INVALID(_) => {
-                todo!()
+                vec![Self::ERROR_INVALID_OPCODE]
             }
             OpcodeId::SHA3 => {
                 vec![Self::KECCAK]
@@ -2702,6 +2705,13 @@ impl ExecutionState {
                     Self::ERROR_OOG_LOG,
                     Self::MEMORY_GAS,
                     Self::LOG_GAS,
+                    Self::END_CALL_1,
+                    Self::END_CALL_2,
+                ]
+            }
+            OpcodeId::INVALID(_) if matches!(exec_error, ExecError::InvalidOpcode) => {
+                vec![
+                    Self::ERROR_INVALID_OPCODE,
                     Self::END_CALL_1,
                     Self::END_CALL_2,
                 ]

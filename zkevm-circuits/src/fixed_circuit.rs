@@ -88,14 +88,19 @@ impl<F: Field> FixedCircuitConfig<F> {
         // assign invalid opcode
         // otherwise the bytecode containing invalid opcodes cannot lookup into this circuit
         for opcode in OpcodeId::invalid_opcodes() {
-            vec.push(fixed::Row {
-                tag: fixed::Tag::Bytecode,
-                // bytecode
-                value_0: Some(U256::from(opcode.as_u8())),
-                ..Default::default()
-            });
+            vec.extend([
+                fixed::Row {
+                    tag: fixed::Tag::Bytecode,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    ..Default::default()
+                },
+                fixed::Row {
+                    tag: fixed::Tag::IsInvalidOpcode,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    ..Default::default()
+                },
+            ]);
         }
-
         // assign non-zero constant gas consumption
         for opcode in OpcodeId::valid_opcodes() {
             if opcode.constant_gas_cost() > 0 {
@@ -107,7 +112,6 @@ impl<F: Field> FixedCircuitConfig<F> {
                 })
             }
         }
-
         // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
         let operand_num = 1 << 8;
@@ -368,5 +372,19 @@ mod test {
         let witness = Witness::default();
         let prover = test_fixed_circuit(witness);
         prover.assert_satisfied();
+    }
+
+    #[cfg_attr(
+        feature = "no_fixed_lookup",
+        ignore = "feature `no_fixed_lookup` is on, we skip the test"
+    )]
+    // test the number of rows in the fixed table of the circuit configuration.
+    #[test]
+    fn test_num_rows() {
+        let f = |_row: &_, _index| -> Result<(), Error> { Ok(()) };
+        let num_rows = FixedCircuitConfig::<Fp>::assign(f).unwrap();
+        println!("Number of rows in fixed table: {}", num_rows);
+        // 判断行数是否超过2^18
+        assert!(num_rows <= (1 << 18), "Number of rows exceeds 2^18!");
     }
 }

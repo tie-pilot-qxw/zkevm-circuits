@@ -29,4 +29,6 @@ pub enum Tag {
     Bytecode,
     // Opcode for non-zero constant gas consumption
     ConstantGasCost,
+    // The tag for invalid opcode
+    IsInvalidOpcode,
 }
