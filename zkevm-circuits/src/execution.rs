@@ -36,6 +36,7 @@ pub mod end_padding;
 pub mod end_tx;
 pub mod error_invalid_jump;
 pub mod error_invalid_opcode;
+pub mod error_invalid_stack_pointer;
 pub mod error_oog_account_access;
 pub mod error_oog_constant;
 pub mod error_oog_log;
@@ -185,13 +186,14 @@ macro_rules! get_every_execution_gadgets {
             crate::execution::unsupported::new(),
             crate::execution::error_oog_log::new(),
             crate::execution::error_invalid_opcode::new(),
+            crate::execution::error_invalid_stack_pointer::new(),
         ]
     }};
 }
 use crate::constant::{
     self, ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BYTECODE_COLUMN_START_IDX,
-    COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX, FIXED_COLUMN_START_IDX,
+    COPY_LOOKUP_COLUMN_CNT, EXP_COLUMN_START_IDX, FIXED_COLUMN_START_IDX, FIXED_COLUMN_WIDTH,
     LOG_SELECTOR_COLUMN_START_IDX, MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, PUBLIC_COLUMN_START_IDX,
     PUBLIC_COLUMN_WIDTH, STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
@@ -1273,13 +1275,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     pub(crate) fn get_fixed_lookup(
         &self,
         meta: &mut VirtualCells<F>,
+        index: usize,
         at: Rotation,
     ) -> LookupEntry<F> {
+        let start_idx = FIXED_COLUMN_START_IDX + index * FIXED_COLUMN_WIDTH;
         let (tag, value_0, value_1, value_2) = (
-            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX], at),
-            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX + 1], at),
-            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX + 2], at),
-            meta.query_advice(self.vers[FIXED_COLUMN_START_IDX + 3], at),
+            meta.query_advice(self.vers[start_idx], at),
+            meta.query_advice(self.vers[start_idx + 1], at),
+            meta.query_advice(self.vers[start_idx + 2], at),
+            meta.query_advice(self.vers[start_idx + 3], at),
         );
         LookupEntry::Fixed {
             tag,
@@ -2422,6 +2426,7 @@ pub enum ExecutionState {
     BALANCE,
     ERROR_INVALID_JUMP,
     ERROR_INVALID_OPCODE,
+    ERROR_INVALID_STACK_POINTER, // stack pointer is out of range, StackUnderflow & StackOverflow
     ERROR_OOG_CONSTANT,
     END_CALL_1,
     END_CALL_2,
@@ -2712,6 +2717,17 @@ impl ExecutionState {
             OpcodeId::INVALID(_) if matches!(exec_error, ExecError::InvalidOpcode) => {
                 vec![
                     Self::ERROR_INVALID_OPCODE,
+                    Self::END_CALL_1,
+                    Self::END_CALL_2,
+                ]
+            }
+            _ if matches!(
+                exec_error,
+                ExecError::StackUnderflow | ExecError::StackOverflow
+            ) =>
+            {
+                vec![
+                    Self::ERROR_INVALID_STACK_POINTER,
                     Self::END_CALL_1,
                     Self::END_CALL_2,
                 ]

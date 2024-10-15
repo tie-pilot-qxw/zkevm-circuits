@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use std::marker::PhantomData;
 
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
@@ -5,7 +11,6 @@ use halo2_proofs::poly::Rotation;
 
 use crate::arithmetic_circuit::operation;
 use crate::arithmetic_circuit::operation::get_lt_operations;
-use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_lt::SimpleLtGadget;
@@ -70,7 +75,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
         let (tag, [opcode_in_fixed, gas_cost, _]) =
-            extract_lookup_expression!(fixed, config.get_fixed_lookup(meta, Rotation::prev()));
+            extract_lookup_expression!(fixed, config.get_fixed_lookup(meta, 1, Rotation::prev()));
 
         constraints.extend([
             (
@@ -130,8 +135,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let u64_overflow_lookup = query_expression(meta, |meta| {
             config.get_arithmetic_tiny_lookup_with_rotation(meta, 0, Rotation::prev())
         });
-        let fixed_lookup =
-            query_expression(meta, |meta| config.get_fixed_lookup(meta, Rotation::prev()));
+        let fixed_lookup = query_expression(meta, |meta| {
+            config.get_fixed_lookup(meta, 1, Rotation::prev())
+        });
 
         vec![
             (
@@ -157,12 +163,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         // 这里需要使用lookup的原因是为了保证此处opcode的gas_cost应该属于常量gas
-        core_row_1.insert_fixed_lookup(
-            fixed::Tag::ConstantGasCost,
-            U256::from(trace.op.as_u8()),
-            U256::from(trace.gas_cost),
-            U256::zero(),
-        );
+        core_row_1.insert_fixed_lookup_opcode(fixed::Tag::ConstantGasCost, trace.op, 1);
 
         core_row_1.insert_arithmetic_tiny_lookup(0, &u64overflow_rows);
         assign_or_panic!(core_row_1[LT_INDEX], (lt as u8).into());

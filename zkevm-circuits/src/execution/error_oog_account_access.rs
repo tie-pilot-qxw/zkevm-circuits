@@ -7,7 +7,7 @@
 use crate::arithmetic_circuit::operation::get_lt_operations;
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::ExpressionOutcome;
-use crate::witness::arithmetic::{self, Tag};
+use crate::witness::arithmetic::Tag;
 use crate::witness::state;
 use crate::{
     constant::NUM_AUXILIARY,
