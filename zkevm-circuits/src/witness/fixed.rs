@@ -31,4 +31,6 @@ pub enum Tag {
     ConstantGasCost,
     // The tag for invalid opcode
     IsInvalidOpcode,
+    // valid stack pointer range. (opcode, min_stack_pointer, max_stack_pointer)
+    StackPointerRange,
 }

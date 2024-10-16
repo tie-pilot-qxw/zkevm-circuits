@@ -322,15 +322,21 @@ pub fn preprocess_trace(trace: &mut GethExecTrace) {
                 mem_tmp
             }
             OpcodeId::CALL => {
-                // calculate the correct mem usage of call
-                let args_offset = step.stack.nth_last(3).unwrap();
-                let args_size = step.stack.nth_last(4).unwrap();
-                let ret_offset = step.stack.nth_last(5).unwrap();
-                let ret_size = step.stack.nth_last(6).unwrap();
+                // 其它错误可能也需要做类似处理，这里暂时只处理了call stack underflow的情况。
+                let (min_stack_pointer, _) = cal_valid_stack_pointer_range(&step.op);
+                if step.stack.0.len() < min_stack_pointer as usize {
+                    mem_tmp // stack underflow here, no need to extend memory
+                } else {
+                    // calculate the correct mem usage of call
+                    let args_offset = step.stack.nth_last(3).unwrap();
+                    let args_size = step.stack.nth_last(4).unwrap();
+                    let ret_offset = step.stack.nth_last(5).unwrap();
+                    let ret_size = step.stack.nth_last(6).unwrap();
 
-                mem_tmp.extend_at_least((ret_offset + ret_size).as_usize());
-                mem_tmp.extend_at_least((args_offset + args_size).as_usize());
-                mem_tmp
+                    mem_tmp.extend_at_least((ret_offset + ret_size).as_usize());
+                    mem_tmp.extend_at_least((args_offset + args_size).as_usize());
+                    mem_tmp
+                }
             }
             OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
                 // calculate the correct mem usage of call
@@ -685,6 +691,28 @@ impl<F: Field> BaseConstraintBuilder<F> {
             })
             .collect()
     }
+}
+
+// calculate the valid stack pointer range for each opcode
+// eg, for STOP, the valid stack pointer range is [0, 1024];
+// for POP, the valid stack pointer range is [1, 1024].
+pub fn cal_valid_stack_pointer_range(opcode: &OpcodeId) -> (u32, u32) {
+    let (mut min, mut max) = (0u32, 1024u32);
+    let invalid_num = opcode.invalid_stack_ptrs();
+    // invalid_num is sorted in ascending order, it represents the invalid stack pointer.
+    // eg. DUP15:[0, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1024]
+    //      POP:[1024]
+    for i in invalid_num.iter() {
+        if i == &min {
+            min += 1;
+        } else {
+            max = i - 1;
+            break;
+        }
+    }
+
+    // Our zkevm stack pointer starts from 0, so convert it
+    (1024 - max, 1024 - min)
 }
 
 #[cfg(test)]

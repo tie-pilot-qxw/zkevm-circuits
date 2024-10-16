@@ -729,3 +729,125 @@ STOP
 		t.Fatal("expected error, err", err)
 	}
 }
+
+func TestStackUnderflow(t *testing.T) {
+	calleeOpcode := `
+CALL
+STOP
+`
+
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 100
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 2, 1, "stack_underflow")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestStackOverflow(t *testing.T) {
+	byteArray := make([]byte, 1025)
+	for i := range byteArray {
+		byteArray[i] = 0x5f // PUSH0
+	}
+
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(byteArray).
+			Balance("0x56bc75e2d63100000")
+
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 100
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 2, 1, "stack_overflow")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}
+
+func TestSubStackUnderflow(t *testing.T) {
+	callerOpcode := `
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH1 0x0
+PUSH32 0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff
+PUSH2 0x2710
+CALL
+STOP
+`
+	calleeOpcode := `
+CALL
+STOP
+`
+	accFuns := func(accs []*MockAccount) {
+		// mock一个账户，也即from
+		accs[0].
+			FromAddress("0x000000000000000000000000000000000000cafe").
+			Balance("0x8ac7230489e80000")
+		// to 调用合约
+		accs[1].
+			FromAddress("0xfefefefefefefefefefefefefefefefefefefefe").
+			Code(OpcodeToBytes(callerOpcode)).
+			Balance("0x56bc75e2d63100000")
+		// 子合约账户
+		accs[2].
+			FromAddress("0xffffffffffffffffffffffffffffffffffffffff").
+			Code(OpcodeToBytes(calleeOpcode)).
+			Balance("0x56bc75e2d63100000")
+	}
+
+	txFunc := func(txs []*MockTransaction, accs []*MockAccount) {
+		txs[0].
+			FromAddress(accs[0].Address).
+			ToAddress(accs[1].Address).
+			SetGas(100000)
+	}
+
+	blockFunc := func(block *MockBlock, txs []*MockTransaction) {
+		block.Number = 1
+	}
+
+	err := NewTrace([]string{}, accFuns, txFunc, blockFunc, 3, 1, "sub_call_underflow")
+	if err != nil {
+		t.Fatal("expected error, err", err)
+	}
+}

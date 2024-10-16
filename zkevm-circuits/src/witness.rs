@@ -24,10 +24,11 @@ use crate::constant::{
     ARITHMETIC_COLUMN_WIDTH, ARITHMETIC_TINY_COLUMN_WIDTH, ARITHMETIC_TINY_START_IDX,
     BITWISE_COLUMN_START_IDX, BITWISE_COLUMN_WIDTH, BIT_SHIFT_MAX_IDX, BLOCK_IDX_LEFT_SHIFT_NUM,
     BYTECODE_COLUMN_START_IDX, BYTECODE_NUM_PADDING, COPY_LOOKUP_COLUMN_CNT, DESCRIPTION_AUXILIARY,
-    EXP_COLUMN_START_IDX, FIXED_COLUMN_START_IDX, LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE,
-    MAX_NUM_ROW, MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
-    NUM_VERS, PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES,
-    STAMP_CNT_COLUMN_START_IDX, STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
+    EXP_COLUMN_START_IDX, FIXED_COLUMN_START_IDX, FIXED_COLUMN_WIDTH,
+    LOG_SELECTOR_COLUMN_START_IDX, MAX_CODESIZE, MAX_NUM_ROW,
+    MOST_SIGNIFICANT_BYTE_LEN_COLUMN_WIDTH, NUM_STATE_HI_COL, NUM_STATE_LO_COL, NUM_VERS,
+    PUBLIC_COLUMN_START_IDX, PUBLIC_COLUMN_WIDTH, PUBLIC_NUM_VALUES, STAMP_CNT_COLUMN_START_IDX,
+    STATE_COLUMN_WIDTH, STORAGE_COLUMN_WIDTH,
 };
 use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
@@ -39,7 +40,8 @@ use crate::public_circuit::PublicCircuit;
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
 use crate::util::{
-    convert_f_to_u256, convert_u256_to_f, create_contract_addr_with_prefix, SubCircuit,
+    cal_valid_stack_pointer_range, convert_f_to_u256, convert_u256_to_f,
+    create_contract_addr_with_prefix, SubCircuit,
 };
 use crate::witness::public::{public_rows_to_instance, LogTag};
 use crate::witness::state::{CallContextTag, Tag};
@@ -496,7 +498,13 @@ impl WitnessExecHelper {
                     prev_is_return_revert_or_stop = true;
                 }
                 OpcodeId::CALL | OpcodeId::STATICCALL | OpcodeId::DELEGATECALL => {
-                    call_step_store.push(step);
+                    // 其它错误可能也需要做类似处理，这里暂时只处理了call stack underflow/overflow 的情况。
+                    if !matches!(
+                        self.error,
+                        Some(ExecError::StackOverflow | ExecError::StackUnderflow)
+                    ) {
+                        call_step_store.push(step);
+                    }
                 }
                 _ => {}
             }
@@ -708,7 +716,7 @@ impl WitnessExecHelper {
                         is_success: self
                             .call_is_success
                             .get(self.call_cnt - self.call_is_success_offset)
-                            .unwrap()
+                            .unwrap_or(&false)
                             .clone(),
                         is_static: step.op == OpcodeId::STATICCALL
                             || self.call_ctx.last().unwrap().is_static,
@@ -3164,36 +3172,36 @@ impl core::Row {
 		]);
     }
 
-    pub fn insert_fixed_lookup(
-        &mut self,
-        tag: fixed::Tag,
-        value_0: U256,
-        value_1: U256,
-        value_2: U256,
-    ) {
-        assign_or_panic!(self[FIXED_COLUMN_START_IDX], (tag as u8).into());
-        assign_or_panic!(self[FIXED_COLUMN_START_IDX + 1], value_0);
-        assign_or_panic!(self[FIXED_COLUMN_START_IDX + 2], value_1);
-        assign_or_panic!(self[FIXED_COLUMN_START_IDX + 3], value_2);
+    pub fn insert_fixed_lookup(&mut self, tag: fixed::Tag, values: Vec<U256>, index: usize) {
+        // index must be 0~1
+        assert!(index < 2);
+        assert!(values.len() == 3);
+        let start_idx = FIXED_COLUMN_START_IDX + index * FIXED_COLUMN_WIDTH;
+
+        assign_or_panic!(self[start_idx], (tag as u8).into());
+        assign_or_panic!(self[start_idx + 1], values[0]);
+        assign_or_panic!(self[start_idx + 2], values[1]);
+        assign_or_panic!(self[start_idx + 3], values[2]);
 
         self.comments.extend([
-            (
-                format!("vers_{}", FIXED_COLUMN_START_IDX),
-                "fixed tag".into(),
-            ),
-            (
-                format!("vers_{}", FIXED_COLUMN_START_IDX + 1),
-                "value_0".into(),
-            ),
-            (
-                format!("vers_{}", FIXED_COLUMN_START_IDX + 2),
-                "value_1".into(),
-            ),
-            (
-                format!("vers_{}", FIXED_COLUMN_START_IDX + 3),
-                "value_2".into(),
-            ),
+            (format!("vers_{}", start_idx), "fixed tag".into()),
+            (format!("vers_{}", start_idx + 1), "value_0".into()),
+            (format!("vers_{}", start_idx + 2), "value_1".into()),
+            (format!("vers_{}", start_idx + 3), "value_2".into()),
         ]);
+    }
+
+    /// insert ConstantGasCost, StackPointerRange lookup.
+    pub fn insert_fixed_lookup_opcode(&mut self, tag: fixed::Tag, op: OpcodeId, index: usize) {
+        let (value_1, value_2) = match tag {
+            fixed::Tag::ConstantGasCost => (op.constant_gas_cost().into(), 0.into()),
+            fixed::Tag::StackPointerRange => {
+                let (min_stack_pointer, max_stack_pointer) = cal_valid_stack_pointer_range(&op);
+                (min_stack_pointer.into(), max_stack_pointer.into())
+            }
+            _ => panic!("not supported currently"),
+        };
+        self.insert_fixed_lookup(tag, vec![(op.as_u8()).into(), value_1, value_2], index);
     }
 
     pub fn insert_arithmetic_tiny_lookup(

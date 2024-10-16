@@ -138,6 +138,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     ExecutionState::ERROR_INVALID_JUMP,
                     ExecutionState::ERROR_OOG_CONSTANT,
                     ExecutionState::LOG_GAS,
+                    ExecutionState::ERROR_INVALID_STACK_POINTER,
                 ],
                 NUM_ROW,
                 vec![(ExecutionState::END_CALL_2, end_call_2::NUM_ROW, None)],

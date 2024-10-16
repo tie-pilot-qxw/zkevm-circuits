@@ -91,11 +91,14 @@ pub(crate) const STATE_COLUMN_WIDTH: usize = 8;
 /// storage column width
 pub(crate) const STORAGE_COLUMN_WIDTH: usize = 12;
 
+/// fixed column width
+pub(crate) const FIXED_COLUMN_WIDTH: usize = 4;
+
 /// bytecode lookup column start
 pub(crate) const BYTECODE_COLUMN_START_IDX: usize = 24;
 
 /// fixed lookup column start
-pub(crate) const FIXED_COLUMN_START_IDX: usize = 28;
+pub(crate) const FIXED_COLUMN_START_IDX: usize = 24;
 
 /// arithmetic u64 overflow lookup column start
 pub(crate) const ARITHMETIC_TINY_START_IDX: usize = 2;

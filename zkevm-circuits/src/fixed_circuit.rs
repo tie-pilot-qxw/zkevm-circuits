@@ -5,7 +5,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::table::FixedTable;
-use crate::util::{assign_advice_or_fixed_with_u256, Challenges, SubCircuit, SubCircuitConfig};
+use crate::util::{
+    assign_advice_or_fixed_with_u256, cal_valid_stack_pointer_range, Challenges, SubCircuit,
+    SubCircuitConfig,
+};
 use crate::witness::{fixed, Witness};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, U256};
@@ -72,9 +75,9 @@ impl<F: Field> FixedCircuitConfig<F> {
     ) -> Result<usize, Error> {
         // Create rows with different states required by fixed_table
 
-        // assign opcode
         let mut vec = vec![];
         for opcode in OpcodeId::valid_opcodes() {
+            // assign opcode
             vec.push(fixed::Row {
                 tag: fixed::Tag::Bytecode,
                 // bytecode
@@ -84,7 +87,24 @@ impl<F: Field> FixedCircuitConfig<F> {
                 // is_high(cnt > 15), true:1, false:0
                 value_2: Some(U256::from((opcode.data_len() > OPCODE_CNT_15) as u8)),
             });
+            // assign constant gas consumption
+            vec.push(fixed::Row {
+                tag: fixed::Tag::ConstantGasCost,
+                value_0: Some(U256::from(opcode.as_u8())),
+                value_1: Some(U256::from(opcode.constant_gas_cost())),
+                ..Default::default()
+            });
+
+            // assign valid stack pointer range
+            let (min_stack_pointer, max_stack_pointer) = cal_valid_stack_pointer_range(&opcode);
+            vec.push(fixed::Row {
+                tag: fixed::Tag::StackPointerRange,
+                value_0: Some(U256::from(opcode.as_u8())),
+                value_1: Some(U256::from(min_stack_pointer)),
+                value_2: Some(U256::from(max_stack_pointer)),
+            });
         }
+
         // assign invalid opcode
         // otherwise the bytecode containing invalid opcodes cannot lookup into this circuit
         for opcode in OpcodeId::invalid_opcodes() {
@@ -101,17 +121,7 @@ impl<F: Field> FixedCircuitConfig<F> {
                 },
             ]);
         }
-        // assign non-zero constant gas consumption
-        for opcode in OpcodeId::valid_opcodes() {
-            if opcode.constant_gas_cost() > 0 {
-                vec.push(fixed::Row {
-                    tag: fixed::Tag::ConstantGasCost,
-                    value_0: Some(U256::from(opcode.as_u8())),
-                    value_1: Some(U256::from(opcode.constant_gas_cost())),
-                    ..Default::default()
-                })
-            }
-        }
+
         // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行
         // 为紧凑电路布局, 所以u16复用了逻辑运算的中填写的value_0列数据[0..255]
         let operand_num = 1 << 8;

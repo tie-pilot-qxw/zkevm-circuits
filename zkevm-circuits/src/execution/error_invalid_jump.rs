@@ -1,3 +1,9 @@
+// Copyright (C) SAFIT. All rights reserved.
+// Copyright (C) BABEC. All rights reserved.
+// Copyright (C) THL A29 Limited, a Tencent company. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 use std::marker::PhantomData;
 
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
@@ -9,7 +15,7 @@ use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
 use gadgets::simple_lt::SimpleLtGadget;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::{or, pow_of_two, select, Expr};
+use gadgets::util::{pow_of_two, select, Expr};
 
 use crate::arithmetic_circuit::operation;
 use crate::arithmetic_circuit::operation::get_lt_operations;

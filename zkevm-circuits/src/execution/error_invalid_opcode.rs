@@ -63,7 +63,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, auxiliary_delta);
 
         let (tag, [opcode_in_fixed, _, _]) =
-            extract_lookup_expression!(fixed, config.get_fixed_lookup(meta, Rotation::prev()));
+            extract_lookup_expression!(fixed, config.get_fixed_lookup(meta, 1, Rotation::prev()));
 
         //  约束tag和当前的opcode
         constraints.extend([
@@ -97,8 +97,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         config: &ExecutionConfig<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
         meta: &mut ConstraintSystem<F>,
     ) -> Vec<(String, LookupEntry<F>)> {
-        let fixed_lookup =
-            query_expression(meta, |meta| config.get_fixed_lookup(meta, Rotation::prev()));
+        let fixed_lookup = query_expression(meta, |meta| {
+            config.get_fixed_lookup(meta, 1, Rotation::prev())
+        });
 
         vec![("error_invalid_opcode fixed lookup".into(), fixed_lookup)]
     }
@@ -110,14 +111,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             OpcodeId::invalid_opcodes().contains(&OpcodeId::from(opcode)),
             "Invalid opcode encountered"
         );
-        let is_invalid_flag = 1u8;
 
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         core_row_1.insert_fixed_lookup(
             fixed::Tag::IsInvalidOpcode,
-            U256::from(opcode),
-            U256::from(is_invalid_flag),
-            U256::zero(),
+            vec![U256::from(opcode), 0.into(), 0.into()],
+            1,
         );
 
         let core_row_0 = ExecutionState::ERROR_INVALID_OPCODE.into_exec_state_core_row(
