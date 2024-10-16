@@ -18,7 +18,7 @@ use crate::witness::{arithmetic, assign_or_panic, state, Witness, WitnessExecHel
 use eth_types::evm_types::{GasCost, OpcodeId};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::{and, select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -397,7 +397,7 @@ fn get_core_row_2<F: Field>(
     // 如果用memory_expansion， 传参为[GasCost::SSTORE_SENTRY * 32, trace.gas]，
     // 此时我们约束lt == 0，是包含了trace.gas == GasCost::SSTORE_SENTRY的情况，这在EVM里是Error；
     // 如果传参改为[trace.gas * 32, GasCost::SSTORE_SENTRY]，没办法保证trace.gas * 32后是U64的；
-    // 解决方法应该是SimpleLtGadget + diff U64OVERFLOW
+    // 解决方法应该是 SimpleDiffGadget + diff U64OVERFLOW
     let (lt, diff, ..) = get_lt_operations(
         &U256::from(GasCost::SSTORE_SENTRY),
         &U256::from(trace.gas),
@@ -856,7 +856,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let diff = meta.query_advice(config.vers[1], Rotation(-2));
         let Auxiliary { gas_left, .. } = config.get_auxiliary();
         let gas_left = meta.query_advice(gas_left, Rotation(-1 * NUM_ROW as i32));
-        let is_lt: SimpleLtGadget<F, 8> = SimpleLtGadget::new(
+        let is_lt: SimpleDiffGadget<F, 8> = SimpleDiffGadget::new(
             &GasCost::SSTORE_SENTRY.expr(),
             &gas_left,
             &lt,

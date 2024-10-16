@@ -13,7 +13,7 @@ use crate::util::convert_u256_to_f;
 
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256};
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::util::{pow_of_two, split_u256_hi_lo, split_u256_limb64, Expr};
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -713,14 +713,14 @@ fn get_is_neg_constraints<F: Field>(
 
     let [a_rhs, b_rhs, c_rhs, d_rhs, a_com_rhs] = rhs;
     let [a_diff, b_diff, c_diff, d_diff, a_com_diff] = diff;
-    //generate the SimpleLtGadget.
+    //generate the SimpleDiffGadget.
     let lhs = Expression::Constant(F::from(S_MAX));
-    let a_is_neg: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&lhs, &a_rhs, &a_is_neg, &a_diff);
-    let b_is_neg: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&lhs, &b_rhs, &b_is_neg, &b_diff);
-    let c_is_neg: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&lhs, &c_rhs, &c_is_neg, &c_diff);
-    let d_is_neg: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&lhs, &d_rhs, &d_is_neg, &d_diff);
-    let a_com_is_neg: SimpleLtGadget<F, 2> =
-        SimpleLtGadget::new(&lhs, &a_com_rhs, a_com_carry_lt, &a_com_diff);
+    let a_is_neg: SimpleDiffGadget<F, 2> = SimpleDiffGadget::new(&lhs, &a_rhs, &a_is_neg, &a_diff);
+    let b_is_neg: SimpleDiffGadget<F, 2> = SimpleDiffGadget::new(&lhs, &b_rhs, &b_is_neg, &b_diff);
+    let c_is_neg: SimpleDiffGadget<F, 2> = SimpleDiffGadget::new(&lhs, &c_rhs, &c_is_neg, &c_diff);
+    let d_is_neg: SimpleDiffGadget<F, 2> = SimpleDiffGadget::new(&lhs, &d_rhs, &d_is_neg, &d_diff);
+    let a_com_is_neg: SimpleDiffGadget<F, 2> =
+        SimpleDiffGadget::new(&lhs, &a_com_rhs, a_com_carry_lt, &a_com_diff);
 
     constraints.extend(a_is_neg.get_constraints());
     constraints.extend(b_is_neg.get_constraints());
@@ -909,7 +909,7 @@ fn get_mul_constraints<F: Field>(
             - a_com[0].clone(),
     ));
 
-    let is_lt_lo = SimpleLtGadget::new(&d_com[1], &b_com[1], &carry_lt[1], &diff[1]);
+    let is_lt_lo = SimpleDiffGadget::new(&d_com[1], &b_com[1], &carry_lt[1], &diff[1]);
     let is_lt = SimpleLtWordGadget::new(&d_com[0], &b_com[0], &carry_lt[0], &diff[0], is_lt_lo);
 
     // constraint c_com < b_com if b_com!=0

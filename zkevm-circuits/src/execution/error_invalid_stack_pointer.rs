@@ -16,7 +16,7 @@ use crate::witness::{arithmetic, Witness, WitnessExecHelper};
 use crate::witness::{assign_or_panic, fixed};
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::{select, Expr};
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -140,7 +140,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             1.expr() - not_overflow.expr(),
         ));
 
-        // get simple lt operand
+        // get simple diff operand
         let left_operand = select::expr(
             error_stack_tag.clone(),
             stack_pointer.clone(),
@@ -153,7 +153,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         );
 
         // constraints left_operand < right_operand
-        let is_lt = SimpleLtGadget::<F, 8>::new(&left_operand, &right_operand, &1.expr(), &diff_lo);
+        let is_lt =
+            SimpleDiffGadget::<F, 8>::new(&left_operand, &right_operand, &1.expr(), &diff_lo);
         constraints.extend(is_lt.get_constraints());
 
         // next state is END_CALL_1

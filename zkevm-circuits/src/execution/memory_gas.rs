@@ -419,7 +419,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // next_word_size = Max(cur_memory_size, memory_size)
         // res[0] == 1, curr_memory_word_size < res[1] = memory_size = memory_size + 31 / 32
         // res[0] == 0, curr_memory_word_size >= res[1]
-        // SimpleLtGadget occupies 7 cells(lt + diff + arithmetic 5), and memory expansion only occupies 5 cells.
+        // SimpleDiffGadget occupies 7 cells(lt + diff + arithmetic 5), and memory expansion only occupies 5 cells.
         let curr_memory_word_size = U256::from(current_state.memory_chunk_prev);
         let (next_word_size_row, res) =
             operation::memory_expansion::gen_witness(vec![memory_size, curr_memory_word_size]);

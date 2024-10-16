@@ -11,7 +11,7 @@ use crate::arithmetic_circuit::operation::{
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::Expr;
 
 use halo2_proofs::plonk::{Expression, VirtualCells};
@@ -96,8 +96,8 @@ impl<F: Field> OperationGadget<F> for LengthGadget<F> {
             overflow.clone() * (overflow.clone() - 1.expr()),
         ));
         // Constraint the size relationship between size and offset_bound
-        let is_overflow: SimpleLtGadget<F, 8> =
-            SimpleLtGadget::new(&size, &offset_bound_u16s, &overflow, &diff_u16s);
+        let is_overflow: SimpleDiffGadget<F, 8> =
+            SimpleDiffGadget::new(&size, &offset_bound_u16s, &overflow, &diff_u16s);
         constraints.extend(is_overflow.get_constraints());
 
         // constraint lt_offset_size must be 0 or 1
@@ -106,8 +106,8 @@ impl<F: Field> OperationGadget<F> for LengthGadget<F> {
             lt_offset_size.clone() * (lt_offset_size.clone() - 1.expr()),
         ));
         // Constrain the size relationship between offset and size
-        let is_lt_offset_size: SimpleLtGadget<F, 8> =
-            SimpleLtGadget::new(&offset, &size, &lt_offset_size, &diff_offset_size_u16s);
+        let is_lt_offset_size: SimpleDiffGadget<F, 8> =
+            SimpleDiffGadget::new(&offset, &size, &lt_offset_size, &diff_offset_size_u16s);
         constraints.extend(is_lt_offset_size.get_constraints());
 
         // constraint real_len

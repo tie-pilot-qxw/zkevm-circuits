@@ -13,7 +13,7 @@ use crate::arithmetic_circuit::operation;
 use crate::arithmetic_circuit::operation::get_lt_operations;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::Expr;
 
 use crate::execution::{
@@ -88,7 +88,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
         let lt = meta.query_advice(config.vers[LT_INDEX], Rotation::prev());
         let diff = meta.query_advice(config.vers[DIFF_INDEX], Rotation::prev());
-        let is_lt = SimpleLtGadget::<F, 8>::new(&gas_left, &gas_cost, &lt, &diff);
+        let is_lt = SimpleDiffGadget::<F, 8>::new(&gas_left, &gas_cost, &lt, &diff);
         constraints.extend(is_lt.get_constraints());
         constraints.push(("gas_left < gas_cost".into(), 1.expr() - is_lt.expr()));
 

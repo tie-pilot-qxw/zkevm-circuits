@@ -9,7 +9,7 @@ use crate::arithmetic_circuit::operation::{
 };
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256};
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::util::{expr_from_u16s, pow_of_two, split_u256_hi_lo, split_u256_limb64, Expr};
 use halo2_proofs::halo2curves::bn256::Fr;
@@ -170,7 +170,7 @@ impl<F: Field> OperationGadget<F> for DivModGadget<F> {
                 - a[0].clone(),
         ));
 
-        let is_lt_lo = SimpleLtGadget::new(&d_arith[1], &b[1], &lt[1], &diff[1]);
+        let is_lt_lo = SimpleDiffGadget::new(&d_arith[1], &b[1], &lt[1], &diff[1]);
         let is_lt = SimpleLtWordGadget::new(&d_arith[0], &b[0], &lt[0], &diff[0], is_lt_lo);
 
         // Constraint d_arith < b if b!=0

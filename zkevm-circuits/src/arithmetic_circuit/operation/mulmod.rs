@@ -10,7 +10,7 @@ use crate::arithmetic_circuit::operation::{
 };
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, U256, U512};
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::simple_mul_512::SimpleMul512Gadget;
 use gadgets::simple_mul_768::SimpleMul768Gadget;
@@ -290,7 +290,7 @@ fn get_mul_768_constraints<F: Field>(
     let r_diff = config.get_operand(24)(meta);
     let r_lt = config.get_operand(25)(meta);
 
-    let is_lt_lo = SimpleLtGadget::new(&r[1], &n[1], &r_lt[1], &r_diff[1]);
+    let is_lt_lo = SimpleDiffGadget::new(&r[1], &n[1], &r_lt[1], &r_diff[1]);
     let is_lt = SimpleLtWordGadget::new(&r[0], &n[0], &r_lt[0], &r_diff[0], is_lt_lo);
     constraints.extend(is_lt.get_constraints());
     constraints.push((

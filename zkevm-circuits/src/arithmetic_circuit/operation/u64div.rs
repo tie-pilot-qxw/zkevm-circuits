@@ -8,8 +8,8 @@ use crate::arithmetic_circuit::operation::{
     get_lt_operations, get_row, get_u16s, OperationConfig, OperationGadget,
 };
 use crate::witness::arithmetic::{Row, Tag};
-use eth_types::{Field, ToLittleEndian, U256};
-use gadgets::simple_lt::SimpleLtGadget;
+use eth_types::{Field, U256};
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -83,8 +83,8 @@ impl<F: Field> OperationGadget<F> for MemoryExpansionGadget<F> {
         ));
 
         // Constrain remainder < denominator
-        let less: SimpleLtGadget<F, 8> =
-            SimpleLtGadget::new(&remainder, &denominator, &1.expr(), &diff);
+        let less: SimpleDiffGadget<F, 8> =
+            SimpleDiffGadget::new(&remainder, &denominator, &1.expr(), &diff);
         constraints.extend(less.get_constraints());
 
         constraints

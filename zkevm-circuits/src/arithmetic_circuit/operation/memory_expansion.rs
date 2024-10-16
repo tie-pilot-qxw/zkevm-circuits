@@ -10,7 +10,7 @@ use crate::arithmetic_circuit::operation::{
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, U256};
 use gadgets::simple_binary_number::SimpleBinaryNumber;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::Expr;
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
@@ -94,7 +94,7 @@ impl<F: Field> OperationGadget<F> for MemoryExpansionGadget<F> {
         ));
 
         // Constrain the size relationship between memory_chunk_prev and access_memory_size
-        let is_expansion: SimpleLtGadget<F, 8> = SimpleLtGadget::new(
+        let is_expansion: SimpleDiffGadget<F, 8> = SimpleDiffGadget::new(
             &memory_chunk_prev,
             &access_memory_size,
             &expansion_tag,

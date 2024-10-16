@@ -6,7 +6,7 @@
 
 use std::marker::PhantomData;
 
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 
@@ -165,7 +165,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         ]);
 
         // 在这里约束一下LT和DIFF
-        let lt_constraint: SimpleLtGadget<F, 8> = SimpleLtGadget::new(
+        let lt_constraint: SimpleDiffGadget<F, 8> = SimpleDiffGadget::new(
             &prev_gas_left,
             &gas_cost,
             &gas_left_lt_gas_cost,

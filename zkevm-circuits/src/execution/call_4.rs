@@ -446,7 +446,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // curr_memory_word_size is the state before executing the opcode, so we use current_state.memory_chunk_prev.
         // res[0] == 1, max_word_size < res[1] = cur_memory_word_size = current_state.memory_chunk_prev + 31 / 32;
         // res[0] == 0, max_word_size >= res[1];
-        // SimpleLtGadget occupies 7 cells(lt + diff + arithmetic 5), and memory expansion only occupies 5 cells.
+        // SimpleDiffGadget occupies 7 cells(lt + diff + arithmetic 5), and memory expansion only occupies 5 cells.
         let curr_memory_word_size = U256::from(current_state.memory_chunk_prev);
         let (next_word_size_row, res) = operation::memory_expansion::gen_witness(vec![
             curr_memory_word_size * 32,

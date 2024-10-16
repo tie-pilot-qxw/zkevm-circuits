@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! SimpleLtGadget gadget
+//! SimpleDiffGadget gadget
 use crate::util::pow_of_two;
 use eth_types::Field;
 use halo2_proofs::plonk::Expression;
@@ -18,7 +18,7 @@ use halo2_proofs::plonk::Expression;
 /// Because all values are `<= 256**N_BYTES` and `lt` is boolean, `lt` can only
 /// be `1` when `lhs < rhs`.
 #[derive(Clone, Debug)]
-pub struct SimpleLtGadget<F, const N_BYTES: usize> {
+pub struct SimpleDiffGadget<F, const N_BYTES: usize> {
     lhs: Expression<F>,
     rhs: Expression<F>,
     lt: Expression<F>, // `1` when `lhs < rhs`, `0` otherwise.
@@ -29,8 +29,8 @@ pub struct SimpleLtGadget<F, const N_BYTES: usize> {
     range: F, // The range of the inputs, `256**N_BYTES`
 }
 
-impl<F: Field, const N_BYTES: usize> SimpleLtGadget<F, N_BYTES> {
-    /// Returns SimpleLtGadget
+impl<F: Field, const N_BYTES: usize> SimpleDiffGadget<F, N_BYTES> {
+    /// Returns SimpleDiffGadget
     pub fn new(
         lhs: &Expression<F>,
         rhs: &Expression<F>,
@@ -61,7 +61,7 @@ impl<F: Field, const N_BYTES: usize> SimpleLtGadget<F, N_BYTES> {
         res
     }
 
-    /// Returns SimpleLtGadget lt expression
+    /// Returns SimpleDiffGadget lt expression
     pub fn expr(&self) -> Expression<F> {
         self.lt.clone()
     }
