@@ -25,7 +25,7 @@ use std::marker::PhantomData;
 use super::ExecStateTransition;
 
 const NUM_ROW: usize = 2;
-const ERROR_STACK_TAG_OFFSET: usize = 9;
+const ERROR_STACK_TAG_OFFSET: usize = 7;
 pub struct ErrorInvalidStackPointerGadget<E: Field> {
     _marker: PhantomData<E>,
 }
@@ -37,13 +37,13 @@ pub struct ErrorInvalidStackPointerGadget<E: Field> {
 ///     ARITH: u64 overflow arithmetic tiny lookup
 ///     FIXED0: ConstantGasCost fixed lookup
 ///     FIXED1: StackPointerRange fixed lookup
-///     error_stack_tag: determines if the stack pointer is underflow or overflow
-/// +---+-------+-------+-------+-------------+
-/// |cnt| 8 col | 8 col | 8 col | 8 col       |
-/// +---+-------+-------+-------+-------------+
-/// | 1 | ARITH |error_stack_tag|FIXED0|FIXED1|
-/// | 0 | DYNA_SELECTOR   | AUX               |
-/// +---+-------+-------+-------+-------------+
+///     TAG: determines if the stack pointer is underflow or overflow
+/// +---+-------+-------+-------+-------+
+/// |cnt| 8 col | 8 col | 8 col | 8 col |
+/// +---+-------+-------+-------+-------+
+/// | 1 | | ARITH |TAG|   |FIXED0|FIXED1|
+/// | 0 | DYNA_SELECTOR   | AUX         |
+/// +---+-------+-------+-------+-------+
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for ErrorInvalidStackPointerGadget<F>
@@ -76,12 +76,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             meta.query_advice(config.get_auxiliary().stack_pointer, Rotation::cur());
 
         // get error_stack_tag
-        let error_stack_tag =
-            meta.query_advice(config.vers[ERROR_STACK_TAG_OFFSET], Rotation::prev());
         // when error_stack_tag = 1, means stack underflow
         // when error_stack_tag = 0, means stack overflow
-        let underflow = error_stack_tag.clone();
-        let overflow = 1.expr() - error_stack_tag.clone();
+        let error_stack_tag =
+            meta.query_advice(config.vers[ERROR_STACK_TAG_OFFSET], Rotation::prev());
 
         // constrain error_stack_tag must be 0 or 1
         constraints.push((

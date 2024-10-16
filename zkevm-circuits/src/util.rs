@@ -711,7 +711,7 @@ pub fn cal_valid_stack_pointer_range(opcode: &OpcodeId) -> (u32, u32) {
         }
     }
 
-    // Our zkevm stack pointer starts from 0, so covert it
+    // Our zkevm stack pointer starts from 0, so convert it
     (1024 - max, 1024 - min)
 }
 

@@ -75,9 +75,9 @@ impl<F: Field> FixedCircuitConfig<F> {
     ) -> Result<usize, Error> {
         // Create rows with different states required by fixed_table
 
-        // assign opcode
         let mut vec = vec![];
         for opcode in OpcodeId::valid_opcodes() {
+            // assign opcode
             vec.push(fixed::Row {
                 tag: fixed::Tag::Bytecode,
                 // bytecode
@@ -87,25 +87,6 @@ impl<F: Field> FixedCircuitConfig<F> {
                 // is_high(cnt > 15), true:1, false:0
                 value_2: Some(U256::from((opcode.data_len() > OPCODE_CNT_15) as u8)),
             });
-        }
-        // assign invalid opcode
-        // otherwise the bytecode containing invalid opcodes cannot lookup into this circuit
-        for opcode in OpcodeId::invalid_opcodes() {
-            vec.extend([
-                fixed::Row {
-                    tag: fixed::Tag::Bytecode,
-                    value_0: Some(U256::from(opcode.as_u8())),
-                    ..Default::default()
-                },
-                fixed::Row {
-                    tag: fixed::Tag::IsInvalidOpcode,
-                    value_0: Some(U256::from(opcode.as_u8())),
-                    ..Default::default()
-                },
-            ]);
-        }
-
-        for opcode in OpcodeId::valid_opcodes() {
             // assign constant gas consumption
             vec.push(fixed::Row {
                 tag: fixed::Tag::ConstantGasCost,
@@ -122,6 +103,23 @@ impl<F: Field> FixedCircuitConfig<F> {
                 value_1: Some(U256::from(min_stack_pointer)),
                 value_2: Some(U256::from(max_stack_pointer)),
             });
+        }
+
+        // assign invalid opcode
+        // otherwise the bytecode containing invalid opcodes cannot lookup into this circuit
+        for opcode in OpcodeId::invalid_opcodes() {
+            vec.extend([
+                fixed::Row {
+                    tag: fixed::Tag::Bytecode,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    ..Default::default()
+                },
+                fixed::Row {
+                    tag: fixed::Tag::IsInvalidOpcode,
+                    value_0: Some(U256::from(opcode.as_u8())),
+                    ..Default::default()
+                },
+            ]);
         }
 
         // 生成逻辑运算（And/Or）需要的row数据 ==>  0-255行

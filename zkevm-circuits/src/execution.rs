@@ -1278,6 +1278,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         index: usize,
         at: Rotation,
     ) -> LookupEntry<F> {
+        assert!(index < 2);
         let start_idx = FIXED_COLUMN_START_IDX + index * FIXED_COLUMN_WIDTH;
         let (tag, value_0, value_1, value_2) = (
             meta.query_advice(self.vers[start_idx], at),
