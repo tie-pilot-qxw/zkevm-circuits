@@ -2,7 +2,7 @@
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "gas": 26223,
+    "gas": 24647,
     "failed": false,
     "returnValue": "",
     "structLogs": [
@@ -100,7 +100,7 @@
         "pc": 46,
         "op": "CALL",
         "gas": 78979,
-        "gasCost": 5202,
+        "gasCost": 3626,
         "depth": 1,
         "stack": [
           "0x0",
@@ -109,14 +109,14 @@
           "0x0",
           "0x0",
           "0xffffffffffffffffffffffffffffffffffffffff",
-          "0xa2a"
+          "0x402"
         ],
         "memory": []
       },
       {
         "pc": 0,
         "op": "PUSH32",
-        "gas": 2602,
+        "gas": 1026,
         "gasCost": 3,
         "depth": 2,
         "stack": [],
@@ -124,20 +124,85 @@
       },
       {
         "pc": 33,
-        "op": "EXTCODESIZE",
-        "gas": 2599,
-        "gasCost": 2600,
+        "op": "PUSH32",
+        "gas": 1023,
+        "gasCost": 3,
         "depth": 2,
-        "error": "out of gas",
         "stack": [
-          "0xfffffffffffffffffffffffffffffffffffffffe"
+          "0x21000000000000000003a00000000ac0000000000000000000000ff"
         ],
         "memory": []
       },
       {
+        "pc": 66,
+        "op": "MSTORE",
+        "gas": 1020,
+        "gasCost": 6,
+        "depth": 2,
+        "stack": [
+          "0x21000000000000000003a00000000ac0000000000000000000000ff",
+          "0x0"
+        ],
+        "memory": []
+      },
+      {
+        "pc": 67,
+        "op": "PUSH32",
+        "gas": 1014,
+        "gasCost": 3,
+        "depth": 2,
+        "stack": [],
+        "memory": [
+          "00000000021000000000000000003a00000000ac0000000000000000000000ff"
+        ]
+      },
+      {
+        "pc": 100,
+        "op": "PUSH32",
+        "gas": 1011,
+        "gasCost": 3,
+        "depth": 2,
+        "stack": [
+          "0x102030405060708090a0b0c0d0e101112131415161718191a20212223242526"
+        ],
+        "memory": [
+          "00000000021000000000000000003a00000000ac0000000000000000000000ff"
+        ]
+      },
+      {
+        "pc": 133,
+        "op": "PUSH32",
+        "gas": 1008,
+        "gasCost": 3,
+        "depth": 2,
+        "stack": [
+          "0x102030405060708090a0b0c0d0e101112131415161718191a20212223242526",
+          "0x20"
+        ],
+        "memory": [
+          "00000000021000000000000000003a00000000ac0000000000000000000000ff"
+        ]
+      },
+      {
+        "pc": 166,
+        "op": "LOG1",
+        "gas": 1005,
+        "gasCost": 1006,
+        "depth": 2,
+        "error": "out of gas",
+        "stack": [
+          "0x102030405060708090a0b0c0d0e101112131415161718191a20212223242526",
+          "0x20",
+          "0x0"
+        ],
+        "memory": [
+          "00000000021000000000000000003a00000000ac0000000000000000000000ff"
+        ]
+      },
+      {
         "pc": 47,
         "op": "STOP",
-        "gas": 73777,
+        "gas": 75353,
         "gasCost": 0,
         "depth": 1,
         "stack": [
@@ -155,24 +220,24 @@
       },
       "0xfefefefefefefefefefefefefefefefefefefefe": {
         "balance": "0x56bc75e2d63100000",
-        "code": "0x600060006000600060007f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff610a2af100"
+        "code": "0x600060006000600060007f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff610402f100"
       },
       "0xffffffffffffffffffffffffffffffffffffffff": {
         "balance": "0x56bc75e2d63100000",
-        "code": "0x7f000000000000000000000000fffffffffffffffffffffffffffffffffffffffe3b00"
+        "code": "0x7f00000000021000000000000000003a00000000ac0000000000000000000000ff7f0000000000000000000000000000000000000000000000000000000000000000527f0102030405060708090a0b0c0d0e101112131415161718191a202122232425267f00000000000000000000000000000000000000000000000000000000000000207f0000000000000000000000000000000000000000000000000000000000000000a100"
       }
     },
     "callTrace": {
       "from": "0x000000000000000000000000000000000000cafe",
       "gas": "0x186a0",
-      "gasUsed": "0x666f",
+      "gasUsed": "0x6047",
       "to": "0xfefefefefefefefefefefefefefefefefefefefe",
       "input": "0x",
       "calls": [
         {
           "from": "0xfefefefefefefefefefefefefefefefefefefefe",
-          "gas": "0xa2a",
-          "gasUsed": "0xa2a",
+          "gas": "0x402",
+          "gasUsed": "0x402",
           "to": "0xffffffffffffffffffffffffffffffffffffffff",
           "input": "0x",
           "error": "out of gas",

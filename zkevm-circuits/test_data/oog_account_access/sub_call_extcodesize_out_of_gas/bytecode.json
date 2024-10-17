@@ -3,12 +3,12 @@
   "id": 1,
   "result": [
     {
-      "bytecode": "0x600060006000600060007f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff612710f100",
+      "bytecode": "0x600060006000600060007f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff610a2af100",
       "contract_addr": "0xfefefefefefefefefefefefefefefefefefefefe",
       "storage": {}
     },
     {
-      "bytecode": "0x7f000000000000000000000000ffffffffffffffffffffffffffffffffffffffff3b00",
+      "bytecode": "0x7f000000000000000000000000fffffffffffffffffffffffffffffffffffffffe3b00",
       "contract_addr": "0xffffffffffffffffffffffffffffffffffffffff",
       "storage": {}
     }

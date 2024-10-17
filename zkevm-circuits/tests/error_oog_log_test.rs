@@ -61,3 +61,29 @@ fn test_log1() {
     ));
     run_log_out_of_gas_trace(witness);
 }
+
+#[test]
+fn test_sub_call_log0() {
+    // gen witness
+    let witness = Witness::new(&get_chunk_data(
+        "test_data/oog_log/sub_call_log0_out_of_gas/block_info.json",
+        "test_data/oog_log/sub_call_log0_out_of_gas/tx_info.json",
+        "test_data/oog_log/sub_call_log0_out_of_gas/tx_debug_trace.json",
+        "test_data/oog_log/sub_call_log0_out_of_gas/receipt_info.json",
+        "test_data/oog_log/sub_call_log0_out_of_gas/bytecode.json",
+    ));
+    run_log_out_of_gas_trace(witness);
+}
+
+#[test]
+fn test_sub_call_log1() {
+    // gen witness
+    let witness = Witness::new(&get_chunk_data(
+        "test_data/oog_log/sub_call_log1_out_of_gas/block_info.json",
+        "test_data/oog_log/sub_call_log1_out_of_gas/tx_info.json",
+        "test_data/oog_log/sub_call_log1_out_of_gas/tx_debug_trace.json",
+        "test_data/oog_log/sub_call_log1_out_of_gas/receipt_info.json",
+        "test_data/oog_log/sub_call_log1_out_of_gas/bytecode.json",
+    ));
+    run_log_out_of_gas_trace(witness);
+}
