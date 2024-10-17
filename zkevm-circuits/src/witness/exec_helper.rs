@@ -252,7 +252,7 @@ impl WitnessExecHelper {
     }
 
     /// Generate witness of one transaction's trace
-    pub fn generate_trace_witness(
+    pub(crate) fn generate_trace_witness(
         &mut self,
         geth_data: &GethData,
         tx_idx: usize,

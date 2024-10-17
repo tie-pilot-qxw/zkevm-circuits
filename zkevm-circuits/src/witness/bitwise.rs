@@ -94,9 +94,8 @@ impl Row {
                 }
             }
             // calc index
-            let mut index = U256::zero();
-            if i == 0 {
-                index = if byte_acc_vec[2] == U256::zero() {
+            let index = if i == 0 {
+                if byte_acc_vec[2] == U256::zero() {
                     U256::zero()
                 } else {
                     16.into()
@@ -104,12 +103,12 @@ impl Row {
             } else {
                 let acc_2_not_zero = byte_acc_vec[2] != U256::zero();
                 let acc_2_not_zero_prev = byte_acc_pre_vec[2] != U256::zero();
-                index = if acc_2_not_zero_prev == acc_2_not_zero {
+                if acc_2_not_zero_prev == acc_2_not_zero {
                     index_prev
                 } else {
                     U256::from(16 - i)
                 }
-            }
+            };
 
             // update pre
             for i in 0..3 {
