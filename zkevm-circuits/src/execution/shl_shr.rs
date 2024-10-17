@@ -10,7 +10,7 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{arithmetic, get_and_insert_shl_shr_rows, Witness, WitnessExecHelper};
-use eth_types::evm_types::{GasCost, OpcodeId};
+use eth_types::evm_types::OpcodeId;
 use eth_types::Field;
 use eth_types::GethExecStep;
 use gadgets::util::Expr;
