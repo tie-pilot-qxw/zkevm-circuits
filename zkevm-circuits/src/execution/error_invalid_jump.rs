@@ -13,7 +13,7 @@ use eth_types::bytecode::BytecodeElement;
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{pow_of_two, select, Expr};
 
@@ -215,7 +215,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ("diff_lo == diff".into(), diff_lo - diff.clone()),
         ]);
 
-        let is_lt = SimpleLtGadget::<F, 8>::new(&next_pc, &code_size_lo, &lt, &diff);
+        let is_lt = SimpleDiffGadget::<F, 8>::new(&next_pc, &code_size_lo, &lt, &diff);
         constraints.extend(is_lt.get_constraints());
 
         // 3.2 获取not_code信息及next_code信息

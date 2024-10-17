@@ -10,8 +10,7 @@ use crate::execution::{
 };
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
-use crate::witness::exp;
-use crate::witness::{get_and_insert_signextend_rows, Witness, WitnessExecHelper};
+use crate::witness::{exp, get_and_insert_signextend_rows, Witness, WitnessExecHelper};
 use eth_types::evm_types::OpcodeId;
 use eth_types::{Field, GethExecStep, U256};
 use gadgets::util::Expr;

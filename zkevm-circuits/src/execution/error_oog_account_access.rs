@@ -23,7 +23,7 @@ use eth_types::evm_types::GasCost;
 use eth_types::U256;
 use eth_types::{evm_types::OpcodeId, Field, GethExecStep};
 use gadgets::simple_is_zero::SimpleIsZero;
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
 use gadgets::util::{select, Expr};
 
@@ -166,8 +166,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let current_gas_left = meta.query_advice(config.get_auxiliary().gas_left, Rotation::cur());
         let lt = meta.query_advice(config.vers[GAS_LEFT_LT_GAS_COST], Rotation(-2));
         let lt_diff = meta.query_advice(config.vers[GAS_LEFT_LT_GAS_COST_DIFF], Rotation(-2));
-        let gas_left_lt_gas_cost: SimpleLtGadget<F, 8> =
-            SimpleLtGadget::new(&current_gas_left, &gas_cost, &lt, &lt_diff);
+        let gas_left_lt_gas_cost: SimpleDiffGadget<F, 8> =
+            SimpleDiffGadget::new(&current_gas_left, &gas_cost, &lt, &lt_diff);
         constraints.extend(gas_left_lt_gas_cost.get_constraints());
 
         let (tag, [diff_hi, diff_lo, overflow, overflow_inv]) = extract_lookup_expression!(

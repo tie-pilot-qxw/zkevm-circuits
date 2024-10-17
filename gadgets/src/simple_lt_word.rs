@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! SimpleLtWordGadget gadget
-use crate::simple_lt::SimpleLtGadget;
+use crate::simple_lt::SimpleDiffGadget;
 use crate::util::pow_of_two;
 use eth_types::Field;
 use halo2_proofs::plonk::Expression;
@@ -17,6 +17,8 @@ pub const LT_WORD_N_BYTES: usize = 16;
 /// - `lt_hi` is `1` when `lhs_hi < rhs_hi`, `0` otherwise.
 /// lhs_hi and rhs_hi is the high `LT_WORD_N_BYTES * 8` bits of the operand
 /// supports comparison between 256 bit operands
+/// the external need to constrain diff within the range scope
+/// the external also need to constrain SimpleDiffGadget's diff
 #[derive(Clone, Debug)]
 pub struct SimpleLtWordGadget<F, const LT_WORD_N_BYTES: usize> {
     lhs_hi: Expression<F>,
@@ -28,7 +30,7 @@ pub struct SimpleLtWordGadget<F, const LT_WORD_N_BYTES: usize> {
                            * the external need to constrain diff within the range scope*/
     range: F, // The range of the inputs, `256**N_BYTES`
 
-    lt_lo: SimpleLtGadget<F, LT_WORD_N_BYTES>,
+    lt_lo: SimpleDiffGadget<F, LT_WORD_N_BYTES>,
 }
 
 /// Returns `1` when `lhs < rhs`, and returns `0` otherwise.
@@ -39,7 +41,7 @@ impl<F: Field> SimpleLtWordGadget<F, LT_WORD_N_BYTES> {
         rhs: &Expression<F>,
         lt: &Expression<F>,
         diff: &Expression<F>,
-        lt_lo: SimpleLtGadget<F, LT_WORD_N_BYTES>,
+        lt_lo: SimpleDiffGadget<F, LT_WORD_N_BYTES>,
     ) -> Self {
         let range = pow_of_two(LT_WORD_N_BYTES * 8);
         Self {

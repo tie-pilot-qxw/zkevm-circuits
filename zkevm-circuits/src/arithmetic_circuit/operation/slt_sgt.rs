@@ -9,7 +9,7 @@ use crate::arithmetic_circuit::operation::{
 };
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256};
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::util::{pow_of_two, split_u256_hi_lo, Expr};
 use halo2_proofs::halo2curves::bn256::Fr;
 use halo2_proofs::plonk::{Expression, VirtualCells};
@@ -80,10 +80,12 @@ impl<F: Field> OperationGadget<F> for SltSgtGadget<F> {
         let b_lt_diff = config.get_u16(3, Rotation(-2))(meta);
         let diff = vec![a_lt_diff, b_lt_diff];
 
-        //build a_is_lt and b_is_lt SimpleLtGadget
+        //build a_is_lt and b_is_lt SimpleDiffGadget
         let rhs = Expression::Constant(F::from(SLTSGTRHS));
-        let a_is_lt: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&a_hi_u16, &rhs, &lt[0], &diff[0]);
-        let b_is_lt: SimpleLtGadget<F, 2> = SimpleLtGadget::new(&b_hi_u16, &rhs, &lt[1], &diff[1]);
+        let a_is_lt: SimpleDiffGadget<F, 2> =
+            SimpleDiffGadget::new(&a_hi_u16, &rhs, &lt[0], &diff[0]);
+        let b_is_lt: SimpleDiffGadget<F, 2> =
+            SimpleDiffGadget::new(&b_hi_u16, &rhs, &lt[1], &diff[1]);
 
         let u16_sum_for_c = [u16_sum_for_c_hi, u16_sum_for_c_lo];
         // `a` sign != `b` sign if signed_eq = 0,

@@ -9,7 +9,7 @@ use crate::arithmetic_circuit::operation::{
 };
 use crate::witness::arithmetic::{Row, Tag};
 use eth_types::{Field, ToLittleEndian, U256, U512};
-use gadgets::simple_lt::SimpleLtGadget;
+use gadgets::simple_lt::SimpleDiffGadget;
 use gadgets::simple_lt_word::SimpleLtWordGadget;
 use gadgets::util::{pow_of_two, split_u256_hi_lo, split_u256_limb64, Expr};
 use halo2_proofs::plonk::{Expression, VirtualCells};
@@ -146,7 +146,7 @@ impl<F: Field> OperationGadget<F> for AddModGadget<F> {
         ));
 
         // Constrain when n != 0, r must less than n
-        let r_lt_n_lo = SimpleLtGadget::new(&r[1], &n[1], &rn_carry_lt[1], &rn_diff[1]);
+        let r_lt_n_lo = SimpleDiffGadget::new(&r[1], &n[1], &rn_carry_lt[1], &rn_diff[1]);
         let r_lt_n = SimpleLtWordGadget::new(&r[0], &n[0], &rn_carry_lt[0], &rn_diff[0], r_lt_n_lo);
         constraints.extend(r_lt_n.get_constraints());
         constraints.push((
