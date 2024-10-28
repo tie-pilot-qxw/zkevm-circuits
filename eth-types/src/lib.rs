@@ -47,12 +47,19 @@ pub mod state_db;
 pub use bytecode::Bytecode;
 pub use error::Error;
 pub use keccak::{keccak256, Keccak};
+use poseidon_circuit::Hashable;
 pub use state_db::StateDB;
 pub use uint_types::DebugU256;
 
 /// Trait used to reduce verbosity with the declaration of the [`PrimeField`]
 /// trait and its repr.
-pub trait Field: Halo2Field + PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord {
+pub trait Field:
+    Halo2Field + PrimeField<Repr = [u8; 32]> + FromUniformBytes<64> + Ord + Hashable
+{
+    /// Re-expose zero element as a function
+    fn zero() -> Self {
+        Self::ZERO
+    }
     /// Gets the lower 128 bits of this field element when expressed
     /// canonically.
     fn get_lower_128(&self) -> u128 {
@@ -79,7 +86,7 @@ impl Field for Fr {}
 
 // Impl custom `Field` trait for BN256 Frq to be used and consistent with the
 // rest of the workspace.
-impl Field for Fq {}
+// impl Field for Fq {}
 
 /// Trait used to define types that can be converted to a 256 bit scalar value.
 pub trait ToScalar<F> {

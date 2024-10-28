@@ -23,6 +23,7 @@ pub mod public_circuit;
 pub mod public_circuit;
 
 pub mod error;
+pub mod poseidon_circuit;
 pub mod state_circuit;
 pub mod super_circuit;
 pub mod table;

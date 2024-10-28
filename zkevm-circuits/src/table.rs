@@ -973,6 +973,86 @@ impl KeccakTable {
     }
 }
 
+/// The Poseidon hash table shared between Hash Circuit, Mpt Circuit and
+/// Bytecode Circuit
+/// the 5 cols represent [index(final hash of inputs), input0, input1, control,
+/// heading mark]
+#[derive(Clone, Copy, Debug)]
+pub struct PoseidonTable {
+    /// Is Enabled
+    pub q_enable: Column<Fixed>,
+    /// Hash id
+    pub hash_id: Column<Advice>,
+    /// input0
+    pub input0: Column<Advice>,
+    /// input1
+    pub input1: Column<Advice>,
+    /// control
+    pub control: Column<Advice>,
+    /// domain spec
+    pub domain_spec: Column<Advice>,
+    /// heading_mark
+    pub heading_mark: Column<Advice>,
+}
+
+impl PoseidonTable {
+    /// the permutation width of current poseidon table
+    pub(crate) const WIDTH: usize = 3;
+
+    /// the input width of current poseidon table
+    pub(crate) const INPUT_WIDTH: usize = Self::WIDTH - 1;
+
+    /// Construct a new PoseidonTable
+    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
+        Self {
+            q_enable: meta.fixed_column(),
+            hash_id: meta.advice_column(),
+            input0: meta.advice_column(),
+            input1: meta.advice_column(),
+            control: meta.advice_column(),
+            domain_spec: meta.advice_column(),
+            heading_mark: meta.advice_column(),
+        }
+    }
+
+    pub fn get_lookup_vector<F: Field>(
+        &self,
+        meta: &mut VirtualCells<F>,
+        entry: LookupEntry<F>,
+    ) -> Vec<(Expression<F>, Expression<F>)> {
+        let table_q_enable = meta.query_fixed(self.q_enable, Rotation::cur());
+        let table_hash_id = meta.query_advice(self.hash_id, Rotation::cur());
+        let table_input_0 = meta.query_advice(self.input0, Rotation::cur());
+        let table_input_1 = meta.query_advice(self.input1, Rotation::cur());
+        let table_control = meta.query_advice(self.control, Rotation::cur());
+        let table_domain_spec = meta.query_advice(self.domain_spec, Rotation::cur());
+        let table_heading_mark = meta.query_advice(self.heading_mark, Rotation::cur());
+
+        match entry {
+            LookupEntry::Poseidon {
+                q_enable,
+                hash_id,
+                input_0,
+                input_1,
+                control,
+                domain,
+                heading_mark,
+            } => {
+                vec![
+                    (table_q_enable, q_enable),
+                    (table_hash_id, hash_id),
+                    (table_input_0, input_0),
+                    (table_input_1, input_1),
+                    (table_control, control),
+                    (table_domain_spec, domain),
+                    (table_heading_mark, heading_mark),
+                ]
+            }
+            _ => panic!("Not poseidon lookup!"),
+        }
+    }
+}
+
 /// Lookup structure. Use this structure to normalize the order of expressions inside lookup.
 #[derive(Clone, Debug, EnumVariantNames, AsRefStr)]
 pub enum LookupEntry<F> {
@@ -1164,6 +1244,22 @@ pub enum LookupEntry<F> {
         output_hi: Expression<F>,
         /// Low 128 bits of the hash result
         output_lo: Expression<F>,
+    },
+    Poseidon {
+        /// selector
+        q_enable: Expression<F>,
+        /// hash result, less than 256 bit
+        hash_id: Expression<F>,
+        /// first input
+        input_0: Expression<F>,
+        /// second input
+        input_1: Expression<F>,
+        /// Divide according to 64bit length, calculate from the length of input_byte.len().
+        control: Expression<F>,
+        /// The description of the position of the node in the MPT tree is not needed for now.
+        domain: Expression<F>,
+        /// Used to indicate whether it is a new hash calculation, not currently needed.
+        heading_mark: Expression<F>,
     },
 }
 

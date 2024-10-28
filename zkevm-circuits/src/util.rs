@@ -4,18 +4,21 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::CREATE_ADDRESS_PREFIX;
+use crate::constant::{CREATE_ADDRESS_PREFIX, POSEIDON_HASH_BYTES_IN_FIELD};
+use crate::table::PoseidonTable;
 use crate::witness::Witness;
 use eth_types::call_types::GethCallTrace;
 use eth_types::evm_types::{Memory, OpcodeId};
 use eth_types::geth_types::{Account, ChunkData, GethData};
-use eth_types::{Address, Block, Field, GethExecTrace, ReceiptLog, Transaction, U256};
+use eth_types::{Address, Block, Field, GethExecTrace, Hash, ReceiptLog, Transaction, U256};
 use eth_types::{ToAddress, H256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
+use halo2_proofs::halo2curves::bn256::Fr;
+use halo2_proofs::halo2curves::ff::PrimeField;
 use halo2_proofs::plonk::{
     Advice, Any, Challenge, Column, ConstraintSystem, Error, Expression, FirstPhase, Fixed,
-    SecondPhase, VirtualCells,
+    SecondPhase, ThirdPhase, VirtualCells,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -49,7 +52,12 @@ impl Challenges {
     /// Construct Challenges by allocating challenges in phases.
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         #[cfg(test)]
-        let _dummy = meta.advice_column_in(SecondPhase);
+        let _dummy = [
+            meta.advice_column(),
+            meta.advice_column_in(SecondPhase),
+            meta.advice_column_in(ThirdPhase),
+        ];
+
         Self {
             state_input: meta.challenge_usable_after(FirstPhase),
             evm_word: meta.challenge_usable_after(FirstPhase),
@@ -713,6 +721,43 @@ pub fn cal_valid_stack_pointer_range(opcode: &OpcodeId) -> (u32, u32) {
 
     // Our zkevm stack pointer starts from 0, so convert it
     (1024 - max, 1024 - min)
+}
+
+/// Poseidon code hash
+pub fn hash_code_poseidon(code: &[u8]) -> U256 {
+    use poseidon_circuit::hash::{Hashable, MessageHashable, HASHABLE_DOMAIN_SPEC};
+
+    let bytes_in_field = POSEIDON_HASH_BYTES_IN_FIELD;
+    let fls = (0..(code.len() / bytes_in_field))
+        .map(|i| i * bytes_in_field)
+        .map(|i| {
+            let mut buf: [u8; 32] = [0; 32];
+            U256::from_big_endian(&code[i..i + bytes_in_field]).to_little_endian(&mut buf);
+            Fr::from_bytes(&buf).unwrap()
+        });
+    let msgs: Vec<_> = fls
+        .chain(if code.len() % bytes_in_field == 0 {
+            None
+        } else {
+            let last_code = &code[code.len() - code.len() % bytes_in_field..];
+            // pad to bytes_in_field
+            let mut last_buf = vec![0u8; bytes_in_field];
+            last_buf.as_mut_slice()[..last_code.len()].copy_from_slice(last_code);
+            let mut buf: [u8; 32] = [0; 32];
+            U256::from_big_endian(&last_buf).to_little_endian(&mut buf);
+            Some(Fr::from_bytes(&buf).unwrap())
+        })
+        .collect();
+
+    let h = if msgs.is_empty() {
+        // the empty code hash is overlapped with simple hash on [0, 0]
+        // an issue in poseidon primitive prevent us calculate it from hash_msg
+        Fr::hash_with_domain([Fr::zero(), Fr::zero()], Fr::zero())
+    } else {
+        Fr::hash_msg(&msgs, Some(code.len() as u128 * HASHABLE_DOMAIN_SPEC))
+    };
+
+    U256::from_little_endian(h.to_repr().as_ref())
 }
 
 #[cfg(test)]
