@@ -66,9 +66,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         let state_table = StateTable::construct(meta, q_enable_state);
 
         // construct public table
-        #[cfg(not(feature = "no_public_hash"))]
         let instance_hash = PublicTable::construct_hash_instance_column(meta);
-        #[cfg(not(feature = "no_public_hash"))]
         let q_enable_public = meta.complex_selector();
 
         let public_table = PublicTable::construct(meta);
@@ -134,21 +132,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             },
         );
 
-        #[cfg(not(feature = "no_public_hash"))]
         let public_circuit = PublicCircuitConfig::new(
             meta,
             PublicCircuitConfigArgs {
                 q_enable: q_enable_public,
                 public_table,
-                keccak_table,
-                challenges,
                 instance_hash,
+                poseidon_table,
             },
         );
-
-        #[cfg(feature = "no_public_hash")]
-        let public_circuit =
-            PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
         let copy_circuit = CopyCircuitConfig::new(
             meta,
@@ -232,7 +224,7 @@ pub struct SuperCircuit<
     pub exp_circuit: ExpCircuit<F, MAX_NUM_ROW>,
     #[cfg(not(feature = "no_hash_circuit"))]
     pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
-    poseidon_circuit: PoseidonCircuit<F, MAX_NUM_ROW>,
+    pub poseidon_circuit: PoseidonCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<

@@ -637,51 +637,22 @@ impl CopyTable {
 /// The table shared between Core Circuit and Public Circuit
 #[derive(Clone, Copy, Debug)]
 pub struct PublicTable {
-    #[cfg(not(feature = "no_public_hash"))]
     /// various public information tag, e.g. BlockNumber, TxFrom
     pub tag: Column<Advice>,
 
-    #[cfg(not(feature = "no_public_hash"))]
     /// block_tx_idx generally represents either block_idx or tx_idx.
     /// When representing tx_idx, it equals to block_idx * 2^32 + tx_idx.
     /// Except for tag=BlockHash, means max_block_idx.
     pub block_tx_idx: Column<Advice>,
 
-    #[cfg(not(feature = "no_public_hash"))]
     pub values: [Column<Advice>; PUBLIC_NUM_VALUES],
-
-    #[cfg(feature = "no_public_hash")]
-    /// various public information tag, e.g. BlockNumber, TxFrom
-    pub tag: Column<Instance>,
-
-    #[cfg(feature = "no_public_hash")]
-    /// block_tx_idx generally represents either block_idx or tx_idx.
-    /// When representing tx_idx, it equals to block_idx * 2^32 + tx_idx.
-    /// Except for tag=BlockHash, means max_block_idx.
-    pub block_tx_idx: Column<Instance>,
-
-    #[cfg(feature = "no_public_hash")]
-    pub values: [Column<Instance>; PUBLIC_NUM_VALUES],
 }
 
 impl PublicTable {
-    #[cfg(not(feature = "no_public_hash"))]
     pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
         let tag = meta.advice_column();
         let block_tx_idx = meta.advice_column();
         let values = std::array::from_fn(|_| meta.advice_column());
-        Self {
-            tag,
-            block_tx_idx,
-            values,
-        }
-    }
-
-    #[cfg(feature = "no_public_hash")]
-    pub fn construct<F: Field>(meta: &mut ConstraintSystem<F>) -> Self {
-        let tag = meta.instance_column();
-        let block_tx_idx = meta.instance_column();
-        let values = std::array::from_fn(|_| meta.instance_column());
         Self {
             tag,
             block_tx_idx,
@@ -694,31 +665,12 @@ impl PublicTable {
         meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
     ) -> Vec<(Expression<F>, Expression<F>)> {
-        #[cfg(not(feature = "no_public_hash"))]
         let table_tag = meta.query_advice(self.tag, Rotation::cur());
-        #[cfg(not(feature = "no_public_hash"))]
         let table_block_tx_idx = meta.query_advice(self.block_tx_idx, Rotation::cur());
-        #[cfg(not(feature = "no_public_hash"))]
         let table_value_0 = meta.query_advice(self.values[0], Rotation::cur());
-        #[cfg(not(feature = "no_public_hash"))]
         let table_value_1 = meta.query_advice(self.values[1], Rotation::cur());
-        #[cfg(not(feature = "no_public_hash"))]
         let table_value_2 = meta.query_advice(self.values[2], Rotation::cur());
-        #[cfg(not(feature = "no_public_hash"))]
         let table_value_3 = meta.query_advice(self.values[3], Rotation::cur());
-
-        #[cfg(feature = "no_public_hash")]
-        let table_tag = meta.query_instance(self.tag, Rotation::cur());
-        #[cfg(feature = "no_public_hash")]
-        let table_block_tx_idx = meta.query_instance(self.block_tx_idx, Rotation::cur());
-        #[cfg(feature = "no_public_hash")]
-        let table_value_0 = meta.query_instance(self.values[0], Rotation::cur());
-        #[cfg(feature = "no_public_hash")]
-        let table_value_1 = meta.query_instance(self.values[1], Rotation::cur());
-        #[cfg(feature = "no_public_hash")]
-        let table_value_2 = meta.query_instance(self.values[2], Rotation::cur());
-        #[cfg(feature = "no_public_hash")]
-        let table_value_3 = meta.query_instance(self.values[3], Rotation::cur());
 
         match entry {
             LookupEntry::Public {
@@ -1025,7 +977,6 @@ impl PoseidonTable {
         let table_input_1 = meta.query_advice(self.input_1, Rotation::cur());
         let table_control = meta.query_advice(self.control, Rotation::cur());
         let table_domain_spec = meta.query_advice(self.domain_spec, Rotation::cur());
-        let table_heading_mark = meta.query_advice(self.heading_mark, Rotation::cur());
 
         match entry {
             LookupEntry::Poseidon {
@@ -1035,7 +986,6 @@ impl PoseidonTable {
                 input_1,
                 control,
                 domain,
-                heading_mark,
             } => {
                 vec![
                     (q_enable, table_q_enable),
@@ -1044,7 +994,6 @@ impl PoseidonTable {
                     (input_1, table_input_1),
                     (control, table_control),
                     (domain, table_domain_spec),
-                    (heading_mark, table_heading_mark),
                 ]
             }
             LookupEntry::PoseidonWithSelector {
@@ -1274,8 +1223,6 @@ pub enum LookupEntry<F> {
         control: Expression<F>,
         /// The description of the position of the node in the MPT tree is not needed for now.
         domain: Expression<F>,
-        /// Used to indicate whether it is a new hash calculation, not currently needed.
-        heading_mark: Expression<F>,
     },
     PoseidonWithSelector {
         /// selector

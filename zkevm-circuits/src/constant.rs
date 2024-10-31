@@ -6,13 +6,13 @@
 
 pub const NUM_STATE_HI_COL: usize = 9;
 pub const NUM_STATE_LO_COL: usize = 9;
-#[cfg(not(feature = "k_10"))]
+#[cfg(not(feature = "k_11"))]
 pub const MAX_NUM_ROW: usize = 280000;
-#[cfg(feature = "k_10")]
-pub const MAX_NUM_ROW: usize = 1200;
-#[cfg(not(feature = "k_10"))]
+#[cfg(feature = "k_11")]
+pub const MAX_NUM_ROW: usize = 2000;
+#[cfg(not(feature = "k_11"))]
 pub const MAX_CODESIZE: usize = 2 * 24576;
-#[cfg(feature = "k_10")]
+#[cfg(feature = "k_11")]
 pub const MAX_CODESIZE: usize = 470;
 
 /// Index of vers[] column in core circuit for state stamp in execution gadgets
@@ -162,10 +162,13 @@ pub(crate) const PUBLIC_NUM_ALL_VALUE: usize = 6;
 pub(crate) const PUBLIC_NUM_VALUES_U8_ROW: usize = 16;
 
 /// the number of padding rows required by the public circuit
-pub const PUBLIC_NUM_BEGINNING_PADDING_ROW: usize = 15;
+pub const PUBLIC_NUM_BEGINNING_PADDING_ROW: usize = 1;
 
 /// contains a STOP padding
 pub(crate) const BYTECODE_NUM_PADDING: usize = 33;
 
 /// Default number of bytes to pack into a field element.
 pub const POSEIDON_HASH_BYTES_IN_FIELD: usize = 31;
+
+/// The number of rounds that public performs lookup on the Poseidon table
+pub const POSEIDON_PUBLIC_LOOKUP_NUM: usize = 3;
