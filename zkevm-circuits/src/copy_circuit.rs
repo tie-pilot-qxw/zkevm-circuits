@@ -942,7 +942,7 @@ mod test {
     use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-    use crate::table::{FixedTable, KeccakTable};
+    use crate::table::{FixedTable, KeccakTable, PoseidonTable};
     use crate::util::{chunk_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::{bytecode, U256};
@@ -985,6 +985,8 @@ mod test {
             let q_enable_copy = meta.complex_selector();
             let copy_table = CopyTable::construct(meta, q_enable_copy);
 
+            let poseidon_table = PoseidonTable::construct(meta);
+
             let challenges = Challenges::construct(meta);
             let bytecode_circuit = BytecodeCircuitConfig::new(
                 meta,
@@ -992,7 +994,7 @@ mod test {
                     q_enable: q_enable_bytecode,
                     bytecode_table,
                     fixed_table,
-                    keccak_table,
+                    poseidon_table,
                     public_table,
                     challenges,
                 },

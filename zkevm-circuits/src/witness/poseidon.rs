@@ -25,7 +25,7 @@ pub struct Row {
 
 /// src指向的是input，可以参考相关示例
 /// 该函数主要用于code_hash，domain及checks都为None
-pub fn stream_inputs_with_check<'d>(
+pub fn get_poseidon_row_from_stream_input<'d>(
     src: impl IntoIterator<Item = &'d [U256; 2]>,
     check: Option<U256>,
     ctrl_start: u64,
@@ -65,7 +65,7 @@ pub fn stream_inputs_with_check<'d>(
 
 /// Get unrolled hash inputs as inputs to hash circuit
 /// 将code byte 按照31字节转化为了U256，然后转化为Fr，最后再 2 2 分组
-pub fn unroll_to_hash_input<F: Field, const BYTES_IN_FIELD: usize, const INPUT_LEN: usize>(
+pub fn get_hash_input_from_u8s<F: Field, const BYTES_IN_FIELD: usize, const INPUT_LEN: usize>(
     code: impl ExactSizeIterator<Item = u8>,
 ) -> Vec<[U256; INPUT_LEN]> {
     let fl_cnt = code.len() / BYTES_IN_FIELD;
@@ -123,8 +123,8 @@ pub fn unroll_to_hash_input<F: Field, const BYTES_IN_FIELD: usize, const INPUT_L
 }
 
 /// Apply default constants in mod
-pub fn unroll_to_hash_input_default<F: Field>(
+pub fn get_hash_input_from_u8s_default<F: Field>(
     code: impl ExactSizeIterator<Item = u8>,
 ) -> Vec<[U256; PoseidonTable::INPUT_WIDTH]> {
-    unroll_to_hash_input::<F, POSEIDON_HASH_BYTES_IN_FIELD, { PoseidonTable::INPUT_WIDTH }>(code)
+    get_hash_input_from_u8s::<F, POSEIDON_HASH_BYTES_IN_FIELD, { PoseidonTable::INPUT_WIDTH }>(code)
 }

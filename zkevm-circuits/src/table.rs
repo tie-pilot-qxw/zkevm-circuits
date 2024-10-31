@@ -746,8 +746,7 @@ impl PublicTable {
                     (block_tx_idx, table_block_tx_idx),
                     // table_value_0 << 128 + table_value_1
                     (addr, table_value_0 * pow_of_two::<F>(V_128) + table_value_1),
-                    (values[0].clone(), table_value_2),
-                    (values[1].clone(), table_value_3),
+                    (values.clone(), table_value_2),
                 ]
             }
             _ => panic!("Not public lookup!"),
@@ -1019,6 +1018,7 @@ impl PoseidonTable {
         &self,
         meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
+        selector: Option<usize>,
     ) -> Vec<(Expression<F>, Expression<F>)> {
         let table_q_enable = meta.query_fixed(self.q_enable, Rotation::cur());
         let table_hash_id = meta.query_advice(self.hash_id, Rotation::cur());
@@ -1027,6 +1027,12 @@ impl PoseidonTable {
         let table_control = meta.query_advice(self.control, Rotation::cur());
         let table_domain_spec = meta.query_advice(self.domain_spec, Rotation::cur());
         let table_heading_mark = meta.query_advice(self.heading_mark, Rotation::cur());
+
+        let input_selector = |index: usize| match index {
+            0 => table_input_0.clone(),
+            1 => table_input_1.clone(),
+            _ => panic!("valid poseidon input index"),
+        };
 
         match entry {
             LookupEntry::Poseidon {
@@ -1039,13 +1045,28 @@ impl PoseidonTable {
                 heading_mark,
             } => {
                 vec![
-                    (table_q_enable, q_enable),
-                    (table_hash_id, hash_id),
-                    (table_input_0, input_0),
-                    (table_input_1, input_1),
-                    (table_control, control),
-                    (table_domain_spec, domain),
-                    (table_heading_mark, heading_mark),
+                    (q_enable, table_q_enable),
+                    (hash_id, table_hash_id),
+                    (input_0, table_input_0),
+                    (input_1, table_input_1),
+                    (control, table_control),
+                    (domain, table_domain_spec),
+                    (heading_mark, table_heading_mark),
+                ]
+            }
+            LookupEntry::PoseidonWithSelector {
+                q_enable,
+                hash_id,
+                input,
+                control,
+                domain,
+            } => {
+                vec![
+                    (q_enable, table_q_enable),
+                    (hash_id, table_hash_id),
+                    (input, input_selector(selector.unwrap())),
+                    (control, table_control),
+                    (domain, table_domain_spec),
                 ]
             }
             _ => panic!("Not poseidon lookup!"),
@@ -1226,7 +1247,7 @@ pub enum LookupEntry<F> {
         block_tx_idx: Expression<F>,
         addr: Expression<F>,
         // value2, value3 of Public row
-        values: [Expression<F>; 2],
+        values: Expression<F>,
     },
     /// Lookup to state table
     StampCnt {
@@ -1260,6 +1281,18 @@ pub enum LookupEntry<F> {
         domain: Expression<F>,
         /// Used to indicate whether it is a new hash calculation, not currently needed.
         heading_mark: Expression<F>,
+    },
+    PoseidonWithSelector {
+        /// selector
+        q_enable: Expression<F>,
+        /// hash result, less than 256 bit
+        hash_id: Expression<F>,
+        ///  input
+        input: Expression<F>,
+        /// Divide according to 64bit length, calculate from the length of input_byte.len().
+        control: Expression<F>,
+        /// The description of the position of the node in the MPT tree is not needed for now.
+        domain: Expression<F>,
     },
 }
 

@@ -4,9 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::constant::BYTECODE_NUM_PADDING;
-use crate::table::LookupEntry;
-use crate::table::{BytecodeTable, FixedTable, KeccakTable, PublicTable};
+use crate::constant::{BYTECODE_NUM_PADDING, POSEIDON_HASH_BYTES_IN_FIELD};
+use crate::table::{BytecodeTable, FixedTable, PublicTable};
+use crate::table::{LookupEntry, PoseidonTable};
 use crate::util::{
     assign_advice_or_fixed_with_u256, assign_advice_or_fixed_with_value, convert_u256_to_64_bytes,
     Challenges, SubCircuit, SubCircuitConfig,
@@ -16,11 +16,13 @@ use crate::witness::{public, Witness};
 use eth_types::{Field, U256};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
-use gadgets::util::Expr;
+use gadgets::util::{and, not, or, select, Expr};
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::Expression;
 use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, SecondPhase, Selector};
+use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
+use itertools::Itertools;
+use poseidon_circuit::HASHABLE_DOMAIN_SPEC;
 use std::marker::PhantomData;
 
 /// Overview:
@@ -58,6 +60,32 @@ use std::marker::PhantomData;
 ///  the data of PUSH instruction PUSH is bytes, so the range of a byte is 0~255
 ///  Fixed circuit table stores all values from 0 to 255.
 ///  that is, lookup src: Bytecode Circuit, lookup target: Fixed Circuit table， use LookupEntry::U8
+
+#[allow(unused)]
+#[derive(Clone)]
+pub struct BytecodeHashAuxConfig<F> {
+    /// poseidon hash - bytecode hash
+    hash: Column<Advice>,
+    /// poseidon hash - control lookup
+    control_length: Column<Advice>,
+    /// poseidon hash - field input
+    field_input: Column<Advice>,
+    /// poseidon hash -- bytes in field index
+    /// The range of values is 1 to 31.
+    bytes_in_field_index: Column<Advice>,
+    /// bytes_in_field_index can be used alone, so IsZeroConfig is not applicable here
+    bytes_in_field_inv: Column<Advice>,
+    /// poseidon hash -- determine the boundary position
+    is_field_border: Column<Advice>,
+    padding_shift: Column<Advice>,
+    /// field_index -- the range of value is 1 or 2.
+    /// Distinguish between input_0 or input_1, for example, index 0 to 30 results in 1, and 31 to 61 results in 2.
+    field_index: Column<Advice>,
+    /// field_index can be used alone, so IsZeroConfig is not applicable here
+    field_index_inv: Column<Advice>,
+    _marker: PhantomData<F>,
+}
+
 #[allow(unused)]
 #[derive(Clone)]
 pub struct BytecodeCircuitConfig<F> {
@@ -81,13 +109,6 @@ pub struct BytecodeCircuitConfig<F> {
     cnt: Column<Advice>,
     /// whether count is equal or larger than 16
     is_high: Column<Advice>,
-    /// the last line of the contract will store the hash value of the contract bytecode
-    /// for rlc of bytecodes, used for keccak hash lookup; second phase column
-    rlc_acc: Column<Advice>,
-    /// High 128 bits of the contract bytecode hash result
-    hash_hi: Column<Advice>,
-    /// Low 128 bits of the contract bytecode hash result
-    hash_lo: Column<Advice>,
     /// the actual length of the contract bytecode (excluding padding bytecode)
     length: Column<Advice>,
     /// whether the current bytecode is the bytecode of padding
@@ -102,18 +123,19 @@ pub struct BytecodeCircuitConfig<F> {
     addr_unchange_next: IsZeroConfig<F>,
     /// for chip to check if addr is zero, which means the row is padding
     addr_is_zero: IsZeroWithRotationConfig<F>,
+    poseidon_aux_conf: BytecodeHashAuxConfig<F>,
     // table used for lookup
     fixed_table: FixedTable,
-    keccak_table: KeccakTable,
     public_table: PublicTable,
+    poseidon_table: PoseidonTable,
 }
 
 pub struct BytecodeCircuitConfigArgs<F> {
     pub q_enable: Selector,
     pub bytecode_table: BytecodeTable<F>,
     pub fixed_table: FixedTable,
-    pub keccak_table: KeccakTable,
     pub public_table: PublicTable,
+    pub poseidon_table: PoseidonTable,
     /// Challenges
     pub challenges: Challenges,
 }
@@ -127,8 +149,8 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             q_enable,
             bytecode_table,
             fixed_table,
-            keccak_table,
             public_table,
+            poseidon_table,
             challenges,
         }: Self::ConfigArgs,
     ) -> Self {
@@ -145,11 +167,8 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
         let challenges_expr = challenges.exprs(meta);
 
         // initialize columns
-        let hash_hi = meta.advice_column();
-        let hash_lo = meta.advice_column();
         let acc_hi = meta.advice_column();
         let acc_lo = meta.advice_column();
-        let rlc_acc = meta.advice_column_in(SecondPhase);
         let is_high = meta.advice_column();
         let length = meta.advice_column();
         let is_padding = meta.advice_column();
@@ -192,6 +211,9 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             addr,
             None,
         );
+
+        let poseidon_aux_conf = BytecodeHashAuxConfig::new(meta);
+
         // construct config object
         let q_first_rows = meta.selector();
         let config = Self {
@@ -206,9 +228,6 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             acc_lo,
             cnt,
             is_high,
-            rlc_acc,
-            hash_hi,
-            hash_lo,
             length,
             is_padding,
             cnt_is_zero,
@@ -217,8 +236,9 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             addr_unchange_next,
             addr_is_zero,
             fixed_table,
-            keccak_table,
             public_table,
+            poseidon_aux_conf,
+            poseidon_table,
         };
 
         // constrain pc
@@ -257,9 +277,21 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
             let cnt = meta.query_advice(config.cnt, Rotation::cur());
             let is_high = meta.query_advice(config.is_high, Rotation::cur());
-            let rlc_acc = meta.query_advice(config.rlc_acc, Rotation::cur());
-            let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
-            let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
+            let hash = meta.query_advice(config.poseidon_aux_conf.hash, Rotation::cur());
+
+            let field_input =
+                meta.query_advice(config.poseidon_aux_conf.field_input, Rotation::cur());
+            let bytes_in_field_index = meta.query_advice(
+                config.poseidon_aux_conf.bytes_in_field_index,
+                Rotation::cur(),
+            );
+            let field_index =
+                meta.query_advice(config.poseidon_aux_conf.field_index, Rotation::cur());
+            let is_field_border =
+                meta.query_advice(config.poseidon_aux_conf.is_field_border, Rotation::cur());
+            let padding_shift =
+                meta.query_advice(config.poseidon_aux_conf.padding_shift, Rotation::cur());
+
             vec![
                 ("pc is zero", q_enable.clone() * addr_is_zero.clone() * pc),
                 (
@@ -288,16 +320,33 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                     q_enable.clone() * addr_is_zero.clone() * is_high,
                 ),
                 (
-                    "rlc_acc is zero",
-                    q_enable.clone() * addr_is_zero.clone() * rlc_acc,
+                    "hash is zero",
+                    q_enable.clone() * addr_is_zero.clone() * hash,
                 ),
                 (
-                    "hash_hi is zero",
-                    q_enable.clone() * addr_is_zero.clone() * hash_hi,
+                    "field_input is zero",
+                    q_enable.clone() * addr_is_zero.clone() * field_input,
                 ),
                 (
-                    "hash_lo is zero",
-                    q_enable.clone() * addr_is_zero.clone() * hash_lo,
+                    "bytes_in_field_index is zero",
+                    q_enable.clone() * addr_is_zero.clone() * bytes_in_field_index,
+                ),
+                (
+                    "field_index is one",
+                    q_enable.clone() * addr_is_zero.clone() * (1.expr() - field_index),
+                ),
+                (
+                    "is_field_border is zero",
+                    q_enable.clone() * addr_is_zero.clone() * is_field_border,
+                ),
+                (
+                    "padding_shift is 256^(BYTES_IN_FIELD)",
+                    q_enable.clone()
+                        * addr_is_zero.clone()
+                        * (padding_shift
+                            - Expression::Constant(
+                                F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64]),
+                            )),
                 ),
             ]
         });
@@ -454,66 +503,26 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             ]
         });
 
-        // constrain rlc_acc
-        // 1. if addr changes, it means this is a new contract and rlc_acc must equal bytecode
-        // 2. if addr has not changed, indicating that it is the same contract. The value of rlc_acc is `rlc_acc_prev * challenge + bytecode`
-        meta.create_gate("BYTECODE_rlc_acc", |meta| {
-            let q_enable = meta.query_selector(config.q_enable);
-            let addr_unchange = config.addr_unchange.expr();
-            let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
-            let bytecode = meta.query_advice(config.bytecode, Rotation::cur());
-            let rlc_acc = meta.query_advice(config.rlc_acc, Rotation::cur());
-            let rlc_acc_prev = meta.query_advice(config.rlc_acc, Rotation::prev());
-            let challenge = challenges_expr.keccak_input();
-
-            vec![
-                (
-                    "addr_change(new contract bytecode) --> rlc_acc = bytecode",
-                    q_enable.clone()
-                        * (1.expr() - addr_unchange.clone())
-                        * (rlc_acc.clone() - bytecode.clone()),
-                ),
-                (
-                    "addr_unchange --> rlc_acc = rlc_acc_prev*challenge + bytecode",
-                    q_enable.clone()
-                        * addr_unchange
-                        * (1.expr() - addr_is_zero)
-                        * (rlc_acc - (rlc_acc_prev * challenge + bytecode)),
-                ),
-            ]
-        });
-
         // constrain hash
         // If the addr of the next line changes from the addr of the current line, it means that the
         // current line is the last bytecode of the current contract code, that is, the current line record has a hash value.
         // If the addr of the next row does not change from the addr of the current row, the hash field value of the current row is 0.
         meta.create_gate("BYTECODE_hash", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
-            let hash_hi_cur = meta.query_advice(config.hash_hi, Rotation::cur());
-            let hash_lo_cur = meta.query_advice(config.hash_lo, Rotation::cur());
-            let hash_hi_next = meta.query_advice(config.hash_hi, Rotation::next());
-            let hash_lo_next = meta.query_advice(config.hash_lo, Rotation::next());
+            let hash_cur = meta.query_advice(config.poseidon_aux_conf.hash, Rotation::cur());
+            let hash_next = meta.query_advice(config.poseidon_aux_conf.hash, Rotation::next());
 
             let addr_unchange_next = config.addr_unchange_next.expr();
             let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
             let addr_is_not_zero = 1.expr() - addr_is_zero;
 
-            vec![
-                (
-                    "addr_is_not_zero && addr_unchange_next --> hash_hi_cur = hash_hi_next",
-                    q_enable.clone()
-                        * addr_is_not_zero.clone()
-                        * addr_unchange_next.clone()
-                        * (hash_hi_cur - hash_hi_next),
-                ),
-                (
-                    "addr_is_not_zero && addr_unchange_next --> hash_lo_cur = hash_lo_next",
-                    q_enable.clone()
-                        * addr_is_not_zero.clone()
-                        * addr_unchange_next.clone()
-                        * (hash_lo_cur - hash_lo_next),
-                ),
-            ]
+            vec![(
+                "addr_is_not_zero && addr_unchange_next --> hash_cur = hash_next",
+                q_enable.clone()
+                    * addr_is_not_zero.clone()
+                    * addr_unchange_next.clone()
+                    * (hash_cur - hash_next),
+            )]
         });
 
         meta.create_gate("BYTECODE_padding_value", |meta| {
@@ -526,7 +535,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             )]
         });
 
-        meta.create_gate("BYTECODE_length_pc_ispadding", |meta| {
+        meta.create_gate("BYTECODE_not_zero_value_padding", |meta| {
             let q_enable = meta.query_selector(config.q_enable);
             let pc = meta.query_advice(config.pc, Rotation::cur());
             let length_cur = meta.query_advice(config.length, Rotation::cur());
@@ -536,6 +545,10 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let addr_is_not_zero = 1.expr() - addr_is_zero;
             let is_padding_cur = meta.query_advice(config.is_padding, Rotation::cur());
             let is_padding_next = meta.query_advice(config.is_padding, Rotation::next());
+            let field_index =
+                meta.query_advice(config.poseidon_aux_conf.field_index, Rotation::cur());
+            let padding_shift =
+                meta.query_advice(config.poseidon_aux_conf.padding_shift, Rotation::cur());
 
             vec![
                 (
@@ -556,9 +569,26 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                 (
                     "addr_change_next ---> pc(PC starts counting from 0) - length_cur - 32 = 0",
                     q_enable.clone()
-                        * addr_is_not_zero
+                        * addr_is_not_zero.clone()
                         * (1.expr() - addr_unchange_next)
                         * (pc - length_cur - (BYTECODE_NUM_PADDING as u8 - 1).expr()),
+                ),
+                (
+                    "addr_is_not_zero && is_padding_cur --> field_index = 1",
+                    q_enable.clone()
+                        * addr_is_not_zero.clone()
+                        * is_padding_cur.clone()
+                        * (field_index - 1.expr()),
+                ),
+                (
+                    "addr_is_not_zero && is_padding_cur --> padding_shift = 256^(BYTES_IN_FIELD)",
+                    q_enable.clone()
+                        * addr_is_not_zero.clone()
+                        * is_padding_cur.clone()
+                        * (padding_shift
+                            - Expression::Constant(
+                                F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64]),
+                            )),
                 ),
             ]
         });
@@ -574,6 +604,14 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let acc_hi = meta.query_advice(config.acc_hi, Rotation::cur());
             let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
             let is_high = meta.query_advice(config.is_high, Rotation::cur());
+            let is_field_border =
+                meta.query_advice(config.poseidon_aux_conf.is_field_border, Rotation::cur());
+            let field_input =
+                meta.query_advice(config.poseidon_aux_conf.field_input, Rotation::cur());
+            let bytes_in_field_index = meta.query_advice(
+                config.poseidon_aux_conf.bytes_in_field_index,
+                Rotation::cur(),
+            );
 
             // previous cnt is 0, and the current cnt is also 0, indicating that the current bytecode is not the byte of push
             let is_all_zero_padding = cnt_is_zero_prev * cnt_is_zero * is_padding_cur;
@@ -602,6 +640,18 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                     "is_high is zero",
                     q_enable.clone() * is_all_zero_padding.clone() * is_high,
                 ),
+                (
+                    "is_field_border is zero",
+                    q_enable.clone() * is_all_zero_padding.clone() * is_field_border,
+                ),
+                (
+                    "field_input is zero",
+                    q_enable.clone() * is_all_zero_padding.clone() * field_input,
+                ),
+                (
+                    "bytes_in_field_index is zero",
+                    q_enable.clone() * is_all_zero_padding.clone() * bytes_in_field_index,
+                ),
             ]
         });
 
@@ -615,13 +665,23 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
             let value_lo = meta.query_advice(config.value_lo, Rotation::cur());
             let acc_lo = meta.query_advice(config.acc_lo, Rotation::cur());
             let is_high = meta.query_advice(config.is_high, Rotation::cur());
-            let rlc_acc = meta.query_advice(config.rlc_acc, Rotation::cur());
-            let hash_hi = meta.query_advice(config.hash_hi, Rotation::cur());
-            let hash_lo = meta.query_advice(config.hash_lo, Rotation::cur());
+            let hash = meta.query_advice(config.poseidon_aux_conf.hash, Rotation::cur());
             let cnt_is_zero = config.cnt_is_zero.expr_at(meta, Rotation::cur());
             let cnt_is_15 = config.cnt_is_15.expr();
             let addr_unchange = config.addr_unchange.expr();
             let addr_is_zero = config.addr_is_zero.expr_at(meta, Rotation::cur());
+            let field_input =
+                meta.query_advice(config.poseidon_aux_conf.field_input, Rotation::cur());
+            let bytes_in_field_index = meta.query_advice(
+                config.poseidon_aux_conf.bytes_in_field_index,
+                Rotation::cur(),
+            );
+            let field_index =
+                meta.query_advice(config.poseidon_aux_conf.field_index, Rotation::cur());
+            let is_field_border =
+                meta.query_advice(config.poseidon_aux_conf.is_field_border, Rotation::cur());
+            let padding_shift =
+                meta.query_advice(config.poseidon_aux_conf.padding_shift, Rotation::cur());
 
             vec![
                 ("q_first_rows=1 => addr=0", q_first_rows.clone() * addr),
@@ -644,18 +704,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                     "q_first_rows=1 => is_high=0",
                     q_first_rows.clone() * is_high,
                 ),
-                (
-                    "q_first_rows=1 => rlc_acc=0",
-                    q_first_rows.clone() * rlc_acc,
-                ),
-                (
-                    "q_first_rows=1 => hash_hi=0",
-                    q_first_rows.clone() * hash_hi,
-                ),
-                (
-                    "q_first_rows=1 => hash_lo=0",
-                    q_first_rows.clone() * hash_lo,
-                ),
+                ("q_first_rows=1 => hash=0", q_first_rows.clone() * hash),
                 (
                     "q_first_rows=1 => cnt_is_zero=1",
                     q_first_rows.clone() * (1.expr() - cnt_is_zero),
@@ -670,22 +719,256 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                 ),
                 (
                     "q_first_rows=1 => addr_is_zero=1",
-                    q_first_rows.clone() * (1.expr() - addr_is_zero),
+                    q_first_rows.clone() * (1.expr() - addr_is_zero.clone()),
+                ),
+                (
+                    "q_first_rows=1 => field_input is zero",
+                    q_first_rows.clone() * addr_is_zero.clone() * field_input,
+                ),
+                (
+                    "q_first_rows=1 => bytes_in_field_index is zero",
+                    q_first_rows.clone() * addr_is_zero.clone() * bytes_in_field_index,
+                ),
+                (
+                    "q_first_rows=1 => field_index is one",
+                    q_first_rows.clone() * addr_is_zero.clone() * (1.expr() - field_index),
+                ),
+                (
+                    "q_first_rows=1 => is_field_border is zero",
+                    q_first_rows.clone() * addr_is_zero.clone() * is_field_border,
+                ),
+                (
+                    "q_first_rows=1 => padding_shift is 256^(BYTES_IN_FIELD)",
+                    q_first_rows.clone()
+                        * addr_is_zero.clone()
+                        * (padding_shift
+                            - Expression::Constant(
+                                F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64]),
+                            )),
                 ),
             ]
         });
 
+        // Hash auxiliary column constraint
+        config.configure_hash_aux(meta);
+
         // add all lookup constraints here
         // config.push_byte_range_lookup(meta, "BYTECODE_PUSH_BYTE_RANGE_LOOKUP");
         config.bytecode_lookup(meta, "BYTECODE_LOOKUP_FIXED");
-        config.keccak_lookup(meta, "BYTECODE_LOOKUP_KECCAK_HASH");
+        config.poseidon_lookup(meta, "BYTECODE_LOOKUP_POSEIDON_HASH");
         config.public_lookup(meta, "BYTECODE_LOOKUP_PUBLIC_CODE_HASH");
 
         config
     }
 }
 
+impl<F: Field> BytecodeHashAuxConfig<F> {
+    fn new(meta: &mut ConstraintSystem<F>) -> Self {
+        let hash = meta.advice_column();
+        let control_length = meta.advice_column();
+        let field_input = meta.advice_column();
+        let bytes_in_field_index = meta.advice_column();
+        let bytes_in_field_inv = meta.advice_column();
+        let is_field_border = meta.advice_column();
+        let padding_shift = meta.advice_column();
+        let field_index = meta.advice_column();
+        let field_index_inv = meta.advice_column();
+        let poseidon_aux_conf = BytecodeHashAuxConfig {
+            hash,
+            control_length,
+            field_input,
+            bytes_in_field_index,
+            bytes_in_field_inv,
+            is_field_border,
+            padding_shift,
+            field_index,
+            field_index_inv,
+            _marker: PhantomData,
+        };
+
+        poseidon_aux_conf
+    }
+}
+
 impl<F: Field> BytecodeCircuitConfig<F> {
+    fn configure_hash_aux(&self, meta: &mut ConstraintSystem<F>) {
+        meta.create_gate("BYTECODE_field", |meta| {
+            let q_enable = meta.query_selector(self.q_enable);
+            let is_field_border =
+                meta.query_advice(self.poseidon_aux_conf.is_field_border, Rotation::cur());
+            vec![(
+                "is_field_border is bool",
+                q_enable * is_field_border.clone() * (1.expr() - is_field_border),
+            )]
+        });
+
+        // current byte_in_field index is not the last one: i.e POSEIDON_HASH_BYTES_IN_FIELD
+        // note: POSEIDON_HASH_BYTES_IN_FIELD is currently a constant.
+        let q_byte_in_field_not_last = |meta: &mut VirtualCells<F>| {
+            (POSEIDON_HASH_BYTES_IN_FIELD.expr()
+                - meta.query_advice(self.poseidon_aux_conf.bytes_in_field_index, Rotation::cur()))
+                * meta.query_advice(self.poseidon_aux_conf.bytes_in_field_inv, Rotation::cur())
+        };
+
+        meta.create_gate("BYTECODE_field_byte_cycling", |meta| {
+            let q_enable = meta.query_selector(self.q_enable);
+            let addr_is_not_zero = not::expr(self.addr_is_zero.expr_at(meta, Rotation::cur()));
+            let is_padding = meta.query_advice(self.is_padding, Rotation::cur());
+            let condition = q_enable * addr_is_not_zero * not::expr(is_padding);
+
+            let field_input =
+                meta.query_advice(self.poseidon_aux_conf.field_input, Rotation::cur());
+            let file_input_prev =
+                meta.query_advice(self.poseidon_aux_conf.field_input, Rotation::prev());
+            let bytes_in_field_index =
+                meta.query_advice(self.poseidon_aux_conf.bytes_in_field_index, Rotation::cur());
+            let is_field_border =
+                meta.query_advice(self.poseidon_aux_conf.is_field_border, Rotation::cur());
+            let is_field_border_prev =
+                meta.query_advice(self.poseidon_aux_conf.is_field_border, Rotation::prev());
+            let bytes_in_field_index_prev = meta.query_advice(
+                self.poseidon_aux_conf.bytes_in_field_index,
+                Rotation::prev(),
+            );
+            let code = meta.query_advice(self.bytecode, Rotation::cur());
+            let padding_shift =
+                meta.query_advice(self.poseidon_aux_conf.padding_shift, Rotation::cur());
+            let padding_shift_prev =
+                meta.query_advice(self.poseidon_aux_conf.padding_shift, Rotation::prev());
+            let shifted_byte = code * padding_shift.clone();
+            let addr_unchange_next = self.addr_unchange_next.expr();
+            let is_padding_next = meta.query_advice(self.is_padding, Rotation::next());
+
+            vec![
+                (
+                    "q_byte_in_field_not_last = 1 except for BYTES_IN_FIELD",
+                    condition.clone() *
+                        (POSEIDON_HASH_BYTES_IN_FIELD.expr() - bytes_in_field_index.clone())
+                        * (1.expr() - q_byte_in_field_not_last(meta)),
+                ),
+                (
+                    // is_field_border = 1 时满足三个或条件:
+                    // 1. q_byte_in_field_is_last index恰好在31的边缘，例如index=30，则表示为边缘，此时该值为1
+                    // 2. 当没发生padding行时，恰好下一行为地址切换，此时也表示在边缘处，not::expr(addr_unchange_next) = 1
+                    // 3. 下一行为padding行，此时index+1已经到达了code len的位置，is_padding_next = 1
+                    "is_field_border := q_byte_in_field_is_last or addr_change_next or next_is_padding",
+                    condition.clone() *
+                        (is_field_border - or::expr(vec![
+                            not::expr(q_byte_in_field_not_last(meta)),
+                            not::expr(addr_unchange_next),
+                            is_padding_next
+                        ])),
+                ),
+                (
+                    "byte_in_field_index := 1 if is_field_border_prev else (byte_in_field_index_prev + 1)",
+                    condition.clone() *
+                        (bytes_in_field_index - select::expr(
+                            is_field_border_prev.clone(),
+                            1.expr(),
+                            bytes_in_field_index_prev + 1.expr(),
+                        ))
+                ),
+                (
+                    // 地址切换行不影响该约束
+                    "field_input = byte * padding_shift if is_field_border_prev else field_input_prev + byte * padding_shift",
+                    condition.clone() *
+                        (field_input - select::expr(
+                            is_field_border_prev.clone(),
+                            shifted_byte.clone(),
+                            file_input_prev + shifted_byte,
+                        ))
+                ),
+                (
+                    "when addr_unchange if not is_field_border_prev, then padding_shift := padding_shift_prev / 256",
+                    condition.clone() *
+                        not::expr(is_field_border_prev.clone()) *
+                        (padding_shift.clone() * 256.expr() - padding_shift_prev)
+                ),
+                (
+                    // 当地址切换时，也包含在如下情况里，因为地址切换时，is_field_border_prev == 1
+                    "if is_field_border_prev padding_shift := 256^(BYTES_IN_FIELD-1)",
+                    condition.clone() * is_field_border_prev * (padding_shift - Expression::Constant(F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64 - 1])))
+                ),
+            ]
+        });
+
+        // current field index is not the last one of the input: i.e
+        // PoseidonTable::INPUT_WIDTH
+        let q_field_not_last = |meta: &mut VirtualCells<F>| {
+            (PoseidonTable::INPUT_WIDTH.expr()
+                - meta.query_advice(self.poseidon_aux_conf.field_index, Rotation::cur()))
+                * meta.query_advice(self.poseidon_aux_conf.field_index_inv, Rotation::cur())
+        };
+
+        meta.create_gate("BYTECODE_field_input_cycling", |meta| {
+            let q_enable = meta.query_selector(self.q_enable);
+            let addr_is_not_zero = not::expr(self.addr_is_zero.expr_at(meta, Rotation::cur()));
+            let is_padding = meta.query_advice(self.is_padding, Rotation::cur());
+            let condition = q_enable * addr_is_not_zero * not::expr(is_padding);
+
+            let field_index =
+                meta.query_advice(self.poseidon_aux_conf.field_index, Rotation::cur());
+            let field_index_prev =
+                meta.query_advice(self.poseidon_aux_conf.field_index, Rotation::prev());
+            let field_index_inv_prev =
+                meta.query_advice(self.poseidon_aux_conf.field_index_inv, Rotation::prev());
+            let is_field_border_prev =
+                meta.query_advice(self.poseidon_aux_conf.is_field_border, Rotation::prev());
+            let control_length = meta.query_advice(self.poseidon_aux_conf.control_length, Rotation::cur());
+            let control_length_prev = meta.query_advice(self.poseidon_aux_conf.control_length, Rotation::prev());
+
+            let code_length = meta.query_advice(self.length, Rotation::cur());
+            let addr_unchange = self.addr_unchange.expr();
+
+            let pc = meta.query_advice(self.pc, Rotation::cur());
+            // 当q_input_continue = 1, 表示上一行还在input_0的行中
+            let q_input_continue =
+                (PoseidonTable::INPUT_WIDTH.expr() - field_index_prev.clone()) * field_index_inv_prev;
+            // is_field_border_prev = 1 表示上一行为31边界位置；
+            // not::expr(q_input_continue) = 1 表示上一行在input_1的行中；
+            // 与条件之后，q_input_border_last = 1 表示上一行为input_1的边界位置
+            let q_input_border_last =
+                and::expr([is_field_border_prev.clone(), not::expr(q_input_continue)]);
+            vec![
+                (
+                    "q_field_not_last = 1 except for PoseidonTable::INPUT_WIDTH",
+                    condition.clone() *
+                        (PoseidonTable::INPUT_WIDTH.expr() - field_index.clone())
+                        * (1.expr() - q_field_not_last(meta))
+                ),
+                (
+                    // 这里单独加了一个条件为addr_unchange，因为当发生地址切换时，q_input_border_last 取值为0或1
+                    // 当为0时，此时control_length不可能等于code_length_prev，所以此时约束无法成立，故拆分处理
+                    "addr_unchange => control_length := code_length - pc if q_input_border_last else control_length_prev",
+                    condition.clone() * addr_unchange.clone() *
+                        (control_length.clone() - select::expr(
+                            q_input_border_last.clone(),
+                            code_length.clone() - pc,
+                            control_length_prev
+                        ))
+                ),
+                (
+                    "addr_change => control_length := code length",
+                    condition.clone() * not::expr(addr_unchange.clone()) * (control_length - code_length)
+                ),
+                (
+                    "field_index = 1 when q_input_border_last",
+                    condition.clone() *
+                        q_input_border_last.clone() * (1.expr() - field_index.clone())
+                ),
+                (
+                    "when not q_input_border_last, field_index := if is_field_border_prev then field_index_prev + 1 else field_index_prev",
+                    condition.clone() *
+                        not::expr(q_input_border_last) * (field_index - select::expr(
+                        is_field_border_prev,
+                        field_index_prev.clone() + 1.expr(),
+                        field_index_prev
+                    ))
+                )
+            ]
+        });
+    }
+
     // assign data to circuit table cell
     fn assign_row(
         &self,
@@ -694,7 +977,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         row_cur: &Row,
         row_prev: Option<&Row>,
         row_next: Option<&Row>,
-        rlc_acc: Value<F>,
     ) -> Result<(), Error> {
         let cnt_is_zero = IsZeroWithRotationChip::construct(self.cnt_is_zero.clone());
         let cnt_is_15 = IsZeroChip::construct(self.cnt_is_15.clone());
@@ -763,14 +1045,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         assign_advice_or_fixed_with_u256(
             region,
             offset,
-            &row_cur.hash_hi.unwrap_or_default(),
-            self.hash_hi,
-        )?;
-        assign_advice_or_fixed_with_u256(
-            region,
-            offset,
-            &row_cur.hash_lo.unwrap_or_default(),
-            self.hash_lo,
+            &row_cur.hash.unwrap_or_default(),
+            self.poseidon_aux_conf.hash,
         )?;
         assign_advice_or_fixed_with_u256(
             region,
@@ -812,7 +1088,168 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 &cur_row_addr_value,
             ))),
         )?;
-        assign_advice_or_fixed_with_value(region, offset, rlc_acc, self.rlc_acc)?;
+        Ok(())
+    }
+
+    // todo 优化assign方法
+    pub fn assign_poseidon_aux_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+        row: &Row,
+        input_prev: F,
+    ) -> Result<F, Error> {
+        let code_length = row.length.unwrap_or_default().as_usize();
+        let code_index = row.pc.unwrap_or_default().as_usize();
+        let row_input = {
+            let block_size = POSEIDON_HASH_BYTES_IN_FIELD * PoseidonTable::INPUT_WIDTH;
+            let prog_block = code_index / block_size;
+            let control_length = code_length - prog_block * block_size;
+            // code_index+1是否恰好在31这个位置
+            let bytes_in_field_index = (code_index + 1) % POSEIDON_HASH_BYTES_IN_FIELD;
+            let field_border = bytes_in_field_index == 0;
+            // 如果在边缘则为31，否则就是1..30
+            let bytes_in_field_index = if field_border {
+                POSEIDON_HASH_BYTES_IN_FIELD
+            } else {
+                bytes_in_field_index
+            };
+            let bytes_in_field_index_inv_f =
+                F::from((POSEIDON_HASH_BYTES_IN_FIELD - bytes_in_field_index) as u64)
+                    .invert()
+                    .unwrap_or(F::zero());
+            // 256 ^ (31 - bytes_in_field_index) => (31 - bytes_in_field_index) 范围是0..30
+            let padding_shift_f = F::from(256_u64)
+                .pow_vartime([(POSEIDON_HASH_BYTES_IN_FIELD - bytes_in_field_index) as u64]);
+            // 是否左移只与value的index有关，input_prev初始是0
+            // 比如index = 0， row.value * 256 ^ 30 + 0
+            // index = 1, row.value * 256 ^ 29 + index_0 --> 0..30
+            // 当index = 30, bytes_in_field_index = 31
+            // row.value * 256 ^ 0 + index_29 之后次轮返回的input_f初始化为0，表示新的一轮循环
+            // 所以相当于一个字节然后左移最大30位，其实就是一个31字节的大数，对应哈希表
+            let input_f =
+                F::from_uniform_bytes(&convert_u256_to_64_bytes(&row.bytecode.unwrap_or_default()))
+                    * padding_shift_f
+                    + input_prev;
+            // relax field_border for code end
+            // 在31边缘和在code_length边缘都为边缘
+            let field_border = field_border || code_index + 1 == code_length;
+
+            // 判断在 0.. 30 还是 31.. 62 这个区间，区分 input_0 or input_1, 比如 0.. 30 结果都为 1，31.. 61 结果都为 2
+            let field_index = (code_index % block_size) / POSEIDON_HASH_BYTES_IN_FIELD + 1;
+            let field_index_inv_f = F::from((PoseidonTable::INPUT_WIDTH - field_index) as u64)
+                .invert()
+                .unwrap_or(F::zero());
+
+            for (tip, column, val) in [
+                (
+                    "control length",
+                    self.poseidon_aux_conf.control_length,
+                    F::from(control_length as u64),
+                ),
+                ("field input", self.poseidon_aux_conf.field_input, input_f),
+                (
+                    "bytes in field",
+                    self.poseidon_aux_conf.bytes_in_field_index,
+                    F::from(bytes_in_field_index as u64),
+                ),
+                (
+                    "bytes in field inv",
+                    self.poseidon_aux_conf.bytes_in_field_inv,
+                    bytes_in_field_index_inv_f,
+                ),
+                (
+                    "field border",
+                    self.poseidon_aux_conf.is_field_border,
+                    F::from(field_border as u64),
+                ),
+                (
+                    "padding shift",
+                    self.poseidon_aux_conf.padding_shift,
+                    padding_shift_f,
+                ),
+                (
+                    "field index",
+                    self.poseidon_aux_conf.field_index,
+                    F::from(field_index as u64),
+                ),
+                (
+                    "field index inv",
+                    self.poseidon_aux_conf.field_index_inv,
+                    field_index_inv_f,
+                ),
+            ] {
+                region.assign_advice(
+                    || format!("assign {tip} {offset}"),
+                    column,
+                    offset,
+                    || Value::known(val),
+                )?;
+            }
+
+            if field_border {
+                F::zero()
+            } else {
+                input_f
+            }
+        };
+
+        Ok(row_input)
+    }
+
+    pub fn assign_poseidon_aux_default_row(
+        &self,
+        region: &mut Region<'_, F>,
+        offset: usize,
+    ) -> Result<(), Error> {
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.poseidon_aux_conf.control_length,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.poseidon_aux_conf.field_input,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.poseidon_aux_conf.bytes_in_field_index,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.poseidon_aux_conf.bytes_in_field_inv,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.poseidon_aux_conf.is_field_border,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::from(256).pow(U256::from(POSEIDON_HASH_BYTES_IN_FIELD)),
+            self.poseidon_aux_conf.padding_shift,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::one(),
+            self.poseidon_aux_conf.field_index,
+        )?;
+        assign_advice_or_fixed_with_u256(
+            region,
+            offset,
+            &U256::zero(),
+            self.poseidon_aux_conf.field_index_inv,
+        )?;
         Ok(())
     }
 
@@ -820,15 +1257,13 @@ impl<F: Field> BytecodeCircuitConfig<F> {
     pub fn assign_with_region(
         &self,
         region: &mut Region<'_, F>,
-        challenges: &Challenges<Value<F>>,
+        _challenges: &Challenges<Value<F>>,
         witness: &Witness,
         num_row_incl_padding: usize,
     ) -> Result<(), Error> {
-        let challenge = challenges.keccak_input();
-
-        let mut rlc_acc_prev: Value<F> = Value::known(F::ZERO);
         let bytecode_len = witness.bytecode.len();
         let default_row = Default::default();
+        let mut row_input = F::zero();
         for offset in 0..bytecode_len {
             let row_prev = if offset == 0 {
                 &default_row
@@ -843,7 +1278,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 &witness.bytecode[offset + 1]
             };
 
-            // calc rlc_acc
             // if the `cur_row_addr_value - prev_row_addr_value` is 0, it means addr has not changed.
             // if the `cur_row_addr_value - prev_row_addr_value` is not 0, it means addr has changed, and it is a new contract.
             let row_cur_addr_value = row_cur.addr.unwrap_or_default();
@@ -851,46 +1285,29 @@ impl<F: Field> BytecodeCircuitConfig<F> {
             let addr_unchange_flag = row_cur_addr_value.cmp(&row_prev_addr_value).is_eq();
             let addr_is_zero_flag = row_cur_addr_value.is_zero();
 
-            // 1. if addr changes, it means this is a new contract and rlc_acc must equal bytecode
-            // 2. if addr has not changed, indicating that it is the same contract. The value of rlc_acc is `rlc_acc_prev * challenge + bytecode`
-            let bytecode_value = Value::known(F::from_uniform_bytes(&convert_u256_to_64_bytes(
-                &row_cur.bytecode.unwrap_or_default(),
-            )));
-            let rlc_acc: Value<F> = if !addr_unchange_flag {
-                bytecode_value
-            } else if addr_unchange_flag && !addr_is_zero_flag {
-                rlc_acc_prev * challenge + bytecode_value
-            } else {
-                Value::known(F::ZERO)
-            };
-            rlc_acc_prev = rlc_acc;
             // assign_row
-            self.assign_row(
-                region,
-                offset,
-                row_cur,
-                Some(row_prev),
-                Some(row_next),
-                rlc_acc,
-            )?;
+            self.assign_row(region, offset, row_cur, Some(row_prev), Some(row_next))?;
+
+            let is_padding = row_cur.is_padding.unwrap_or_default() == U256::one();
+            if is_padding || addr_is_zero_flag {
+                self.assign_poseidon_aux_default_row(region, offset)?;
+            } else {
+                if !addr_unchange_flag {
+                    row_input = F::zero()
+                }
+                row_input = self.assign_poseidon_aux_row(region, offset, row_cur, row_input)?;
+            }
         }
 
         // pad the rest rows
-        let rlc_acc_default = Value::known(F::ZERO);
         for offset in witness.bytecode.len()..num_row_incl_padding {
             let row_prev = if offset == witness.bytecode.len() {
                 witness.bytecode.last()
             } else {
                 None
             };
-            self.assign_row(
-                region,
-                offset,
-                &Default::default(),
-                row_prev,
-                None,
-                rlc_acc_default,
-            )?;
+            self.assign_row(region, offset, &Default::default(), row_prev, None)?;
+            self.assign_poseidon_aux_default_row(region, offset)?;
         }
         Ok(())
     }
@@ -906,9 +1323,39 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         region.name_column(|| "BYTECODE_acc_lo", self.acc_lo);
         region.name_column(|| "BYTECODE_cnt", self.cnt);
         region.name_column(|| "BYTECODE_is_high", self.is_high);
-        region.name_column(|| "BYTECODE_rlc_acc", self.rlc_acc);
-        region.name_column(|| "BYTECODE_hash_hi", self.hash_hi);
-        region.name_column(|| "BYTECODE_hash_lo", self.hash_lo);
+        region.name_column(|| "BYTECODE_hash", self.poseidon_aux_conf.hash);
+        region.name_column(
+            || "BYTECODE_control_length",
+            self.poseidon_aux_conf.control_length,
+        );
+        region.name_column(
+            || "BYTECODE_field_input",
+            self.poseidon_aux_conf.field_input,
+        );
+        region.name_column(
+            || "BYTECODE_bytes_in_field_index",
+            self.poseidon_aux_conf.bytes_in_field_index,
+        );
+        region.name_column(
+            || "BYTECODE_bytes_in_field_inv",
+            self.poseidon_aux_conf.bytes_in_field_inv,
+        );
+        region.name_column(
+            || "BYTECODE_is_field_border",
+            self.poseidon_aux_conf.is_field_border,
+        );
+        region.name_column(
+            || "BYTECODE_padding_shift",
+            self.poseidon_aux_conf.padding_shift,
+        );
+        region.name_column(
+            || "BYTECODE_field_index",
+            self.poseidon_aux_conf.field_index,
+        );
+        region.name_column(
+            || "BYTECODE_field_index_inv",
+            self.poseidon_aux_conf.field_index_inv,
+        );
         self.cnt_is_zero
             .annotate_columns_in_region(region, "BYTECODE_cnt_is_zero");
         self.cnt_is_15
@@ -981,40 +1428,52 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         });
     }
 
-    pub fn keccak_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
-        #[cfg(not(feature = "no_hash_circuit"))]
-        meta.lookup_any(name, |meta| {
-            let q_enable = meta.query_selector(self.q_enable);
-            let addr_is_zero = self.addr_is_zero.expr_at(meta, Rotation::cur());
-            let addr_is_not_zero = 1.expr() - addr_is_zero;
-            let is_padding_cur = meta.query_advice(self.is_padding, Rotation::cur());
-            let is_padding_next = meta.query_advice(self.is_padding, Rotation::next());
+    pub fn poseidon_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
+        let field_selector = |meta: &mut VirtualCells<F>| {
+            // 0表示input_0范围内，1表示input_1范围内
+            let field_index =
+                meta.query_advice(self.poseidon_aux_conf.field_index, Rotation::cur()) - 1.expr();
+            [1.expr() - field_index.clone(), field_index]
+        };
 
-            let keecak_entry = LookupEntry::Keccak {
-                input_len: meta.query_advice(self.length, Rotation::cur()),
-                input_rlc: meta.query_advice(self.rlc_acc, Rotation::cur()),
-                output_hi: meta.query_advice(self.hash_hi, Rotation::cur()),
-                output_lo: meta.query_advice(self.hash_lo, Rotation::cur()),
-            };
-            let keecak_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self
-                .keccak_table
-                .get_lookup_vector(meta, keecak_entry.clone());
+        let domain_spec_factor = Expression::Constant(F::from_u128(HASHABLE_DOMAIN_SPEC));
 
-            keecak_lookup_vec
-                .into_iter()
-                .map(|(left, right)| {
-                    (
-                        q_enable.clone()
-                            * addr_is_not_zero.clone()
-                            * (1.expr() - is_padding_cur.clone())
-                            * is_padding_next.clone()
-                            * left,
-                        right,
-                    )
-                })
-                .collect()
-        });
+        // poseidon lookup:
+        //  * PoseidonTable::INPUT_WIDTH lookups for each input field
+        //  * PoseidonTable::INPUT_WIDTH -1 lookups for the padded zero input
+        //  so we have 2*PoseidonTable::INPUT_WIDTH -1 lookups
+        for i in 0..PoseidonTable::INPUT_WIDTH {
+            meta.lookup_any(name, |meta| {
+                // 用于判断是input_0的边界还是input_1的边界
+                let enable = and::expr(vec![
+                    meta.query_advice(self.poseidon_aux_conf.is_field_border, Rotation::cur()),
+                    field_selector(meta)[i].clone(),
+                ]);
+                let q_enable = meta.query_selector(self.q_enable);
+                let addr_is_not_zero = not::expr(self.addr_is_zero.expr_at(meta, Rotation::cur()));
+                let condition = q_enable * addr_is_not_zero * enable;
+
+                let poseidon_entry = LookupEntry::PoseidonWithSelector {
+                    q_enable: 1.expr(),
+                    hash_id: meta.query_advice(self.poseidon_aux_conf.hash, Rotation::cur()),
+                    input: meta.query_advice(self.poseidon_aux_conf.field_input, Rotation::cur()),
+                    control: meta
+                        .query_advice(self.poseidon_aux_conf.control_length, Rotation::cur())
+                        * domain_spec_factor.clone(),
+                    domain: 0.expr(),
+                };
+
+                let poseidon_lookup_vec =
+                    self.poseidon_table
+                        .get_lookup_vector(meta, poseidon_entry, Some(i));
+                poseidon_lookup_vec
+                    .into_iter()
+                    .map(|(left, right)| (condition.clone() * left, right))
+                    .collect()
+            });
+        }
     }
+
     pub fn public_lookup(&self, meta: &mut ConstraintSystem<F>, name: &str) {
         meta.lookup_any(name, |meta| {
             let q_enable = meta.query_selector(self.q_enable);
@@ -1026,10 +1485,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 tag: (public::Tag::CodeHash as u8).expr(),
                 block_tx_idx: 0.expr(),
                 addr: meta.query_advice(self.addr, Rotation::cur()),
-                values: [
-                    meta.query_advice(self.hash_hi, Rotation::cur()),
-                    meta.query_advice(self.hash_lo, Rotation::cur()),
-                ],
+                values: meta.query_advice(self.poseidon_aux_conf.hash, Rotation::cur()),
             };
 
             let public_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self
@@ -1135,10 +1591,15 @@ mod test {
     use super::*;
     use crate::constant::MAX_NUM_ROW;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
-    use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
-    use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
+    use crate::poseidon_circuit::{
+        PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs, HASH_BLOCK_STEP_SIZE,
+    };
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
-    use crate::util::{chunk_data_test, log2_ceil};
+    use crate::table::KeccakTable;
+    use crate::util::{chunk_data_test, hash_code_poseidon, log2_ceil};
+    use crate::witness::poseidon::{
+        get_hash_input_from_u8s_default, get_poseidon_row_from_stream_input,
+    };
     use crate::witness::public::Tag;
     use eth_types::evm_types::OpcodeId;
     use eth_types::Bytecode;
@@ -1150,10 +1611,10 @@ mod test {
     #[derive(Clone)]
     pub struct BytecodeTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
-        pub keccak_circuit: KeccakCircuitConfig<F>,
         pub public_circuit: PublicCircuitConfig<F>,
         // used to verify Lookup(src: Bytecode circuit, target: Fixed circuit table)
         pub fixed_circuit: FixedCircuitConfig<F>,
+        pub poseidon_circuit: PoseidonCircuitConfig<F>,
         pub challenges: Challenges,
     }
 
@@ -1172,7 +1633,7 @@ mod test {
             let q_enable_public = meta.complex_selector();
             let bytecode_table = BytecodeTable::construct(meta, q_enable_bytecode);
             let fixed_table = FixedTable::construct(meta);
-            let keccak_table = KeccakTable::construct(meta);
+            let poseidon_table = PoseidonTable::construct(meta);
             let public_table = PublicTable::construct(meta);
             // challenge
             let challenges = Challenges::construct(meta);
@@ -1187,20 +1648,18 @@ mod test {
                     q_enable: q_enable_bytecode,
                     bytecode_table,
                     fixed_table,
-                    keccak_table,
+                    poseidon_table,
                     public_table,
                     challenges,
                 },
             );
 
-            let keccak_circuit = KeccakCircuitConfig::new(
-                meta,
-                KeccakCircuitConfigArgs {
-                    keccak_table,
-                    challenges,
-                },
-            );
+            let poseidon_circuit =
+                PoseidonCircuitConfig::new(meta, PoseidonCircuitConfigArgs { poseidon_table });
 
+            let keccak_table = KeccakTable::construct(meta);
+
+            // todo 目前这个public hash是keccak特性，后面会优化
             #[cfg(not(feature = "no_public_hash"))]
             let public_circuit = PublicCircuitConfig::new(
                 meta,
@@ -1221,7 +1680,7 @@ mod test {
             Self {
                 fixed_circuit,
                 bytecode_circuit,
-                keccak_circuit,
+                poseidon_circuit,
                 public_circuit,
                 challenges,
             }
@@ -1234,7 +1693,7 @@ mod test {
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW>,
         pub fixed_circuit: FixedCircuit<F>,
         pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
-        pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
+        pub poseidon_circuit: PoseidonCircuit<F, MAX_NUM_ROW>,
     }
 
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for BytecodeTestCircuit<F, MAX_NUM_ROW> {
@@ -1268,8 +1727,8 @@ mod test {
             self.fixed_circuit
                 .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
 
-            self.keccak_circuit.synthesize_sub(
-                &config.keccak_circuit,
+            self.poseidon_circuit.synthesize_sub(
+                &config.poseidon_circuit,
                 &mut layouter,
                 &challenges,
             )?;
@@ -1290,7 +1749,7 @@ mod test {
             Self {
                 bytecode_circuit: BytecodeCircuit::new_from_witness(&witness),
                 fixed_circuit: FixedCircuit::new_from_witness(&witness),
-                keccak_circuit: KeccakCircuit::new_from_witness(&witness),
+                poseidon_circuit: PoseidonCircuit::new_from_witness(&witness),
                 public_circuit: PublicCircuit::new_from_witness(&witness),
             }
         }
@@ -1299,7 +1758,7 @@ mod test {
             let mut vec = Vec::new();
             vec.extend(self.bytecode_circuit.instance());
             vec.extend(self.fixed_circuit.instance());
-            vec.extend(self.keccak_circuit.instance());
+            vec.extend(self.poseidon_circuit.instance());
             vec.extend(self.public_circuit.instance());
             vec
         }
@@ -1333,12 +1792,10 @@ mod test {
         let contract1_bytecode_len = contract1_bytecode.len();
         let contract2_bytecode_len = contract2_bytecode.len();
 
-        let (contract1_bytecode_hash_hi, contract1_bytecode_hash_lo) =
-            calc_keccak_hi_lo(contract1_bytecode.as_slice());
-        let (contract2_bytecode_hash_hi, contract2_bytecode_hash_lo) =
-            calc_keccak_hi_lo(contract2_bytecode.as_slice());
+        let contract1_bytecode_hash = hash_code_poseidon(contract1_bytecode.as_slice());
+        let contract2_bytecode_hash = hash_code_poseidon(contract2_bytecode.as_slice());
 
-        // ========= contract 2 ========
+        // ========= contract 1 ========
         let mut pc = 0;
         let mut contract1_byte_rows = vec![];
         contract1_byte_rows.push(Row {
@@ -1346,8 +1803,7 @@ mod test {
             pc: Some(pc.into()),
             bytecode: Some(OpcodeId::PUSH1.as_u8().into()),
             cnt: Some(1.into()),
-            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
-            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            hash: Some(contract1_bytecode_hash),
             length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         });
@@ -1356,8 +1812,7 @@ mod test {
         contract1_byte_rows.push(Row {
             addr: Some(addr1.into()),
             pc: Some(pc.into()),
-            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
-            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            hash: Some(contract1_bytecode_hash),
             length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         });
@@ -1368,8 +1823,7 @@ mod test {
             pc: Some(pc.into()),
             bytecode: Some(OpcodeId::PUSH1.as_u8().into()),
             cnt: Some(1.into()),
-            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
-            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            hash: Some(contract1_bytecode_hash),
             length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         });
@@ -1378,8 +1832,7 @@ mod test {
         contract1_byte_rows.push(Row {
             addr: Some(addr1.into()),
             pc: Some(pc.into()),
-            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
-            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            hash: Some(contract1_bytecode_hash),
             length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         });
@@ -1389,8 +1842,7 @@ mod test {
             addr: Some(addr1.into()),
             pc: Some(pc.into()),
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
-            hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
-            hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+            hash: Some(contract1_bytecode_hash),
             length: Some(contract1_bytecode_len.into()),
             ..Default::default()
         });
@@ -1401,9 +1853,9 @@ mod test {
             contract1_byte_rows.push(Row {
                 addr: Some(addr1.into()),
                 pc: Some(pc.into()),
-                hash_hi: Some(U256::from(contract1_bytecode_hash_hi)),
-                hash_lo: Some(U256::from(contract1_bytecode_hash_lo)),
+                hash: Some(contract1_bytecode_hash),
                 length: Some(contract1_bytecode_len.into()),
+                is_padding: Some(U256::one()),
                 ..Default::default()
             });
             pc += 1;
@@ -1416,8 +1868,7 @@ mod test {
             addr: Some(addr2.into()),
             pc: Some(pc.into()),
             bytecode: Some(OpcodeId::STOP.as_u8().into()),
-            hash_hi: Some(U256::from(contract2_bytecode_hash_hi)),
-            hash_lo: Some(U256::from(contract2_bytecode_hash_lo)),
+            hash: Some(contract2_bytecode_hash),
             length: Some(contract2_bytecode_len.into()),
             ..Default::default()
         });
@@ -1427,9 +1878,9 @@ mod test {
             contract2_byte_rows.push(Row {
                 addr: Some(addr2.into()),
                 pc: Some(pc.into()),
-                hash_hi: Some(U256::from(contract2_bytecode_hash_hi)),
-                hash_lo: Some(U256::from(contract2_bytecode_hash_lo)),
+                hash: Some(contract2_bytecode_hash),
                 length: Some(contract2_bytecode_len.into()),
+                is_padding: Some(U256::one()),
                 ..Default::default()
             });
             pc += 1;
@@ -1447,8 +1898,7 @@ mod test {
             tag: Tag::CodeHash,
             value_0: Some(addr1_hi),
             value_1: Some(addr1_lo),
-            value_2: Some(U256::from(contract1_bytecode_hash_hi)),
-            value_3: Some(U256::from(contract1_bytecode_hash_lo)),
+            value_2: Some(contract1_bytecode_hash),
             ..Default::default()
         });
 
@@ -1456,8 +1906,7 @@ mod test {
             tag: Tag::CodeHash,
             value_0: Some(addr2_hi),
             value_1: Some(addr2_lo),
-            value_2: Some(U256::from(contract2_bytecode_hash_hi)),
-            value_3: Some(U256::from(contract2_bytecode_hash_lo)),
+            value_2: Some(contract2_bytecode_hash),
             ..Default::default()
         });
 
@@ -1475,22 +1924,29 @@ mod test {
         witness.bytecode.extend(contract2_byte_rows);
         witness.public.extend(public_rows);
 
-        #[cfg(not(feature = "no_hash_circuit"))]
-        witness
-            .keccak
-            .extend(vec![contract1_bytecode, contract2_bytecode]);
+        let unrolled_inputs =
+            get_hash_input_from_u8s_default::<Fr>(contract1_bytecode.iter().copied());
+        let mut poseidon_rows = get_poseidon_row_from_stream_input(
+            &unrolled_inputs,
+            None,
+            contract1_bytecode.len() as u64,
+            HASH_BLOCK_STEP_SIZE,
+        );
+
+        let unrolled_inputs =
+            get_hash_input_from_u8s_default::<Fr>(contract2_bytecode.iter().copied());
+
+        poseidon_rows.append(&mut get_poseidon_row_from_stream_input(
+            &unrolled_inputs,
+            None,
+            contract2_bytecode.len() as u64,
+            HASH_BLOCK_STEP_SIZE,
+        ));
+
+        witness.poseidon = poseidon_rows;
 
         #[cfg(not(feature = "no_public_hash"))]
         public::witness_post_handle(&mut witness);
-
-        #[cfg(all(
-            not(feature = "no_public_hash_lookup"),
-            not(feature = "no_public_hash")
-        ))]
-        // collect public keccak inputs
-        witness
-            .keccak
-            .push(public::public_rows_hash_inputs(&witness.public));
 
         // verification circuit
         let prover = test_bytecode_circuit(witness);

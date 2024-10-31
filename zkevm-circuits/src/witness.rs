@@ -4,11 +4,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::{HashMap, HashSet};
-use std::io::Write;
-
+use ethers_core::types::spoof::code;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
+use std::io::Write;
 
 use eth_types::evm_types::OpcodeId;
 use eth_types::geth_types::ChunkData;
@@ -22,13 +22,15 @@ use crate::copy_circuit::CopyCircuit;
 use crate::core_circuit::CoreCircuit;
 use crate::execution::{get_every_execution_gadgets, ExecutionGadget, ExecutionState};
 use crate::exp_circuit::ExpCircuit;
-use crate::keccak_circuit::keccak_packed_multi::calc_keccak_hi_lo;
+use crate::poseidon_circuit::HASH_BLOCK_STEP_SIZE;
 use crate::public_circuit::PublicCircuit;
 use crate::state_circuit::ordering::state_to_be_limbs;
 use crate::state_circuit::StateCircuit;
-use crate::util::SubCircuit;
+use crate::util::{hash_code_poseidon, SubCircuit};
+use crate::witness::poseidon::{
+    get_hash_input_from_u8s_default, get_poseidon_row_from_stream_input,
+};
 use crate::witness::public::public_rows_to_instance;
-
 pub mod arithmetic;
 pub mod bitwise;
 pub mod bytecode;
@@ -72,6 +74,7 @@ macro_rules! assign_or_panic {
         }
     };
 }
+
 pub(crate) use assign_or_panic;
 
 impl Witness {
@@ -91,7 +94,7 @@ impl Witness {
     fn gen_bytecode_witness(
         addr: U256,
         mut machine_code: Vec<u8>,
-        (hash_hi, hash_lo): (u128, u128),
+        hash: U256,
     ) -> Vec<bytecode::Row> {
         let mut res = vec![];
         let mut pc = 0;
@@ -120,8 +123,7 @@ impl Witness {
                     acc_lo: Some(acc_lo.into()),
                     cnt: Some(cnt.into()),
                     is_high: Some((if cnt >= 16 { 1 } else { 0 }).into()),
-                    hash_hi: Some(hash_hi.into()),
-                    hash_lo: Some(hash_lo.into()),
+                    hash: Some(hash.into()),
                     length: Some(real_machine_code_len.into()),
                     is_padding: Some(0.into()),
                     ..Default::default()
@@ -142,8 +144,7 @@ impl Witness {
                         acc_lo: Some(acc_lo.into()),
                         cnt: Some(cnt.into()),
                         is_high: Some((if cnt >= 16 { 1 } else { 0 }).into()),
-                        hash_hi: Some(hash_hi.into()),
-                        hash_lo: Some(hash_lo.into()),
+                        hash: Some(hash.into()),
                         length: Some(real_machine_code_len.into()),
                         is_padding: Some(((pc >= real_machine_code_len) as u8).into()),
                         ..Default::default()
@@ -166,8 +167,7 @@ impl Witness {
                     acc_hi: Some(0.into()),
                     acc_lo: Some(0.into()),
                     is_high: Some(0.into()),
-                    hash_hi: Some(hash_hi.into()),
-                    hash_lo: Some(hash_lo.into()),
+                    hash: Some(hash.into()),
                     length: Some(real_machine_code_len.into()),
                     is_padding: Some(((pc >= real_machine_code_len) as u8).into()),
                     ..Default::default()
@@ -183,8 +183,7 @@ impl Witness {
             res.push(bytecode::Row {
                 addr: Some(addr),
                 pc: Some(pc.into()),
-                hash_hi: Some(hash_hi.into()),
-                hash_lo: Some(hash_lo.into()),
+                hash: Some(hash.into()),
                 length: Some(real_machine_code_len.into()),
                 is_padding: Some(((pc >= real_machine_code_len) as u8).into()),
                 ..Default::default()
@@ -202,15 +201,22 @@ impl Witness {
 
         for account in chunk_data.blocks.iter().flat_map(|b| b.accounts.iter()) {
             let machine_code = account.code.as_ref();
-            let code_hash = calc_keccak_hi_lo(machine_code);
+            let code_hash = hash_code_poseidon(machine_code);
 
             if !account.code.is_empty() && !bytecode_set.contains(&(account.address, code_hash)) {
                 let mut bytecode_table =
                     Self::gen_bytecode_witness(account.address, machine_code.to_vec(), code_hash);
-                // add to keccak_inputs
-                #[cfg(not(feature = "no_hash_circuit"))]
+                // add to poseidon rows
                 if machine_code.len() > 0 {
-                    self.keccak.push(machine_code.to_vec());
+                    let unrolled_inputs =
+                        get_hash_input_from_u8s_default::<Fr>(machine_code.iter().copied());
+                    let mut poseidon_rows = get_poseidon_row_from_stream_input(
+                        &unrolled_inputs,
+                        Some(code_hash),
+                        machine_code.len() as u64,
+                        HASH_BLOCK_STEP_SIZE,
+                    );
+                    self.poseidon.append(&mut poseidon_rows);
                 }
                 self.bytecode.append(&mut bytecode_table);
 
@@ -540,6 +546,7 @@ impl Witness {
         self.write_one_table(&mut writer, &self.exp, "Exp", None);
         self.write_one_table(&mut writer, &self.bitwise, "Bitwise", None);
         self.write_one_table(&mut writer, &self.arithmetic, "Arithmetic", None);
+        self.write_one_table(&mut writer, &self.poseidon, "Poseidon", None);
         writer.write(csv2html::epilogue().as_ref()).unwrap();
     }
 

@@ -16,11 +16,12 @@ use crate::exp_circuit::{ExpCircuit, ExpCircuitConfig, ExpCircuitConfigArgs};
 use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
 #[cfg(not(feature = "no_hash_circuit"))]
 use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
+use crate::poseidon_circuit::{PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
 use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
 use crate::table::{
     ArithmeticTable, BitwiseTable, BytecodeTable, CopyTable, ExpTable, FixedTable, KeccakTable,
-    PublicTable, StateTable,
+    PoseidonTable, PublicTable, StateTable,
 };
 use crate::util::{Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
@@ -28,6 +29,7 @@ use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
 use snark_verifier_sdk::CircuitExt;
+
 #[derive(Clone)]
 pub struct SuperCircuitConfig<
     F: Field,
@@ -46,6 +48,7 @@ pub struct SuperCircuitConfig<
     challenges: Challenges<halo2_proofs::plonk::Challenge>,
     #[cfg(not(feature = "no_hash_circuit"))]
     keccak_circuit: KeccakCircuitConfig<F>,
+    poseidon_circuit: PoseidonCircuitConfig<F>,
 }
 
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> SubCircuitConfig<F>
@@ -91,6 +94,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
         // construct keccak table
         let keccak_table = KeccakTable::construct(meta);
 
+        // construct poseidon table
+        let poseidon_table = PoseidonTable::construct(meta);
+
         // construct challenges after construct columns
         let challenges = Challenges::construct(meta);
 
@@ -113,7 +119,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
                 q_enable: q_enable_bytecode,
                 bytecode_table,
                 fixed_table,
-                keccak_table,
+                poseidon_table,
                 public_table,
                 challenges,
             },
@@ -187,6 +193,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             },
         );
 
+        let poseidon_circuit =
+            PoseidonCircuitConfig::new(meta, PoseidonCircuitConfigArgs { poseidon_table });
+
         SuperCircuitConfig {
             core_circuit,
             bytecode_circuit,
@@ -200,6 +209,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             challenges,
             #[cfg(not(feature = "no_hash_circuit"))]
             keccak_circuit,
+            poseidon_circuit,
         }
     }
 }
@@ -222,6 +232,7 @@ pub struct SuperCircuit<
     pub exp_circuit: ExpCircuit<F, MAX_NUM_ROW>,
     #[cfg(not(feature = "no_hash_circuit"))]
     pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
+    poseidon_circuit: PoseidonCircuit<F, MAX_NUM_ROW>,
 }
 
 impl<
@@ -246,6 +257,7 @@ impl<
         let exp_circuit = ExpCircuit::new_from_witness(witness);
         #[cfg(not(feature = "no_hash_circuit"))]
         let keccak_circuit = KeccakCircuit::new_from_witness(witness);
+        let poseidon_circuit = PoseidonCircuit::new_from_witness(witness);
         Self {
             core_circuit,
             bytecode_circuit,
@@ -258,6 +270,7 @@ impl<
             exp_circuit,
             #[cfg(not(feature = "no_hash_circuit"))]
             keccak_circuit,
+            poseidon_circuit,
         }
     }
 
@@ -274,6 +287,7 @@ impl<
         instance.extend(self.exp_circuit.instance());
         #[cfg(not(feature = "no_hash_circuit"))]
         instance.extend(self.keccak_circuit.instance());
+        instance.extend(self.poseidon_circuit.instance());
         instance
     }
 
@@ -306,6 +320,8 @@ impl<
         #[cfg(not(feature = "no_hash_circuit"))]
         self.keccak_circuit
             .synthesize_sub(&config.keccak_circuit, layouter, challenges)?;
+        self.poseidon_circuit
+            .synthesize_sub(&config.poseidon_circuit, layouter, challenges)?;
         Ok(())
     }
 
@@ -321,6 +337,7 @@ impl<
             ExpCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             #[cfg(not(feature = "no_hash_circuit"))]
             KeccakCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
+            PoseidonCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
         let begin = itertools::max(unusable_rows.iter().map(|(begin, _end)| *begin)).unwrap();
         let end = itertools::max(unusable_rows.iter().map(|(_begin, end)| *end)).unwrap();
@@ -339,6 +356,7 @@ impl<
             ExpCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             #[cfg(not(feature = "no_hash_circuit"))]
             KeccakCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
+            PoseidonCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
 
         // when feature `no_fixed_lookup` is on, we don't count the rows in fixed circuit

@@ -27,11 +27,8 @@ pub struct Row {
     pub cnt: Option<U256>,
     /// whether count is equal or larger than 16
     pub is_high: Option<U256>,
-    /// the last line of the contract will store the hash value of the contract bytecode
-    /// High 128 bits of the contract bytecode hash result
-    pub hash_hi: Option<U256>,
-    /// Low 128 bits of the contract bytecode hash result
-    pub hash_lo: Option<U256>,
+    /// poseidon hash, maximum 254 bits
+    pub hash: Option<U256>,
     /// the effective length of the contract bytecode
     pub length: Option<U256>,
     /// whether the current bytecode is a padding bytecode
