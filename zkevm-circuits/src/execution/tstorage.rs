@@ -62,6 +62,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let Auxiliary {
             state_stamp,
             stack_pointer,
+            read_only,
             ..
         } = config.get_auxiliary();
         let stamp = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
@@ -84,6 +85,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let current_read_only = meta.query_advice(read_only, Rotation::cur());
+        // read_only 为 0
+        constraints.push((
+            "read_only_when_TSTORE".into(),
+            is_tstore.clone() * current_read_only.clone(),
+        ));
 
         // pop key from stack
         let read_stack_key = config.get_state_lookup(meta, 0);

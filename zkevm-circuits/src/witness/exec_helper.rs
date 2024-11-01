@@ -359,6 +359,16 @@ impl WitnessExecHelper {
             let need_exit_call = prev_step_is_error
                 && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
 
+            let is_static_call = step.op == OpcodeId::STATICCALL;
+            let caller_is_static = self.call_ctx.last().map_or(0, |ctx| ctx.is_static as u64) == 1;
+            // 如果当前opcode是STATICCALL，设置read_only 状态为1
+            // 其余opcode的read_only 状态设置为和上一个read_only 状态相同即可
+            if is_static_call {
+                self.read_only = 1u64.into();
+            } else {
+                self.read_only = caller_is_static as u64;
+            }
+
             if prev_is_return_revert_or_stop || need_exit_call {
                 // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
                 let call_trace_step = call_step_store.pop().unwrap();
@@ -555,6 +565,7 @@ impl WitnessExecHelper {
                     OpcodeId::RETURNDATACOPY => Some(ExecError::ReturnDataOutOfBounds),
                     OpcodeId::REVERT => None,
                     OpcodeId::SSTORE
+                    | OpcodeId::TSTORE
                     | OpcodeId::CREATE
                     | OpcodeId::CREATE2
                     | OpcodeId::SELFDESTRUCT

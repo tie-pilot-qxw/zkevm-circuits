@@ -94,6 +94,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let Auxiliary {
             state_stamp,
             memory_chunk,
+            read_only,
             ..
         } = config.get_auxiliary();
         let state_stamp_prev = meta.query_advice(state_stamp, Rotation(-1 * NUM_ROW as i32));
@@ -108,6 +109,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let copy_entry = config.get_copy_lookup(meta, 0);
         let (_, _, _, _, _, _, _, _, _, len, _) =
             extract_lookup_expression!(copy, copy_entry.clone());
+
+        // Create a simple selector with opcode
+        let selector = SimpleSelector::new(&[
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
+            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
+        ]);
+        let mut constraints = vec![];
+        // Add constraints for the selector.
+        constraints.extend(selector.get_constraints());
+
+        let is_static_call = selector.select(&[0.expr(), 1.expr(), 0.expr()]);
+        let previous_read_only = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
+        // 关于STATICCALL的read_only状态，分为两种情况：
+        // 1. 单个STATICCALL调用：read only状态变换，此时约束当前的read only delta为1
+        // 2. STATICCALL 内部调用STATICCALL：此时约束当前的read only和上一个read only 状态相同
+        let read_only_delta = (1.expr() - previous_read_only.clone()) * is_static_call;
+
         let delta = AuxiliaryOutcome {
             // 读取CALL指令调用需要的args，因为相同的args写了两份，所以需要len*2
             // 第一次args: 记录从memory读取数据
@@ -120,19 +139,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             // 此处的gas_left值与CALL1-3保持一致
             gas_left: ExpressionOutcome::Delta(0.expr()),
             refund: ExpressionOutcome::Delta(0.expr()),
+            read_only: ExpressionOutcome::Delta(read_only_delta),
             ..Default::default()
         };
-
-        let mut constraints = vec![];
-
-        // Create a simple selector with opcode
-        let selector = SimpleSelector::new(&[
-            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX], Rotation::cur()),
-            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 1], Rotation::cur()),
-            meta.query_advice(config.vers[OPCODE_SELECTOR_IDX + 2], Rotation::cur()),
-        ]);
-        // Add constraints for the selector.
-        constraints.extend(selector.get_constraints());
 
         // append auxiliary constraints
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -290,6 +299,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ),
             _ => panic!("opcode not CALL or STATICCALL or DELEGATECALL"),
         };
+        //  设置read_only
+        current_state.read_only =
+            (trace.op == OpcodeId::STATICCALL || current_state.read_only == 1).into();
 
         let selector_index = match trace.op {
             OpcodeId::CALL => OPCODE_SELECTOR_IDX_START,

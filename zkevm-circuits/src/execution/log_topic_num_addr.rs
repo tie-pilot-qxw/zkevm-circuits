@@ -71,9 +71,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let block_tx_idx = concat_block_tx_idx_expr(block_idx.clone(), tx_idx.clone());
 
         let code_addr = meta.query_advice(config.code_addr, Rotation::cur());
-        let Auxiliary { log_stamp, .. } = config.get_auxiliary();
+        let Auxiliary {
+            log_stamp,
+            read_only,
+            ..
+        } = config.get_auxiliary();
         let log_stamp = meta.query_advice(log_stamp, Rotation(NUM_ROW as i32 * -1));
         let selector = config.get_log_left_selector(meta);
+        let current_read_only = meta.query_advice(read_only, Rotation::cur());
 
         // build constraints ---
         // append auxiliary constraints
@@ -93,6 +98,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             ..Default::default()
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
+
+        let is_log1234 = selector.select(&[
+            1.expr(), // LOG4
+            1.expr(), // LOG3
+            1.expr(), // LOG2
+            1.expr(), // LOG1
+            0.expr(), // LOG0
+        ]);
+
+        constraints.extend([(
+            "read_only must be 0 for LOG1-LOG4".into(),
+            is_log1234 * current_read_only,
+        )]);
 
         // new selector LOG_LEFT_X and append selector constraints
         let selector = config.get_log_left_selector(meta);

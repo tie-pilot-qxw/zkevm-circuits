@@ -4,15 +4,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::marker::PhantomData;
-
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-
-use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep};
-use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::Expr;
+use std::marker::PhantomData;
+use std::ops::Neg;
 
 use crate::constant::{NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::execution::end_call_2::RETURNDATA_SIZE_COL_IDX;
@@ -23,6 +18,10 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
+use eth_types::evm_types::OpcodeId;
+use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
+use gadgets::util::Expr;
 
 pub(super) const NUM_ROW: usize = 2;
 const STATE_STAMP_DELTA: usize = 3;
@@ -166,10 +165,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             cur_gas_left - return_success_for_next * prev_gas_left - gas_cost,
         ));
 
+        let is_static_call = selector.select(&[0.expr(), 1.expr(), 0.expr()]);
+        let read_only = meta.query_advice(config.get_auxiliary().read_only, Rotation::cur());
+        let previous_read_only = meta.query_advice(
+            config.get_auxiliary().read_only,
+            Rotation(-1 * NUM_ROW as i32),
+        );
+        // post_call时，前一个状态是return 或revert，此时已经重置了read_only 状态
+        // 状态变换，约束当前和read only 和之前read only 状态的变化值
+        let read_only_delta = (read_only.expr() - previous_read_only.clone()) * is_static_call;
+
         let delta = AuxiliaryOutcome {
             gas_left: ExpressionOutcome::Any,
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             memory_chunk: ExpressionOutcome::To(operands[2].clone()),
+            read_only: ExpressionOutcome::Delta(read_only_delta),
             ..Default::default()
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -277,6 +287,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             selector_index,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
+
+        let caller_is_static_call = current_state
+            .call_ctx
+            .last()
+            .map_or(0, |ctx| ctx.is_static as u64)
+            == 1;
+        // 当前的read_only 和前一个read_only的状态一致
+        current_state.read_only = caller_is_static_call as u64;
 
         Witness {
             core: vec![core_row_1, core_row_0],
