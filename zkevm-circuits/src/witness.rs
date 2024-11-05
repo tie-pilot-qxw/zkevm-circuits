@@ -37,6 +37,7 @@ pub mod core;
 pub(crate) mod exec_helper;
 pub mod exp;
 pub mod fixed;
+pub mod poseidon;
 pub mod public;
 pub mod state;
 mod util;
@@ -59,6 +60,8 @@ pub struct Witness {
     // and then keccak_circuit will calculate rows based on the inputs in the synthesize_sub method inside the circuit.
     pub keccak: Vec<Vec<u8>>,
     // we omit fixed table rows on purpose due to its large size
+    // poseidon circuit input
+    pub poseidon: Vec<poseidon::Row>,
 }
 
 macro_rules! assign_or_panic {

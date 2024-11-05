@@ -166,3 +166,6 @@ pub const PUBLIC_NUM_BEGINNING_PADDING_ROW: usize = 15;
 
 /// contains a STOP padding
 pub(crate) const BYTECODE_NUM_PADDING: usize = 33;
+
+/// Default number of bytes to pack into a field element.
+pub const POSEIDON_HASH_BYTES_IN_FIELD: usize = 31;

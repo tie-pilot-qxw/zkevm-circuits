@@ -6,7 +6,8 @@ members = [
     "trace-parser",
     "keccak256",
     "prover",
-    "aggregate-zkevm"
+    "aggregate-zkevm",
+    "poseidon"
 ]
 
 [profile.bench]

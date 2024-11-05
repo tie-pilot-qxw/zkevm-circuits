@@ -1,0 +1,39 @@
+[package]
+name = "poseidon-circuit"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ff = "0.13.0"
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = [
+    "circuit-params",
+    "derive_serde",
+] }
+lazy_static = "1.4.0"
+thiserror = "1.0"
+bitvec = "1"
+log = "0.4.0"
+rand_xorshift = "0.3.0"
+rand = "0.8"
+
+[features]
+default = ["short"]
+# Use an implementation using fewer rows (8) per permutation.
+short = []
+legacy = []
+
+[dev-dependencies]
+rand = "0.8"
+rand_chacha = "0.3.0"
+bencher = "0.1"
+subtle = "2"
+
+[[bench]]
+name = "hash"
+harness = false
+
+[profile.test]
+opt-level = 3
+debug-assertions = true
