@@ -984,9 +984,9 @@ pub struct PoseidonTable {
     /// Hash id
     pub hash_id: Column<Advice>,
     /// input0
-    pub input0: Column<Advice>,
+    pub input_0: Column<Advice>,
     /// input1
-    pub input1: Column<Advice>,
+    pub input_1: Column<Advice>,
     /// control
     pub control: Column<Advice>,
     /// domain spec
@@ -1007,8 +1007,8 @@ impl PoseidonTable {
         Self {
             q_enable: meta.fixed_column(),
             hash_id: meta.advice_column(),
-            input0: meta.advice_column(),
-            input1: meta.advice_column(),
+            input_0: meta.advice_column(),
+            input_1: meta.advice_column(),
             control: meta.advice_column(),
             domain_spec: meta.advice_column(),
             heading_mark: meta.advice_column(),
@@ -1022,8 +1022,8 @@ impl PoseidonTable {
     ) -> Vec<(Expression<F>, Expression<F>)> {
         let table_q_enable = meta.query_fixed(self.q_enable, Rotation::cur());
         let table_hash_id = meta.query_advice(self.hash_id, Rotation::cur());
-        let table_input_0 = meta.query_advice(self.input0, Rotation::cur());
-        let table_input_1 = meta.query_advice(self.input1, Rotation::cur());
+        let table_input_0 = meta.query_advice(self.input_0, Rotation::cur());
+        let table_input_1 = meta.query_advice(self.input_1, Rotation::cur());
         let table_control = meta.query_advice(self.control, Rotation::cur());
         let table_domain_spec = meta.query_advice(self.domain_spec, Rotation::cur());
         let table_heading_mark = meta.query_advice(self.heading_mark, Rotation::cur());

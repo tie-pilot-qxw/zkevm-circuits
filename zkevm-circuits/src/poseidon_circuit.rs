@@ -10,12 +10,9 @@ use crate::{
 use eth_types::Field;
 use halo2_proofs::{
     circuit::{Layouter, Value},
-    plonk::{Circuit, ConstraintSystem, Error},
+    plonk::{ConstraintSystem, Error},
 };
 use poseidon_circuit::hash::{PoseidonHashChip, PoseidonHashConfig, PoseidonHashTable};
-use poseidon_circuit::Hashable;
-use serde::Serialize;
-use std::hash::Hash;
 use std::marker::PhantomData;
 
 /// re-wrapping for mpt circuit
@@ -48,8 +45,8 @@ impl<F: Field> SubCircuitConfig<F> for PoseidonCircuitConfig<F> {
             poseidon_table.q_enable,
             [
                 poseidon_table.hash_id,
-                poseidon_table.input0,
-                poseidon_table.input1,
+                poseidon_table.input_0,
+                poseidon_table.input_1,
                 poseidon_table.control,
                 poseidon_table.domain_spec,
                 poseidon_table.heading_mark,
