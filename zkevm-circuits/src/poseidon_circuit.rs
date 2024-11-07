@@ -135,7 +135,7 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PoseidonCircuit<F, MA
 #[cfg(test)]
 mod test {
     use crate::poseidon_circuit::{
-        PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs,
+        PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs, HASH_BLOCK_STEP_SIZE,
     };
     use crate::table::PoseidonTable;
     use crate::util::{hash_code_poseidon, Challenges, SubCircuit, SubCircuitConfig};
@@ -184,8 +184,12 @@ mod test {
         println!("hash_block_size:{}", Fr::hash_block_size());
         let code = vec![1u8; 1];
         let unrolled_inputs = get_hash_input_from_u8s_default::<Fr>(code.iter().copied());
-        let rows =
-            get_poseidon_row_from_stream_input(&unrolled_inputs, None, code.len() as u64, 62);
+        let rows = get_poseidon_row_from_stream_input(
+            &unrolled_inputs,
+            None,
+            code.len() as u64,
+            HASH_BLOCK_STEP_SIZE,
+        );
         let witness = Witness {
             poseidon: rows,
             ..Default::default()

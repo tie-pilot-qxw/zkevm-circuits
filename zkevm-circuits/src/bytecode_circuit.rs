@@ -8,17 +8,17 @@ use crate::constant::{BYTECODE_NUM_PADDING, POSEIDON_HASH_BYTES_IN_FIELD};
 use crate::table::{BytecodeTable, FixedTable, PublicTable};
 use crate::table::{LookupEntry, PoseidonTable};
 use crate::util::{
-    assign_advice_or_fixed_with_u256, assign_advice_or_fixed_with_value, convert_u256_to_64_bytes,
-    Challenges, SubCircuit, SubCircuitConfig,
+    assign_advice_or_fixed_with_u256, convert_u256_to_64_bytes, Challenges, SubCircuit,
+    SubCircuitConfig,
 };
 use crate::witness::bytecode::Row;
 use crate::witness::{public, Witness};
 use eth_types::{Field, U256};
 use gadgets::is_zero::{IsZeroChip, IsZeroConfig, IsZeroInstruction};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
-use gadgets::util::{and, not, or, select, Expr};
+use gadgets::util::{and, not, or, pow_of_two, select, Expr};
 use halo2_proofs::circuit::{Layouter, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, SecondPhase, Selector};
+use halo2_proofs::plonk::{Advice, Column, ConstraintSystem, Error, Selector};
 use halo2_proofs::plonk::{Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
 use itertools::Itertools;
@@ -344,9 +344,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                     q_enable.clone()
                         * addr_is_zero.clone()
                         * (padding_shift
-                            - Expression::Constant(
-                                F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64]),
-                            )),
+                            - 1.expr() * pow_of_two::<F>(8 * POSEIDON_HASH_BYTES_IN_FIELD)),
                 ),
             ]
         });
@@ -586,9 +584,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                         * addr_is_not_zero.clone()
                         * is_padding_cur.clone()
                         * (padding_shift
-                            - Expression::Constant(
-                                F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64]),
-                            )),
+                            - 1.expr() * pow_of_two::<F>(8 * POSEIDON_HASH_BYTES_IN_FIELD)),
                 ),
             ]
         });
@@ -742,9 +738,7 @@ impl<F: Field> SubCircuitConfig<F> for BytecodeCircuitConfig<F> {
                     q_first_rows.clone()
                         * addr_is_zero.clone()
                         * (padding_shift
-                            - Expression::Constant(
-                                F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64]),
-                            )),
+                            - 1.expr() * pow_of_two::<F>(8 * POSEIDON_HASH_BYTES_IN_FIELD)),
                 ),
             ]
         });
@@ -887,7 +881,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 (
                     // 当地址切换时，也包含在如下情况里，因为地址切换时，is_field_border_prev == 1
                     "if is_field_border_prev padding_shift := 256^(BYTES_IN_FIELD-1)",
-                    condition.clone() * is_field_border_prev * (padding_shift - Expression::Constant(F::from(256_u64).pow_vartime([POSEIDON_HASH_BYTES_IN_FIELD as u64 - 1])))
+                    condition.clone() * is_field_border_prev * (padding_shift - 1.expr() * pow_of_two::<F>(8 * (POSEIDON_HASH_BYTES_IN_FIELD - 1)))
                 ),
             ]
         });
@@ -1091,7 +1085,11 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         Ok(())
     }
 
-    // todo 优化assign方法
+    /// 返回的row_input是为了作为下一轮的输入，每31轮拼成一个Fr或已经为该bytecode的最后一行则置为0；
+    /// 满足：input = input_0 || ... || input_30，其中每个input为u8类型，通过padding_shift左移，将
+    /// 这些u8类型的数拼成一个Fr(31个字节)，因为input_0是最高位，所以每次返回的row_input已经是一个31字节的Fr类型；
+    /// 例如：对于input_1的这一轮，input_0则为input_prev，input_0 || input_1 组成高31和高30位，返回结果即为row_input,
+    /// 作为下一轮的输入
     pub fn assign_poseidon_aux_row(
         &self,
         region: &mut Region<'_, F>,
@@ -1119,8 +1117,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                     .invert()
                     .unwrap_or(F::zero());
             // 256 ^ (31 - bytes_in_field_index) => (31 - bytes_in_field_index) 范围是0..30
-            let padding_shift_f = F::from(256_u64)
-                .pow_vartime([(POSEIDON_HASH_BYTES_IN_FIELD - bytes_in_field_index) as u64]);
+            let padding_shift_f =
+                pow_of_two::<F>(8 * (POSEIDON_HASH_BYTES_IN_FIELD - bytes_in_field_index));
             // 是否左移只与value的index有关，input_prev初始是0
             // 比如index = 0， row.value * 256 ^ 30 + 0
             // index = 1, row.value * 256 ^ 29 + index_0 --> 0..30
@@ -1461,6 +1459,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                         .query_advice(self.poseidon_aux_conf.control_length, Rotation::cur())
                         * domain_spec_factor.clone(),
                     domain: 0.expr(),
+                    input_selector: i.expr(),
                 };
 
                 let poseidon_lookup_vec =
@@ -1485,7 +1484,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 tag: (public::Tag::CodeHash as u8).expr(),
                 block_tx_idx: 0.expr(),
                 addr: meta.query_advice(self.addr, Rotation::cur()),
-                values: meta.query_advice(self.poseidon_aux_conf.hash, Rotation::cur()),
+                value: meta.query_advice(self.poseidon_aux_conf.hash, Rotation::cur()),
             };
 
             let public_lookup_vec: Vec<(Expression<F>, Expression<F>)> = self

@@ -4,7 +4,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use ethers_core::types::spoof::code;
 use halo2_proofs::halo2curves::bn256::Fr;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};

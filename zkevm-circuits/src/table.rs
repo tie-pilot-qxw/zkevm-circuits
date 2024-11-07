@@ -12,7 +12,7 @@ use crate::witness::{bitwise, copy, fixed};
 use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
-use gadgets::util::{pow_of_two, Expr};
+use gadgets::util::{pow_of_two, select, Expr};
 use halo2_proofs::circuit::Region;
 use halo2_proofs::plonk::{
     Advice, Column, ConstraintSystem, Error, Expression, Fixed, Instance, SecondPhase, Selector,
@@ -739,14 +739,14 @@ impl PublicTable {
                 tag,
                 block_tx_idx,
                 addr,
-                values,
+                value,
             } => {
                 vec![
                     (tag, table_tag),
                     (block_tx_idx, table_block_tx_idx),
                     // table_value_0 << 128 + table_value_1
                     (addr, table_value_0 * pow_of_two::<F>(V_128) + table_value_1),
-                    (values.clone(), table_value_2),
+                    (value.clone(), table_value_2),
                 ]
             }
             _ => panic!("Not public lookup!"),
@@ -1028,12 +1028,6 @@ impl PoseidonTable {
         let table_domain_spec = meta.query_advice(self.domain_spec, Rotation::cur());
         let table_heading_mark = meta.query_advice(self.heading_mark, Rotation::cur());
 
-        let input_selector = |index: usize| match index {
-            0 => table_input_0.clone(),
-            1 => table_input_1.clone(),
-            _ => panic!("valid poseidon input index"),
-        };
-
         match entry {
             LookupEntry::Poseidon {
                 q_enable,
@@ -1060,11 +1054,13 @@ impl PoseidonTable {
                 input,
                 control,
                 domain,
+                input_selector,
             } => {
+                let table_input = select::expr(input_selector, table_input_1, table_input_0);
                 vec![
                     (q_enable, table_q_enable),
                     (hash_id, table_hash_id),
-                    (input, input_selector(selector.unwrap())),
+                    (input, table_input),
                     (control, table_control),
                     (domain, table_domain_spec),
                 ]
@@ -1247,7 +1243,7 @@ pub enum LookupEntry<F> {
         block_tx_idx: Expression<F>,
         addr: Expression<F>,
         // value2, value3 of Public row
-        values: Expression<F>,
+        value: Expression<F>,
     },
     /// Lookup to state table
     StampCnt {
@@ -1293,6 +1289,8 @@ pub enum LookupEntry<F> {
         control: Expression<F>,
         /// The description of the position of the node in the MPT tree is not needed for now.
         domain: Expression<F>,
+        /// 0 is input_0, 1 is input_1
+        input_selector: Expression<F>,
     },
 }
 
