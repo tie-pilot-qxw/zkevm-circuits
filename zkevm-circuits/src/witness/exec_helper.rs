@@ -76,6 +76,8 @@ pub struct WitnessExecHelper {
     pub parent_memory_chunk: HashMap<u64, u64>,
     pub memory_chunk_prev: u64,
     pub read_only: u64,
+    // 存储CALL指令的父环境read_only的值
+    pub parent_read_only: HashMap<u64, u64>,
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
@@ -215,6 +217,7 @@ impl WitnessExecHelper {
         self.parent_memory_chunk = HashMap::new();
         self.stack_top = None;
         self.parent_pc = HashMap::new();
+        self.parent_read_only = HashMap::new();
         self.parent_call_id = HashMap::new();
         self.returndata_call_id = 0;
         self.returndata_size = 0.into();
@@ -241,6 +244,7 @@ impl WitnessExecHelper {
         self.parent_memory_chunk = HashMap::new();
         self.stack_top = None;
         self.parent_pc = HashMap::new();
+        self.parent_read_only = HashMap::new();
         self.stack_pointer = 0;
         self.returndata_call_id = 0;
         self.returndata_size = 0.into();

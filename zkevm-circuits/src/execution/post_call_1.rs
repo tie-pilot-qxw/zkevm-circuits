@@ -4,10 +4,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::marker::PhantomData;
+
 use halo2_proofs::plonk::{ConstraintSystem, Expression, VirtualCells};
 use halo2_proofs::poly::Rotation;
-use std::marker::PhantomData;
-use std::ops::Neg;
+
+use eth_types::evm_types::OpcodeId;
+use eth_types::{Field, GethExecStep};
+use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
+use gadgets::util::Expr;
 
 use crate::constant::{NUM_AUXILIARY, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use crate::execution::end_call_2::RETURNDATA_SIZE_COL_IDX;
@@ -18,13 +23,9 @@ use crate::execution::{
 use crate::table::{extract_lookup_expression, LookupEntry};
 use crate::util::{query_expression, ExpressionOutcome};
 use crate::witness::{assign_or_panic, state, Witness, WitnessExecHelper};
-use eth_types::evm_types::OpcodeId;
-use eth_types::{Field, GethExecStep};
-use gadgets::simple_seletor::{simple_selector_assign, SimpleSelector};
-use gadgets::util::Expr;
 
 pub(super) const NUM_ROW: usize = 2;
-const STATE_STAMP_DELTA: usize = 3;
+const STATE_STAMP_DELTA: usize = 4;
 
 const RETURN_DATA_SUCCESS_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
 const RETURN_DATA_SIZE_COL: usize = RETURN_DATA_SUCCESS_COL + RETURNDATA_SIZE_COL_IDX;
@@ -86,7 +87,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 1. call_context constraints
         let mut operands = vec![];
-        for i in 0..3 {
+        for i in 0..4 {
             // 约束填入core电路的state 状态值
             let entry = config.get_state_lookup(meta, i);
             constraints.append(
@@ -100,8 +101,10 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                         state::CallContextTag::ParentGas as u8
                     } else if i == 1 {
                         state::CallContextTag::ParentGasCost as u8
-                    } else {
+                    } else if i == 2 {
                         state::CallContextTag::ParentMemoryChunk as u8
+                    } else {
+                        state::CallContextTag::ParentReadOnly as u8
                     }
                     .expr(),
                     call_id.clone(),
@@ -165,21 +168,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             cur_gas_left - return_success_for_next * prev_gas_left - gas_cost,
         ));
 
-        let is_static_call = selector.select(&[0.expr(), 1.expr(), 0.expr()]);
-        let read_only = meta.query_advice(config.get_auxiliary().read_only, Rotation::cur());
-        let previous_read_only = meta.query_advice(
-            config.get_auxiliary().read_only,
-            Rotation(-1 * NUM_ROW as i32),
-        );
-        // post_call时，前一个状态是return 或revert，此时已经重置了read_only 状态
-        // 状态变换，约束当前和read only 和之前read only 状态的变化值
-        let read_only_delta = (read_only.expr() - previous_read_only.clone()) * is_static_call;
-
         let delta = AuxiliaryOutcome {
             gas_left: ExpressionOutcome::Any,
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             memory_chunk: ExpressionOutcome::To(operands[2].clone()),
-            read_only: ExpressionOutcome::Delta(read_only_delta),
+            // 约束当前的read only已经恢复到call之前的状态
+            read_only: ExpressionOutcome::To(operands[3].clone()),
             ..Default::default()
         };
         constraints.extend(config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -209,12 +203,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let call_context_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let call_context_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let call_context_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let call_context_lookup_3 = query_expression(meta, |meta| config.get_state_lookup(meta, 3));
 
         // 将core 电路中数据在state电路中lookup
         vec![
             ("ParentTraceGas read".into(), call_context_lookup_0),
             ("ParentTraceGasCost read".into(), call_context_lookup_1),
             ("ParentMemoryChunk read".into(), call_context_lookup_2),
+            ("ParentReadOnly read".into(), call_context_lookup_3),
         ]
     }
     fn gen_witness(&self, trace: &GethExecStep, current_state: &mut WitnessExecHelper) -> Witness {
@@ -252,11 +248,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id.into(),
         );
 
+        // 上一个call的read only状态
+        let call_context_read_3 = current_state.get_call_context_read_row_with_arbitrary_tag(
+            state::CallContextTag::ParentReadOnly,
+            current_state.parent_read_only[&current_state.call_id].into(),
+            current_state.call_id,
+        );
+
         let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
         core_row_1.insert_state_lookups([
             &call_context_read_0,
             &call_context_read_1,
             &call_context_read_2,
+            &call_context_read_3,
         ]);
 
         let mut core_row_0 = ExecutionState::POST_CALL_1.into_exec_state_core_row(
@@ -287,21 +291,13 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             selector_index,
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
-
-        let caller_is_static_call = current_state
-            .call_ctx
-            .last()
-            .map_or(0, |ctx| ctx.is_static as u64)
-            == 1;
-        // 当前的read_only 和前一个read_only的状态一致
-        current_state.read_only = caller_is_static_call as u64;
-
         Witness {
             core: vec![core_row_1, core_row_0],
             state: vec![
                 call_context_read_0,
                 call_context_read_1,
                 call_context_read_2,
+                call_context_read_3,
             ],
             ..Default::default()
         }
@@ -349,6 +345,9 @@ mod test {
             .insert(current_state.call_id, 0u64.into());
         current_state
             .parent_memory_chunk
+            .insert(current_state.call_id, 0u64.into());
+        current_state
+            .parent_read_only
             .insert(current_state.call_id, 0u64.into());
 
         let trace = prepare_trace_step!(0, OpcodeId::CALL, stack);

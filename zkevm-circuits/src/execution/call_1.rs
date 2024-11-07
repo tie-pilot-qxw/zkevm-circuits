@@ -24,9 +24,9 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: usize = 3;
+const STATE_STAMP_DELTA: usize = 4;
 const STACK_POINTER_DELTA: i32 = 0; // we let stack pointer change at post_call
-const LEN_LO_INV_COL_IDX: usize = 24;
+const LEN_LO_INV_COL_IDX: usize = 11;
 
 const STAMP_INIT_COL: usize = NUM_STATE_HI_COL + NUM_STATE_LO_COL + NUM_AUXILIARY;
 
@@ -53,17 +53,18 @@ const OPCODE_SELECTOR_IDX_START: usize = 0;
 ///     STATE1:  State lookup(stack read args_offset), src: Core circuit, target: State circuit table, 8 columns
 ///     STATE2:  State lookup(stack read args_len), src: Core circuit, target: State circuit table, 8 columns
 ///     STATE3:  State lookup(call_context write calldata_size), src: Core circuit, target: State circuit table, 8 columns
+///     STATE4:  State lookup(call_context write parent_read_only), src: Core circuit, target: State circuit table, 8 columns
 ///     COPY:   Copy lookup(copy args_len bytes from memory to calldata), src:Core circuit, target:Copy circuit table, 11 columns
 ///     LEN_INV: the inverse of copy lookup's len, used to check whether copy lookup's len == 0
 ///     STATE_STAMP_INIT: the state stamp just before the execution of opcode CALL, which will be used by the next execution states
 ///     OPCODE_SELECTOR: Selector for CALL, STATICALL, DELEGATECALL， 3 columns
 /// +---+------------------------+------------------+---------------------+----------------+----------------------+------------------------+
-/// |cnt|                        |                 |                      |                |                     |                         |
-/// +---+------------------------+-----------------+----------------------+----------------+---------------------+-------------------------+
-/// | 2 | COPY(0..10)            |                 |                      |                |                     |                         |
-/// | 1 | STATE1(0..7)           | STATE2(8..15)   | STATE3(16..23)       | LEN_INV(24)    |                     |                         |
-/// | 0 | DYNA_SELECTOR(0..17)   | AUX(18..24)     | STATE_STAMP_INIT(25) |                |MEMORY_CHUNK_PREV(27)| OPCODE_SELECTOR(28..30) |
-/// +---+------------------------+-----------------+----------------------+----------------+--------------------+--------------------------+
+/// |cnt|                        |                 |                     |                |                      |                        |
+/// +---+------------------------+-----------------+---------------------+----------------+----------------------+------------------------+
+/// | 2 | COPY(0..10)           | LEN_INV(11)     |                     |                |                      |                        |
+/// | 1 | STATE1(0..7)          | STATE2(8..15)   | STATE3(16..23)      | STATE4(24..31) |                      |                        |
+/// | 0 | DYNA_SELECTOR(0..17)  | AUX(18..24)     | STATE_STAMP_INIT(25)|                |MEMORY_CHUNK_PREV(27) |OPCODE_SELECTOR(28..30) |
+/// +---+------------------------+-----------------+---------------------+----------------+----------------------+------------------------+
 ///
 /// Note: call_context write's call_id should be callee's
 pub struct Call1Gadget<F: Field> {
@@ -123,8 +124,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let is_static_call = selector.select(&[0.expr(), 1.expr(), 0.expr()]);
         let previous_read_only = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
         // 关于STATICCALL的read_only状态，分为两种情况：
-        // 1. 单个STATICCALL调用：read only状态变换，此时约束当前的read only delta为1
-        // 2. STATICCALL 内部调用STATICCALL：此时约束当前的read only和上一个read only 状态相同
+        // 1. 单个STATICCALL调用：read only状态变换，此时约束当前的read only 为1
+        // 2. 其余情况：约束当前的read only和上一个gadget read only 状态相同
         let read_only_delta = (1.expr() - previous_read_only.clone()) * is_static_call;
 
         let delta = AuxiliaryOutcome {
@@ -148,7 +149,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // append stack constraints and call_context constraints
         let mut operands = vec![];
-        for i in 0..3 {
+        for i in 0..4 {
             let entry = config.get_state_lookup(meta, i);
             if i < 2 {
                 // 从core电路中获取argsOffset、argsLength状态进行约束
@@ -168,13 +169,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                     false,
                 ));
             } else {
+                let tag = if i == 2 {
+                    (state::CallContextTag::CallDataSize as u8).expr()
+                } else {
+                    (state::CallContextTag::ParentReadOnly as u8).expr()
+                };
                 constraints.append(&mut config.get_call_context_constraints(
                     meta,
                     entry.clone(),
                     i,
                     NUM_ROW,
                     true,
-                    (state::CallContextTag::CallDataSize as u8).expr(),
+                    tag,
                     call_id_new.clone(),
                 ));
             }
@@ -201,8 +207,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 args_len[1].clone() - calldata_size[1].clone(),
             ),
         ]);
-        //append copy constraints
-        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation::prev());
+        let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
+
         let is_zero_len = SimpleIsZero::new(&args_len[1], &len_lo_inv, String::from("length_lo"));
         constraints.append(&mut is_zero_len.get_constraints());
 
@@ -212,13 +218,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             copy::Tag::Memory,
             call_id_cur,
             args_offset[1].clone(),
-            // +1.expr() after state row is generated, the stamp+=1 affected,
-            // thus subsequent copy_row start at stamp+=1.
-            stamp.clone() + 1.expr(),
+            // After generating two state rows (CallDataSize and ParentReadOnly),
+            // stamp has increased by 2 (stamp += 2),
+            // thus subsequent copy_row starts at stamp + 2
+            stamp.clone() + 2.expr(),
             copy::Tag::Calldata,
             call_id_new,
             0.expr(),
-            stamp + args_len[1].clone() + 1.expr(),
+            stamp + args_len[1].clone() + 2.expr(),
             None,
             args_len[1].clone(),
             is_zero_len.expr(),
@@ -310,15 +317,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             _ => unreachable!(),
         };
         // 记录CALL指令需要的参数长度
-        let call_context_write_row = current_state.get_call_context_write_row(
+        let call_context_write_row_0 = current_state.get_call_context_write_row(
             state::CallContextTag::CallDataSize,
             args_len,
+            current_state.call_id_new,
+        );
+        // 存储父环境的read only值
+        let call_context_write_row_1 = current_state.get_call_context_write_row(
+            state::CallContextTag::ParentReadOnly,
+            current_state.read_only.into(),
             current_state.call_id_new,
         );
         //update current_state's call_data_size
         current_state
             .call_data_size
             .insert(current_state.call_id_new, args_len);
+        current_state
+            .parent_read_only
+            .insert(current_state.call_id_new, current_state.read_only);
         //generate copy rows and memory read rows and calldata write rows
         // copy rows: 从调用方的memory 拷贝数据至被调方的calldata
         // state_rows：copy的数据记录两份，第一份为从memory的copy，第二份为写入calldata
@@ -349,14 +365,21 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             core_row_2.insert_copy_lookup(0, copy_rows.get(0).unwrap());
         }
 
-        let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
-        // core_row_1 写入3个状态的数据和args_len的相反数
-        core_row_1.insert_state_lookups([&stack_read_0, &stack_read_1, &call_context_write_row]);
         // calculate and assign len_inv
         let len_lo = F::from_u128(args_len.low_u128());
         let len_lo_inv =
             U256::from_little_endian(len_lo.invert().unwrap_or(F::ZERO).to_repr().as_ref());
-        assign_or_panic!(core_row_1[LEN_LO_INV_COL_IDX], len_lo_inv);
+        assign_or_panic!(core_row_2[LEN_LO_INV_COL_IDX], len_lo_inv);
+
+        let mut core_row_1 = current_state.get_core_row_without_versatile(trace, 1);
+        // core_row_1 写入3个状态的数据和args_len的相反数
+        // 记录父read only的状态
+        core_row_1.insert_state_lookups([
+            &stack_read_0,
+            &stack_read_1,
+            &call_context_write_row_0,
+            &call_context_write_row_1,
+        ]);
 
         let mut core_row_0 = ExecutionState::CALL_1.into_exec_state_core_row(
             trace,
@@ -386,7 +409,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             |cell, value| assign_or_panic!(*cell, value.into()),
         );
 
-        state_rows.extend([stack_read_0, stack_read_1, call_context_write_row]);
+        state_rows.extend([
+            stack_read_0,
+            stack_read_1,
+            call_context_write_row_0,
+            call_context_write_row_1,
+        ]);
         Witness {
             copy: copy_rows,
             core: vec![core_row_2, core_row_1, core_row_0],

@@ -22,7 +22,7 @@ use halo2_proofs::poly::Rotation;
 use std::marker::PhantomData;
 
 pub(super) const NUM_ROW: usize = 3;
-const STATE_STAMP_DELTA: u64 = 2;
+const STATE_STAMP_DELTA: u64 = 3;
 
 pub struct BeginTx3Gadget<F: Field> {
     _marker: PhantomData<F>,
@@ -40,13 +40,14 @@ pub struct BeginTx3Gadget<F: Field> {
 /// AUX means auxiliary such as state stamp
 /// PUBLIC Tag is TxIsCreateCallDataGasCost, include is create, call data gas cost
 /// Arithmetic_tiny is ((call_data_length + 31) / 32)
-/// +-----+-----------------------+-------------------------+
-/// | cnt |                       |                         |
-/// +-----+-----------------------+-------------------------+
-/// | 2   | PUBLIC(0..5)          | Arithmetic_tiny(7..11)  |
-/// | 1   | STATE0(0..7)          | STATE(8..15)            |
-/// | 0   | DYNA_SELECTOR(0..17)  | AUX(18..24)             |
-/// +-----+-----------------------+-------------------------+
+/// +-----+-----------------------+---------------------------+------------------------+
+/// | cnt |                       |                           |                        |
+/// +-----+-----------------------+---------------------------+------------------------+
+/// | 2   | PUBLIC(0..5)          | Arithmetic_tiny(7..11)    |                        |
+/// | 1   | STATE0(0..7)          | STATE1(8..15)            | STATE2(16..23)         |
+/// | 0   | DYNA_SELECTOR(0..17)  | AUX(18..24)              |                        |
+/// +-----+-----------------------+---------------------------+------------------------+
+///
 impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
     ExecutionGadget<F, NUM_STATE_HI_COL, NUM_STATE_LO_COL> for BeginTx3Gadget<F>
 {
@@ -104,7 +105,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // 记录2个状态的操作数
         let mut operands = vec![];
-        for i in 0..2 {
+        for i in 0..3 {
             let (_, _, value_hi, value_lo, _, _, _, _) =
                 extract_lookup_expression!(state, config.get_state_lookup(meta, i));
             operands.push([value_hi, value_lo]);
@@ -120,6 +121,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend([
             ("return_data_size_hi=0".into(), operands[1][0].clone()),
             ("return_data_size_lo=0".into(), operands[1][1].clone()),
+        ]);
+
+        // constraint parent read only = 0
+        constraints.extend([
+            ("parent read only hi=0".into(), operands[2][0].clone()),
+            ("parent read only lo=0".into(), operands[2][1].clone()),
         ]);
 
         // prev state constraint
@@ -138,6 +145,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         // 从core电路中读取记录的2个state状态，与state 电路进行lookup
         let state_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let state_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
+        let state_lookup_2 = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+
         let public_intrinsic_gas_cost =
             query_expression(meta, |meta| config.get_public_lookup(meta, 0));
         // 从core电路中读取arithmetic状态，与arithmetic电路进行lookup
@@ -146,6 +155,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         vec![
             ("default return data call id write".into(), state_lookup_0),
             ("default return data size write".into(), state_lookup_1),
+            ("parent read only write".into(), state_lookup_2),
             (
                 "public intrinsic gas cost lookup".into(),
                 public_intrinsic_gas_cost,
@@ -175,11 +185,23 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             operation::memory_expansion::gen_witness(vec![call_data_len, 0.into()]);
         core_row_2.insert_arithmetic_tiny_lookup(0, &arithmetic_row);
 
-        // core_row_1 写入2个state row状态, returndata_call_id 和 returndata_size
+        // 交易开始时，更新root call的parent read only 状态
+        current_state
+            .parent_read_only
+            .insert(current_state.call_id, 0);
+        let write_parent_read_only_row = current_state.get_write_call_context_row(
+            None,
+            Some(0.into()),
+            CallContextTag::ParentReadOnly,
+            None,
+        );
+
+        // core_row_1 写入3个state row状态, returndata_call_id 、 returndata_size和parent_read_only
         let mut core_row_1 = current_state.get_core_row_without_versatile(&trace, 1);
         core_row_1.insert_state_lookups([
             &default_returndata_call_id_row,
             &default_returndata_size_row,
+            &write_parent_read_only_row,
         ]);
         let mut core_row_0 = ExecutionState::BEGIN_TX_3.into_exec_state_core_row(
             trace,
@@ -193,7 +215,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         Witness {
             core: vec![core_row_2, core_row_1, core_row_0],
-            state: vec![default_returndata_call_id_row, default_returndata_size_row],
+            state: vec![
+                default_returndata_call_id_row,
+                default_returndata_size_row,
+                write_parent_read_only_row,
+            ],
             arithmetic: arithmetic_row,
             ..Default::default()
         }

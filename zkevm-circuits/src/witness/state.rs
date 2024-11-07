@@ -78,4 +78,5 @@ pub enum CallContextTag {
     CallDataSize,
     ReturnDataSize,
     ReturnDataCallId,
+    ParentReadOnly,
 }
