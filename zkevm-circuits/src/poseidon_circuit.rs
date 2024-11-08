@@ -210,7 +210,7 @@ mod test {
             &unrolled_inputs,
             Some(hash_expect),
             code.len() as u64,
-            62,
+            HASH_BLOCK_STEP_SIZE,
         );
         let witness = Witness {
             poseidon: rows,

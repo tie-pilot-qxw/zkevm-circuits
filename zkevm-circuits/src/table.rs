@@ -1018,7 +1018,6 @@ impl PoseidonTable {
         &self,
         meta: &mut VirtualCells<F>,
         entry: LookupEntry<F>,
-        selector: Option<usize>,
     ) -> Vec<(Expression<F>, Expression<F>)> {
         let table_q_enable = meta.query_fixed(self.q_enable, Rotation::cur());
         let table_hash_id = meta.query_advice(self.hash_id, Rotation::cur());

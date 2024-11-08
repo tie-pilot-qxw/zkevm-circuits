@@ -1438,8 +1438,6 @@ impl<F: Field> BytecodeCircuitConfig<F> {
 
         // poseidon lookup:
         //  * PoseidonTable::INPUT_WIDTH lookups for each input field
-        //  * PoseidonTable::INPUT_WIDTH -1 lookups for the padded zero input
-        //  so we have 2*PoseidonTable::INPUT_WIDTH -1 lookups
         for i in 0..PoseidonTable::INPUT_WIDTH {
             meta.lookup_any(name, |meta| {
                 // 用于判断是input_0的边界还是input_1的边界
@@ -1463,8 +1461,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 };
 
                 let poseidon_lookup_vec =
-                    self.poseidon_table
-                        .get_lookup_vector(meta, poseidon_entry, Some(i));
+                    self.poseidon_table.get_lookup_vector(meta, poseidon_entry);
                 poseidon_lookup_vec
                     .into_iter()
                     .map(|(left, right)| (condition.clone() * left, right))
