@@ -6,7 +6,6 @@
 
 use halo2_proofs::dev::MockProver;
 use halo2_proofs::halo2curves::bn256::Fr;
-use std::fs::File;
 use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{get_chunk_data, log2_ceil, SubCircuit};
