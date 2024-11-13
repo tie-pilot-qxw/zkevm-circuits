@@ -12,7 +12,7 @@ use crate::witness::{bitwise, copy, fixed};
 use eth_types::{Field, U256};
 use gadgets::binary_number_with_real_selector::{BinaryNumberChip, BinaryNumberConfig};
 use gadgets::is_zero_with_rotation::{IsZeroWithRotationChip, IsZeroWithRotationConfig};
-use gadgets::util::{pow_of_two, Expr};
+use gadgets::util::{pow_of_two, select, Expr};
 use halo2_proofs::circuit::Region;
 use halo2_proofs::plonk::{
     Advice, Column, ConstraintSystem, Error, Expression, Fixed, Instance, SecondPhase, Selector,
@@ -739,15 +739,14 @@ impl PublicTable {
                 tag,
                 block_tx_idx,
                 addr,
-                values,
+                value,
             } => {
                 vec![
                     (tag, table_tag),
                     (block_tx_idx, table_block_tx_idx),
                     // table_value_0 << 128 + table_value_1
                     (addr, table_value_0 * pow_of_two::<F>(V_128) + table_value_1),
-                    (values[0].clone(), table_value_2),
-                    (values[1].clone(), table_value_3),
+                    (value.clone(), table_value_2),
                 ]
             }
             _ => panic!("Not public lookup!"),
@@ -1039,13 +1038,30 @@ impl PoseidonTable {
                 heading_mark,
             } => {
                 vec![
-                    (table_q_enable, q_enable),
-                    (table_hash_id, hash_id),
-                    (table_input_0, input_0),
-                    (table_input_1, input_1),
-                    (table_control, control),
-                    (table_domain_spec, domain),
-                    (table_heading_mark, heading_mark),
+                    (q_enable, table_q_enable),
+                    (hash_id, table_hash_id),
+                    (input_0, table_input_0),
+                    (input_1, table_input_1),
+                    (control, table_control),
+                    (domain, table_domain_spec),
+                    (heading_mark, table_heading_mark),
+                ]
+            }
+            LookupEntry::PoseidonWithSelector {
+                q_enable,
+                hash_id,
+                input,
+                control,
+                domain,
+                input_selector,
+            } => {
+                let table_input = select::expr(input_selector, table_input_1, table_input_0);
+                vec![
+                    (q_enable, table_q_enable),
+                    (hash_id, table_hash_id),
+                    (input, table_input),
+                    (control, table_control),
+                    (domain, table_domain_spec),
                 ]
             }
             _ => panic!("Not poseidon lookup!"),
@@ -1226,7 +1242,7 @@ pub enum LookupEntry<F> {
         block_tx_idx: Expression<F>,
         addr: Expression<F>,
         // value2, value3 of Public row
-        values: [Expression<F>; 2],
+        value: Expression<F>,
     },
     /// Lookup to state table
     StampCnt {
@@ -1260,6 +1276,20 @@ pub enum LookupEntry<F> {
         domain: Expression<F>,
         /// Used to indicate whether it is a new hash calculation, not currently needed.
         heading_mark: Expression<F>,
+    },
+    PoseidonWithSelector {
+        /// selector
+        q_enable: Expression<F>,
+        /// hash result, less than 256 bit
+        hash_id: Expression<F>,
+        ///  input
+        input: Expression<F>,
+        /// Divide according to 64bit length, calculate from the length of input_byte.len().
+        control: Expression<F>,
+        /// The description of the position of the node in the MPT tree is not needed for now.
+        domain: Expression<F>,
+        /// 0 is input_0, 1 is input_1
+        input_selector: Expression<F>,
     },
 }
 

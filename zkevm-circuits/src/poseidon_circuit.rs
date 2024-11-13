@@ -32,7 +32,7 @@ pub struct PoseidonCircuitConfigArgs {
 #[derive(Debug, Clone)]
 pub struct PoseidonCircuitConfig<F: Field>(pub(crate) PoseidonHashConfig<F>);
 
-const HASH_BLOCK_STEP_SIZE: usize = POSEIDON_HASH_BYTES_IN_FIELD * PoseidonTable::INPUT_WIDTH;
+pub const HASH_BLOCK_STEP_SIZE: usize = POSEIDON_HASH_BYTES_IN_FIELD * PoseidonTable::INPUT_WIDTH;
 
 impl<F: Field> SubCircuitConfig<F> for PoseidonCircuitConfig<F> {
     type ConfigArgs = PoseidonCircuitConfigArgs;
@@ -135,11 +135,13 @@ impl<F: Field, const MAX_NUM_ROW: usize> SubCircuit<F> for PoseidonCircuit<F, MA
 #[cfg(test)]
 mod test {
     use crate::poseidon_circuit::{
-        PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs,
+        PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs, HASH_BLOCK_STEP_SIZE,
     };
     use crate::table::PoseidonTable;
     use crate::util::{hash_code_poseidon, Challenges, SubCircuit, SubCircuitConfig};
-    use crate::witness::poseidon::{stream_inputs_with_check, unroll_to_hash_input_default};
+    use crate::witness::poseidon::{
+        get_hash_input_from_u8s_default, get_poseidon_row_from_stream_input,
+    };
     use crate::witness::Witness;
     use eth_types::Field;
     use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner};
@@ -181,8 +183,13 @@ mod test {
     fn test_poseidon_circuit_metrics() {
         println!("hash_block_size:{}", Fr::hash_block_size());
         let code = vec![1u8; 1];
-        let unrolled_inputs = unroll_to_hash_input_default::<Fr>(code.iter().copied());
-        let rows = stream_inputs_with_check(&unrolled_inputs, None, code.len() as u64, 62);
+        let unrolled_inputs = get_hash_input_from_u8s_default::<Fr>(code.iter().copied());
+        let rows = get_poseidon_row_from_stream_input(
+            &unrolled_inputs,
+            None,
+            code.len() as u64,
+            HASH_BLOCK_STEP_SIZE,
+        );
         let witness = Witness {
             poseidon: rows,
             ..Default::default()
@@ -197,10 +204,14 @@ mod test {
     #[test]
     fn test_poseidon_circuit() {
         let code = vec![1u8; 1];
-        let unrolled_inputs = unroll_to_hash_input_default::<Fr>(code.iter().copied());
+        let unrolled_inputs = get_hash_input_from_u8s_default::<Fr>(code.iter().copied());
         let hash_expect = hash_code_poseidon(&code);
-        let rows =
-            stream_inputs_with_check(&unrolled_inputs, Some(hash_expect), code.len() as u64, 62);
+        let rows = get_poseidon_row_from_stream_input(
+            &unrolled_inputs,
+            Some(hash_expect),
+            code.len() as u64,
+            HASH_BLOCK_STEP_SIZE,
+        );
         let witness = Witness {
             poseidon: rows,
             ..Default::default()

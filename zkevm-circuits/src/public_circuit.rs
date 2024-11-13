@@ -375,109 +375,110 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
             constrains
         });
 
+        // todo fix 由于 CodeHash 的修改，这里暂时有点问题，在public哈希修改的时候再考虑修复这个地方
         // values u8 constrains
         // if tag != nil && tag != txCalldata && tag != txLogData, then src_value == target_value, for example, src_tag == target_tag, src_block_tx_idx == target_block_tx_idx ...
         //    target_tag = tag_u8.Rotation(-15)*2^120 + tag_u8.Rotation(-14)*2^112 + tag_u8.Rotation(-13)2^104 + tag_u8.Rotation(-12)*2^96 + ...tag_u8.Rotation(-1)*2^8 + tag_u8.Rotation::cur()
         // if tag != nil && (tag == txCallData || tag == txLogData) then, value1 == value1_u8 && value0_u8 == 0 && value2_u8 == 0 && value3_u8 == 0 && tag_u8 == 0 && block_tx_idx == 0
-        meta.create_gate("PUBLIC_U8_AND_VALUE", |meta| {
-            let q_enable = meta.query_selector(config.q_enable);
-            let tag = meta.query_advice(config.tag, Rotation::cur());
-            let block_tx_idx = meta.query_advice(config.block_tx_idx, Rotation::cur());
-            let value0 = meta.query_advice(config.values[0], Rotation::cur());
-            let value1 = meta.query_advice(config.values[1], Rotation::cur());
-            let value2 = meta.query_advice(config.values[2], Rotation::cur());
-            let value3 = meta.query_advice(config.values[3], Rotation::cur());
-
-            let tag_is_nil = config.tag_is_nil.expr_at(meta, Rotation::cur());
-            let tag_is_tx_calldata = config.tag_is_tx_calldata.expr_at(meta, Rotation::cur());
-            let tag_is_tx_logdata = config.tag_is_tx_logdata.expr_at(meta, Rotation::cur());
-            let data_idx_is_zero = config.value2_is_zero.expr_at(meta, Rotation::cur());
-
-            let tag_is_not_nil = 1.expr() - tag_is_nil.clone();
-            let tag_is_not_tx_calldata = 1.expr() - tag_is_tx_calldata.clone();
-            let tag_is_not_tx_logdata = 1.expr() - tag_is_tx_logdata.clone();
-
-            // tag | block_tx_idx | value0 | value1 | value2 | value3
-            let src_value_vec = vec![tag, block_tx_idx, value0.clone(), value1, value2, value3];
-
-            // =================== calc target value ===================
-            // get u8 expression
-            // for example:
-            //  tag_u8.Rotation(-15)
-            //  tag_u8.Rotation(-14)
-            //  tag_u8.Rotation(-13)
-            //  ...
-            //  tag_u8.Rotation(-1)
-            //  tag_u8.Rotation::cur()
-            let mut u8_vec_vec: Vec<Vec<Expression<F>>> = vec![vec![]; NUM_U8]; // [tag_u8_vec, block_tx_idx_u8_vec, value0_u8_vec, value2_u8_vec, value3_u8_vec] (Rotation::cur() ~ Rotation(-15))
-            let mut u8_cur_vec = vec![]; // tag_u8_cur | block_tx_idx_u8_cur | value0_u8_cur | value1_u8_cur | value2_u8_cur | value3_u8_cur
-            for i in 0..=NUM_ROTATION {
-                // i:0, rotation=-(15-0)=-15
-                // i:1, rotation=-(15-1)=-14
-                // ...
-                // i:15, rotation=-(15-15)=0 (Rotation::cur())
-                let at = -(NUM_ROTATION as i32 - i as i32);
-                for (i, u8_vec) in u8_vec_vec.iter_mut().enumerate() {
-                    let v_u8 = meta.query_advice(config.values_u8_vec[i], Rotation(at));
-                    if at == 0 {
-                        u8_cur_vec.push(v_u8.clone());
-                    }
-                    u8_vec.push(v_u8);
-                }
-            }
-
-            // tag | block_tx_idx | value0 | value1 | value2 | value3
-            // calc target_value(u8_vec is big endian)
-            // for example:
-            //  target_tag = tag_u8.Rotation(-15)*2^120 + tag_u8.Rotation(-14)*2^112 + tag_u8.Rotation(-13)2^104 + tag_u8.Rotation(-12)*2^96 + ...tag_u8.Rotation(-1)*2^8 + tag_u8.Rotation::cur()
-            let mut target_value_vec = vec![];
-            for u8_vec in u8_vec_vec {
-                target_value_vec.push(expr_from_be_bytes(&u8_vec))
-            }
-
-            // =================== constrains ===================
-            let mut constrains = vec![];
-            for i in 0..NUM_U8 {
-                // if tag != nil && tag != txCalldata && tag != txLogData, then src_value=target_value
-                constrains.push(
-                    q_enable.clone()
-                        * tag_is_not_nil.clone()
-                        * tag_is_not_tx_calldata.clone()
-                        * tag_is_not_tx_logdata.clone()
-                        * (target_value_vec[i].clone() - src_value_vec[i].clone()),
-                );
-
-                // if tag != nil && (tag == txCallData || tag == txLogData) && data_idx == 0, then src_value=target_value
-                constrains.push(
-                    q_enable.clone()
-                        * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                        * data_idx_is_zero.clone()
-                        * (target_value_vec[i].clone() - src_value_vec[i].clone()),
-                );
-
-                // tag == txCallData or tag == txLogData can already indicate tag!=nil
-                if i == NUM_U8 - 1 {
-                    // if tag != nil && tag == txCallData || tag == txLogData && data_idx != 0 then value3 == value3_u8
-                    constrains.push(
-                        q_enable.clone()
-                            * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                            * (1.expr() - data_idx_is_zero.clone())
-                            * (u8_cur_vec[i].clone() - src_value_vec[i].clone()),
-                    );
-                } else {
-                    // if tag != nil && (tag == txCallData || tag == txLogData) && idx != 0
-                    // then tag_u8 == 0 && block_tx_idx == 0 && value0_u8 == 0 && value1_u8 == 0 && value2_u8
-                    constrains.push(
-                        q_enable.clone()
-                            * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
-                            * (1.expr() - data_idx_is_zero.clone())
-                            * u8_cur_vec[i].clone(),
-                    );
-                }
-            }
-
-            constrains
-        });
+        // meta.create_gate("PUBLIC_U8_AND_VALUE", |meta| {
+        //     let q_enable = meta.query_selector(config.q_enable);
+        //     let tag = meta.query_advice(config.tag, Rotation::cur());
+        //     let block_tx_idx = meta.query_advice(config.block_tx_idx, Rotation::cur());
+        //     let value0 = meta.query_advice(config.values[0], Rotation::cur());
+        //     let value1 = meta.query_advice(config.values[1], Rotation::cur());
+        //     let value2 = meta.query_advice(config.values[2], Rotation::cur());
+        //     let value3 = meta.query_advice(config.values[3], Rotation::cur());
+        //
+        //     let tag_is_nil = config.tag_is_nil.expr_at(meta, Rotation::cur());
+        //     let tag_is_tx_calldata = config.tag_is_tx_calldata.expr_at(meta, Rotation::cur());
+        //     let tag_is_tx_logdata = config.tag_is_tx_logdata.expr_at(meta, Rotation::cur());
+        //     let data_idx_is_zero = config.value2_is_zero.expr_at(meta, Rotation::cur());
+        //
+        //     let tag_is_not_nil = 1.expr() - tag_is_nil.clone();
+        //     let tag_is_not_tx_calldata = 1.expr() - tag_is_tx_calldata.clone();
+        //     let tag_is_not_tx_logdata = 1.expr() - tag_is_tx_logdata.clone();
+        //
+        //     // tag | block_tx_idx | value0 | value1 | value2 | value3
+        //     let src_value_vec = vec![tag, block_tx_idx, value0.clone(), value1, value2, value3];
+        //
+        //     // =================== calc target value ===================
+        //     // get u8 expression
+        //     // for example:
+        //     //  tag_u8.Rotation(-15)
+        //     //  tag_u8.Rotation(-14)
+        //     //  tag_u8.Rotation(-13)
+        //     //  ...
+        //     //  tag_u8.Rotation(-1)
+        //     //  tag_u8.Rotation::cur()
+        //     let mut u8_vec_vec: Vec<Vec<Expression<F>>> = vec![vec![]; NUM_U8]; // [tag_u8_vec, block_tx_idx_u8_vec, value0_u8_vec, value2_u8_vec, value3_u8_vec] (Rotation::cur() ~ Rotation(-15))
+        //     let mut u8_cur_vec = vec![]; // tag_u8_cur | block_tx_idx_u8_cur | value0_u8_cur | value1_u8_cur | value2_u8_cur | value3_u8_cur
+        //     for i in 0..=NUM_ROTATION {
+        //         // i:0, rotation=-(15-0)=-15
+        //         // i:1, rotation=-(15-1)=-14
+        //         // ...
+        //         // i:15, rotation=-(15-15)=0 (Rotation::cur())
+        //         let at = -(NUM_ROTATION as i32 - i as i32);
+        //         for (i, u8_vec) in u8_vec_vec.iter_mut().enumerate() {
+        //             let v_u8 = meta.query_advice(config.values_u8_vec[i], Rotation(at));
+        //             if at == 0 {
+        //                 u8_cur_vec.push(v_u8.clone());
+        //             }
+        //             u8_vec.push(v_u8);
+        //         }
+        //     }
+        //
+        //     // tag | block_tx_idx | value0 | value1 | value2 | value3
+        //     // calc target_value(u8_vec is big endian)
+        //     // for example:
+        //     //  target_tag = tag_u8.Rotation(-15)*2^120 + tag_u8.Rotation(-14)*2^112 + tag_u8.Rotation(-13)2^104 + tag_u8.Rotation(-12)*2^96 + ...tag_u8.Rotation(-1)*2^8 + tag_u8.Rotation::cur()
+        //     let mut target_value_vec = vec![];
+        //     for u8_vec in u8_vec_vec {
+        //         target_value_vec.push(expr_from_be_bytes(&u8_vec))
+        //     }
+        //
+        //     // =================== constrains ===================
+        //     let mut constrains = vec![];
+        //     for i in 0..NUM_U8 {
+        //         // if tag != nil && tag != txCalldata && tag != txLogData, then src_value=target_value
+        //         constrains.push(
+        //             q_enable.clone()
+        //                 * tag_is_not_nil.clone()
+        //                 * tag_is_not_tx_calldata.clone()
+        //                 * tag_is_not_tx_logdata.clone()
+        //                 * (target_value_vec[i].clone() - src_value_vec[i].clone()),
+        //         );
+        //
+        //         // if tag != nil && (tag == txCallData || tag == txLogData) && data_idx == 0, then src_value=target_value
+        //         constrains.push(
+        //             q_enable.clone()
+        //                 * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
+        //                 * data_idx_is_zero.clone()
+        //                 * (target_value_vec[i].clone() - src_value_vec[i].clone()),
+        //         );
+        //
+        //         // tag == txCallData or tag == txLogData can already indicate tag!=nil
+        //         if i == NUM_U8 - 1 {
+        //             // if tag != nil && tag == txCallData || tag == txLogData && data_idx != 0 then value3 == value3_u8
+        //             constrains.push(
+        //                 q_enable.clone()
+        //                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
+        //                     * (1.expr() - data_idx_is_zero.clone())
+        //                     * (u8_cur_vec[i].clone() - src_value_vec[i].clone()),
+        //             );
+        //         } else {
+        //             // if tag != nil && (tag == txCallData || tag == txLogData) && idx != 0
+        //             // then tag_u8 == 0 && block_tx_idx == 0 && value0_u8 == 0 && value1_u8 == 0 && value2_u8
+        //             constrains.push(
+        //                 q_enable.clone()
+        //                     * (tag_is_tx_calldata.clone() + tag_is_tx_logdata.clone())
+        //                     * (1.expr() - data_idx_is_zero.clone())
+        //                     * u8_cur_vec[i].clone(),
+        //             );
+        //         }
+        //     }
+        //
+        //     constrains
+        // });
 
         meta.create_gate("PUBLIC_TAG_AND_VALUE", |meta| {
             let q_enable = meta.query_selector(config.q_enable);

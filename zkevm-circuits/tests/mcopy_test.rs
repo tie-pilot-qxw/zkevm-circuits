@@ -13,7 +13,7 @@ use zkevm_circuits::witness::Witness;
 #[cfg(not(feature = "fast_test"))]
 const MAX_NUM_ROW: usize = 262200;
 #[cfg(feature = "fast_test")]
-const MAX_NUM_ROW: usize = 2200;
+const MAX_NUM_ROW: usize = 2500;
 
 #[test]
 fn test_mcopy_trace() {
