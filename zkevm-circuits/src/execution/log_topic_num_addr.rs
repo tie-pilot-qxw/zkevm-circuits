@@ -99,17 +99,9 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         };
         let mut constraints = config.get_auxiliary_constraints(meta, NUM_ROW, delta);
 
-        let is_log1234 = selector.select(&[
-            1.expr(), // LOG4
-            1.expr(), // LOG3
-            1.expr(), // LOG2
-            1.expr(), // LOG1
-            0.expr(), // LOG0
-        ]);
-
         constraints.extend([(
-            "read_only must be 0 for LOG1-LOG4".into(),
-            is_log1234 * current_read_only,
+            "read_only must be 0 for all LOG operations (LOG0-LOG4)".into(),
+            current_read_only,
         )]);
 
         // new selector LOG_LEFT_X and append selector constraints

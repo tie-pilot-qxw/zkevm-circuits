@@ -89,27 +89,24 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let mut operands = vec![];
         for i in 0..4 {
             // 约束填入core电路的state 状态值
+            // 当tag为ParentReadOnly时，更新当前环境的 read_only 状态
             let entry = config.get_state_lookup(meta, i);
-            constraints.append(
-                &mut config.get_call_context_constraints(
-                    meta,
-                    entry.clone(),
-                    i,
-                    NUM_ROW,
-                    false,
-                    if i == 0 {
-                        state::CallContextTag::ParentGas as u8
-                    } else if i == 1 {
-                        state::CallContextTag::ParentGasCost as u8
-                    } else if i == 2 {
-                        state::CallContextTag::ParentMemoryChunk as u8
-                    } else {
-                        state::CallContextTag::ParentReadOnly as u8
-                    }
-                    .expr(),
-                    call_id.clone(),
-                ),
-            );
+            let tag = match i {
+                0 => state::CallContextTag::ParentGas,
+                1 => state::CallContextTag::ParentGasCost,
+                2 => state::CallContextTag::ParentMemoryChunk,
+                3 => state::CallContextTag::ParentReadOnly,
+                _ => unreachable!("i is always in range 0..4"),
+            };
+            constraints.append(&mut config.get_call_context_constraints(
+                meta,
+                entry.clone(),
+                i,
+                NUM_ROW,
+                i == 3,
+                (tag as u8).expr(),
+                call_id.clone(),
+            ));
 
             let (_, _, value_hi, value_lo, _, _, _, _) = extract_lookup_expression!(state, entry);
             constraints.push(("value_hi == 0".into(), value_hi));
@@ -248,8 +245,8 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id.into(),
         );
 
-        // 上一个call的read only状态
-        let call_context_read_3 = current_state.get_call_context_read_row_with_arbitrary_tag(
+        // 恢复父 call 的 read_only 状态
+        let call_context_3 = current_state.get_call_context_write_row(
             state::CallContextTag::ParentReadOnly,
             current_state.parent_read_only[&current_state.call_id].into(),
             current_state.call_id,
@@ -260,7 +257,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &call_context_read_0,
             &call_context_read_1,
             &call_context_read_2,
-            &call_context_read_3,
+            &call_context_3,
         ]);
 
         let mut core_row_0 = ExecutionState::POST_CALL_1.into_exec_state_core_row(
@@ -297,7 +294,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 call_context_read_0,
                 call_context_read_1,
                 call_context_read_2,
-                call_context_read_3,
+                call_context_3,
             ],
             ..Default::default()
         }

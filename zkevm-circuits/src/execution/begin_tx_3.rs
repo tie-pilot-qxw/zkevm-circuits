@@ -100,10 +100,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &[
                 CallContextTag::ReturnDataCallId,
                 CallContextTag::ReturnDataSize,
+                CallContextTag::ParentReadOnly,
             ],
         ));
 
-        // 记录2个状态的操作数
+        // 记录3个状态的操作数
         let mut operands = vec![];
         for i in 0..3 {
             let (_, _, value_hi, value_lo, _, _, _, _) =
@@ -193,7 +194,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(0.into()),
             CallContextTag::ParentReadOnly,
-            None,
+            Some(current_state.returndata_call_id.into()),
         );
 
         // core_row_1 写入3个state row状态, returndata_call_id 、 returndata_size和parent_read_only
