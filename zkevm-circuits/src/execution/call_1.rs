@@ -123,6 +123,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         let is_static_call = selector.select(&[0.expr(), 1.expr(), 0.expr()]);
         let previous_read_only = meta.query_advice(read_only, Rotation(-1 * NUM_ROW as i32));
+        let cur_read_only = meta.query_advice(read_only, Rotation::cur());
         // 关于STATICCALL的read_only状态，分为两种情况：
         // 1. 单个STATICCALL调用：read only状态变换，此时约束当前的read only 为1
         // 2. 其余情况：约束当前的read only和上一个gadget read only 状态相同
@@ -194,6 +195,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let args_len = &operands[1];
         // calldata_size=args_len
         let calldata_size = &operands[2];
+        let parent_read_only = &operands[3];
         // append constraints for state_lookup's values
         constraints.extend([
             // 在EVM中堆栈、CALLDATA的偏移量、数据长度用128bit足以标识，
@@ -205,6 +207,15 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             (
                 "len_lo == calldata_size_lo".into(),
                 args_len[1].clone() - calldata_size[1].clone(),
+            ),
+            (
+                "parent_read_only_hi == 0".into(),
+                parent_read_only[0].clone(),
+            ),
+            // 约束父环境的parent_read_only正确性，此时仍处于父执行环境中，所以等于current read only
+            (
+                "ParentReadOnly write lo".into(),
+                parent_read_only[1].clone() - cur_read_only.clone(),
             ),
         ]);
         let len_lo_inv = meta.query_advice(config.vers[LEN_LO_INV_COL_IDX], Rotation(-2));
@@ -280,12 +291,18 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let stack_lookup_0 = query_expression(meta, |meta| config.get_state_lookup(meta, 0));
         let stack_lookup_1 = query_expression(meta, |meta| config.get_state_lookup(meta, 1));
         let call_context_lookup = query_expression(meta, |meta| config.get_state_lookup(meta, 2));
+        let call_context_lookup_readonly =
+            query_expression(meta, |meta| config.get_state_lookup(meta, 3));
         let copy_lookup = query_expression(meta, |meta| config.get_copy_lookup(meta, 0));
 
         vec![
             ("stack read args_offset".into(), stack_lookup_0),
             ("stack read args_len".into(), stack_lookup_1),
             ("write calldatasize".into(), call_context_lookup),
+            (
+                "write parent_read_only".into(),
+                call_context_lookup_readonly,
+            ),
             ("calldata copy lookup".into(), copy_lookup),
         ]
     }
