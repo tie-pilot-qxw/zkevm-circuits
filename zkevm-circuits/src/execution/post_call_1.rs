@@ -103,8 +103,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 entry.clone(),
                 i,
                 NUM_ROW,
-                // i==3的state row 为恢复parent read only状态，所以write=true
-                i == 3,
+                false,
                 (tag as u8).expr(),
                 call_id.clone(),
             ));
@@ -246,10 +245,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             current_state.call_id.into(),
         );
 
-        // 在call_1中，使用call_id_new为新的调用环境设置了ParentReadOnly（不包含call_id为0x1）
-        // 当执行到post_call_1时，call_id已经回到父调用的状态
-        // 此时需要恢复到父call的read_only 状态，一直到call_id=0x1
-        let call_context_3 = current_state.get_call_context_write_row(
+        let call_context_read_3 = current_state.get_call_context_read_row_with_arbitrary_tag(
             state::CallContextTag::ParentReadOnly,
             current_state.parent_read_only[&current_state.call_id].into(),
             current_state.call_id,
@@ -260,7 +256,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             &call_context_read_0,
             &call_context_read_1,
             &call_context_read_2,
-            &call_context_3,
+            &call_context_read_3,
         ]);
 
         let mut core_row_0 = ExecutionState::POST_CALL_1.into_exec_state_core_row(
@@ -297,7 +293,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
                 call_context_read_0,
                 call_context_read_1,
                 call_context_read_2,
-                call_context_3,
+                call_context_read_3,
             ],
             ..Default::default()
         }

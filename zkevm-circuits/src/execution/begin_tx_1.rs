@@ -142,7 +142,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_begin_tx_constrains(
             meta,
             NUM_ROW,
-            call_id.clone(),
+            &[
+                call_id.clone(),
+                call_id.clone(),
+                call_id.clone(),
+                call_id.clone(),
+            ],
             &[
                 CallContextTag::StorageContractAddr,
                 CallContextTag::CallDataSize,

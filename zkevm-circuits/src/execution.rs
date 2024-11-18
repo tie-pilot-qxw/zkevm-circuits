@@ -1432,12 +1432,14 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         &self,
         meta: &mut VirtualCells<F>,
         prev_exec_state_row: usize,
-        call_id: Expression<F>,
+        call_ids: &[Expression<F>],
         tags: &[CallContextTag],
     ) -> Vec<(String, Expression<F>)> {
         assert!(tags.len() < 5);
+        assert_eq!(call_ids.len(), tags.len());
+
         let mut constraints = vec![];
-        for (i, tag) in tags.iter().enumerate() {
+        for (i, (call_id, tag)) in call_ids.iter().zip(tags.iter()).enumerate() {
             let entry = self.get_state_lookup(meta, i);
             constraints.append(&mut self.get_call_context_constraints(
                 meta,

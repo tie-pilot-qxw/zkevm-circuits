@@ -83,7 +83,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.extend(gas_constraints);
         // auxiliary and single purpose constraints
         let delta = AuxiliaryOutcome {
-            // 记录了2个state状态
+            // 记录了3个state状态
             state_stamp: ExpressionOutcome::Delta(STATE_STAMP_DELTA.expr()),
             gas_left: ExpressionOutcome::Delta(-gas_cost),
             refund: ExpressionOutcome::Delta(0.expr()),
@@ -93,10 +93,11 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         let delta = Default::default();
         constraints.append(&mut config.get_next_single_purpose_constraints(meta, delta));
         // begin_tx constraints
+        let call_id = meta.query_advice(config.call_id, Rotation::cur());
         constraints.append(&mut config.get_begin_tx_constrains(
             meta,
             NUM_ROW,
-            0.expr(),
+            &[0.expr(), 0.expr(), call_id],
             &[
                 CallContextTag::ReturnDataCallId,
                 CallContextTag::ReturnDataSize,
@@ -194,7 +195,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             None,
             Some(0.into()),
             CallContextTag::ParentReadOnly,
-            Some(current_state.returndata_call_id.into()),
+            Some(current_state.call_id.into()),
         );
 
         // core_row_1 写入3个state row状态, returndata_call_id 、 returndata_size和parent_read_only
