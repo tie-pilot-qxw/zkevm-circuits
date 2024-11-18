@@ -132,7 +132,7 @@ pub struct WitnessExecHelper {
     pub error: Option<ExecError>,
     // 存放区块的hash值，key为区块的block number，value为区块的hash值
     pub block_hash_list: HashMap<u64, U256>,
-    // tx_status 用于记录交易的状态，0表示成功，1表示失败
+    // tx_status 用于记录交易的状态，1表示成功，0表示失败
     pub tx_status: u8,
 }
 
@@ -318,7 +318,7 @@ impl WitnessExecHelper {
         self.tx_idx = tx_idx;
         self.tx_gaslimit = tx.gas;
         self.tx_gasprice = tx.gas_price.unwrap_or(0.into());
-        self.tx_status = geth_data.geth_traces[index].failed as u8;
+        self.tx_status = !geth_data.geth_traces[index].failed as u8;
         self.call_data_gas_cost.insert(
             self.get_block_tx_idx(),
             eth_types::geth_types::Transaction::from(tx).call_data_gas_cost(),

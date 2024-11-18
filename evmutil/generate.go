@@ -7,15 +7,16 @@
 package evmutil
 
 import (
+	"math/big"
+	"os"
+	"path"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/params"
-	"math/big"
-	"os"
-	"path"
 )
 
 var (
@@ -100,11 +101,15 @@ func NewTrace(
 
 	var receipts types.Receipts
 	for i, tx := range mockTransactions {
+		tx_status := uint64(1)
+		if trace[i].Failed {
+			tx_status = 0
+		}
 		receipts = append(receipts, &types.Receipt{
 			CumulativeGasUsed: trace[i].Gas,
 			Bloom:             *mockBlock.LogsBloom,
 			Logs:              []*types.Log{},
-			Status:            types.ReceiptStatusSuccessful,
+			Status:            tx_status,
 			Type:              uint8(tx.TransactionType),
 			TxHash:            tx.Hash,
 			TransactionIndex:  uint(i),
@@ -158,6 +163,9 @@ func NewTrace(
 
 	// bytecode file
 	err = createJson(path.Join(dirPath, bytecodeFileName), outputAccounts)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

@@ -401,8 +401,8 @@ impl Row {
 
                 // | TxIsCreateAndStatus | block_tx_idx | is create | call data gas cost | None | tx status |
                 // is create: if create contract is 1, else 0
-                //  tx status: a transaction if execution failed is 1, else 0
-                let tx_status = block.geth_traces[j].failed as u8;
+                //  tx status: a transaction if execution failed is 0, else 1
+                let tx_status = !block.geth_traces[j].failed as u8;
                 let call_data_gas_cost =
                     eth_types::geth_types::Transaction::from(tx).call_data_gas_cost();
                 result.push(Row {
