@@ -229,7 +229,19 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
 
         // must 2. gas_left u64 overflow
         // gas_left u64 overflow, 这个约束就保证了gas_left_before_exec - gas_cost > 0
-        let Auxiliary { gas_left, .. } = config.get_auxiliary();
+        let Auxiliary {
+            gas_left,
+            read_only,
+            ..
+        } = config.get_auxiliary();
+
+        let current_read_only = meta.query_advice(read_only, Rotation::cur());
+        // read_only 为 0
+        constraints.push((
+            "read_only_when_SSTORE".into(),
+            is_sstore.clone() * current_read_only,
+        ));
+
         let gas_left = meta.query_advice(gas_left, Rotation::cur());
         let (tag, [value_hi, value_lo, overflow, overflow_inv]) =
             extract_lookup_expression!(arithmetic_tiny, config.get_arithmetic_tiny_lookup(meta, 1));

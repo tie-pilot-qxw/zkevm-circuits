@@ -106,6 +106,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
             memory_chunk: ExpressionOutcome::To(0.expr()),
             gas_left: ExpressionOutcome::To(tx_gas_limit),
             refund: ExpressionOutcome::Delta(0.expr()),
+            read_only: ExpressionOutcome::To(0.expr()),
             ..Default::default()
         };
         constraints.append(&mut config.get_auxiliary_constraints(meta, NUM_ROW, delta));
@@ -141,7 +142,12 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize>
         constraints.append(&mut config.get_begin_tx_constrains(
             meta,
             NUM_ROW,
-            call_id.clone(),
+            &[
+                call_id.clone(),
+                call_id.clone(),
+                call_id.clone(),
+                call_id.clone(),
+            ],
             &[
                 CallContextTag::StorageContractAddr,
                 CallContextTag::CallDataSize,

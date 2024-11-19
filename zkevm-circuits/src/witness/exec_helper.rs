@@ -76,6 +76,8 @@ pub struct WitnessExecHelper {
     pub parent_memory_chunk: HashMap<u64, u64>,
     pub memory_chunk_prev: u64,
     pub read_only: u64,
+    // 存储CALL指令的父环境read_only的值
+    pub parent_read_only: HashMap<u64, u64>,
     pub bytecode: HashMap<U256, Bytecode>,
     /// The stack top of the next step, also the result of this step
     pub stack_top: Option<U256>,
@@ -215,6 +217,7 @@ impl WitnessExecHelper {
         self.parent_memory_chunk = HashMap::new();
         self.stack_top = None;
         self.parent_pc = HashMap::new();
+        self.parent_read_only = HashMap::new();
         self.parent_call_id = HashMap::new();
         self.returndata_call_id = 0;
         self.returndata_size = 0.into();
@@ -241,6 +244,7 @@ impl WitnessExecHelper {
         self.parent_memory_chunk = HashMap::new();
         self.stack_top = None;
         self.parent_pc = HashMap::new();
+        self.parent_read_only = HashMap::new();
         self.stack_pointer = 0;
         self.returndata_call_id = 0;
         self.returndata_size = 0.into();
@@ -358,6 +362,15 @@ impl WitnessExecHelper {
             let next_step = iter_for_next_step.next();
             let need_exit_call = prev_step_is_error
                 && matches!(self.next_exec_state, Some(ExecutionState::POST_CALL_1));
+
+            let is_static_call = step.op == OpcodeId::STATICCALL;
+            self.read_only =
+                (self.call_ctx.last().map_or(0, |ctx| ctx.is_static as u64) == 1) as u64;
+            // 如果当前opcode是STATICCALL，设置read_only 状态为1
+            // 其余opcode的read_only 状态设置为和上一个read_only 状态相同
+            if is_static_call {
+                self.read_only = 1u64.into();
+            }
 
             if prev_is_return_revert_or_stop || need_exit_call {
                 // append POST_CALL when the previous opcode is RETURN, REVERT or STOP which indicates the end of the lower-level call (this doesn't append POST_CALL at the end of the top-level call, because the total for-loop has ended)
@@ -555,6 +568,7 @@ impl WitnessExecHelper {
                     OpcodeId::RETURNDATACOPY => Some(ExecError::ReturnDataOutOfBounds),
                     OpcodeId::REVERT => None,
                     OpcodeId::SSTORE
+                    | OpcodeId::TSTORE
                     | OpcodeId::CREATE
                     | OpcodeId::CREATE2
                     | OpcodeId::SELFDESTRUCT
