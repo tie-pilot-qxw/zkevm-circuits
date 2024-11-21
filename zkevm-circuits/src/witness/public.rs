@@ -326,9 +326,9 @@ impl Row {
                 ..Default::default()
             });
 
-            for (tx_idx, tx) in block.eth_block.transactions.iter().enumerate() {
+            for (j, tx) in block.eth_block.transactions.iter().enumerate() {
                 // due to we decide to start idx at 1 in witness
-                let tx_idx = tx_idx + 1;
+                let tx_idx = j + 1;
                 let block_tx_idx = (block_idx << BLOCK_IDX_LEFT_SHIFT_NUM) + tx_idx;
 
                 // | TxFromValue | block_tx_idx  | from[..4] | from[4..] | value[..16] | value[16..] |
@@ -398,8 +398,10 @@ impl Row {
                     ..Default::default()
                 });
 
-                // | TxIsCreateAndStatus | block_tx_idx | 1/0(if create contract is 1,else 0) | call data gas cost | call data size | tx status |
-                let tx_status = 0.into(); // todo
+                // | TxIsCreateAndStatus | block_tx_idx | is create | call data gas cost | None | tx status |
+                // is create: if create contract is 1, else 0
+                //  tx status: a transaction if execution failed is 0, else 1
+                let tx_status = !block.geth_traces[j].failed as u8;
                 let call_data_gas_cost =
                     eth_types::geth_types::Transaction::from(tx).call_data_gas_cost();
                 result.push(Row {
@@ -408,8 +410,8 @@ impl Row {
                     // if isCreate 1 ,else 0
                     value_0: Some((tx.to.is_none() as u8).into()),
                     value_1: Some(call_data_gas_cost.into()),
-                    value_2: Some(tx.input.len().into()),
-                    value_3: Some(tx_status),
+                    value_2: None,
+                    value_3: Some(tx_status.into()),
                     comments: [
                         ("tag".into(), "TxIsCreate".into()),
                         (
@@ -418,7 +420,7 @@ impl Row {
                         ),
                         ("value_0".into(), "tx.to.is_none".into()),
                         ("value_1".into(), "call data gas cost".into()),
-                        ("value_2".into(), "call data size".into()),
+                        ("value_2".into(), "none".into()),
                         ("value_3".into(), "tx status".into()),
                     ]
                     .into_iter()

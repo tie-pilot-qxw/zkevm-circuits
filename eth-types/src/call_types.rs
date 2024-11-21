@@ -40,6 +40,7 @@ impl GethCallTrace {
     /// 如果debug_transaction获取的是一个失败的trace信息，则不应该调用此方法，因为仅通过trace信息无法获得具体错误原因，必须结合callTracer来实现；
     /// 2. 用./evm的形式，由于没有办法使用callTracer，也可以使用该方法，如果./evm模拟的是一个错误示例，同样可以使用该方法，只是此时callTrace没有任何作用，可以
     /// 仅当作一个mock值，因为./evm模拟的错误示例里，出错的step会携带error信息，此时在witness处理阶段会直接判断出错误。
+    /// 更新：往callTrace里写入trace中记录的错误信息，目前用于 Tx status 的更新。
     pub fn get_call_trace_for_test(struct_logs: &Vec<GethExecStep>) -> Self {
         let root_calls = GethCallTrace {
             calls: Vec::new(),
@@ -57,7 +58,11 @@ impl GethCallTrace {
                     last.calls.push(finished_call);
                 }
             }
-
+            if step.error.is_some() {
+                if let Some(a) = stack.last_mut() {
+                    a.error = step.error.clone();
+                }
+            }
             if matches!(
                 step.op,
                 OpcodeId::CALL

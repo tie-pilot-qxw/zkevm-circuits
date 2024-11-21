@@ -30,7 +30,8 @@ pub struct WitnessExecHelper {
     // 记录CALL对应的calldata；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应的calldata
     pub call_data: HashMap<u64, Vec<u8>>,
     // 记录CALL对应的call_data_gas_cost, 与call_data插入数据时机相同，提前计算并保存，不需要每次调用循环计算
-    pub call_data_gas_cost: HashMap<u64, u64>,
+    // key: block_tx_idx, value: call data gas cost
+    pub call_data_gas_cost: HashMap<usize, u64>,
     // 记录CALL对应的calldata大小；如在CALL调用中，key=执行的CALL_ID，value=该CALL对应操作数args_length，
     // 也是执行的CALL指令的calldata size
     pub call_data_size: HashMap<u64, U256>,
@@ -133,6 +134,8 @@ pub struct WitnessExecHelper {
     pub error: Option<ExecError>,
     // 存放区块的hash值，key为区块的block number，value为区块的hash值
     pub block_hash_list: HashMap<u64, U256>,
+    // tx_status 用于记录交易的状态，1表示成功，0表示失败
+    pub tx_status: u8,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -158,7 +161,10 @@ impl WitnessExecHelper {
 
     /// 计算call_data花费的gas，byte为0时是4， 非0 为16
     pub fn call_data_gas_cost(&self) -> u64 {
-        *self.call_data_gas_cost.get(&self.call_id).unwrap_or(&0)
+        *self
+            .call_data_gas_cost
+            .get(&self.get_block_tx_idx())
+            .unwrap_or(&0)
     }
 
     /// stack_pointer decrease
@@ -305,11 +311,6 @@ impl WitnessExecHelper {
         // add calldata to current_state
         self.call_data.insert(call_id, tx.input.to_vec());
         self.call_data_size.insert(call_id, tx.input.len().into());
-        self.call_data_gas_cost.insert(
-            call_id,
-            eth_types::geth_types::Transaction::from(tx).call_data_gas_cost(),
-        );
-
         self.value.insert(call_id, tx.value);
         self.tx_value = tx.value;
         self.sender.insert(call_id, tx.from.as_bytes().into());
@@ -321,6 +322,11 @@ impl WitnessExecHelper {
         self.tx_idx = tx_idx;
         self.tx_gaslimit = tx.gas;
         self.tx_gasprice = tx.gas_price.unwrap_or(0.into());
+        self.tx_status = !geth_data.geth_traces[index].failed as u8;
+        self.call_data_gas_cost.insert(
+            self.get_block_tx_idx(),
+            eth_types::geth_types::Transaction::from(tx).call_data_gas_cost(),
+        );
 
         let mut res: Witness = Default::default();
         let first_step = trace.first().unwrap(); // not actually used in BEGIN_TX_1 and BEGIN_TX_2 and BEGIN_TX_3
@@ -2403,18 +2409,13 @@ impl WitnessExecHelper {
                 values = [
                     Some((self.is_create as u8).into()),
                     Some(self.call_data_gas_cost().into()),
-                    Some(
-                        self.call_data_size
-                            .get(&self.call_id)
-                            .unwrap_or(&U256::zero())
-                            .into(),
-                    ),
-                    Some(0.into()), // tx_status
+                    None,
+                    Some(self.tx_status.into()),
                 ];
                 value_comments = [
                     "is_create".into(),
                     "call_data_gas_cost".into(),
-                    "call_data_length".into(),
+                    "none".into(),
                     "tx_status".into(),
                 ];
             }
