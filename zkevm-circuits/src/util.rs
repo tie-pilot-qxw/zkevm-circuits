@@ -915,7 +915,9 @@ mod tests {
     #[test]
     fn test_poseidon_hash() {
         // 模拟bytecode最简单的用法
-        let code = vec![1u8];
+        let mut code = vec![0u8; 30];
+        code.push(1u8);
+
         let res = hash_code_poseidon(&code);
         println!("hash res 1:{:x}", res);
 
@@ -925,6 +927,8 @@ mod tests {
 
         let hash_fr = Fr::hash_msg(&msgs, Some(1 * 31 * HASHABLE_DOMAIN_SPEC));
         let res2 = U256::from_little_endian(hash_fr.to_repr().as_ref());
-        println!("hash res 2:{:x}", res2)
+        println!("hash res 2:{:x}", res2);
+
+        assert_eq!(res, res2)
     }
 }

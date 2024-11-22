@@ -28,12 +28,6 @@ use halo2_proofs::poly::Rotation;
 use poseidon_circuit::HASHABLE_DOMAIN_SPEC;
 use std::marker::PhantomData;
 
-const NUM_RLC_ACC: usize = PUBLIC_NUM_ALL_VALUE;
-const NUM_U8: usize = PUBLIC_NUM_ALL_VALUE;
-const NUM_RANDOM: usize = 5;
-const MULTIPLES_OF_LENGTH: usize = PUBLIC_NUM_ALL_VALUE;
-const NUM_ROTATION: usize = PUBLIC_NUM_VALUES_U8_ROW - 1;
-
 const INSTANCE_HASH_ROW: usize = 0;
 
 #[derive(Clone, Debug)]
@@ -232,7 +226,6 @@ impl<F: Field> SubCircuitConfig<F> for PublicCircuitConfig<F> {
                     * (cnt.clone() - cnt_prev.clone() - 1.expr()),
                 // the rows before first_valid_row are all pdding rows(all values are 0)
                 q_enable.clone() * is_first_valid_row.clone() * length_prev.clone(),
-                // todo need this?
                 q_enable.clone() * is_first_valid_row.clone() * cnt_prev.clone(),
                 // the values of length are the same
                 q_enable.clone()
@@ -625,7 +618,6 @@ impl<F: Field> PublicCircuitConfig<F> {
                 let q_enable = meta.query_selector(self.q_enable);
                 let cnt_is_zero = self.cnt_is_zero.expr_at(meta, Rotation::cur());
                 let is_valid_row = not::expr(cnt_is_zero);
-                let not_first_row = not::expr(self.is_first_valid_row.expr());
 
                 let hash = meta.query_advice(self.poseidon_hash, Rotation::cur());
                 let inputs = inputs_fn(meta, i);
@@ -644,12 +636,7 @@ impl<F: Field> PublicCircuitConfig<F> {
 
                 poseidon_lookup_vec
                     .into_iter()
-                    .map(|(left, right)| {
-                        (
-                            q_enable.clone() * is_valid_row.clone() * not_first_row.clone() * left,
-                            right,
-                        )
-                    })
+                    .map(|(left, right)| (q_enable.clone() * is_valid_row.clone() * left, right))
                     .collect()
             });
         }
