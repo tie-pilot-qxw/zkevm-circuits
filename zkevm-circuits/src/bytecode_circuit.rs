@@ -1591,7 +1591,6 @@ mod test {
         PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs, HASH_BLOCK_STEP_SIZE,
     };
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
-    use crate::table::KeccakTable;
     use crate::util::{chunk_data_test, hash_code_poseidon, log2_ceil};
     use crate::witness::poseidon::{
         get_hash_input_from_u8s_default, get_poseidon_row_from_stream_input,
@@ -1619,9 +1618,7 @@ mod test {
 
         fn new(meta: &mut ConstraintSystem<F>, _args: Self::ConfigArgs) -> Self {
             // construct instance column
-            #[cfg(not(feature = "no_public_hash"))]
             let instance_hash = PublicTable::construct_hash_instance_column(meta);
-            #[cfg(not(feature = "no_public_hash"))]
             let q_enable_public = meta.complex_selector();
 
             // initialize columns
@@ -1653,24 +1650,15 @@ mod test {
             let poseidon_circuit =
                 PoseidonCircuitConfig::new(meta, PoseidonCircuitConfigArgs { poseidon_table });
 
-            let keccak_table = KeccakTable::construct(meta);
-
-            // todo 目前这个public hash是keccak特性，后面会优化
-            #[cfg(not(feature = "no_public_hash"))]
             let public_circuit = PublicCircuitConfig::new(
                 meta,
                 PublicCircuitConfigArgs {
                     q_enable: q_enable_public,
                     public_table,
-                    keccak_table,
-                    challenges,
                     instance_hash,
+                    poseidon_table,
                 },
             );
-
-            #[cfg(feature = "no_public_hash")]
-            let public_circuit =
-                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
             // construct BytecodeTestCircuitConfig
             Self {
@@ -1939,10 +1927,15 @@ mod test {
             HASH_BLOCK_STEP_SIZE,
         ));
 
-        witness.poseidon = poseidon_rows;
+        let inputs = public::gen_public_poseidon_hash(&mut witness);
+        poseidon_rows.append(&mut get_poseidon_row_from_stream_input(
+            &inputs,
+            witness.public.last().unwrap().poseidon_hash,
+            (inputs.len() * PoseidonTable::INPUT_WIDTH * POSEIDON_HASH_BYTES_IN_FIELD) as u64,
+            HASH_BLOCK_STEP_SIZE,
+        ));
 
-        #[cfg(not(feature = "no_public_hash"))]
-        public::witness_post_handle(&mut witness);
+        witness.poseidon = poseidon_rows;
 
         // verification circuit
         let prover = test_bytecode_circuit(witness);

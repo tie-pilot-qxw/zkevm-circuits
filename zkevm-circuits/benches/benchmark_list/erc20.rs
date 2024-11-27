@@ -5,19 +5,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::run_benchmark;
-use zkevm_circuits::constant::MAX_NUM_ROW;
 use zkevm_circuits::util::get_chunk_data;
 
-#[cfg(feature = "k_10")]
+#[cfg(feature = "k_11")]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = 21000;
 
-#[cfg(feature = "k_10")]
+#[cfg(feature = "k_11")]
 const CALL_MAX_NUM_ROW_FOR_TEST: usize = 6000;
 
-#[cfg(not(feature = "k_10"))]
+#[cfg(not(feature = "k_11"))]
 const DEPLOY_MAX_NUM_ROW_FOR_TEST: usize = MAX_NUM_ROW;
 
-#[cfg(not(feature = "k_10"))]
+#[cfg(not(feature = "k_11"))]
 const CALL_MAX_NUM_ROW_FOR_TEST: usize = MAX_NUM_ROW;
 
 #[test]

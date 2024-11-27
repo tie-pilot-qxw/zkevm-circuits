@@ -939,10 +939,12 @@ mod test {
     use crate::constant::MAX_NUM_ROW;
     use crate::copy_circuit::CopyCircuit;
     use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
-    use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
+    use crate::poseidon_circuit::{
+        PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs,
+    };
     use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
     use crate::state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs};
-    use crate::table::{FixedTable, KeccakTable, PoseidonTable};
+    use crate::table::{FixedTable, PoseidonTable};
     use crate::util::{chunk_data_test, log2_ceil};
     use crate::witness::Witness;
     use eth_types::{bytecode, U256};
@@ -955,9 +957,9 @@ mod test {
     #[derive(Clone)]
     pub struct CopyTestCircuitConfig<F: Field> {
         pub bytecode_circuit: BytecodeCircuitConfig<F>,
-        pub keccak_circuit: KeccakCircuitConfig<F>,
         pub public_circuit: PublicCircuitConfig<F>,
         pub copy_circuit: CopyCircuitConfig<F>,
+        pub poseidon_circuit: PoseidonCircuitConfig<F>,
         pub state_circuit: StateCircuitConfig<F>,
         pub fixed_circuit: FixedCircuitConfig<F>,
         pub challenges: Challenges,
@@ -972,15 +974,11 @@ mod test {
             let q_enable_state = meta.complex_selector();
             let state_table = StateTable::construct(meta, q_enable_state);
 
-            #[cfg(not(feature = "no_public_hash"))]
             let instance_hash = PublicTable::construct_hash_instance_column(meta);
-            #[cfg(not(feature = "no_public_hash"))]
             let q_enable_public = meta.complex_selector();
             let public_table = PublicTable::construct(meta);
 
             let fixed_table = FixedTable::construct(meta);
-
-            let keccak_table = KeccakTable::construct(meta);
 
             let q_enable_copy = meta.complex_selector();
             let copy_table = CopyTable::construct(meta, q_enable_copy);
@@ -1009,21 +1007,15 @@ mod test {
                 },
             );
 
-            #[cfg(not(feature = "no_public_hash"))]
             let public_circuit = PublicCircuitConfig::new(
                 meta,
                 PublicCircuitConfigArgs {
                     q_enable: q_enable_public,
                     public_table,
-                    keccak_table,
-                    challenges,
                     instance_hash,
+                    poseidon_table,
                 },
             );
-
-            #[cfg(feature = "no_public_hash")]
-            let public_circuit =
-                PublicCircuitConfig::new(meta, PublicCircuitConfigArgs { public_table });
 
             // construct config object
             let copy_circuit = CopyCircuitConfig::new(
@@ -1036,22 +1028,19 @@ mod test {
                     challenges,
                 },
             );
-            let keccak_circuit = KeccakCircuitConfig::new(
-                meta,
-                KeccakCircuitConfigArgs {
-                    keccak_table,
-                    challenges,
-                },
-            );
+
             let fixed_circuit =
                 FixedCircuitConfig::new(meta, FixedCircuitConfigArgs { fixed_table });
+
+            let poseidon_circuit =
+                PoseidonCircuitConfig::new(meta, PoseidonCircuitConfigArgs { poseidon_table });
             CopyTestCircuitConfig {
                 bytecode_circuit,
-                keccak_circuit,
                 public_circuit,
                 copy_circuit,
                 state_circuit,
                 fixed_circuit,
+                poseidon_circuit,
                 challenges,
             }
         }
@@ -1062,10 +1051,10 @@ mod test {
     pub struct CopyTestCircuit<F: Field, const MAX_NUM_ROW: usize> {
         pub copy_circuit: CopyCircuit<F, MAX_NUM_ROW>,
         pub bytecode_circuit: BytecodeCircuit<F, MAX_NUM_ROW>,
-        pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
         pub state_circuit: StateCircuit<F, MAX_NUM_ROW>,
         pub public_circuit: PublicCircuit<F, MAX_NUM_ROW>,
         pub fixed_circuit: FixedCircuit<F>,
+        pub poseidon_circuit: PoseidonCircuit<F, MAX_NUM_ROW>,
     }
 
     impl<F: Field, const MAX_NUM_ROW: usize> Circuit<F> for CopyTestCircuit<F, MAX_NUM_ROW> {
@@ -1103,9 +1092,8 @@ mod test {
             #[cfg(not(feature = "no_fixed_lookup"))]
             self.fixed_circuit
                 .synthesize_sub(&config.fixed_circuit, &mut layouter, &challenges)?;
-
-            self.keccak_circuit.synthesize_sub(
-                &config.keccak_circuit,
+            self.poseidon_circuit.synthesize_sub(
+                &config.poseidon_circuit,
                 &mut layouter,
                 &challenges,
             )?;
@@ -1121,7 +1109,7 @@ mod test {
                 copy_circuit: CopyCircuit::new_from_witness(&witness),
                 state_circuit: StateCircuit::new_from_witness(&witness),
                 fixed_circuit: FixedCircuit::new_from_witness(&witness),
-                keccak_circuit: KeccakCircuit::new_from_witness(&witness),
+                poseidon_circuit: PoseidonCircuit::new_from_witness(&witness),
             }
         }
         pub fn instance(&self) -> Vec<Vec<F>> {
@@ -1131,7 +1119,7 @@ mod test {
             vec.extend(self.copy_circuit.instance());
             vec.extend(self.state_circuit.instance());
             vec.extend(self.fixed_circuit.instance());
-            vec.extend(self.keccak_circuit.instance());
+            vec.extend(self.poseidon_circuit.instance());
             vec
         }
     }

@@ -15,11 +15,13 @@ use eth_types::{ToAddress, H256};
 pub use gadgets::util::Expr;
 use halo2_proofs::circuit::{Cell, Layouter, Region, Value};
 use halo2_proofs::halo2curves::bn256::Fr;
-use halo2_proofs::halo2curves::ff::PrimeField;
+use halo2_proofs::halo2curves::ff::{FromUniformBytes, PrimeField};
 use halo2_proofs::plonk::{
     Advice, Any, Challenge, Column, ConstraintSystem, Error, Expression, FirstPhase, Fixed,
     SecondPhase, ThirdPhase, VirtualCells,
 };
+use poseidon_circuit::hash::MessageHashable;
+use poseidon_circuit::HASHABLE_DOMAIN_SPEC;
 use std::path::Path;
 use std::str::FromStr;
 use trace_parser::{
@@ -760,15 +762,35 @@ pub fn hash_code_poseidon(code: &[u8]) -> U256 {
     U256::from_little_endian(h.to_repr().as_ref())
 }
 
+/// input is u256 array
+pub fn hash_u256_poseidon(inputs: &[U256]) -> U256 {
+    if inputs.len() == 0 {
+        return U256::zero();
+    }
+    let msgs: Vec<_> = inputs
+        .into_iter()
+        .map(|input| Fr::from_uniform_bytes(&convert_u256_to_64_bytes(input)))
+        .collect();
+
+    // 为了和bytecode计算保持一致，这里实际输入长度为msg.len() * 31 * HASHABLE_DOMAIN_SPEC
+    let hash_fr = Fr::hash_msg(
+        &msgs,
+        Some((msgs.len() * POSEIDON_HASH_BYTES_IN_FIELD) as u128 * HASHABLE_DOMAIN_SPEC),
+    );
+    U256::from_little_endian(hash_fr.to_repr().as_ref())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::util::{
         convert_f_to_u256, convert_u256_to_64_bytes, convert_u256_to_be_bytes, convert_u256_to_f,
-        uint64_with_overflow,
+        hash_code_poseidon, uint64_with_overflow,
     };
     use eth_types::U256;
     use halo2_proofs::halo2curves::bn256::Fr;
-    use halo2_proofs::halo2curves::ff::FromUniformBytes;
+    use halo2_proofs::halo2curves::ff::{FromUniformBytes, PrimeField};
+    use poseidon_circuit::hash::MessageHashable;
+    use poseidon_circuit::HASHABLE_DOMAIN_SPEC;
     use std::str::FromStr;
 
     #[test]
@@ -888,5 +910,25 @@ mod tests {
                 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255
             ]
         );
+    }
+
+    #[test]
+    fn test_poseidon_hash() {
+        // 模拟bytecode最简单的用法
+        let mut code = vec![0u8; 30];
+        code.push(1u8);
+
+        let res = hash_code_poseidon(&code);
+        println!("hash res 1:{:x}", res);
+
+        // 模拟输入为U256 例如public 的用法
+        let n = &U256::from(1u8);
+        let msgs = vec![Fr::from_uniform_bytes(&convert_u256_to_64_bytes(n))];
+
+        let hash_fr = Fr::hash_msg(&msgs, Some(1 * 31 * HASHABLE_DOMAIN_SPEC));
+        let res2 = U256::from_little_endian(hash_fr.to_repr().as_ref());
+        println!("hash res 2:{:x}", res2);
+
+        assert_eq!(res, res2)
     }
 }

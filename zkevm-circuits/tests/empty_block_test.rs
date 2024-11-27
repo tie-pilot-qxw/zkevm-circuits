@@ -17,10 +17,7 @@ use zkevm_circuits::witness::Witness;
 #[cfg(not(feature = "fast_test"))]
 const MAX_NUM_ROW: usize = 12200;
 
-#[cfg(all(feature = "fast_test", not(feature = "no_public_hash_lookup")))]
-const MAX_NUM_ROW: usize = 600;
-
-#[cfg(all(feature = "fast_test", feature = "no_public_hash_lookup"))]
+#[cfg(feature = "fast_test")]
 const MAX_NUM_ROW: usize = 8133;
 
 #[test]
