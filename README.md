@@ -1,4 +1,5 @@
-# 零知识虚拟机的电路实现
+# 印客·Inker
+**印客·Inker** 是一个实现零知识以太坊虚拟机电路的项目，用于验证以太坊智能合约的执行。
 
 ## 项目结构
 
@@ -6,14 +7,19 @@
 .
 ├── Cargo.lock
 ├── Cargo.toml
+├── LICENSE
+├── NOTICE
+├── aggregate-zkevm # 用于聚合证明
 ├── csv2html # 用于csv转化为html的库
 │   └── src
 ├── eth-types #以太坊相关的数据类型
 │   └── src
+├── evmutil # 用于生成测试数据
 ├── gadgets # 一些小工具
 │   └── src
 ├── keccak256 # keccak256 相关工具
 │   └── src
+├── poseidon # poseidon 相关工具
 ├── prover # 使用zkevm封装的验证器
 │   └── src
 ├── README.md
@@ -40,6 +46,7 @@
     │   ├── keccak_circuit # keccak256电路相关
     │   ├── keccak_circuit.rs # keccak256电路
     │   ├── lib.rs
+    │   ├── poseidon_circuit.rs # poseidon电路
     │   ├── public_circuit_no_hash.rs 
     │   ├── public_circuit.rs # public电路
     │   ├── state_circuit # state电路相关
@@ -52,7 +59,7 @@
     ├── test_data # 测试数据
     └── tests # 测试相关
         ├── fuzz # mutate篡改测试
-        ├── opcode_tests # 用于单个opcode的测试
+        └── opcode_tests # 用于单个opcode的测试
 ```
 
 # 如何运行单元测试  
