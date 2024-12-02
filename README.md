@@ -1,5 +1,5 @@
-# 印客·Inker
-**印客·Inker** 是一个实现零知识以太坊虚拟机电路的项目，用于验证以太坊智能合约的执行。
+# 印客·Inker zkevm-circuits
+**印客·Inker zkevm-circuits** 是一个实现零知识以太坊虚拟机电路的项目，用于验证以太坊智能合约的执行。
 
 ## 项目结构
 
@@ -104,12 +104,11 @@ cargo test -p zkevm-circuits --features "default,evm"
     let file_name = std::path::Path::new("./witness.html"); // 生成的html文件路径
     let mut buf = std::io::BufWriter::new(std::fs::File::create(file_name).unwrap());
     witness.write_html(&mut buf); // 将witness以html文件形式输出
-
 ```
 
 # 运行`benchmark`测试
 
-## 快速验证fast_test(small k，机器内存一般需要16G以上)  
+## 快速验证fast_test (small k，机器内存一般需要16G以上)  
 
 ### 生成验证参数  
 
@@ -133,7 +132,7 @@ USEFILE=true cargo test -p zkevm-circuits --profile bench --bench benchmark_list
 cargo test -p zkevm-circuits --profile bench --bench benchmark_list -- super_circuit  --nocapture
 ```
 
-## 标准测试(k=19,机器内存一般需要256G以上)  
+## 标准测试 (k=19,机器内存一般需要256G以上)  
 
 ### 生成验证参数  
 
