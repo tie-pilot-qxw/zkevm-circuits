@@ -90,7 +90,7 @@ impl Witness {
         self.state.append(&mut witness.state);
         self.bitwise.append(&mut witness.bitwise);
         self.arithmetic.append(&mut witness.arithmetic);
-        #[cfg(not(feature = "no_hash_circuit"))]
+        #[cfg(not(feature = "no_keccak_circuit"))]
         self.keccak.append(&mut witness.keccak);
     }
 
