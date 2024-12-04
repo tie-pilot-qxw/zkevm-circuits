@@ -14,7 +14,7 @@ use crate::copy_circuit::{CopyCircuit, CopyCircuitConfig, CopyCircuitConfigArgs}
 use crate::core_circuit::{CoreCircuit, CoreCircuitConfig, CoreCircuitConfigArgs};
 use crate::exp_circuit::{ExpCircuit, ExpCircuitConfig, ExpCircuitConfigArgs};
 use crate::fixed_circuit::{FixedCircuit, FixedCircuitConfig, FixedCircuitConfigArgs};
-#[cfg(not(feature = "no_hash_circuit"))]
+#[cfg(not(feature = "no_keccak_circuit"))]
 use crate::keccak_circuit::{KeccakCircuit, KeccakCircuitConfig, KeccakCircuitConfigArgs};
 use crate::poseidon_circuit::{PoseidonCircuit, PoseidonCircuitConfig, PoseidonCircuitConfigArgs};
 use crate::public_circuit::{PublicCircuit, PublicCircuitConfig, PublicCircuitConfigArgs};
@@ -46,7 +46,7 @@ pub struct SuperCircuitConfig<
     arithmetic_circuit: ArithmeticCircuitConfig<F>,
     exp_circuit: ExpCircuitConfig<F>,
     challenges: Challenges<halo2_proofs::plonk::Challenge>,
-    #[cfg(not(feature = "no_hash_circuit"))]
+    #[cfg(not(feature = "no_keccak_circuit"))]
     keccak_circuit: KeccakCircuitConfig<F>,
     poseidon_circuit: PoseidonCircuitConfig<F>,
 }
@@ -176,7 +176,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             },
         );
 
-        #[cfg(not(feature = "no_hash_circuit"))]
+        #[cfg(not(feature = "no_keccak_circuit"))]
         let keccak_circuit = KeccakCircuitConfig::new(
             meta,
             KeccakCircuitConfigArgs {
@@ -199,7 +199,7 @@ impl<F: Field, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO_COL: usize> Sub
             arithmetic_circuit,
             exp_circuit,
             challenges,
-            #[cfg(not(feature = "no_hash_circuit"))]
+            #[cfg(not(feature = "no_keccak_circuit"))]
             keccak_circuit,
             poseidon_circuit,
         }
@@ -222,7 +222,7 @@ pub struct SuperCircuit<
     pub bitwise_circuit: BitwiseCircuit<F, MAX_NUM_ROW>,
     pub arithmetic_circuit: ArithmeticCircuit<F, MAX_NUM_ROW>,
     pub exp_circuit: ExpCircuit<F, MAX_NUM_ROW>,
-    #[cfg(not(feature = "no_hash_circuit"))]
+    #[cfg(not(feature = "no_keccak_circuit"))]
     pub keccak_circuit: KeccakCircuit<F, MAX_NUM_ROW>,
     pub poseidon_circuit: PoseidonCircuit<F, MAX_NUM_ROW>,
 }
@@ -247,7 +247,7 @@ impl<
         let bitwise_circuit = BitwiseCircuit::new_from_witness(witness);
         let arithmetic_circuit = ArithmeticCircuit::new_from_witness(witness);
         let exp_circuit = ExpCircuit::new_from_witness(witness);
-        #[cfg(not(feature = "no_hash_circuit"))]
+        #[cfg(not(feature = "no_keccak_circuit"))]
         let keccak_circuit = KeccakCircuit::new_from_witness(witness);
         let poseidon_circuit = PoseidonCircuit::new_from_witness(witness);
         Self {
@@ -260,7 +260,7 @@ impl<
             bitwise_circuit,
             arithmetic_circuit,
             exp_circuit,
-            #[cfg(not(feature = "no_hash_circuit"))]
+            #[cfg(not(feature = "no_keccak_circuit"))]
             keccak_circuit,
             poseidon_circuit,
         }
@@ -277,7 +277,7 @@ impl<
         instance.extend(self.bitwise_circuit.instance());
         instance.extend(self.arithmetic_circuit.instance());
         instance.extend(self.exp_circuit.instance());
-        #[cfg(not(feature = "no_hash_circuit"))]
+        #[cfg(not(feature = "no_keccak_circuit"))]
         instance.extend(self.keccak_circuit.instance());
         instance.extend(self.poseidon_circuit.instance());
         instance
@@ -309,7 +309,7 @@ impl<
             .synthesize_sub(&config.arithmetic_circuit, layouter, challenges)?;
         self.exp_circuit
             .synthesize_sub(&config.exp_circuit, layouter, challenges)?;
-        #[cfg(not(feature = "no_hash_circuit"))]
+        #[cfg(not(feature = "no_keccak_circuit"))]
         self.keccak_circuit
             .synthesize_sub(&config.keccak_circuit, layouter, challenges)?;
         self.poseidon_circuit
@@ -327,7 +327,7 @@ impl<
             BitwiseCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             ExpCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
-            #[cfg(not(feature = "no_hash_circuit"))]
+            #[cfg(not(feature = "no_keccak_circuit"))]
             KeccakCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
             PoseidonCircuit::<F, MAX_NUM_ROW>::unusable_rows(),
         ];
@@ -346,7 +346,7 @@ impl<
             BitwiseCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             ArithmeticCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             ExpCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
-            #[cfg(not(feature = "no_hash_circuit"))]
+            #[cfg(not(feature = "no_keccak_circuit"))]
             KeccakCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
             PoseidonCircuit::<F, MAX_NUM_ROW>::num_rows(witness),
         ];
