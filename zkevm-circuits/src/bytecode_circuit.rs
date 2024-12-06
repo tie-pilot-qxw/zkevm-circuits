@@ -897,8 +897,8 @@ impl<F: Field> BytecodeCircuitConfig<F> {
         meta.create_gate("BYTECODE_field_input_cycling", |meta| {
             let q_enable = meta.query_selector(self.q_enable);
             let addr_is_not_zero = not::expr(self.addr_is_zero.expr_at(meta, Rotation::cur()));
-            let is_padding = meta.query_advice(self.is_padding, Rotation::cur());
-            let condition = q_enable * addr_is_not_zero * not::expr(is_padding);
+            let not_padding = not::expr(meta.query_advice(self.is_padding, Rotation::cur()));
+            let condition = q_enable.clone() * addr_is_not_zero * not_padding.clone();
 
             let field_index =
                 meta.query_advice(self.poseidon_aux_conf.field_index, Rotation::cur());
@@ -934,7 +934,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                     // 这里单独加了一个条件为addr_unchange，因为当发生地址切换时，q_input_border_last 取值为0或1
                     // 当为0时，此时control_length不可能等于code_length_prev，所以此时约束无法成立，故拆分处理
                     "addr_unchange => control_length := code_length - pc if q_input_border_last else control_length_prev",
-                    condition.clone() * addr_unchange.clone() *
+                    q_enable.clone() * not_padding.clone() * addr_unchange.clone() *
                         (control_length.clone() - select::expr(
                             q_input_border_last.clone(),
                             code_length.clone() - pc,
@@ -943,7 +943,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                 ),
                 (
                     "addr_change => control_length := code length",
-                    condition.clone() * not::expr(addr_unchange.clone()) * (control_length - code_length)
+                    q_enable.clone() * not_padding.clone() * not::expr(addr_unchange.clone()) * (control_length - code_length)
                 ),
                 (
                     "field_index = 1 when q_input_border_last",
@@ -1446,8 +1446,7 @@ impl<F: Field> BytecodeCircuitConfig<F> {
                     field_selector(meta)[i].clone(),
                 ]);
                 let q_enable = meta.query_selector(self.q_enable);
-                let addr_is_not_zero = not::expr(self.addr_is_zero.expr_at(meta, Rotation::cur()));
-                let condition = q_enable * addr_is_not_zero * enable;
+                let condition = q_enable * enable;
 
                 let poseidon_entry = LookupEntry::PoseidonWithSelector {
                     q_enable: 1.expr(),
