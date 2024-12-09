@@ -42,7 +42,7 @@ use crate::test::proof_test::{
     get_default_chunk_trace_json, get_default_proof_params_file_path,
     get_default_proof_vk_file_path, write_proof_params, write_proof_vk,
 };
-use crate::util::handler_chunk_data;
+use crate::util::{handler_chunk_data, GIT_VERSION};
 
 /// 默认运行test时为fast_test, zkevm degree == 15, agg degree == 19
 /// not fast_test, zkevm degree == 19, agg degree == 25，正式环境使用

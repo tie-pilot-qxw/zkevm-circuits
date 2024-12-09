@@ -4,11 +4,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::Once;
+use std::{fs, str};
 
 use chrono::Utc;
 use halo2_proofs::halo2curves::bn256::{Fr, G1Affine};
@@ -24,6 +25,7 @@ use eth_types::geth_types::ChunkData;
 use zkevm_circuits::util::preprocess_trace;
 
 pub static LOGGER: Once = Once::new();
+pub const GIT_VERSION: &str = env!("ZKEVM_GIT_VERSION");
 
 pub fn read_env_var<T: Clone + FromStr>(var_name: &'static str, default: T) -> T {
     std::env::var(var_name)
