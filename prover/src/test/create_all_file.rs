@@ -293,8 +293,3 @@ fn rename_file(src_dir: &str, dst_dir: &str, file_name: &str) -> Result<()> {
     rename(&src_file, &dest_file)?;
     Ok(())
 }
-
-#[test]
-fn get_version_test() {
-    println!("{}", GIT_VERSION);
-}
