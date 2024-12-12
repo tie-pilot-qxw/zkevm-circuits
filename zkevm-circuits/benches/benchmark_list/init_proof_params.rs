@@ -4,9 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use halo2_proofs::halo2curves::bn256::Fr;
-
 use crate::gen_proof_params_and_write_file;
+use eth_types::U256;
+use halo2_proofs::halo2curves::bn256::Fr;
 use zkevm_circuits::constant::{
     MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL, PUBLIC_NUM_BEGINNING_PADDING_ROW,
 };
@@ -25,9 +25,9 @@ fn init_proof_params() {
     }
     witness.public.push(public::Row {
         tag: public::Tag::ChainId,
+        cnt: Some(U256::one()),
         ..Default::default()
     });
-    public::witness_post_handle(&mut witness);
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);

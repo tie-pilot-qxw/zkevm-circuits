@@ -18,6 +18,7 @@ use once_cell::sync::Lazy;
 use rand_chacha::rand_core::OsRng;
 
 use eth_types::geth_types::ChunkData;
+use eth_types::U256;
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::{log2_ceil, SubCircuit};
 use zkevm_circuits::witness::{bytecode, public, Witness};
@@ -79,9 +80,9 @@ pub fn init_proof_params() {
     }
     witness.public.push(public::Row {
         tag: public::Tag::ChainId,
+        cnt: Some(U256::one()),
         ..Default::default()
     });
-    public::witness_post_handle(&mut witness);
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
