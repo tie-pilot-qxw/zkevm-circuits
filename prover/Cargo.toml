@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 zkevm-circuits = { path = "../zkevm-circuits" }
 eth-types = { path = "../eth-types" }
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"] }
+halo2_proofs = { path = "../../halo2/halo2_proofs", features = ["circuit-params", "derive_serde"] }
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = { version = "1.0.94", features = ["unbounded_depth"] }
 log = "0.4.21"

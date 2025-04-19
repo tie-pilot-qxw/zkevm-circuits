@@ -8,6 +8,14 @@ members = [
     "prover"
 ]
 
+[profile.dev]
+opt-level = 0
+debug = true
+debug-assertions = true
+overflow-checks = true
+rpath = false
+incremental = true
+
 [profile.bench]
 opt-level = 3
 debug = false
