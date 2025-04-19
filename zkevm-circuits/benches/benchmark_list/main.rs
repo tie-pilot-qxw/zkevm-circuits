@@ -13,21 +13,19 @@ mod init_proof_params;
 use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ark_std::{end_timer, start_timer};
 use eth_types::geth_types::ChunkData;
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
 use halo2_proofs::plonk::{
-    create_proof, keygen_pk, keygen_vk, verify_proof, ProvingKey, VerifyingKey,
+    gen as prover_gen, keygen_pk, keygen_vk, verify_proof, ProvingKey, VerifyingKey,
 };
 use halo2_proofs::poly::commitment::{Params, ParamsProver};
 use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
 use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
-use halo2_proofs::transcript::{
-    Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
-};
+use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer};
 use halo2_proofs::SerdeFormat;
 use rand_chacha::rand_core::OsRng;
 use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
@@ -243,27 +241,128 @@ fn run_circuit<
             i + 1,
             bench_round
         );
-        let proof_start = start_timer!(|| proof_msg);
-        let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
-        create_proof::<
-            KZGCommitmentScheme<Bn256>,
-            ProverSHPLONK<'_, Bn256>,
-            Challenge255<G1Affine>,
-            _,
-            Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
-            SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-        >(
-            &general_params,
-            &pk,
-            &[circuit],
-            &[&instance_refs],
-            OsRng,
-            &mut transcript,
-        )
-        .expect(format!("{}/proof generation should not fail", id).as_str());
 
-        let proof = transcript.finalize();
-        end_timer!(proof_start);
+        let mut allocator =
+            halo2_proofs::zkpoly_memory_pool::PinnedMemoryPool::new(30, std::mem::size_of::<u32>());
+
+        let mut trace = halo2_proofs::tracing::Trace::default();
+
+        let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
+        {
+            use halo2_proofs::transcript::TranscriptWriterBuffer;
+            let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
+                _,
+                _,
+                halo2_proofs::transcript::Challenge255<G1Affine>,
+            >::init(vec![]);
+            halo2_proofs::plonk::create_proof_traced::<
+                KZGCommitmentScheme<Bn256>,
+                ProverSHPLONK<Bn256>,
+                _,
+                _,
+                _,
+                _,
+            >(
+                &general_params,
+                &pk,
+                &[circuit.clone()],
+                &[&instance_refs],
+                OsRng,
+                &mut transcript,
+                Some(&mut trace),
+            )
+            .expect("proof generation should not fail");
+            transcript.finalize();
+        };
+        end_timer!(trace_start);
+
+        type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
+        type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
+
+        let options = halo2_proofs::zkpoly_compiler::driver::DebugOptions::all(PathBuf::from(
+            "target/debug/transit",
+        ))
+        .with_type2_visualizer(
+            halo2_proofs::zkpoly_compiler::driver::Type2DebugVisualizer::Cytoscape,
+        )
+        .with_log(true);
+        let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo {
+            gpu_memory_limit: 2 * 2u64.pow(30),
+        };
+
+        let instance_lengths = instance_refs
+            .iter()
+            .map(|ins| ins.len())
+            .collect::<Vec<usize>>();
+
+        let (rt_chunk, rt_const_tab, mut mem_allocator, cg_inputs_shape) =
+            std::thread::scope(|s| {
+                let handler = std::thread::Builder::new()
+                    .stack_size(64 * 1024 * 1024)
+                    .spawn_scoped(s, || {
+                        let cg_gen_start = start_timer!(|| proof_msg);
+                        let (cg_ret, cg_inputs_shape) = prover_gen::create_proof_validated::<
+                            KZGCommitmentScheme<Bn256>,
+                            ProverSHPLONK<Bn256>,
+                            E,
+                            Tr,
+                            _,
+                        >(
+                            &general_params,
+                            &pk,
+                            vec![circuit],
+                            &instance_lengths,
+                            &mut allocator,
+                            Some(&trace),
+                        );
+                        end_timer!(cg_gen_start);
+
+                        let compile_start =
+                            start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
+                        let (rt_chunk, rt_const_tab, mem_allocator) =
+                            halo2_proofs::zkpoly_compiler::driver::ast2inst(
+                                cg_ret, allocator, &options, &hd_info,
+                            )
+                            .unwrap();
+                        end_timer!(compile_start);
+
+                        (rt_chunk, rt_const_tab, mem_allocator, cg_inputs_shape)
+                    })
+                    .unwrap();
+
+                handler.join().unwrap()
+            });
+
+        use halo2_proofs::zkpoly_runtime::transcript::TranscriptWriterBuffer;
+        let instances = instance_refs
+            .iter()
+            .map(|ins| {
+                halo2_proofs::zkpoly_runtime::scalar::ScalarArray::from_vec(
+                    &ins,
+                    &mut mem_allocator,
+                )
+            })
+            .collect();
+        let inputs = cg_inputs_shape.serialize(vec![instances], Tr::init(vec![]));
+
+        let runtime = halo2_proofs::zkpoly_compiler::driver::prepare_vm(
+            rt_chunk,
+            rt_const_tab,
+            mem_allocator,
+            inputs,
+            halo2_proofs::zkpoly_runtime::runtime::ThreadPool::new(8),
+            vec![halo2_proofs::zkpoly_cuda_api::mem::CudaAllocator::new(
+                0,
+                hd_info.gpu_memory_limit as usize,
+            )],
+            halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20)),
+        );
+
+        let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
+        let (r, _) = runtime.run();
+        end_timer!(dispatcher_start);
+
+        let proof = r.unwrap().unwrap_transcript_move().take().finalize();
 
         // Verify the proof
         let verify_msg = format!(
