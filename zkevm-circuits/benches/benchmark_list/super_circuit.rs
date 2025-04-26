@@ -14,7 +14,7 @@ use crate::run_benchmark;
 #[test]
 #[cfg(feature = "evm")]
 fn bench_super_circuit() {
-    let degree = log2_ceil(MAX_NUM_ROW);
+    let degree = 21;
 
     let machine_code = trace_parser::assemble_file("test_data/1.txt");
     let trace = trace_parser::trace_program(&machine_code, &[]);

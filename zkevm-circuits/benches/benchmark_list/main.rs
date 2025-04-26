@@ -246,35 +246,43 @@ fn run_circuit<
             halo2_proofs::zkpoly_memory_pool::PinnedMemoryPool::new(30, std::mem::size_of::<u32>());
 
         let mut trace = halo2_proofs::tracing::Trace::default();
+        let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
 
-        let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
-        {
-            use halo2_proofs::transcript::TranscriptWriterBuffer;
-            let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
-                _,
-                _,
-                halo2_proofs::transcript::Challenge255<G1Affine>,
-            >::init(vec![]);
-            halo2_proofs::plonk::create_proof_traced::<
-                KZGCommitmentScheme<Bn256>,
-                ProverSHPLONK<Bn256>,
-                _,
-                _,
-                _,
-                _,
-            >(
-                &general_params,
-                &pk,
-                &[circuit.clone()],
-                &[&instance_refs],
-                OsRng,
-                &mut transcript,
-                Some(&mut trace),
-            )
-            .expect("proof generation should not fail");
-            transcript.finalize();
+        let trace = if trace_run {
+            println!("extended k = {}", pk.get_vk().get_domain().extended_k());
+
+            let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
+            let _proof = {
+                use halo2_proofs::transcript::TranscriptWriterBuffer;
+                let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
+                    _,
+                    _,
+                    halo2_proofs::transcript::Challenge255<G1Affine>,
+                >::init(vec![]);
+                halo2_proofs::plonk::create_proof_traced::<
+                    KZGCommitmentScheme<Bn256>,
+                    ProverSHPLONK<Bn256>,
+                    _,
+                    _,
+                    _,
+                    _,
+                >(
+                    &general_params,
+                    &pk,
+                    &[circuit.clone()],
+                    &[&instance_refs],
+                    OsRng,
+                    &mut transcript,
+                    Some(&mut trace),
+                )
+                .expect("proof generation should not fail");
+                transcript.finalize()
+            };
+            end_timer!(trace_start);
+            Some(&trace)
+        } else {
+            None
         };
-        end_timer!(trace_start);
 
         type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
         type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
@@ -313,17 +321,29 @@ fn run_circuit<
                             vec![circuit],
                             &instance_lengths,
                             &mut allocator,
-                            Some(&trace),
+                            trace,
                         );
                         end_timer!(cg_gen_start);
 
                         let compile_start =
                             start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
-                        let (rt_chunk, rt_const_tab, mem_allocator) =
-                            halo2_proofs::zkpoly_compiler::driver::ast2inst(
-                                cg_ret, allocator, &options, &hd_info,
-                            )
-                            .unwrap();
+                        use halo2_proofs::zkpoly_compiler::driver;
+                        let artifect_dir = "target/artifect";
+                        let pjh = driver::PanicJoinHandler::new();
+                        let t2prog = driver::ast2type2(cg_ret, &options, allocator, &pjh).unwrap();
+
+                        let (rt_chunk, rt_const_tab, mem_allocator) = if std::env::var("REBUILD")
+                            .is_ok_and(|x| x == "1")
+                            || !std::path::Path::new(artifect_dir).exists()
+                        {
+                            let (rt_chunk, rt_const_tb, mem_alloc) =
+                                driver::type2_to_inst(t2prog, &options, &hd_info, &pjh).unwrap();
+                            driver::dump_artifect(&rt_chunk, &rt_const_tb, &artifect_dir).unwrap();
+                            (rt_chunk, rt_const_tb, mem_alloc)
+                        } else {
+                            driver::load_artifect(t2prog, &artifect_dir).unwrap()
+                        };
+
                         end_timer!(compile_start);
 
                         (rt_chunk, rt_const_tab, mem_allocator, cg_inputs_shape)
@@ -345,7 +365,7 @@ fn run_circuit<
             .collect();
         let inputs = cg_inputs_shape.serialize(vec![instances], Tr::init(vec![]));
 
-        let runtime = halo2_proofs::zkpoly_compiler::driver::prepare_vm(
+        let mut runtime = halo2_proofs::zkpoly_compiler::driver::prepare_vm(
             rt_chunk,
             rt_const_tab,
             mem_allocator,
@@ -359,7 +379,7 @@ fn run_circuit<
         );
 
         let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
-        let (r, _) = runtime.run();
+        let (r, _) = runtime.run(halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::None);
         end_timer!(dispatcher_start);
 
         let proof = r.unwrap().unwrap_transcript_move().take().finalize();
