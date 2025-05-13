@@ -3158,7 +3158,7 @@ dependencies = [
 name = "zkpoly_memory_pool"
 version = "0.1.0"
 dependencies = [
- "bindgen",
+ "zkpoly_cuda_api",
 ]
 
 [[package]]
