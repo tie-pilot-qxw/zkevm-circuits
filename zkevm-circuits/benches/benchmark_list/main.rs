@@ -296,7 +296,7 @@ fn run_circuit<
         )
         .with_log(true);
         let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo {
-            gpu_memory_limit: 20 * 2u64.pow(30),
+            gpu_memory_limit: 15 * 2u64.pow(30),
             gpu_smithereen_space: 2u64.pow(28)
         };
 
@@ -369,6 +369,7 @@ fn run_circuit<
             vec![halo2_proofs::zkpoly_cuda_api::mem::CudaAllocator::new(
                 0,
                 hd_info.gpu_memory_limit as usize,
+                true
             )],
             halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20)),
         );
@@ -376,7 +377,7 @@ fn run_circuit<
         let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
         let (r, _) = runtime.run(
             &mut inputs,
-            halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::None,
+            halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
         );
         end_timer!(dispatcher_start);
 
