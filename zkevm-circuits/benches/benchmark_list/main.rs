@@ -297,6 +297,7 @@ fn run_circuit<
         .with_log(true);
         let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo {
             gpu_memory_limit: 20 * 2u64.pow(30),
+            gpu_smithereen_space: 2u64.pow(28)
         };
 
         let instance_lengths = instance_refs
