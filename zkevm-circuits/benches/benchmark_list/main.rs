@@ -91,6 +91,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData,
         bench_round,
         proof_params,
         proof_pk,
+        bench_usefile,
     );
     end_timer!(run_and_verify_circuit_start);
 }
@@ -206,6 +207,7 @@ fn run_circuit<
     bench_round: usize,
     proof_params: ParamsKZG<Bn256>,
     proof_pk: ProvingKey<G1Affine>,
+    prefer_no_reapply_type2_passes: bool,
 ) {
     // get witness for benchmark
     let witness_msg = format!(
@@ -297,7 +299,7 @@ fn run_circuit<
         .with_log(true);
         let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo {
             gpu_memory_limit: 15 * 2u64.pow(30),
-            gpu_smithereen_space: 2u64.pow(28)
+            gpu_smithereen_space: 2u64.pow(28),
         };
 
         let instance_lengths = instance_refs
@@ -330,14 +332,37 @@ fn run_circuit<
                         start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
                     use halo2_proofs::zkpoly_compiler::driver;
                     let artifect_dir = "target/artifect";
+                    let processed_type2_dir = "target/processed_type2";
                     let pjh = driver::PanicJoinHandler::new();
                     let fresh_type2 =
                         driver::FreshType2::from_ast(cg_ret, &options, allocator, &pjh).unwrap();
+                    let mut str_buf = String::new();
 
                     let artifect = if std::env::var("REBUILD").is_ok_and(|x| x == "1")
                         || !std::path::Path::new(artifect_dir).exists()
                     {
-                        let artifect = fresh_type2.to_artifect(&options, &hd_info, &pjh).unwrap();
+                        let processed_type2 = if prefer_no_reapply_type2_passes
+                            && std::path::Path::new(processed_type2_dir).exists()
+                        {
+                            println!("[Test] Skip applying Type2 passes");
+                            fresh_type2
+                                .load_processed_type2(&mut str_buf, &processed_type2_dir)
+                                .unwrap()
+                        } else {
+                            println!("[Test] Applying Type2 passes and lowering to Artifect");
+                            let pt2 = fresh_type2.apply_passes(&options, &hd_info, &pjh).unwrap();
+                            pt2.dump(&processed_type2_dir).unwrap();
+                            pt2
+                        };
+
+                        let artifect = processed_type2
+                            .to_type3(&options, &hd_info, &pjh)
+                            .unwrap()
+                            .apply_passes(&options)
+                            .unwrap()
+                            .to_artifect(&options, &pjh)
+                            .unwrap();
+
                         artifect.dump(&artifect_dir).unwrap();
                         artifect
                     } else {
@@ -369,7 +394,7 @@ fn run_circuit<
             vec![halo2_proofs::zkpoly_cuda_api::mem::CudaAllocator::new(
                 0,
                 hd_info.gpu_memory_limit as usize,
-                true
+                true,
             )],
             halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20)),
         );
