@@ -246,7 +246,7 @@ fn run_circuit<
         );
 
         let mut allocator =
-            halo2_proofs::zkpoly_memory_pool::PinnedMemoryPool::new(30, std::mem::size_of::<u32>());
+            halo2_proofs::zkpoly_memory_pool::CpuMemoryPool::new(30, std::mem::size_of::<u32>());
 
         let mut trace = halo2_proofs::tracing::Trace::default();
         let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
