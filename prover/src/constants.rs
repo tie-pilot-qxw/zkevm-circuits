@@ -20,6 +20,10 @@ pub const GENERATE_WITNESS: &str = "[Generate witness]";
 pub const CREATE_CIRCUIT: &str = "[Create circuit]";
 // create proof ,cp
 pub const DEFAULT_PROOF_PARAMS_DIR: &str = "./test_data";
+// Recommended solc version
+pub const RECOMMENDED_SOLC_VERSION: &str = "0.8.19";
+// Recommended  evm version
+pub const RECOMMENDED_EVM_VERSION: &str = "1.13.9";
 
 #[cfg(feature = "fast_test")]
 pub const MAX_NUM_ROW_FOR_TEST: usize = 21000;

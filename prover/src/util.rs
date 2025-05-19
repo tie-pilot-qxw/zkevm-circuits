@@ -128,3 +128,152 @@ pub fn init_env_and_log(id: &str) -> String {
 
     output_dir
 }
+
+/// 检查环境中 solc 是否为推荐版本
+pub fn check_solc_version(expected_version: &str) -> Result<(), String> {
+    // 运行 solc --version 命令获取当前版本
+    let output = match std::process::Command::new("solc").arg("--version").output() {
+        Ok(output) => output,
+        Err(e) => {
+            eprintln!(
+                "\x1b[31m[ERROR] Failed to execute solc command: {}\x1b[0m",
+                e
+            ); // Red
+            eprintln!(
+                "\x1b[34mPlease reinstall solc, the recommended version is: {}.\x1b[0m",
+                expected_version
+            ); // Blue
+            return Err(format!("Failed to execute solc command: {}", e));
+        }
+    };
+
+    // 检查命令是否成功执行
+    if !output.status.success() {
+        eprintln!("\x1b[31m[ERROR] solc command execution failed\x1b[0m"); // Red
+        eprintln!(
+            "\x1b[34mPlease reinstall solc, the recommended version is: {}.\x1b[0m",
+            expected_version
+        ); // Blue
+        return Err("solc command execution failed".to_string());
+    }
+
+    // 解析输出
+    let version_str = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!("\x1b[31m[ERROR] Failed to parse solc version output\x1b[0m"); // Red
+            eprintln!(
+                "\x1b[34mPlease reinstall solc, the recommended version is: {}.\x1b[0m",
+                expected_version
+            ); // Blue
+            return Err("Failed to parse solc version output".to_string());
+        }
+    };
+
+    // 解析版本号
+    let version_flag = "Version: ";
+    if let Some(version_line) = version_str
+        .lines()
+        .find(|line| line.starts_with(version_flag))
+    {
+        let current_version = version_line.trim_start_matches(version_flag);
+
+        // 提取主要版本号
+        let current_version_main = if let Some(idx) = current_version.find('+') {
+            &current_version[0..idx]
+        } else {
+            current_version
+        };
+
+        if current_version_main.contains(expected_version)
+            || current_version.contains(expected_version)
+        {
+            println!("\x1b[32m[SOLC] Version matched: {}\x1b[0m", current_version); // Green
+            Ok(())
+        } else {
+            println!(
+                "\x1b[33m[WARNING] solc version mismatch: expected {}, found {}\x1b[0m",
+                expected_version, current_version
+            ); // Yellow
+            Ok(())
+        }
+    } else {
+        eprintln!("\x1b[31m[ERROR] Failed to parse solc version from output\x1b[0m"); // Red
+        eprintln!(
+            "\x1b[34mPlease reinstall solc, the recommended version is: {}.\x1b[0m",
+            expected_version
+        ); // Blue
+        Err("Failed to parse solc version from output".to_string())
+    }
+}
+
+pub fn check_evm_file(expected_version: &str) -> Result<(), String> {
+    let evm_path = PathBuf::from("evm");
+    if !evm_path.exists() {
+        eprintln!("\x1b[31m[ERROR] evm file not found in current directory\x1b[0m"); // Red
+        eprintln!(
+            "\x1b[34mPlease compile or download the evm binary (recommended version: {}) and place it in the prover folder.\x1b[0m",
+            expected_version
+        ); // Blue
+        return Err("evm file not found in current directory".to_string());
+    }
+
+    let output = match std::process::Command::new("./evm")
+        .arg("--version")
+        .output()
+    {
+        Ok(output) => output,
+        Err(e) => {
+            eprintln!(
+                "\x1b[31m[ERROR] Failed to execute evm command: {}\x1b[0m",
+                e
+            ); // Red
+            eprintln!(
+                "\x1b[34mPlease compile or download the evm binary (recommended version: {}) and place it in the prover folder.\x1b[0m",
+                expected_version
+            ); // Blue
+            return Err(format!("Failed to execute evm command: {}", e));
+        }
+    };
+    if !output.status.success() {
+        eprintln!("\x1b[31m[ERROR] evm command execution failed\x1b[0m"); // Red
+        eprintln!(
+            "\x1b[34mPlease compile or download the evm binary (recommended version: {}) and place it in the prover folder.\x1b[0m",
+            expected_version
+        ); // Blue
+        return Err("evm command execution failed".to_string());
+    }
+    let version_str = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!("\x1b[31m[ERROR] Failed to parse evm version output\x1b[0m"); // Red
+            eprintln!(
+                "\x1b[34mPlease compile or download the evm binary (recommended version: {}) and place it in the prover folder.\x1b[0m",
+                expected_version
+            ); // Blue
+            return Err("Failed to parse evm version output".to_string());
+        }
+    };
+    // 解析版本号
+    let version_flag = "version";
+    if let Some(version_line) = version_str.lines().find(|line| line.contains(version_flag)) {
+        let current_version = version_line.trim_start_matches(version_flag);
+        if current_version.contains(expected_version) {
+            println!("\x1b[32m[EVM] Version matched: {}\x1b[0m", current_version);
+            Ok(())
+        } else {
+            println!(
+                "\x1b[33m[WARNING] evm version mismatch: expected {}, found {}\x1b[0m",
+                expected_version, current_version
+            ); // Yellow
+            Ok(())
+        }
+    } else {
+        eprintln!("\x1b[31m[ERROR] Failed to parse evm version from output\x1b[0m"); // Red
+        eprintln!(
+            "\x1b[34mPlease compile or download the evm binary (recommended version: {}) and place it in the prover folder.\x1b[0m",
+            expected_version
+        ); // Blue
+        Err("Failed to parse evm version from output".to_string())
+    }
+}

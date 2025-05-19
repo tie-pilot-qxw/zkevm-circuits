@@ -34,6 +34,7 @@ use crate::constants::{
     AGG_DEGREE_FOR_TEST, AGG_PARAMS_FILENAME, AGG_PK_FILENAME, AGG_VK_FILENAME,
     CHUNK_PARAMS_FILENAME, CHUNK_PROTOCOL_FILENAME, CHUNK_VK_FILENAME, DEFAULT_PROOF_PARAMS_DIR,
     DEPLOYMENT_CODE_FILENAME, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
+    RECOMMENDED_EVM_VERSION, RECOMMENDED_SOLC_VERSION,
 };
 use crate::proof::batch::BatchProof;
 use crate::proof::chunk::ChunkProof;
@@ -42,14 +43,20 @@ use crate::test::proof_test::{
     get_default_chunk_trace_json, get_default_proof_params_file_path,
     get_default_proof_vk_file_path, write_proof_params, write_proof_vk,
 };
-use crate::util::{handler_chunk_data, GIT_VERSION};
+use crate::util::{check_evm_file, check_solc_version, handler_chunk_data, GIT_VERSION};
 
 /// 默认运行test时为fast_test, zkevm degree == 15, agg degree == 19
 /// not fast_test, zkevm degree == 19, agg degree == 25，正式环境使用
 #[test]
 fn create_all_file() {
+    check_env();
     complete_process(true);
     move_file().unwrap()
+}
+
+pub fn check_env() {
+    let _ = check_solc_version(RECOMMENDED_SOLC_VERSION);
+    let _ = check_evm_file(RECOMMENDED_EVM_VERSION);
 }
 pub fn complete_process(need_gen_batch_proof: bool) {
     let (agg_params, zkevm_params, agg_degree, zkevm_degree) = generate_params();
