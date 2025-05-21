@@ -8,3 +8,6 @@
 tests/*.html
 zkevm-circuits/*.html
 **/__pycache__/*
+prover/test_data/
+*.out
+evm

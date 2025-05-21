@@ -7,7 +7,7 @@
 use anyhow::Result;
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
-use halo2_proofs::plonk::{keygen_pk, ProvingKey};
+use halo2_proofs::plonk::{keygen_pk, JitProverEnv, ProvingKey};
 
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
 
@@ -56,7 +56,7 @@ impl<const MAX_NUM_ROW: usize, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO
         }
     }
 
-    pub fn gen_chunk_proof(&mut self, chunk_data: ChunkData) -> Result<ChunkProof> {
+    pub fn gen_chunk_proof(&mut self, chunk_data: ChunkData, env_info: &mut Option<JitProverEnv>) -> Result<ChunkProof> {
         let start = start_timer!(|| format!("enter gen_chunk_proof, MAX_NUM_ROW: {}", MAX_NUM_ROW));
 
         let chunk_data = handler_chunk_data(chunk_data);
@@ -82,7 +82,7 @@ impl<const MAX_NUM_ROW: usize, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO
         end_timer!(pk_time);
 
         let snark_time = start_timer!(|| "generate snark");
-        let snark = gen_snark_shplonk(&general_params, &pk, circuit, None::<String>);
+        let snark = gen_snark_shplonk(&general_params, &pk, circuit, None::<String>, env_info);
         end_timer!(snark_time);
 
         end_timer!(start);
@@ -120,6 +120,6 @@ mod test {
         let reader = BufReader::new(file);
         let chunk_data: ChunkData = serde_json::from_reader(reader).unwrap();
 
-        let _snark = prover.gen_chunk_proof(chunk_data).unwrap();
+        let _snark = prover.gen_chunk_proof(chunk_data, &mut None).unwrap();
     }
 }

@@ -153,8 +153,8 @@ fn dump_params_and_vk_proof() {
     let file = File::open(get_default_chunk_trace_json(None)).expect("file should exist");
     let reader = BufReader::new(file);
     let chunk_data: ChunkData = serde_json::from_reader(reader).unwrap();
-
-    let proof = prover.gen_chunk_proof(chunk_data).unwrap();
+    todo!("use gpu");
+    let proof = prover.gen_chunk_proof(chunk_data, &mut None).unwrap();
     proof.dump(DEFAULT_PROOF_PARAMS_DIR, "k15").unwrap()
 }
 
@@ -292,7 +292,7 @@ mod test {
                 get_default_proof_vk_file_path(log2_ceil(MAX_NUM_ROW)),
             );
             let pk = keygen_pk(&general_params, vk, &circuit).unwrap();
-
+            todo!("use gpu");
             let mut transcript = Blake2bWrite::<_, G1Affine, Challenge255<_>>::init(vec![]);
             create_proof::<_, ProverSHPLONK<'_, Bn256>, _, _, _, _>(
                 &general_params,
@@ -301,6 +301,7 @@ mod test {
                 &[&instance_refs],
                 OsRng,
                 &mut transcript,
+                &mut None,
             )
             .expect("proof generation should not fail".to_string().as_str());
             let proof = transcript.finalize();

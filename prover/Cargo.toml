@@ -10,7 +10,7 @@ zkevm-circuits = { path = "../zkevm-circuits", default-features = false }
 eth-types = { path = "../eth-types" }
 trace-parser = { path = "../trace-parser" }
 
-snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
+snark-verifier-sdk = { path = "../snark-verifier/snark-verifier-sdk", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
 
 halo2_proofs = { path = "../../halo2/halo2_proofs", features = ["circuit-params", "derive_serde"] }
 serde = { version = "1.0.164", features = ["derive"] }

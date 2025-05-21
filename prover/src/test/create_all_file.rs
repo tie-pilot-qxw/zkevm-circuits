@@ -7,15 +7,17 @@
 use std::fs;
 use std::fs::{rename, File};
 use std::io::{BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use ark_std::rand::rngs::OsRng;
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr};
-use halo2_proofs::plonk::{keygen_pk, keygen_vk, Circuit, ConstraintSystem};
+use halo2_proofs::plonk::{keygen_pk, keygen_vk, Circuit, ConstraintSystem, JitProverEnv};
 use halo2_proofs::poly::commitment::Params;
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
+use halo2_proofs::{zkpoly_compiler, zkpoly_runtime};
+use halo2_proofs::zkpoly_memory_pool::CpuMemoryPool;
 use snark_verifier_sdk::evm::{encode_calldata, gen_evm_proof_shplonk, gen_evm_verifier_shplonk};
 use snark_verifier_sdk::halo2::aggregation::{
     AggregationCircuit, AggregationConfigParams, VerifierUniversality,
@@ -61,6 +63,32 @@ pub fn check_env() {
 pub fn complete_process(need_gen_batch_proof: bool) {
     let (agg_params, zkevm_params, agg_degree, zkevm_degree) = generate_params();
 
+    use zkpoly_compiler::driver;
+
+    let options = driver::DebugOptions::all(PathBuf::from("target/debug/transit"))
+        .with_log(true)
+        .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape);
+    let hd_info = driver::HardwareInfo {
+        gpu_memory_limit: 20 * 2u64.pow(30),
+        gpu_smithereen_space: 2u64.pow(28),
+    };
+
+    let allocator = CpuMemoryPool::new(30, std::mem::size_of::<u32>());
+    let artifect_dir = "target/artifect";
+
+    let mut env_info = Some(JitProverEnv::new(
+        Some(allocator),
+        true,
+        options,
+        hd_info,
+        artifect_dir.to_string(),
+        true,
+        "/tmp".to_string(),
+        false,
+        true,
+        zkpoly_runtime::runtime::RuntimeDebug::None,
+    ));
+
     // 这里我们直接使用sstore的这个trace生成后续所需要的文件即可，在一个正确的电路里，witness不影响vk和pk的生成
     let zkevm_key_time = start_timer!(|| "generate and write key file");
     let file = File::open(get_default_chunk_trace_json(None)).expect("file should exist");
@@ -83,7 +111,7 @@ pub fn complete_process(need_gen_batch_proof: bool) {
 
     // 生成snark, 后面这个路径是把snark写入本地，我们初始化不需要这个文件，所以暂时可以选择不写入
     let snark_time = start_timer!(|| "generate snark and write protocol");
-    let snark = gen_snark_shplonk(&zkevm_params, &pk, circuit, None::<String>);
+    let snark = gen_snark_shplonk(&zkevm_params, &pk, circuit, None::<String>, &mut env_info);
     let chunk_proof = ChunkProof::new(snark.clone(), Some(&pk));
     // 4. 导出protocol及proof json
     chunk_proof
@@ -166,7 +194,7 @@ pub fn complete_process(need_gen_batch_proof: bool) {
     if need_gen_batch_proof {
         let proof_time = start_timer!(|| "generate proof");
         let instances = agg_circuit.instances();
-        let proof = gen_evm_proof_shplonk(&agg_params, &pk, agg_circuit.clone(), instances.clone());
+        let proof = gen_evm_proof_shplonk(&agg_params, &pk, agg_circuit.clone(), instances.clone(), &mut env_info);
         let b_proof = Proof::new(proof.clone(), &instances, Some(&pk));
         let batch_proof = BatchProof::from(b_proof);
         batch_proof

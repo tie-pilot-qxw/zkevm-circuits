@@ -7,7 +7,7 @@ members = [
     "keccak256",
     "prover",
     "aggregate-zkevm",
-    "poseidon"
+    "poseidon",
 ]
 
 [profile.bench]

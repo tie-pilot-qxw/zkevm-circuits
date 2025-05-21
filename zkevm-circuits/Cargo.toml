@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = [
+snark-verifier-sdk = { path = "../snark-verifier/snark-verifier-sdk", default-features = false, features = [
     "loader_halo2",
     "loader_evm",
     "halo2-pse",

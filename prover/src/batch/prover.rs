@@ -15,7 +15,7 @@ use crate::proof::Proof;
 use anyhow::Result;
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, G1Affine};
-use halo2_proofs::plonk::{keygen_vk, ProvingKey};
+use halo2_proofs::plonk::{keygen_vk, JitProverEnv, ProvingKey};
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
 
 use sha2::{Digest, Sha256};
@@ -89,6 +89,7 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
         &mut self,
         chunk_proofs: Vec<ChunkProof>,
         output_dir: Option<&str>,
+        env_info: &mut Option<JitProverEnv>
     ) -> Result<BatchProof> {
         let agg_time = start_timer!(|| "enter gen_agg_evm_proof function");
         let degree = AGG_DEGREE as u32;
@@ -146,7 +147,7 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
         agg_circuit.expose_previous_instances(false);
         let instances = agg_circuit.instances();
         let proof =
-            gen_evm_proof_shplonk(&self.params, &pk, agg_circuit.clone(), instances.clone());
+            gen_evm_proof_shplonk(&self.params, &pk, agg_circuit.clone(), instances.clone(), env_info);
         end_timer!(proof_time);
 
         let proof = Proof::new(proof, &instances, Some(&pk));
@@ -176,7 +177,7 @@ mod test {
             DEFAULT_PROOF_PARAMS_DIR,
         );
         let result = prover
-            .gen_agg_evm_proof(vec![proof.unwrap()], Some(DEFAULT_PROOF_PARAMS_DIR))
+            .gen_agg_evm_proof(vec![proof.unwrap()], Some(DEFAULT_PROOF_PARAMS_DIR), &mut None)
             .unwrap();
         result
             .dump(

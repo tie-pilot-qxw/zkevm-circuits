@@ -7,7 +7,7 @@ use std::{env, fs, iter};
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr};
 use halo2_proofs::halo2curves::ff::PrimeField;
-use halo2_proofs::plonk::keygen_vk;
+use halo2_proofs::plonk::{keygen_vk, JitProverEnv};
 use halo2_proofs::poly::commitment::Params;
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
 use itertools::Itertools;
@@ -30,6 +30,7 @@ fn gen_application_snark(
     params: &ParamsKZG<Bn256>,
     snark_pk_path: &PathBuf,
     snark_path: &PathBuf,
+    env_info: &mut Option<JitProverEnv>,
 ) -> Snark {
     #[cfg(feature = "sstorage-circuit")]
     let chunk_data = &get_chunk_data(
@@ -82,7 +83,7 @@ fn gen_application_snark(
     let mut snark_storage_path = snark_path.to_path_buf();
     snark_storage_path.push(format!("{}.snark", time));
     // 若snark_storage_path存在则从已经序列化后的snark中加载,否则生成snark并序列化到指定的该路径下面(方便二次加载)
-    gen_snark_shplonk(params, &pk, circuit, Some(&snark_storage_path))
+    gen_snark_shplonk(params, &pk, circuit, Some(&snark_storage_path), env_info)
 }
 
 fn set_path() {
@@ -219,7 +220,8 @@ fn main() {
 
     end_timer!(srs_timer);
     let snark_timer = start_timer!(|| "Generating snark");
-    let snarks = [(); 1].map(|_| gen_application_snark(&params_app, &snark_pk_path, &snarks_path));
+    todo!("use gpu");
+    let snarks = [(); 1].map(|_| gen_application_snark(&params_app, &snark_pk_path, &snarks_path, &mut None));
     end_timer!(snark_timer);
     let agg_time = start_timer!(|| "Generating agg proof ");
     let mut agg_circuit = AggregationCircuit::new::<SHPLONK>(
@@ -259,7 +261,8 @@ fn main() {
     _agg_circuit.expose_previous_instances(false);
     let _num_instances = _agg_circuit.num_instance();
     let _instances = _agg_circuit.instances();
-    let _proof = gen_evm_proof_shplonk(&params, &pk, _agg_circuit, _instances.clone());
+    todo!("use gpu");
+    let _proof = gen_evm_proof_shplonk(&params, &pk, _agg_circuit, _instances.clone(), &mut None);
     end_timer!(agg_time);
     let _deployment_code = gen_evm_verifier_shplonk::<AggregationCircuit>(
         &params,

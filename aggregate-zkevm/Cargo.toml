@@ -6,9 +6,9 @@ edition = "2021"
 [dependencies]
 zkevm-circuits = { path = "../zkevm-circuits", default-features = false }
 trace-parser = { path = "../trace-parser" }
-snark-verifier-sdk = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
-snark-verifier = { git = "https://github.com/axiom-crypto/snark-verifier.git", tag = "v0.1.7-git", default-features = false }
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = ["circuit-params", "derive_serde"] }
+snark-verifier-sdk = { path = "../snark-verifier/snark-verifier-sdk", default-features = false, features = ["loader_halo2", "loader_evm", "halo2-pse", "display"] }
+snark-verifier = { path = "../snark-verifier/snark-verifier", default-features = false }
+halo2_proofs = { path = "../../halo2/halo2_proofs", features = ["circuit-params", "derive_serde"] }
 
 itertools = "0.11"
 lazy_static = "1.4.0"

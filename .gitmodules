@@ -1,0 +1,3 @@
+[submodule "snark-verifier"]
+	path = snark-verifier
+	url = https://github.com/tie-pilot-qxw/snark-verifier.git

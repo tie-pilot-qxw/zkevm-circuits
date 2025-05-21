@@ -7,10 +7,7 @@ edition = "2021"
 
 [dependencies]
 ff = "0.13.0"
-halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v0.3.0", features = [
-    "circuit-params",
-    "derive_serde",
-] }
+halo2_proofs = { path = "../../halo2/halo2_proofs", features = ["circuit-params", "derive_serde"] }
 lazy_static = "1.4.0"
 thiserror = "1.0"
 bitvec = "1"
