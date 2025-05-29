@@ -65,27 +65,26 @@ pub fn complete_process(need_gen_batch_proof: bool) {
 
     use zkpoly_compiler::driver;
 
-    let options = driver::DebugOptions::all(PathBuf::from("target/debug/transit"))
-        .with_log(true)
-        .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape);
+    let options = driver::DebugOptions::none(PathBuf::from("target/debug/transit")).with_log(true);
     let hd_info = driver::HardwareInfo {
         gpu_memory_limit: 20 * 2u64.pow(30),
         gpu_smithereen_space: 2u64.pow(28),
     };
 
-    let allocator = CpuMemoryPool::new(30, std::mem::size_of::<u32>());
+    let mut allocator = CpuMemoryPool::new(30, std::mem::size_of::<u32>());
+    allocator.preallocate(140);
     let artifect_dir = "target/artifect";
 
     let mut env_info = Some(JitProverEnv::new(
         Some(allocator),
-        true,
+        false,
         options,
         hd_info,
         artifect_dir.to_string(),
         true,
         "/tmp".to_string(),
         false,
-        true,
+        false,
         zkpoly_runtime::runtime::RuntimeDebug::None,
     ));
 

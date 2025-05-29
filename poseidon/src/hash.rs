@@ -970,7 +970,7 @@ mod tests {
 
     impl<PC: PermuteChip<Fr, <Fr as Hashable>::SpecType, 3, 2>> Circuit<Fr> for TestCircuit<PC>
     where
-        PC::Config: Sync,
+        PC::Config: Sync + Send,
     {
         type Config = (SpongeConfig<Fr, PC>, usize);
         type FloorPlanner = SimpleFloorPlanner;
@@ -1007,7 +1007,7 @@ mod tests {
 
     fn poseidon_hash_circuit_impl<PC: PermuteChip<Fr, <Fr as Hashable>::SpecType, 3, 2>>()
     where
-        PC::Config: Sync,
+        PC::Config: Sync + Send,
     {
         let message1 = [
             Fr::from_str_vartime("1").unwrap(),
@@ -1036,7 +1036,7 @@ mod tests {
 
     fn poseidon_var_len_hash_circuit_impl<PC: PermuteChip<Fr, <Fr as Hashable>::SpecType, 3, 2>>()
     where
-        PC::Config: Sync,
+        PC::Config: Sync + Send,
     {
         let message1 = [
             Fr::from_str_vartime("1").unwrap(),

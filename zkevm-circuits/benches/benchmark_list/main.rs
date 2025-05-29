@@ -231,10 +231,13 @@ fn run_circuit<
     end_timer!(circuit_start);
 
     // create proof and verify
-    for i in 0..bench_round {
-        let circuit = circuit.clone();
-        let general_params = proof_params.clone();
-        let pk = proof_pk.clone();
+        let i = 0;
+        println!("cloning circuit for round {}", i + 1);
+        let circuit = circuit;
+        println!("cloning instance_refs for round {}", i + 1);
+        let general_params = proof_params;
+        println!("cloning proof_pk for round {}", i + 1);
+        let pk = proof_pk;
 
         // Create a proof
         let proof_msg = format!(
@@ -245,8 +248,9 @@ fn run_circuit<
             bench_round
         );
 
+        println!("allcator create for round {}", i + 1);
         let mut allocator =
-            halo2_proofs::zkpoly_memory_pool::CpuMemoryPool::new(30, std::mem::size_of::<u32>());
+            halo2_proofs::zkpoly_memory_pool::CpuMemoryPool::new(32, std::mem::size_of::<u32>()).use_mmap();
 
         let mut trace = halo2_proofs::tracing::Trace::default();
         let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
@@ -290,7 +294,7 @@ fn run_circuit<
         type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
         type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
 
-        let options = halo2_proofs::zkpoly_compiler::driver::DebugOptions::all(PathBuf::from(
+        let options = halo2_proofs::zkpoly_compiler::driver::DebugOptions::none(PathBuf::from(
             "target/debug/transit",
         ))
         .with_type2_visualizer(
@@ -298,14 +302,14 @@ fn run_circuit<
         )
         .with_log(true);
         let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo {
-            gpu_memory_limit: 15 * 2u64.pow(30),
+            gpu_memory_limit: 20 * 2u64.pow(30),
             gpu_smithereen_space: 2u64.pow(28),
         };
 
-        let instance_lengths = instance_refs
+        let instance_lengths = vec![instance_refs
             .iter()
             .map(|ins| ins.len())
-            .collect::<Vec<usize>>();
+            .collect::<Vec<usize>>()];
 
         let (mut artifect, cg_inputs_shape) = std::thread::scope(|s| {
             let handler = std::thread::Builder::new()
@@ -396,13 +400,13 @@ fn run_circuit<
                 hd_info.gpu_memory_limit as usize,
                 true,
             )],
-            halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20)),
+            halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20),  OsRng::default()),
         );
 
         let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
         let (r, _) = runtime.run(
             &mut inputs,
-            halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
+            halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::None,
         );
         end_timer!(dispatcher_start);
 
@@ -436,7 +440,7 @@ fn run_circuit<
         .expect(format!("{}/failed to verify bench circuit", id).as_str());
         end_timer!(verify_start);
     }
-}
+
 
 pub fn write_proof_params<P: AsRef<Path>>(params: &ParamsKZG<Bn256>, file_path: P) {
     let f = File::create(file_path).unwrap();
