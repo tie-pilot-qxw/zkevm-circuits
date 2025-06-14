@@ -14,6 +14,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ark_std::{end_timer, start_timer};
 use eth_types::geth_types::ChunkData;
@@ -25,8 +26,9 @@ use halo2_proofs::poly::commitment::{Params, ParamsProver};
 use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
 use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
-use halo2_proofs::transcript::{Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer};
-use halo2_proofs::zkpoly_runtime::runtime::ThreadPool;
+use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
+use halo2_proofs::zkpoly_compiler::driver::MemoryInfo;
+use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use halo2_proofs::SerdeFormat;
 use rand_chacha::rand_core::OsRng;
 use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
@@ -231,216 +233,236 @@ fn run_circuit<
     end_timer!(circuit_start);
 
     // create proof and verify
-        let i = 0;
-        println!("cloning circuit for round {}", i + 1);
-        let circuit = circuit;
-        println!("cloning instance_refs for round {}", i + 1);
-        let general_params = proof_params;
-        println!("cloning proof_pk for round {}", i + 1);
-        let pk = proof_pk;
+    let i = 0;
+    println!("cloning circuit for round {}", i + 1);
+    let circuit = circuit;
+    println!("cloning instance_refs for round {}", i + 1);
+    let general_params = proof_params;
+    println!("cloning proof_pk for round {}", i + 1);
+    let pk = proof_pk;
 
-        // Create a proof
-        let proof_msg = format!(
-            "{}/{}/Create proof/Round {}/{}",
-            CREATE_PROOF,
-            id,
-            i + 1,
-            bench_round
-        );
+    // Create a proof
+    let proof_msg = format!(
+        "{}/{}/Create proof/Round {}/{}",
+        CREATE_PROOF,
+        id,
+        i + 1,
+        bench_round
+    );
 
-        println!("allcator create for round {}", i + 1);
-        let mut allocator =
-            halo2_proofs::zkpoly_memory_pool::CpuMemoryPool::new(32, std::mem::size_of::<u32>()).use_mmap();
+    println!("allcator create for round {}", i + 1);
+    let mut allocator =
+        halo2_proofs::zkpoly_memory_pool::CpuMemoryPool::new(32, std::mem::size_of::<u32>());
 
-        let mut trace = halo2_proofs::tracing::Trace::default();
-        let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
+    let mut trace = halo2_proofs::tracing::Trace::default();
+    let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
 
-        let trace = if trace_run {
-            println!("extended k = {}", pk.get_vk().get_domain().extended_k());
+    let trace = if trace_run {
+        println!("extended k = {}", pk.get_vk().get_domain().extended_k());
 
-            let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
-            let _proof = {
-                use halo2_proofs::transcript::TranscriptWriterBuffer;
-                let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
-                    _,
-                    _,
-                    halo2_proofs::transcript::Challenge255<G1Affine>,
-                >::init(vec![]);
-                halo2_proofs::plonk::create_proof_traced::<
+        let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
+        let _proof = {
+            use halo2_proofs::transcript::TranscriptWriterBuffer;
+            let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
+                _,
+                _,
+                halo2_proofs::transcript::Challenge255<G1Affine>,
+            >::init(vec![]);
+            halo2_proofs::plonk::create_proof_traced::<
+                KZGCommitmentScheme<Bn256>,
+                ProverSHPLONK<Bn256>,
+                _,
+                _,
+                _,
+                _,
+            >(
+                &general_params,
+                &pk,
+                &[circuit.clone()],
+                &[&instance_refs],
+                OsRng,
+                &mut transcript,
+                Some(&mut trace),
+            )
+            .expect("proof generation should not fail");
+            transcript.finalize()
+        };
+        end_timer!(trace_start);
+        Some(&trace)
+    } else {
+        None
+    };
+
+    type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
+    type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
+
+    let options = halo2_proofs::zkpoly_compiler::driver::DebugOptions::minimal(PathBuf::from(
+        "target/debug/transit",
+    ))
+    .with_type2_visualizer(halo2_proofs::zkpoly_compiler::driver::Type2DebugVisualizer::Cytoscape)
+    .with_log(true);
+    let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo::new(MemoryInfo::new(
+        800 * 2u64.pow(30),
+        2u64.pow(28),
+    ))
+    .with_gpu(MemoryInfo::new(20 * 2u64.pow(30), 2u64.pow(28)))
+    .with_page_size(2 * 2u64.pow(20));
+
+    let instance_lengths = vec![instance_refs
+        .iter()
+        .map(|ins| ins.len())
+        .collect::<Vec<usize>>()];
+
+    let (artifect, mut cpu_allocator, cg_inputs_shape) = std::thread::scope(|s| {
+        let handler = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn_scoped(s, || {
+                let cg_gen_start = start_timer!(|| proof_msg);
+                let (cg_ret, cg_inputs_shape) = prover_gen::create_proof_validated::<
                     KZGCommitmentScheme<Bn256>,
                     ProverSHPLONK<Bn256>,
-                    _,
-                    _,
-                    _,
+                    E,
+                    Tr,
                     _,
                 >(
                     &general_params,
                     &pk,
-                    &[circuit.clone()],
-                    &[&instance_refs],
-                    OsRng,
-                    &mut transcript,
-                    Some(&mut trace),
-                )
-                .expect("proof generation should not fail");
-                transcript.finalize()
-            };
-            end_timer!(trace_start);
-            Some(&trace)
-        } else {
-            None
-        };
+                    vec![circuit],
+                    &instance_lengths,
+                    &mut allocator,
+                    trace,
+                );
+                end_timer!(cg_gen_start);
 
-        type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
-        type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
+                let compile_start =
+                    start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
+                use halo2_proofs::zkpoly_compiler::driver;
+                let artifect_dir = "target/artifect";
+                let processed_type2_dir = "target/processed_type2";
+                let pjh = driver::PanicJoinHandler::new();
+                let fresh_type2 =
+                    driver::FreshType2::from_ast(cg_ret, &options, allocator, &pjh).unwrap();
+                let mut str_buf = String::new();
 
-        let options = halo2_proofs::zkpoly_compiler::driver::DebugOptions::none(PathBuf::from(
-            "target/debug/transit",
-        ))
-        .with_type2_visualizer(
-            halo2_proofs::zkpoly_compiler::driver::Type2DebugVisualizer::Cytoscape,
-        )
-        .with_log(true);
-        let hd_info = halo2_proofs::zkpoly_compiler::driver::HardwareInfo {
-            gpu_memory_limit: 20 * 2u64.pow(30),
-            gpu_smithereen_space: 2u64.pow(28),
-        };
-
-        let instance_lengths = vec![instance_refs
-            .iter()
-            .map(|ins| ins.len())
-            .collect::<Vec<usize>>()];
-
-        let (mut artifect, cg_inputs_shape) = std::thread::scope(|s| {
-            let handler = std::thread::Builder::new()
-                .stack_size(64 * 1024 * 1024)
-                .spawn_scoped(s, || {
-                    let cg_gen_start = start_timer!(|| proof_msg);
-                    let (cg_ret, cg_inputs_shape) = prover_gen::create_proof_validated::<
-                        KZGCommitmentScheme<Bn256>,
-                        ProverSHPLONK<Bn256>,
-                        E,
-                        Tr,
-                        _,
-                    >(
-                        &general_params,
-                        &pk,
-                        vec![circuit],
-                        &instance_lengths,
-                        &mut allocator,
-                        trace,
-                    );
-                    end_timer!(cg_gen_start);
-
-                    let compile_start =
-                        start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
-                    use halo2_proofs::zkpoly_compiler::driver;
-                    let artifect_dir = "target/artifect";
-                    let processed_type2_dir = "target/processed_type2";
-                    let pjh = driver::PanicJoinHandler::new();
-                    let fresh_type2 =
-                        driver::FreshType2::from_ast(cg_ret, &options, allocator, &pjh).unwrap();
-                    let mut str_buf = String::new();
-
-                    let artifect = if std::env::var("REBUILD").is_ok_and(|x| x == "1")
-                        || !std::path::Path::new(artifect_dir).exists()
+                let (artifect, allocator) = if std::env::var("REBUILD").is_ok_and(|x| x == "1")
+                    || !std::path::Path::new(artifect_dir).exists()
+                {
+                    let processed_type2 = if prefer_no_reapply_type2_passes
+                        && std::path::Path::new(processed_type2_dir).exists()
                     {
-                        let processed_type2 = if prefer_no_reapply_type2_passes
-                            && std::path::Path::new(processed_type2_dir).exists()
-                        {
-                            println!("[Test] Skip applying Type2 passes");
-                            fresh_type2
-                                .load_processed_type2(&mut str_buf, &processed_type2_dir)
-                                .unwrap()
-                        } else {
-                            println!("[Test] Applying Type2 passes and lowering to Artifect");
-                            let pt2 = fresh_type2.apply_passes(&options, &hd_info, &pjh).unwrap();
-                            pt2.dump(&processed_type2_dir).unwrap();
-                            pt2
-                        };
-
-                        let artifect = processed_type2
-                            .to_type3(&options, &hd_info, &pjh)
+                        println!("[Test] Skip applying Type2 passes");
+                        fresh_type2
+                            .load_processed_type2(
+                                &mut str_buf,
+                                &processed_type2_dir,
+                                &mut Vec::new(),
+                            )
                             .unwrap()
-                            .apply_passes(&options)
-                            .unwrap()
-                            .to_artifect(&options, &pjh)
-                            .unwrap();
-
-                        artifect.dump(&artifect_dir).unwrap();
-                        artifect
                     } else {
-                        fresh_type2.load_artifect(&artifect_dir).unwrap()
+                        println!("[Test] Applying Type2 passes and lowering to Artifect");
+                        let pt2 = fresh_type2.apply_passes(&options, &hd_info, &pjh).unwrap();
+                        pt2.dump(&processed_type2_dir).unwrap();
+                        pt2
                     };
 
-                    end_timer!(compile_start);
+                    let (artifect, allocator) = processed_type2
+                        .to_type3(&options, &hd_info, &pjh)
+                        .unwrap()
+                        .apply_passes(&options)
+                        .unwrap()
+                        .to_artifect(&options, &hd_info, &mut vec![], &pjh)
+                        .unwrap();
 
-                    (artifect, cg_inputs_shape)
-                })
-                .unwrap();
+                    artifect.dump(&artifect_dir).unwrap();
+                    (artifect, allocator)
+                } else {
+                    fresh_type2
+                        .load_artifect(&artifect_dir, &mut vec![])
+                        .unwrap()
+                };
 
-            handler.join().unwrap()
-        });
+                end_timer!(compile_start);
 
-        use halo2_proofs::zkpoly_runtime::transcript::TranscriptWriterBuffer;
-        let instances = instance_refs
-            .iter()
-            .map(|ins| {
-                halo2_proofs::zkpoly_runtime::scalar::ScalarArray::from_vec(
-                    &ins,
-                    artifect.allocator(),
-                )
+                (artifect, allocator, cg_inputs_shape)
             })
-            .collect();
-        let mut inputs = cg_inputs_shape.serialize(vec![instances], Tr::init(vec![]));
+            .unwrap();
 
-        let mut runtime = artifect.prepare_dispatcher(
-            vec![halo2_proofs::zkpoly_cuda_api::mem::CudaAllocator::new(
-                0,
-                hd_info.gpu_memory_limit as usize,
-                true,
-            )],
-            halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20),  OsRng::default()),
-        );
+        handler.join().unwrap()
+    });
 
-        let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
-        let (r, _) = runtime.run(
-            &mut inputs,
-            halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::None,
-        );
-        end_timer!(dispatcher_start);
+    use halo2_proofs::zkpoly_runtime::transcript::TranscriptWriterBuffer;
+    let instances = instance_refs
+        .iter()
+        .map(|ins| {
+            halo2_proofs::zkpoly_runtime::scalar::ScalarArray::from_vec(&ins, &mut cpu_allocator)
+        })
+        .collect();
+    let mut inputs = cg_inputs_shape.serialize(vec![instances], Tr::init(vec![]));
 
-        let proof = r.unwrap().unwrap_transcript_move().take().finalize();
+    use halo2_proofs::zkpoly_cuda_api::mem;
 
-        // Verify the proof
-        let verify_msg = format!(
-            "{}/{}/Verify proof/Round {}/{}",
-            VERIFY_PROOF,
-            id,
-            i + 1,
-            bench_round
-        );
-        let verify_start = start_timer!(|| verify_msg);
-        let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
-        let strategy = SingleStrategy::new(&general_params);
+    let gpu_allocators = hd_info
+        .gpus()
+        .enumerate()
+        .map(|(i, gpu)| {
+            (
+                i as i32,
+                mem::CudaAllocator {
+                    statik: mem::StaticAllocator::new(0, gpu.smithereen_space() as usize, true),
+                    page: mem::PageAllocator::new(
+                        halo2_proofs::zkpoly_common::devices::DeviceType::GPU { device_id: 0 },
+                        hd_info.page_size() as usize,
+                        gpu.page_number(hd_info.page_size()) as usize,
+                    ),
+                },
+            )
+        })
+        .collect();
 
-        verify_proof::<
-            KZGCommitmentScheme<Bn256>,
-            VerifierSHPLONK<'_, Bn256>,
-            Challenge255<G1Affine>,
-            Blake2bRead<&[u8], G1Affine, Challenge255<G1Affine>>,
-            SingleStrategy<'_, Bn256>,
-        >(
-            &general_params.verifier_params(),
-            pk.get_vk(),
-            strategy,
-            &[&instance_refs],
-            &mut verifier_transcript,
-        )
-        .expect(format!("{}/failed to verify bench circuit", id).as_str());
-        end_timer!(verify_start);
-    }
+    let mut runtime = artifect.prepare_dispatcher(
+        CpuStaticAllocator::new(hd_info.cpu().memory_limit() as usize, true),
+        gpu_allocators,
+        halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20), OsRng::default()),
+        Arc::new(|_| 0),
+    );
 
+    let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
+    let ((r, _), _) = runtime.run(
+        &mut inputs,
+        halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
+    );
+    end_timer!(dispatcher_start);
+
+    let proof = r.unwrap().unwrap_transcript_move().take().finalize();
+
+    // Verify the proof
+    let verify_msg = format!(
+        "{}/{}/Verify proof/Round {}/{}",
+        VERIFY_PROOF,
+        id,
+        i + 1,
+        bench_round
+    );
+    let verify_start = start_timer!(|| verify_msg);
+    let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
+    let strategy = SingleStrategy::new(&general_params);
+
+    verify_proof::<
+        KZGCommitmentScheme<Bn256>,
+        VerifierSHPLONK<'_, Bn256>,
+        Challenge255<G1Affine>,
+        Blake2bRead<&[u8], G1Affine, Challenge255<G1Affine>>,
+        SingleStrategy<'_, Bn256>,
+    >(
+        &general_params.verifier_params(),
+        pk.get_vk(),
+        strategy,
+        &[&instance_refs],
+        &mut verifier_transcript,
+    )
+    .expect(format!("{}/failed to verify bench circuit", id).as_str());
+    end_timer!(verify_start);
+}
 
 pub fn write_proof_params<P: AsRef<Path>>(params: &ParamsKZG<Bn256>, file_path: P) {
     let f = File::create(file_path).unwrap();

@@ -2204,10 +2204,12 @@ dependencies = [
  "sha3 0.9.1",
  "tabbycat",
  "tracing",
+ "zkpoly_common",
  "zkpoly_compiler",
  "zkpoly_cuda_api",
  "zkpoly_memory_pool",
  "zkpoly_runtime",
+ "zkpoly_scheduler",
 ]
 
 [[package]]
@@ -4994,6 +4996,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17f77d76d837a7830fe1d4f12b7b4ba4192c1888001c7164257e4bc6d21d96b4"
 
 [[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
+
+[[package]]
 name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5652,6 +5660,7 @@ dependencies = [
  "halo2curves",
  "serde",
  "serde_json",
+ "typeid",
  "zkpoly_common",
  "zkpoly_core",
  "zkpoly_cuda_api",
@@ -5687,6 +5696,7 @@ dependencies = [
  "memmap2",
  "nix 0.30.1",
  "tempfile",
+ "zkpoly_common",
  "zkpoly_cuda_api",
 ]
 
@@ -5698,6 +5708,7 @@ dependencies = [
  "crossbeam-channel",
  "group",
  "halo2curves",
+ "libc",
  "rand 0.6.5",
  "rand_core 0.6.4",
  "rayon",
@@ -5707,4 +5718,16 @@ dependencies = [
  "zkpoly_common",
  "zkpoly_cuda_api",
  "zkpoly_memory_pool",
+]
+
+[[package]]
+name = "zkpoly_scheduler"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "zkpoly_common",
+ "zkpoly_compiler",
+ "zkpoly_cuda_api",
+ "zkpoly_memory_pool",
+ "zkpoly_runtime",
 ]
