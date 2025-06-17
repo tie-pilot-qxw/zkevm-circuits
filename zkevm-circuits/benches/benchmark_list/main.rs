@@ -370,16 +370,16 @@ fn run_circuit<
                             pt2
                         };
 
-                        let (artifect, allocator) = processed_type2
+                        let artifect = processed_type2
                             .to_type3(&options, &hd_info, &pjh)
                             .unwrap()
                             .apply_passes(&options)
                             .unwrap()
-                            .to_artifect(&options, &hd_info, &mut disk_constant_allocator, &pjh)
+                            .to_semi_artifect(&options, &hd_info, &pjh)
                             .unwrap();
 
                         artifect.dump(&artifect_dir).unwrap();
-                        (artifect, allocator)
+                        artifect.finish(disk_constant_allocator)
                     } else {
                         fresh_type2
                             .load_artifect(&artifect_dir, &mut disk_constant_allocator)
