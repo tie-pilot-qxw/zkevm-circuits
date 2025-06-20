@@ -27,7 +27,7 @@ use halo2_proofs::poly::kzg::commitment::{KZGCommitmentScheme, ParamsKZG};
 use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
-use halo2_proofs::zkpoly_compiler::driver::MemoryInfo;
+use halo2_proofs::zkpoly_compiler::driver::{DiskMemoryInfo, MemoryInfo};
 use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use halo2_proofs::SerdeFormat;
 use rand_chacha::rand_core::OsRng;
@@ -306,8 +306,8 @@ fn run_circuit<
         2u64.pow(28),
     ))
     .with_gpu(MemoryInfo::new(20 * 2u64.pow(30), 2u64.pow(28)))
-    .with_disk()
-    .with_page_size(2 * 2u64.pow(20));
+    .with_disk(DiskMemoryInfo::new(None))
+    .with_page_size(16 * 2u64.pow(20));
 
     let instance_lengths = vec![instance_refs
         .iter()
@@ -375,11 +375,11 @@ fn run_circuit<
                             .unwrap()
                             .apply_passes(&options)
                             .unwrap()
-                            .to_semi_artifect(&options, &hd_info, &pjh)
+                            .to_artifect(&options, &hd_info, &pjh)
                             .unwrap();
 
                         artifect.dump(&artifect_dir).unwrap();
-                        artifect.finish(disk_constant_allocator)
+                        artifect.finish(&mut disk_constant_allocator)
                     } else {
                         fresh_type2
                             .load_artifect(&artifect_dir, &mut disk_constant_allocator)
@@ -420,7 +420,7 @@ fn run_circuit<
     );
 
     let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
-    let ((r, _), _) = runtime.run(
+    let ((r, _, _), _) = runtime.run(
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
     );
