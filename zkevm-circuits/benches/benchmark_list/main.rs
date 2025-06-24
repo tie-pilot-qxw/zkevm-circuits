@@ -74,15 +74,15 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData,
 
     // step1: get proof params
     let get_proof_params_start = start_timer!(|| "get proof params");
-    let (proof_params, proof_pk) = if bench_usefile {
-        get_proof_params_from_file::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
-            get_default_proof_params_file_path(degree),
-            get_default_proof_vk_file_path(degree),
-            get_default_proof_pk_file_path(degree),
-        )
-    } else {
-        gen_proof_params::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(degree, chunk_data)
-    };
+    let (proof_params, proof_vk) = // if bench_usefile {
+    //     get_proof_params_from_file::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+    //         get_default_proof_params_file_path(degree),
+    //         get_default_proof_vk_file_path(degree),
+    //         get_default_proof_pk_file_path(degree),
+    //     )
+    // } else {
+        gen_proof_params::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(degree, chunk_data);
+    // };
     end_timer!(get_proof_params_start);
 
     // step2: run and verify circuit
@@ -92,7 +92,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData,
         chunk_data,
         bench_round,
         proof_params,
-        proof_pk,
+        proof_vk,
         bench_usefile,
     );
     end_timer!(run_and_verify_circuit_start);
@@ -177,7 +177,7 @@ fn gen_proof_params<
 >(
     degree: u32,
     chunk_data: &ChunkData,
-) -> (ParamsKZG<Bn256>, ProvingKey<G1Affine>) {
+) -> (ParamsKZG<Bn256>, VerifyingKey<G1Affine>) {
     let witness = Witness::new(chunk_data);
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
@@ -192,11 +192,11 @@ fn gen_proof_params<
     end_timer!(gen_proof_vk_start);
 
     // gen proof pk
-    let gen_proof_pk_start = start_timer!(|| "gen proof pk");
-    let proof_pk = keygen_pk(&proof_params, proof_vk, &circuit).expect("keygen_pk should not fail");
-    end_timer!(gen_proof_pk_start);
+    // let gen_proof_pk_start = start_timer!(|| "gen proof pk");
+    // let proof_pk = keygen_pk(&proof_params, proof_vk, &circuit).expect("keygen_pk should not fail");
+    // end_timer!(gen_proof_pk_start);
 
-    (proof_params, proof_pk)
+    (proof_params, proof_vk)
 }
 
 fn run_circuit<
@@ -208,7 +208,7 @@ fn run_circuit<
     chunk_data: &ChunkData,
     bench_round: usize,
     proof_params: ParamsKZG<Bn256>,
-    proof_pk: ProvingKey<G1Affine>,
+    proof_vk: VerifyingKey<G1Affine>,
     prefer_no_reapply_type2_passes: bool,
 ) {
     // get witness for benchmark
@@ -238,8 +238,8 @@ fn run_circuit<
     let circuit = circuit;
     println!("cloning instance_refs for round {}", i + 1);
     let general_params = proof_params;
-    println!("cloning proof_pk for round {}", i + 1);
-    let pk = proof_pk;
+    println!("cloning proof_vk for round {}", i + 1);
+    let vk = proof_vk;
 
     // Create a proof
     let proof_msg = format!(
@@ -254,44 +254,45 @@ fn run_circuit<
     let mut allocator =
         halo2_proofs::zkpoly_memory_pool::CpuMemoryPool::new(32, std::mem::size_of::<u32>());
 
-    let mut trace = halo2_proofs::tracing::Trace::default();
-    let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
+    // let mut trace = halo2_proofs::tracing::Trace::default();
+    // let trace_run = std::env::var("ASSERT").is_ok_and(|x| x == "1");
 
-    let trace = if trace_run {
-        println!("extended k = {}", pk.get_vk().get_domain().extended_k());
+    // let trace = if trace_run {
+    //     println!("extended k = {}", pk.get_vk().get_domain().extended_k());
 
-        let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
-        let _proof = {
-            use halo2_proofs::transcript::TranscriptWriterBuffer;
-            let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
-                _,
-                _,
-                halo2_proofs::transcript::Challenge255<G1Affine>,
-            >::init(vec![]);
-            halo2_proofs::plonk::create_proof_traced::<
-                KZGCommitmentScheme<Bn256>,
-                ProverSHPLONK<Bn256>,
-                _,
-                _,
-                _,
-                _,
-            >(
-                &general_params,
-                &pk,
-                &[circuit.clone()],
-                &[&instance_refs],
-                OsRng,
-                &mut transcript,
-                Some(&mut trace),
-            )
-            .expect("proof generation should not fail");
-            transcript.finalize()
-        };
-        end_timer!(trace_start);
-        Some(&trace)
-    } else {
-        None
-    };
+    //     let trace_start = start_timer!(|| "[Test] Begin Running Original Prover for Trace");
+    //     let _proof = {
+    //         use halo2_proofs::transcript::TranscriptWriterBuffer;
+    //         let mut transcript = halo2_proofs::transcript::Blake2bWrite::<
+    //             _,
+    //             _,
+    //             halo2_proofs::transcript::Challenge255<G1Affine>,
+    //         >::init(vec![]);
+    //         halo2_proofs::plonk::create_proof_traced::<
+    //             KZGCommitmentScheme<Bn256>,
+    //             ProverSHPLONK<Bn256>,
+    //             _,
+    //             _,
+    //             _,
+    //             _,
+    //         >(
+    //             &general_params,
+    //             &pk,
+    //             &[circuit.clone()],
+    //             &[&instance_refs],
+    //             OsRng,
+    //             &mut transcript,
+    //             Some(&mut trace),
+    //         )
+    //         .expect("proof generation should not fail");
+    //         transcript.finalize()
+    //     };
+    //     end_timer!(trace_start);
+    //     Some(&trace)
+    // } else {
+    //     None
+    // };
+    let trace = None;
 
     type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
     type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
@@ -306,7 +307,8 @@ fn run_circuit<
         2u64.pow(28),
     ))
     .with_gpu(MemoryInfo::new(20 * 2u64.pow(30), 2u64.pow(28)))
-    .with_disk(DiskMemoryInfo::new(None))
+    .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))))
+    .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))))
     .with_page_size(16 * 2u64.pow(20));
 
     let instance_lengths = vec![instance_refs
@@ -330,10 +332,13 @@ fn run_circuit<
                         _,
                     >(
                         &general_params,
-                        &pk,
+                        &vk,
                         vec![circuit],
                         &instance_lengths,
-                        &mut allocator,
+                        &mut halo2_proofs::zkpoly_compiler::ast::ConstantPool {
+                            cpu: &mut allocator,
+                            disk: Some(&mut disk_constant_allocator),
+                        },
                         trace,
                     );
                     end_timer!(cg_gen_start);
@@ -365,12 +370,12 @@ fn run_circuit<
                                 .unwrap()
                         } else {
                             println!("[Test] Applying Type2 passes and lowering to Artifect");
-                            let pt2 = fresh_type2.apply_passes(&options, &hd_info, &pjh).unwrap();
+                            let mut pt2 = fresh_type2.apply_passes(&options, &hd_info, &pjh, &mut disk_constant_allocator).unwrap();
                             pt2.dump(&processed_type2_dir).unwrap();
                             pt2
                         };
 
-                        let artifect = processed_type2
+                        let mut artifect = processed_type2
                             .to_type3(&options, &hd_info, &pjh)
                             .unwrap()
                             .apply_passes(&options)
@@ -448,7 +453,7 @@ fn run_circuit<
         SingleStrategy<'_, Bn256>,
     >(
         &general_params.verifier_params(),
-        pk.get_vk(),
+        &vk,
         strategy,
         &[&instance_refs],
         &mut verifier_transcript,
