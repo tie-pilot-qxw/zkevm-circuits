@@ -2201,6 +2201,7 @@ dependencies = [
  "rand_core 0.6.4",
  "rayon",
  "serde",
+ "serde_json",
  "sha3 0.9.1",
  "tabbycat",
  "tracing",
@@ -5192,6 +5193,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waterfall"
+version = "0.1.0"
+
+[[package]]
 name = "web-sys"
 version = "0.3.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5658,6 +5663,7 @@ dependencies = [
  "cytoscape_visualizer",
  "group",
  "halo2curves",
+ "scopeguard",
  "serde",
  "serde_json",
  "typeid",
@@ -5713,9 +5719,11 @@ dependencies = [
  "rand 0.6.5",
  "rand_core 0.6.4",
  "rayon",
+ "scopeguard",
  "serde",
  "sha3 0.9.1",
  "threadpool",
+ "waterfall",
  "zkpoly_common",
  "zkpoly_cuda_api",
  "zkpoly_memory_pool",
