@@ -16,7 +16,7 @@ use zkevm_circuits::witness::{bytecode, core, public, Witness};
 
 #[test]
 fn init_proof_params() {
-    let degree = log2_ceil(MAX_NUM_ROW);
+    let degree: u32 = crate::DEGREE;
     let mut witness = Witness::default();
     witness.bytecode.push(bytecode::Row::default()); // bytecode must have first row
     witness.core.push(core::Row::default()); // bytecode must have last row

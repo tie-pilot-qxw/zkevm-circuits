@@ -4,6 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+
+pub static DEGREE: u32 = 25;
+
 mod call_trace;
 mod super_circuit;
 
@@ -30,6 +33,7 @@ use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
 use halo2_proofs::zkpoly_compiler::driver;
 use halo2_proofs::zkpoly_compiler::driver::{DiskMemoryInfo, MemoryInfo};
 use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
+use halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug;
 use halo2_proofs::SerdeFormat;
 use rand_chacha::rand_core::OsRng;
 use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
@@ -75,15 +79,14 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData,
 
     // step1: get proof params
     let get_proof_params_start = start_timer!(|| "get proof params");
-    let (proof_params, proof_vk) = // if bench_usefile {
-    //     get_proof_params_from_file::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
-    //         get_default_proof_params_file_path(degree),
-    //         get_default_proof_vk_file_path(degree),
-    //         get_default_proof_pk_file_path(degree),
-    //     )
-    // } else {
-        gen_proof_params::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(degree, chunk_data);
-    // };
+    let (proof_params, proof_vk) = if bench_usefile {
+        get_proof_params_from_file::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+            get_default_proof_params_file_path(degree),
+            get_default_proof_vk_file_path(degree),
+        )
+    } else {
+        gen_proof_params::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(degree, chunk_data)
+    };
     end_timer!(get_proof_params_start);
 
     // step2: run and verify circuit
@@ -129,16 +132,6 @@ fn gen_proof_params_and_write_file(
     let write_proof_vk_start = start_timer!(|| format!("write proof vk to {}", proof_vk_file_path));
     write_proof_vk(&vk, proof_vk_file_path);
     end_timer!(write_proof_vk_start);
-
-    // gen proof pk
-    let gen_proof_pk_start = start_timer!(|| "gen proof pk");
-    let pk = keygen_pk(&proof_params, vk, &circuit).expect("keygen_pk should not fail");
-    end_timer!(gen_proof_pk_start);
-
-    let proof_pk_file_path = get_default_proof_pk_file_path(degree);
-    let write_proof_pk_start = start_timer!(|| format!("write proof pk to {}", proof_pk_file_path));
-    write_proof_pk(&pk, proof_pk_file_path);
-    end_timer!(write_proof_pk_start);
 }
 
 fn get_proof_params_from_file<
@@ -147,28 +140,20 @@ fn get_proof_params_from_file<
     const NUM_STATE_LO_COL: usize,
 >(
     proof_params_file_path: String,
-    _proof_vk_file_path: String,
-    proof_pk_file_path: String,
-) -> (ParamsKZG<Bn256>, ProvingKey<G1Affine>) {
+    proof_vk_file_path: String,
+) -> (ParamsKZG<Bn256>, VerifyingKey<G1Affine>) {
     let read_proof_params_start =
         start_timer!(|| format!("read proof params form {}", proof_params_file_path));
     let proof_params = read_proof_params_from_file(proof_params_file_path);
     end_timer!(read_proof_params_start);
-
-    // let read_proof_vk_start = start_timer!(|| format!("read proof vk form {}", proof_vk_file_path));
-    // let proof_vk = read_proof_vk_from_file::<
-    // 	MAX_NUM_ROW,
-    // 	NUM_STATE_HI_COL,
-    // 	NUM_STATE_LO_COL>(proof_vk_file_path);
-    // end_timer!(read_proof_vk_start);
-
-    let read_proof_pk_start = start_timer!(|| format!("read proof pk form {}", proof_pk_file_path));
-    let proof_pk = read_proof_pk_from_file::<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
-        proof_pk_file_path,
+    
+    let read_proof_vk_start = start_timer!(|| format!("read proof vk form {}", proof_vk_file_path));
+    let proof_vk = read_proof_vk_from_file::<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
+        proof_vk_file_path,
     );
-    end_timer!(read_proof_pk_start);
+    end_timer!(read_proof_vk_start);
 
-    (proof_params, proof_pk)
+    (proof_params, proof_vk)
 }
 
 fn gen_proof_params<
@@ -414,7 +399,9 @@ fn run_circuit<
     let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
     let ((r, _, _), _) = runtime.run(
         &mut inputs,
-        halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
+        RuntimeDebug::none()
+            .with_print_instruction(true)
+            .with_record_time(true)
     );
     end_timer!(dispatcher_start);
 
@@ -488,23 +475,6 @@ pub fn read_proof_vk_from_file<
     let f = File::open(verifying_key_file_path).unwrap();
     let mut reader = BufReader::new(f);
     VerifyingKey::<G1Affine>::read::<
-        _,
-        SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-    >(&mut reader, SerdeFormat::RawBytes, ())
-    .unwrap()
-}
-
-pub fn read_proof_pk_from_file<
-    P: AsRef<Path>,
-    const MAX_NUM_ROW: usize,
-    const NUM_STATE_HI_COL: usize,
-    const NUM_STATE_LO_COL: usize,
->(
-    providing_key_file_path: P,
-) -> ProvingKey<G1Affine> {
-    let f = File::open(providing_key_file_path).unwrap();
-    let mut reader = BufReader::new(f);
-    ProvingKey::<G1Affine>::read::<
         _,
         SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
     >(&mut reader, SerdeFormat::RawBytes, ())
