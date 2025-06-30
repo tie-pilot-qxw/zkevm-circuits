@@ -4,6 +4,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+
+pub static DEGREE: u32 = 20;
+
 mod call_trace;
 mod super_circuit;
 
@@ -440,11 +443,18 @@ fn run_circuit<
     );
 
     let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
-    let ((r, _, _), _) = runtime.run(
+    let ((r, log, _), _) = runtime.run(
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
     );
     end_timer!(dispatcher_start);
+
+    let mut log_file = File::create("debug-statistics.json").unwrap();
+    serde_json::to_writer_pretty(&mut log_file, &log).unwrap();
+
+    let mut waterfall_file = File::create("debug-statistics.html").unwrap();
+    log.waterfall().build(&mut waterfall_file).unwrap();
+
 
     let proof = r.unwrap().unwrap_transcript_move().take().finalize();
 
