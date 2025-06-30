@@ -4,7 +4,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-
 pub static DEGREE: u32 = 20;
 
 mod call_trace;
@@ -330,7 +329,7 @@ fn run_circuit<
                     _,
                 >(
                     &general_params,
-                    &vk,
+                    &pk,
                     vec![circuit],
                     &instance_lengths,
                     &mut constant_pool,
@@ -352,35 +351,6 @@ fn run_circuit<
                     let processed_type2 = if prefer_no_reapply_type2_passes
                         && std::path::Path::new(processed_type2_dir).exists()
                     {
-                        let processed_type2 = if prefer_no_reapply_type2_passes
-                            && std::path::Path::new(processed_type2_dir).exists()
-                        {
-                            println!("[Test] Skip applying Type2 passes");
-                            fresh_type2
-                                .load_processed_type2(
-                                    &mut str_buf,
-                                    &processed_type2_dir,
-                                    &mut disk_constant_allocator,
-                                )
-                                .unwrap()
-                        } else {
-                            println!("[Test] Applying Type2 passes and lowering to Artifect");
-                            let pt2 = fresh_type2.apply_passes(&options, &hd_info, &pjh).unwrap();
-                            pt2.dump(&processed_type2_dir).unwrap();
-                            pt2
-                        };
-
-                        let artifect = processed_type2
-                            .to_type3(&options, &hd_info, &pjh)
-                            .unwrap()
-                            .apply_passes(&options)
-                            .unwrap()
-                            .to_artifect(&options, &hd_info, &pjh)
-                            .unwrap();
-
-                        artifect.dump(&artifect_dir).unwrap();
-                        artifect.finish(&mut disk_constant_allocator)
-                    } else {
                         println!("[Test] Skip applying Type2 passes");
                         fresh_type2
                             .load_processed_type2(
@@ -391,14 +361,14 @@ fn run_circuit<
                             .unwrap()
                     } else {
                         println!("[Test] Applying Type2 passes and lowering to Artifect");
-                        let mut pt2 = fresh_type2
+                        let pt2 = fresh_type2
                             .apply_passes(&options, &hd_info, &mut constant_pool, &pjh)
                             .unwrap();
                         pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
                         pt2
                     };
 
-                    let mut artifect = processed_type2
+                    let artifect = processed_type2
                         .to_type3(&options, &hd_info, &mut constant_pool, &pjh)
                         .unwrap()
                         .apply_passes(&options)
@@ -445,7 +415,9 @@ fn run_circuit<
     let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
     let ((r, log, _), _) = runtime.run(
         &mut inputs,
-        halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::DebugInstruction,
+        halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
+            .with_print_instruction(true)
+            .with_record_time(true),
     );
     end_timer!(dispatcher_start);
 
@@ -454,7 +426,6 @@ fn run_circuit<
 
     let mut waterfall_file = File::create("debug-statistics.html").unwrap();
     log.waterfall().build(&mut waterfall_file).unwrap();
-
 
     let proof = r.unwrap().unwrap_transcript_move().take().finalize();
 
