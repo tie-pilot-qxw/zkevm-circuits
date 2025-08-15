@@ -154,7 +154,7 @@ fn dump_params_and_vk_proof() {
     let reader = BufReader::new(file);
     let chunk_data: ChunkData = serde_json::from_reader(reader).unwrap();
     todo!("use gpu");
-    let proof = prover.gen_chunk_proof(chunk_data, &mut None).unwrap();
+    let proof = prover.gen_chunk_proof(chunk_data, None).unwrap();
     proof.dump(DEFAULT_PROOF_PARAMS_DIR, "k15").unwrap()
 }
 
@@ -180,6 +180,7 @@ mod test {
         Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
     };
 
+    use once_cell::sync::OnceCell;
     use rand_chacha::rand_core::OsRng;
 
     use eth_types::geth_types::ChunkData;
@@ -210,7 +211,7 @@ mod test {
             Self {
                 params,
                 raw_vk: vec![],
-                pk: None,
+                pk: OnceCell::new(),
             }
         }
         pub fn test_circuit_mock_run(&self, chunk_data: ChunkData) {
@@ -301,7 +302,6 @@ mod test {
                 &[&instance_refs],
                 OsRng,
                 &mut transcript,
-                &mut None,
             )
             .expect("proof generation should not fail".to_string().as_str());
             let proof = transcript.finalize();

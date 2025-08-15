@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub static DEGREE: u32 = 20;
+pub static DEGREE: u32 = 17;
 
 mod call_trace;
 mod super_circuit;
@@ -16,7 +16,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ark_std::{end_timer, start_timer};
 use eth_types::geth_types::ChunkData;
@@ -30,6 +30,7 @@ use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
 use halo2_proofs::zkpoly_compiler::driver;
+use halo2_proofs::zkpoly_compiler::driver::artifect::Pools;
 use halo2_proofs::zkpoly_compiler::driver::{DiskMemoryInfo, MemoryInfo};
 use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use halo2_proofs::SerdeFormat;
@@ -343,7 +344,7 @@ fn run_circuit<
                 let processed_type2_dir = "target/processed_type2";
                 let pjh = driver::PanicJoinHandler::new();
                 let fresh_type2 = driver::FreshType2::from_ast(cg_ret, &options, &pjh).unwrap();
-                let mut str_buf = String::new();
+                let mut str_buf = Vec::new();
 
                 let artifect = if std::env::var("REBUILD").is_ok_and(|x| x == "1")
                     || !std::path::Path::new(artifect_dir).exists()
@@ -354,8 +355,8 @@ fn run_circuit<
                         println!("[Test] Skip applying Type2 passes");
                         fresh_type2
                             .load_processed_type2(
-                                &mut str_buf,
                                 &processed_type2_dir,
+                                &mut str_buf,
                                 &mut constant_pool,
                             )
                             .unwrap()
@@ -363,6 +364,8 @@ fn run_circuit<
                         println!("[Test] Applying Type2 passes and lowering to Artifect");
                         let pt2 = fresh_type2
                             .apply_passes(&options, &hd_info, &mut constant_pool, &pjh)
+                            .unwrap()
+                            .fuse(&options, &hd_info, 0..1, &pjh)
                             .unwrap();
                         pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
                         pt2
@@ -373,7 +376,7 @@ fn run_circuit<
                         .unwrap()
                         .apply_passes(&options)
                         .unwrap()
-                        .to_artifect(&options, &hd_info)
+                        .to_artifect(&options, &hd_info, "target/kernels".into())
                         .unwrap();
 
                     artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
@@ -405,8 +408,13 @@ fn run_circuit<
         .collect();
     let mut inputs = cg_inputs_shape.serialize(vec![instances], Tr::init(vec![]));
 
-    let pools = artifect.create_pools(&hd_info, true);
+    let pools = Pools {
+        cpu: hd_info.cpu_allocator(true),
+        gpu: hd_info.gpu_allocators(true),
+        disk: Arc::new(Mutex::new(hd_info.disk_allocator(2usize.pow(33)))),
+    };
     let mut runtime = artifect.prepare_dispatcher(
+        artifect.versions().next().unwrap(),
         pools,
         halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20), OsRng::default()),
         Arc::new(|_| 0),

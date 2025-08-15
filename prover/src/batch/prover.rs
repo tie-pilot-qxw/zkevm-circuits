@@ -15,9 +15,10 @@ use crate::proof::Proof;
 use anyhow::Result;
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, G1Affine};
-use halo2_proofs::plonk::{keygen_vk, JitProverEnv, ProvingKey};
+use halo2_proofs::plonk::{keygen_vk, ProvingKey};
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
 
+use once_cell::sync::OnceCell;
 use sha2::{Digest, Sha256};
 use snark_verifier_sdk::evm::gen_evm_proof_shplonk;
 use snark_verifier_sdk::halo2::aggregation::{
@@ -32,7 +33,7 @@ use std::path::PathBuf;
 pub struct Prover<const AGG_DEGREE: usize> {
     pub chunk_protocol: Vec<u8>,
     params: ParamsKZG<Bn256>,
-    pk: Option<ProvingKey<G1Affine>>,
+    pk: OnceCell<ProvingKey<G1Affine>>,
     /// 该vk以u8形式存在在内存里，不会反序列化，主要用于校验
     raw_vk: Vec<u8>,
     /// 用于存储和读取pk的路径
@@ -58,7 +59,7 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
             chunk_protocol,
             raw_vk,
             params,
-            pk: None,
+            pk: OnceCell::new(),
             pk_path: path,
         }
     }
@@ -86,10 +87,10 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
 
     /// 生成EVM Proof
     pub fn gen_agg_evm_proof(
-        &mut self,
+        &self,
         chunk_proofs: Vec<ChunkProof>,
         output_dir: Option<&str>,
-        env_info: &mut Option<JitProverEnv>
+        env_info: Option<&mut snark_verifier_sdk::evm::Jit<AggregationCircuit>>,
     ) -> Result<BatchProof> {
         let agg_time = start_timer!(|| "enter gen_agg_evm_proof function");
         let degree = AGG_DEGREE as u32;
@@ -112,17 +113,16 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
         );
         let agg_config = agg_circuit.calculate_params(Some(20));
 
-        let gen_key_time = start_timer!(|| "Generating key");
-        if self.pk.is_none() {
-            let pk = gen_pk::<AggregationCircuit>(
+        let pk = self.pk.get_or_init(|| {
+            let gen_key_time = start_timer!(|| "Generating key");
+            let k = gen_pk::<AggregationCircuit>(
                 &self.params,
                 &agg_circuit,
                 Some(self.pk_path.as_path()),
             );
-            self.pk = Some(pk);
-        }
-        let pk = self.pk.as_ref().unwrap();
-        end_timer!(gen_key_time);
+            end_timer!(gen_key_time);
+            k
+        });
 
         // TODO https://github.com/axiom-crypto/snark-verifier/issues/25 ,后期bug修复,去除
         //  因当前axiom在加载pk的时候会丢失break point的bug存在,所以这里调用了一次keygen_vk来生成break_points信息
@@ -146,11 +146,17 @@ impl<const AGG_DEGREE: usize> Prover<AGG_DEGREE> {
         let mut agg_circuit = agg_circuit.clone();
         agg_circuit.expose_previous_instances(false);
         let instances = agg_circuit.instances();
-        let proof =
-            gen_evm_proof_shplonk(&self.params, &pk, agg_circuit.clone(), instances.clone(), env_info);
+        println!("Length of instances = {}", instances.len());
+        let proof = gen_evm_proof_shplonk(
+            &self.params,
+            pk,
+            agg_circuit.clone(),
+            instances.clone(),
+            env_info,
+        );
         end_timer!(proof_time);
 
-        let proof = Proof::new(proof, &instances, Some(&pk));
+        let proof = Proof::new(proof, &instances, Some(pk));
         let batch_proof = BatchProof::from(proof);
         if let Some(output_dir) = output_dir {
             batch_proof.dump(output_dir, "k25")?;
@@ -177,7 +183,7 @@ mod test {
             DEFAULT_PROOF_PARAMS_DIR,
         );
         let result = prover
-            .gen_agg_evm_proof(vec![proof.unwrap()], Some(DEFAULT_PROOF_PARAMS_DIR), &mut None)
+            .gen_agg_evm_proof(vec![proof.unwrap()], Some(DEFAULT_PROOF_PARAMS_DIR), None)
             .unwrap();
         result
             .dump(

@@ -7,11 +7,12 @@
 use anyhow::Result;
 use ark_std::{end_timer, start_timer};
 use halo2_proofs::halo2curves::bn256::{Bn256, Fr, G1Affine};
-use halo2_proofs::plonk::{keygen_pk, JitProverEnv, ProvingKey};
+use halo2_proofs::plonk::{keygen_pk, ProvingKey};
 
 use halo2_proofs::poly::kzg::commitment::ParamsKZG;
 
-use snark_verifier_sdk::halo2::gen_snark_shplonk;
+use once_cell::sync::OnceCell;
+use snark_verifier_sdk::halo2::{self, gen_snark_shplonk};
 
 use eth_types::geth_types::ChunkData;
 
@@ -23,6 +24,7 @@ use crate::constants::{CHUNK_PARAMS_FILENAME, CHUNK_VK_FILENAME};
 use crate::io::{read_params, try_to_read};
 use crate::proof::chunk::ChunkProof;
 use crate::util::{deserialize_vk, handler_chunk_data, serialize_vk};
+use std::sync::Mutex;
 
 #[derive(Debug)]
 pub struct Prover<
@@ -31,7 +33,7 @@ pub struct Prover<
     const NUM_STATE_LO_COL: usize,
 > {
     pub(crate) params: ParamsKZG<Bn256>,
-    pub(crate) pk: Option<ProvingKey<G1Affine>>,
+    pub(crate) pk: OnceCell<ProvingKey<G1Affine>>,
     pub(crate) raw_vk: Vec<u8>,
 }
 
@@ -45,18 +47,24 @@ impl<const MAX_NUM_ROW: usize, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO
         Self {
             params,
             raw_vk: vk,
-            pk: None,
+            pk: OnceCell::new(),
         }
     }
 
     pub fn get_vk(&self) -> Option<Vec<u8>> {
-        match self.pk {
+        match self.pk.get() {
             Some(ref pk) => Some(serialize_vk(pk.get_vk())),
             None => Some(self.raw_vk.clone()),
         }
     }
 
-    pub fn gen_chunk_proof(&mut self, chunk_data: ChunkData, env_info: &mut Option<JitProverEnv>) -> Result<ChunkProof> {
+    pub fn gen_chunk_proof(
+        &self,
+        chunk_data: ChunkData,
+        jit_env: Option<
+            &mut halo2::Jit<SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>>,
+        >,
+    ) -> Result<ChunkProof> {
         let start = start_timer!(|| format!("enter gen_chunk_proof, MAX_NUM_ROW: {}", MAX_NUM_ROW));
 
         let chunk_data = handler_chunk_data(chunk_data);
@@ -67,26 +75,22 @@ impl<const MAX_NUM_ROW: usize, const NUM_STATE_HI_COL: usize, const NUM_STATE_LO
         let circuit = circuit.clone();
         let general_params = self.params.clone();
 
-        let pk_time = start_timer!(|| "use pk or create pk");
-        let pk = match self.pk {
-            Some(ref pk) => pk.clone(),
-            None => {
-                let vk = deserialize_vk::<
-                    SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-                >(&self.raw_vk, ());
-                let pk = keygen_pk(&general_params, vk, &circuit)?;
-                self.pk = Some(pk.clone());
-                pk
-            }
-        };
-        end_timer!(pk_time);
+        let pk = self.pk.get_or_init(|| {
+            let pk_time = start_timer!(|| "Generating key");
+            let vk = deserialize_vk::<
+                SuperCircuit<_, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
+            >(&self.raw_vk, ());
+            let pk = keygen_pk(&general_params, vk, &circuit).expect("keygen error");
+            end_timer!(pk_time);
+            pk
+        });
 
         let snark_time = start_timer!(|| "generate snark");
-        let snark = gen_snark_shplonk(&general_params, &pk, circuit, None::<String>, env_info);
+        let snark = gen_snark_shplonk(&general_params, pk, circuit, None::<String>, jit_env);
         end_timer!(snark_time);
 
         end_timer!(start);
-        ChunkProof::new(snark, Some(&pk))
+        ChunkProof::new(snark, Some(pk))
     }
 }
 
@@ -120,6 +124,6 @@ mod test {
         let reader = BufReader::new(file);
         let chunk_data: ChunkData = serde_json::from_reader(reader).unwrap();
 
-        let _snark = prover.gen_chunk_proof(chunk_data, &mut None).unwrap();
+        let _snark = prover.gen_chunk_proof(chunk_data, None).unwrap();
     }
 }

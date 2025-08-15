@@ -26,6 +26,8 @@ chrono = "0.4.19"
 log4rs = { version = "1.2.0", default_features = false, features = ["console_appender", "file_appender"] }
 sha2 = "0.10.2"
 ark-std = { version = "0.3.0", features = ["print-trace"] }
+crossbeam-channel = { version = "0.5.14" }
+rand_core = { version = "0.9.3", features = ["os_rng"] }
 
 [features]
 default = ["fast_test"]
