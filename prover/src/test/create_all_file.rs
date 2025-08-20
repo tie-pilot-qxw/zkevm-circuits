@@ -86,7 +86,7 @@ pub fn make_jit<C: Circuit<Fr>>() -> (snark_verifier_sdk::halo2::Jit<C>, jit::Sc
         JitConfig::new(artifect_dir.into())
             .with_debug_options(options)
             .with_force_rebuild(true)
-            .with_artifect_versions_cpu_memory_divisions(vec![0]),
+            .with_artifect_versions_cpu_memory_divisions(vec![1]),
         SchedulerConfig::default().with_runtime_debug(RuntimeDebug::none()),
         hd_info.disk_allocator(2usize.pow(33)),
         constant_pool,

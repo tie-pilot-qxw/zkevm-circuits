@@ -192,7 +192,7 @@ mod test {
                             Ok(chunk_proof) => {
                                 buffer.push(chunk_proof);
 
-                                if buffer.len() == 4 {
+                                if buffer.len() == 1 {
                                     batch_publisher
                                         .send(worker_pool::Message {
                                             id: counter,
@@ -226,11 +226,11 @@ mod test {
         let chunk_data: ChunkData =
             serde_json::from_reader(chunk_data_file).expect("parse chunk_data json failure");
 
-        let mut chunk_workers = worker_pool::WorkerPool::launch(1, chunk_prover);
-        let mut batch_workers = worker_pool::WorkerPool::launch(1, batch_prover);
+        let mut chunk_workers = worker_pool::WorkerPool::launch(2, chunk_prover);
+        let mut batch_workers = worker_pool::WorkerPool::launch(2, batch_prover);
         let adapter = adapter::Adapter::launch(&chunk_workers, &batch_workers);
 
-        let rounds = 2;
+        let rounds = 4;
 
         let mut rng = rand_core::OsRng;
         for i in 0..rounds {
@@ -239,9 +239,7 @@ mod test {
             std::thread::sleep(std::time::Duration::from_millis(
                 rng.try_next_u64().unwrap() % 20_000,
             ));
-            for _ in 0..4 {
-                chunk_workers.submit(chunk_data.clone());
-            }
+            chunk_workers.submit(chunk_data.clone());
             println!("发射证明生成任务 {i}");
         }
 

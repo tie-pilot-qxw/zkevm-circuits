@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub static DEGREE: u32 = 17;
+pub static DEGREE: u32 = 19;
 
 mod call_trace;
 mod super_circuit;
@@ -304,7 +304,7 @@ fn run_circuit<
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
         .with_log(true);
     let hd_info = driver::HardwareInfo::new(MemoryInfo::new(300 * 2u64.pow(30), 2u64.pow(28)))
-        .with_gpu(MemoryInfo::new(20 * 2u64.pow(30), 2u64.pow(28)))
+        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30), 2u64.pow(28)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))))
         .with_page_size(16 * 2u64.pow(20));
@@ -331,7 +331,7 @@ fn run_circuit<
                 >(
                     &general_params,
                     &pk,
-                    vec![circuit],
+                    &[circuit.clone()],
                     &instance_lengths,
                     &mut constant_pool,
                     trace,
@@ -406,7 +406,7 @@ fn run_circuit<
             )
         })
         .collect();
-    let mut inputs = cg_inputs_shape.serialize(vec![instances], Tr::init(vec![]));
+    let mut inputs = cg_inputs_shape.serialize(vec![instances], vec![circuit], Tr::init(vec![]));
 
     let pools = Pools {
         cpu: hd_info.cpu_allocator(true),
