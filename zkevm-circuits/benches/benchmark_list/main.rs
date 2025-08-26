@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub static DEGREE: u32 = 19;
+pub static DEGREE: u32 = 21;
 
 mod call_trace;
 mod super_circuit;
@@ -424,6 +424,7 @@ fn run_circuit<
     let ((r, log, _), _) = runtime.run(
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
+            .with_serial_execution(true)
             .with_print_instruction(true)
             .with_record_time(true),
     );

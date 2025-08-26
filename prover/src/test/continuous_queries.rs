@@ -8,6 +8,7 @@ mod test {
         proof::{batch::BatchProof, chunk::ChunkProof},
     };
     use anyhow::Result;
+    use ark_std::{end_timer, start_timer};
 
     use crate::constants::{
         AGG_DEGREE_FOR_TEST, MAX_NUM_ROW_FOR_TEST, NUM_STATE_HI_COL, NUM_STATE_LO_COL,
@@ -232,7 +233,14 @@ mod test {
 
         let rounds = 4;
 
+        let begin_warmup = start_timer!(|| "Warm up by generate one proof");
+        chunk_workers.submit(chunk_data.clone());
+        let _ = batch_workers.recv().expect("recv error");
+        end_timer!(begin_warmup);
+
         let mut rng = rand_core::OsRng;
+
+        let begin_rounds = start_timer!(|| format!("Generate proof for {} rounds", rounds));
         for i in 0..rounds {
             use rand_core::TryRngCore;
 
@@ -247,6 +255,8 @@ mod test {
             let r = batch_workers.recv().expect("recv error");
             println!("收到证明 {}", r.id);
         }
+
+        end_timer!(begin_rounds);
 
         chunk_workers.shutdown();
         batch_workers.shutdown();
