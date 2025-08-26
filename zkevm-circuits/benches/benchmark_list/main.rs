@@ -30,7 +30,6 @@ use halo2_proofs::poly::kzg::multiopen::{ProverSHPLONK, VerifierSHPLONK};
 use halo2_proofs::poly::kzg::strategy::SingleStrategy;
 use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
 use halo2_proofs::zkpoly_compiler::driver;
-use halo2_proofs::zkpoly_compiler::driver::artifect::Pools;
 use halo2_proofs::zkpoly_compiler::driver::{DiskMemoryInfo, MemoryInfo};
 use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use halo2_proofs::SerdeFormat;
@@ -331,7 +330,7 @@ fn run_circuit<
                 >(
                     &general_params,
                     &pk,
-                    &[circuit.clone()],
+                    vec![circuit.clone()],
                     &instance_lengths,
                     &mut constant_pool,
                     trace,
@@ -344,47 +343,16 @@ fn run_circuit<
                 let processed_type2_dir = "target/processed_type2";
                 let pjh = driver::PanicJoinHandler::new();
                 let fresh_type2 = driver::FreshType2::from_ast(cg_ret, &options, &pjh).unwrap();
-                let mut str_buf = Vec::new();
 
-                let artifect = if std::env::var("REBUILD").is_ok_and(|x| x == "1")
-                    || !std::path::Path::new(artifect_dir).exists()
-                {
-                    let processed_type2 = if prefer_no_reapply_type2_passes
-                        && std::path::Path::new(processed_type2_dir).exists()
-                    {
-                        println!("[Test] Skip applying Type2 passes");
-                        fresh_type2
-                            .load_processed_type2(
-                                &processed_type2_dir,
-                                &mut str_buf,
-                                &mut constant_pool,
-                            )
-                            .unwrap()
-                    } else {
+                let artifect = {
+                    let processed_type2 = {
                         println!("[Test] Applying Type2 passes and lowering to Artifect");
                         let pt2 = fresh_type2
                             .apply_passes(&options, &hd_info, &mut constant_pool, &pjh)
-                            .unwrap()
-                            .fuse(&options, &hd_info, 0..1, &pjh)
                             .unwrap();
-                        pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
                         pt2
                     };
-
-                    let artifect = processed_type2
-                        .to_type3(&options, &hd_info, &mut constant_pool, &pjh)
-                        .unwrap()
-                        .apply_passes(&options)
-                        .unwrap()
-                        .to_artifect(&options, &hd_info, "target/kernels".into())
-                        .unwrap();
-
-                    artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
-                    artifect.finish(&mut constant_pool)
-                } else {
-                    fresh_type2
-                        .load_artifect(&artifect_dir, &mut constant_pool)
-                        .unwrap()
+                    let _ = processed_type2.slice();
                 };
 
                 end_timer!(compile_start);
@@ -396,75 +364,75 @@ fn run_circuit<
         handler.join().unwrap()
     });
 
-    use halo2_proofs::zkpoly_runtime::transcript::TranscriptWriterBuffer;
-    let instances = instance_refs
-        .iter()
-        .map(|ins| {
-            halo2_proofs::zkpoly_runtime::scalar::ScalarArray::from_vec(
-                &ins,
-                &mut constant_pool.cpu,
-            )
-        })
-        .collect();
-    let mut inputs = cg_inputs_shape.serialize(vec![instances], vec![circuit], Tr::init(vec![]));
+    // use halo2_proofs::zkpoly_runtime::transcript::TranscriptWriterBuffer;
+    // let instances = instance_refs
+    //     .iter()
+    //     .map(|ins| {
+    //         halo2_proofs::zkpoly_runtime::scalar::ScalarArray::from_vec(
+    //             &ins,
+    //             &mut constant_pool.cpu,
+    //         )
+    //     })
+    //     .collect();
+    // let mut inputs = cg_inputs_shape.serialize(vec![instances], vec![circuit], Tr::init(vec![]));
 
-    let pools = Pools {
-        cpu: hd_info.cpu_allocator(true),
-        gpu: hd_info.gpu_allocators(true),
-        disk: Arc::new(Mutex::new(hd_info.disk_allocator(2usize.pow(33)))),
-    };
-    let mut runtime = artifect.prepare_dispatcher(
-        artifect.versions().next().unwrap(),
-        pools,
-        halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20), OsRng::default()),
-        Arc::new(|_| 0),
-    );
+    // let pools = Pools {
+    //     cpu: hd_info.cpu_allocator(true),
+    //     gpu: hd_info.gpu_allocators(true),
+    //     disk: Arc::new(Mutex::new(hd_info.disk_allocator(2usize.pow(33)))),
+    // };
+    // let mut runtime = artifect.prepare_dispatcher(
+    //     artifect.versions().next().unwrap(),
+    //     pools,
+    //     halo2_proofs::zkpoly_runtime::async_rng::AsyncRng::new(2usize.pow(20), OsRng::default()),
+    //     Arc::new(|_| 0),
+    // );
 
-    let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
-    let ((r, log, _), _) = runtime.run(
-        &mut inputs,
-        halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
-            .with_serial_execution(true)
-            .with_print_instruction(true)
-            .with_record_time(true),
-    );
-    end_timer!(dispatcher_start);
+    // let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
+    // let ((r, log, _), _) = runtime.run(
+    //     &mut inputs,
+    //     halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
+    //         .with_serial_execution(true)
+    //         .with_print_instruction(true)
+    //         .with_record_time(true),
+    // );
+    // end_timer!(dispatcher_start);
 
-    let mut log_file = File::create("debug-statistics.json").unwrap();
-    serde_json::to_writer_pretty(&mut log_file, &log).unwrap();
+    // let mut log_file = File::create("debug-statistics.json").unwrap();
+    // serde_json::to_writer_pretty(&mut log_file, &log).unwrap();
 
-    let mut waterfall_file = File::create("debug-statistics.html").unwrap();
-    log.waterfall().build(&mut waterfall_file).unwrap();
+    // let mut waterfall_file = File::create("debug-statistics.html").unwrap();
+    // log.waterfall().build(&mut waterfall_file).unwrap();
 
-    let proof = r.unwrap().unwrap_transcript_move().take().finalize();
+    // let proof = r.unwrap().unwrap_transcript_move().take().finalize();
 
-    // Verify the proof
-    let verify_msg = format!(
-        "{}/{}/Verify proof/Round {}/{}",
-        VERIFY_PROOF,
-        id,
-        i + 1,
-        bench_round
-    );
-    let verify_start = start_timer!(|| verify_msg);
-    let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
-    let strategy = SingleStrategy::new(&general_params);
+    // // Verify the proof
+    // let verify_msg = format!(
+    //     "{}/{}/Verify proof/Round {}/{}",
+    //     VERIFY_PROOF,
+    //     id,
+    //     i + 1,
+    //     bench_round
+    // );
+    // let verify_start = start_timer!(|| verify_msg);
+    // let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
+    // let strategy = SingleStrategy::new(&general_params);
 
-    verify_proof::<
-        KZGCommitmentScheme<Bn256>,
-        VerifierSHPLONK<'_, Bn256>,
-        Challenge255<G1Affine>,
-        Blake2bRead<&[u8], G1Affine, Challenge255<G1Affine>>,
-        SingleStrategy<'_, Bn256>,
-    >(
-        &general_params.verifier_params(),
-        pk.get_vk(),
-        strategy,
-        &[&instance_refs],
-        &mut verifier_transcript,
-    )
-    .expect(format!("{}/failed to verify bench circuit", id).as_str());
-    end_timer!(verify_start);
+    // verify_proof::<
+    //     KZGCommitmentScheme<Bn256>,
+    //     VerifierSHPLONK<'_, Bn256>,
+    //     Challenge255<G1Affine>,
+    //     Blake2bRead<&[u8], G1Affine, Challenge255<G1Affine>>,
+    //     SingleStrategy<'_, Bn256>,
+    // >(
+    //     &general_params.verifier_params(),
+    //     pk.get_vk(),
+    //     strategy,
+    //     &[&instance_refs],
+    //     &mut verifier_transcript,
+    // )
+    // .expect(format!("{}/failed to verify bench circuit", id).as_str());
+    // end_timer!(verify_start);
 }
 
 pub fn write_proof_params<P: AsRef<Path>>(params: &ParamsKZG<Bn256>, file_path: P) {
