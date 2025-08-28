@@ -265,7 +265,8 @@ mod test {
 
     #[test]
     fn test_continuous_queries() {
-        let (jit, scheduler_handle) = super::super::create_all_file::make_jit(4);
+        let (jit, scheduler_handle) =
+            super::super::create_all_file::make_jit(480 * 2u64.pow(30), 4);
         let chunk_prover = ChunkProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.clone()));
         let batch_prover = BatchProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.alternative_rt()));
         start_queries(chunk_prover, batch_prover, 4);
@@ -274,7 +275,8 @@ mod test {
 
     #[test]
     fn test_single_card_continuous_queries() {
-        let (jit, scheduler_handle) = super::super::create_all_file::make_jit(1);
+        let (jit, scheduler_handle) =
+            super::super::create_all_file::make_jit(200 * 2u64.pow(30), 1);
         let chunk_prover = ChunkProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.clone()));
         let batch_prover = BatchProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.alternative_rt()));
         start_queries(chunk_prover, batch_prover, 1);

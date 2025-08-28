@@ -64,6 +64,7 @@ fn create_all_file() {
 }
 
 pub fn make_jit<C: Circuit<Fr>>(
+    cpu_mem: u64,
     n_gpu: usize,
 ) -> (snark_verifier_sdk::halo2::Jit<C>, jit::SchedulerHandle) {
     use zkpoly_compiler::driver;
@@ -71,7 +72,7 @@ pub fn make_jit<C: Circuit<Fr>>(
         .with_log(true)
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape);
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(480 * 2u64.pow(30), 2u64.pow(28)));
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_mem, 2u64.pow(28)));
     let hd_info = (0..n_gpu)
         .fold(hd_info, |hd_info, _| {
             hd_info.with_gpu(MemoryInfo::new(36 * 2u64.pow(30), 2u64.pow(28)))
@@ -90,7 +91,7 @@ pub fn make_jit<C: Circuit<Fr>>(
         JitConfig::new(artifect_dir.into())
             .with_debug_options(options)
             .with_force_rebuild(true)
-            .with_artifect_versions_cpu_memory_divisions(vec![2]),
+            .with_artifect_versions_cpu_memory_divisions(vec![n_gpu.ilog2()]),
         SchedulerConfig::default().with_runtime_debug(RuntimeDebug::none()),
         hd_info.disk_allocator(2usize.pow(33)),
         constant_pool,
@@ -105,7 +106,7 @@ pub fn check_env() {
 pub fn complete_process(need_gen_batch_proof: bool) {
     let (agg_params, zkevm_params, agg_degree, zkevm_degree) = generate_params();
 
-    let (mut env_info, scheduler) = make_jit(1);
+    let (mut env_info, scheduler) = make_jit(300 * 2u64.pow(30), 1);
 
     println!("JitEnv started");
 
