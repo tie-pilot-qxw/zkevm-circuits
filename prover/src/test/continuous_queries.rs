@@ -219,7 +219,7 @@ mod test {
         }
     }
 
-    fn start_queries(chunk_prover: ChunkProver, batch_prover: BatchProver) {
+    fn start_queries(chunk_prover: ChunkProver, batch_prover: BatchProver, parallism: usize) {
         let chunk_data_path = "./test_data/chunk_data.json";
 
         let chunk_data_file =
@@ -227,8 +227,8 @@ mod test {
         let chunk_data: ChunkData =
             serde_json::from_reader(chunk_data_file).expect("parse chunk_data json failure");
 
-        let mut chunk_workers = worker_pool::WorkerPool::launch(2, chunk_prover);
-        let mut batch_workers = worker_pool::WorkerPool::launch(2, batch_prover);
+        let mut chunk_workers = worker_pool::WorkerPool::launch(parallism, chunk_prover);
+        let mut batch_workers = worker_pool::WorkerPool::launch(parallism, batch_prover);
         let adapter = adapter::Adapter::launch(&chunk_workers, &batch_workers);
 
         let rounds = 4;
@@ -265,10 +265,19 @@ mod test {
 
     #[test]
     fn test_continuous_queries() {
-        let (jit, scheduler_handle) = super::super::create_all_file::make_jit();
+        let (jit, scheduler_handle) = super::super::create_all_file::make_jit(4);
         let chunk_prover = ChunkProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.clone()));
         let batch_prover = BatchProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.alternative_rt()));
-        start_queries(chunk_prover, batch_prover);
+        start_queries(chunk_prover, batch_prover, 4);
+        scheduler_handle.shutdown();
+    }
+
+    #[test]
+    fn test_single_card_continuous_queries() {
+        let (jit, scheduler_handle) = super::super::create_all_file::make_jit(1);
+        let chunk_prover = ChunkProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.clone()));
+        let batch_prover = BatchProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.alternative_rt()));
+        start_queries(chunk_prover, batch_prover, 1);
         scheduler_handle.shutdown();
     }
 
@@ -276,6 +285,6 @@ mod test {
     fn test_cpu_continuous_queries() {
         let chunk_prover = ChunkProver::load(PARAMS_DIR, ASSETS_DIR, None);
         let batch_prover = BatchProver::load(PARAMS_DIR, ASSETS_DIR, None);
-        start_queries(chunk_prover, batch_prover);
+        start_queries(chunk_prover, batch_prover, 1);
     }
 }

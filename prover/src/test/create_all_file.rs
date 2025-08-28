@@ -63,17 +63,21 @@ fn create_all_file() {
     move_file().unwrap()
 }
 
-pub fn make_jit<C: Circuit<Fr>>() -> (snark_verifier_sdk::halo2::Jit<C>, jit::SchedulerHandle) {
+pub fn make_jit<C: Circuit<Fr>>(
+    n_gpu: usize,
+) -> (snark_verifier_sdk::halo2::Jit<C>, jit::SchedulerHandle) {
     use zkpoly_compiler::driver;
     let options = driver::DebugOptions::all(PathBuf::from("target/debug/transit"))
         .with_log(true)
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape);
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(160 * 2u64.pow(30), 2u64.pow(28)))
-        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30), 2u64.pow(28)))
-        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30), 2u64.pow(28)))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))))
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(480 * 2u64.pow(30), 2u64.pow(28)));
+    let hd_info = (0..n_gpu)
+        .fold(hd_info, |hd_info, _| {
+            hd_info.with_gpu(MemoryInfo::new(36 * 2u64.pow(30), 2u64.pow(28)))
+        })
+        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data1"))))
+        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data2"))))
         .with_page_size(16 * 2u64.pow(20));
     let constant_pool = driver::ConstantPool::with_disk(
         CpuMemoryPool::new(32, std::mem::size_of::<u32>()),
@@ -86,7 +90,7 @@ pub fn make_jit<C: Circuit<Fr>>() -> (snark_verifier_sdk::halo2::Jit<C>, jit::Sc
         JitConfig::new(artifect_dir.into())
             .with_debug_options(options)
             .with_force_rebuild(true)
-            .with_artifect_versions_cpu_memory_divisions(vec![1]),
+            .with_artifect_versions_cpu_memory_divisions(vec![2]),
         SchedulerConfig::default().with_runtime_debug(RuntimeDebug::none()),
         hd_info.disk_allocator(2usize.pow(33)),
         constant_pool,
@@ -101,7 +105,7 @@ pub fn check_env() {
 pub fn complete_process(need_gen_batch_proof: bool) {
     let (agg_params, zkevm_params, agg_degree, zkevm_degree) = generate_params();
 
-    let (mut env_info, scheduler) = make_jit();
+    let (mut env_info, scheduler) = make_jit(1);
 
     println!("JitEnv started");
 
