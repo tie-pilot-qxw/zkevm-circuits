@@ -31,5 +31,5 @@ fn init_proof_params() {
 
     let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
         SuperCircuit::new_from_witness(&witness);
-    gen_proof_params_and_write_file(degree, circuit)
+    gen_proof_params_and_write_file(degree, circuit);
 }

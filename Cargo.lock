@@ -1255,6 +1255,9 @@ dependencies = [
 [[package]]
 name = "cytoscape_visualizer"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "darling"
@@ -5675,6 +5678,7 @@ dependencies = [
  "cytoscape_visualizer",
  "group",
  "halo2curves",
+ "rand_core 0.6.4",
  "scopeguard",
  "serde",
  "serde_json",

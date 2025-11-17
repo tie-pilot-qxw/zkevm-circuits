@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::run_benchmark;
+use zkevm_circuits::constant::MAX_NUM_ROW;
 use zkevm_circuits::util::get_chunk_data;
 
 #[cfg(feature = "k_11")]

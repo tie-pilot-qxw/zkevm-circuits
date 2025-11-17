@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub static DEGREE: u32 = 21;
+pub static DEGREE: u32 = 19;
 
 mod call_trace;
 mod super_circuit;
@@ -85,7 +85,10 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData,
             get_default_proof_pk_file_path(degree),
         )
     } else {
-        gen_proof_params::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(degree, chunk_data)
+        let witness = Witness::new(chunk_data);
+        let circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL> =
+            SuperCircuit::new_from_witness(&witness);
+        gen_proof_params_and_write_file(degree, circuit)
     };
     end_timer!(get_proof_params_start);
 
@@ -102,10 +105,10 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(id: &str, chunk_data: &ChunkData,
     end_timer!(run_and_verify_circuit_start);
 }
 
-fn gen_proof_params_and_write_file(
+fn gen_proof_params_and_write_file<const MAX_NUM_ROW: usize>(
     degree: u32,
     circuit: SuperCircuit<Fr, MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>,
-) {
+) -> (ParamsKZG<Bn256>, ProvingKey<G1Affine>) {
     println!(
         "{}/max_num_row:{}, degree:{}",
         CIRCUIT_SUMMARY, MAX_NUM_ROW, degree
@@ -142,6 +145,8 @@ fn gen_proof_params_and_write_file(
     let write_proof_pk_start = start_timer!(|| format!("write proof pk to {}", proof_pk_file_path));
     write_proof_pk(&pk, proof_pk_file_path);
     end_timer!(write_proof_pk_start);
+
+    (proof_params, pk)
 }
 
 fn get_proof_params_from_file<
@@ -300,9 +305,11 @@ fn run_circuit<
     type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
     type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
 
-    let options = driver::DebugOptions::minimal(PathBuf::from("target/debug/transit"))
+    let options = driver::DebugOptions::all(PathBuf::from("target/debug/transit"))
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
         .with_log(true);
+    options.prepare_dir();
+
     let hd_info = driver::HardwareInfo::new(MemoryInfo::new(300 * 2u64.pow(30), 2u64.pow(28)))
         .with_gpu(MemoryInfo::new(26 * 2u64.pow(30), 2u64.pow(28)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))))
@@ -311,6 +318,11 @@ fn run_circuit<
 
     let disk_constant_allocator = hd_info.disk_allocator(16 * 2usize.pow(30));
     let mut constant_pool = driver::ConstantPool::with_disk(allocator, disk_constant_allocator);
+    let config = driver::Config::default().with_sliceable_subgraph_on(
+        driver::SliceableSubgraphConfig::default()
+            .with_chunk_len(2u64.pow(DEGREE - 4))
+            .with_minimum_order(10),
+    );
 
     let instance_lengths = vec![instance_refs
         .iter()
@@ -342,8 +354,7 @@ fn run_circuit<
                     start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
                 let artifect_dir = "target/artifect";
                 let processed_type2_dir = "target/processed_type2";
-                let pjh = driver::PanicJoinHandler::new();
-                let fresh_type2 = driver::FreshType2::from_ast(cg_ret, &options, &pjh).unwrap();
+                let fresh_type2 = driver::FreshType2::from_ast(cg_ret, &options).unwrap();
                 let mut str_buf = Vec::new();
 
                 let artifect = if std::env::var("REBUILD").is_ok_and(|x| x == "1")
@@ -358,25 +369,27 @@ fn run_circuit<
                                 &processed_type2_dir,
                                 &mut str_buf,
                                 &mut constant_pool,
+                                &hd_info,
+                                &options,
                             )
                             .unwrap()
                     } else {
                         println!("[Test] Applying Type2 passes and lowering to Artifect");
                         let pt2 = fresh_type2
-                            .apply_passes(&options, &hd_info, &mut constant_pool, &pjh)
+                            .apply_passes(&hd_info, &mut constant_pool, &config)
                             .unwrap()
-                            .fuse(&options, &hd_info, 0..1, &pjh)
+                            .fuse(0..1)
                             .unwrap();
                         pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
                         pt2
                     };
 
                     let artifect = processed_type2
-                        .to_type3(&options, &hd_info, &mut constant_pool, &pjh)
+                        .to_type3(&mut constant_pool)
                         .unwrap()
-                        .apply_passes(&options)
+                        .apply_passes()
                         .unwrap()
-                        .to_artifect(&options, &hd_info, "target/kernels".into())
+                        .to_artifect("target/kernels".into())
                         .unwrap();
 
                     artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
