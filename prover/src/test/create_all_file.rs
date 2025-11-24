@@ -72,14 +72,12 @@ pub fn make_jit<C: Circuit<Fr>>(
         .with_log(true)
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape);
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_mem, 2u64.pow(28)));
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_mem));
     let hd_info = (0..n_gpu)
         .fold(hd_info, |hd_info, _| {
-            hd_info.with_gpu(MemoryInfo::new(36 * 2u64.pow(30), 2u64.pow(28)))
+            hd_info.with_gpu(MemoryInfo::new(36 * 2u64.pow(30)))
         })
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data1"))))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data2"))))
-        .with_page_size(16 * 2u64.pow(20));
+        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data1"))));
     let constant_pool = driver::ConstantPool::with_disk(
         CpuMemoryPool::new(32, std::mem::size_of::<u32>()),
         hd_info.disk_allocator(2usize.pow(33)),
@@ -91,7 +89,18 @@ pub fn make_jit<C: Circuit<Fr>>(
         JitConfig::new(artifect_dir.into())
             .with_debug_options(options)
             .with_force_rebuild(true)
-            .with_artifect_versions_cpu_memory_divisions(vec![n_gpu.ilog2()]),
+            .with_artifect_versions_cpu_memory_divisions(vec![n_gpu.ilog2()])
+            .with_compiler_config(
+                driver::Config::default()
+                    .with_sliceable_subgraph_on(
+                        driver::SubgraphSlicingConfig::default()
+                            .with_chunk_len(2u64.pow(16))
+                            .with_minimum_order(10),
+                    )
+                    .with_memory_planning(
+                        driver::MemoryPlanningConfig::default().with_smithereen_space(2u64.pow(28)),
+                    ),
+            ),
         SchedulerConfig::default().with_runtime_debug(RuntimeDebug::none()),
         hd_info.disk_allocator(2usize.pow(33)),
         constant_pool,

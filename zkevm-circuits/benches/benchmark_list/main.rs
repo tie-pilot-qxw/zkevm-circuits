@@ -32,10 +32,9 @@ use halo2_proofs::transcript::{Blake2bRead, Challenge255, TranscriptReadBuffer};
 use halo2_proofs::zkpoly_compiler::driver;
 use halo2_proofs::zkpoly_compiler::driver::artifect::Pools;
 use halo2_proofs::zkpoly_compiler::driver::{DiskMemoryInfo, MemoryInfo};
-use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use halo2_proofs::SerdeFormat;
 use rand_chacha::rand_core::OsRng;
-use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
+use zkevm_circuits::constant::{NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
 use zkevm_circuits::util::SubCircuit;
 use zkevm_circuits::witness::Witness;
@@ -179,7 +178,7 @@ fn get_proof_params_from_file<
     (proof_params, proof_pk)
 }
 
-fn gen_proof_params<
+fn _gen_proof_params<
     const MAX_NUM_ROW: usize,
     const NUM_STATE_HI_COL: usize,
     const NUM_STATE_LO_COL: usize,
@@ -310,19 +309,25 @@ fn run_circuit<
         .with_log(true);
     options.prepare_dir();
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(300 * 2u64.pow(30), 2u64.pow(28)))
-        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30), 2u64.pow(28)))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))))
-        .with_page_size(16 * 2u64.pow(20));
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(200 * 2u64.pow(30)))
+        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30)))
+        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
 
     let disk_constant_allocator = hd_info.disk_allocator(16 * 2usize.pow(30));
     let mut constant_pool = driver::ConstantPool::with_disk(allocator, disk_constant_allocator);
-    let config = driver::Config::default().with_sliceable_subgraph_on(
-        driver::SliceableSubgraphConfig::default()
-            .with_chunk_len(2u64.pow(DEGREE - 4))
-            .with_minimum_order(10),
-    );
+    let config = driver::Config::default()
+        .with_sliceable_subgraph_on(
+            driver::SubgraphSlicingConfig::default()
+                .with_chunk_len(2u64.pow(15))
+                .with_minimum_order(10),
+        )
+        .with_scheduler_alg(driver::GraphSchedulingAlgorithm::PlainTopologySort)
+        .with_memory_planning(
+            driver::MemoryPlanningConfig::default()
+                .with_smithereen_space(2u64.pow(28))
+                .with_gpu_allocator(driver::GpuAllocatorChoice::Slab)
+                .with_criterion(driver::CriterionChoice::Epsilon),
+        );
 
     let instance_lengths = vec![instance_refs
         .iter()
@@ -350,8 +355,7 @@ fn run_circuit<
                 );
                 end_timer!(cg_gen_start);
 
-                let compile_start =
-                    start_timer!(|| "[Test] Begin Compiling to Runtime Instructions");
+                let compile_start = start_timer!(|| "[Test] Compiling to Runtime Instructions");
                 let artifect_dir = "target/artifect";
                 let processed_type2_dir = "target/processed_type2";
                 let fresh_type2 = driver::FreshType2::from_ast(cg_ret, &options).unwrap();
@@ -363,12 +367,13 @@ fn run_circuit<
                     let processed_type2 = if prefer_no_reapply_type2_passes
                         && std::path::Path::new(processed_type2_dir).exists()
                     {
-                        println!("[Test] Skip applying Type2 passes");
+                        println!("[Test] Loading dumped processed Type2");
                         fresh_type2
                             .load_processed_type2(
                                 &processed_type2_dir,
                                 &mut str_buf,
                                 &mut constant_pool,
+                                &config,
                                 &hd_info,
                                 &options,
                             )
@@ -395,6 +400,7 @@ fn run_circuit<
                     artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
                     artifect.finish(&mut constant_pool)
                 } else {
+                    println!("[Test] Loading dumped artifect");
                     fresh_type2
                         .load_artifect(&artifect_dir, &mut constant_pool)
                         .unwrap()
@@ -423,7 +429,7 @@ fn run_circuit<
 
     let pools = Pools {
         cpu: hd_info.cpu_allocator(true),
-        gpu: hd_info.gpu_allocators(true),
+        gpu: hd_info.gpu_allocators(true, config.memory()),
         disk: Arc::new(Mutex::new(hd_info.disk_allocator(2usize.pow(33)))),
     };
     let mut runtime = artifect.prepare_dispatcher(
@@ -433,18 +439,15 @@ fn run_circuit<
         Arc::new(|_| 0),
     );
 
-    let dispatcher_start = start_timer!(|| "[Test] Begin Running Dispatcher");
+    let dispatcher_start = start_timer!(|| "[Test] Running Dispatcher");
     let ((r, log, _), _) = runtime.run(
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
-            .with_serial_execution(true)
+            .with_serial_execution(false)
             .with_print_instruction(true)
             .with_record_time(true),
     );
     end_timer!(dispatcher_start);
-
-    let mut log_file = File::create("debug-statistics.json").unwrap();
-    serde_json::to_writer_pretty(&mut log_file, &log).unwrap();
 
     let mut waterfall_file = File::create("debug-statistics.html").unwrap();
     log.waterfall().build(&mut waterfall_file).unwrap();
