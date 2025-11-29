@@ -65,7 +65,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
     let config = driver::Config::default()
         .with_sliceable_subgraph_on(
             driver::SubgraphSlicingConfig::default()
-                .with_chunk_len(2u64.pow(6))
+                .with_chunk_len(2u64.pow(15))
                 .with_minimum_order(10),
         )
         .with_scheduler_alg(driver::GraphSchedulingAlgorithm::KillAsap)
@@ -75,9 +75,9 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
                 .with_gpu_allocator(driver::GpuAllocatorChoice::Slab)
                 .with_criterion(driver::CriterionChoice::Belady),
         )
-        .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::PlainTopologySort);
+        .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::Heuristic);
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(10 * 2u64.pow(30)))
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(200 * 2u64.pow(30)))
         .with_gpu(MemoryInfo::new(26 * 2u64.pow(30)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
 
@@ -136,6 +136,12 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
         gen_proof_params_and_write_file(degree, circuit)
     };
     end_timer!(get_proof_params_start);
+
+    println!("{}/id:{}, config: {:#?}", CIRCUIT_SUMMARY, id, config);
+    println!(
+        "{}/id:{}, debug_dir: {:#?}",
+        CIRCUIT_SUMMARY, id, &debug_dir
+    );
 
     // step2: run and verify circuit
     let run_and_verify_circuit_start = start_timer!(|| "run and verify circuit");
@@ -361,7 +367,7 @@ pub fn run_circuit<
     type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
     type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
 
-    let options = driver::DebugOptions::all(debug_dir)
+    let options = driver::DebugOptions::all(debug_dir.clone())
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
         .with_log(true);
     options.prepare_dir();
@@ -489,7 +495,7 @@ pub fn run_circuit<
     end_timer!(dispatcher_start);
 
     if record_log {
-        let mut waterfall_file = File::create("debug-statistics.html").unwrap();
+        let mut waterfall_file = File::create(debug_dir.join("debug-statistics.html")).unwrap();
         log.waterfall().build(&mut waterfall_file).unwrap();
     }
 

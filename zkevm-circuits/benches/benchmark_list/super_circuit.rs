@@ -21,7 +21,7 @@ fn bench_super_circuit() {
 
     let chunk_data = &chunk_data_test(trace, &machine_code, &[], false, Default::default());
 
-    let degree = 11;
+    let degree = 19;
 
     // run benchmark
     let (proof_time, statistics) =
