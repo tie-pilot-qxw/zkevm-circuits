@@ -186,16 +186,23 @@ mod ablation_study {
             &self,
             chunk_data: &ChunkData,
             debug_dir: PathBuf,
+            kernel_dir: PathBuf,
         ) -> (std::time::Duration, Statistics) {
+            let options = driver::DebugOptions::none(debug_dir)
+                .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
+                .with_log(true);
+            options.prepare_dir();
+
             // run benchmark
             let (proof_time, statistics) = run_benchmark_with_config::<MAX_NUM_ROW>(
                 "super_circuit",
                 chunk_data,
                 self.degree,
                 &self.hardware_info,
+                &options,
                 &self.config,
                 true,
-                debug_dir,
+                kernel_dir,
             );
 
             println!(
@@ -246,9 +253,10 @@ mod ablation_study {
             let name = format!("Degree{}_{:?}", degree, stage);
             println!("Running experiment: {}", name);
 
+            let parent_dir = PathBuf::from(format!("ablation/{}", name));
             let params = Params::of(degree, stage);
             let (proof_time, statistics) =
-                params.run(chunk_data, PathBuf::from(format!("ablation/{}", name)));
+                params.run(chunk_data, parent_dir.clone(), parent_dir.join("kernels"));
 
             // Convert statistics to export format
             let stats_export = statistics.export();

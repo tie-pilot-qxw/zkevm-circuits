@@ -83,14 +83,20 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
 
     let record_log: bool = env::var("RECORD_LOG").is_ok_and(|x| x == "1");
 
+    let options = driver::DebugOptions::all("target/debug/transit".into())
+        .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
+        .with_log(true);
+    options.prepare_dir();
+
     run_benchmark_with_config::<MAX_NUM_ROW>(
         id,
         chunk_data,
         degree,
         &hd_info,
+        &options,
         &config,
         record_log,
-        PathBuf::from("target/debug/transit"),
+        PathBuf::from("target/kernels"),
     )
 }
 
@@ -99,9 +105,10 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
     chunk_data: &ChunkData,
     degree: u32,
     hd_info: &driver::HardwareInfo,
+    options: &driver::DebugOptions,
     config: &driver::Config,
     record_log: bool,
-    debug_dir: PathBuf,
+    kernel_dir: PathBuf,
 ) -> (std::time::Duration, Option<Statistics>) {
     // get round from environment variables
     let round_val_str = env::var(CMD_ENV_ROUND).unwrap_or_else(|_| "".to_string());
@@ -139,8 +146,10 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
 
     println!("{}/id:{}, config: {:#?}", CIRCUIT_SUMMARY, id, config);
     println!(
-        "{}/id:{}, debug_dir: {:#?}",
-        CIRCUIT_SUMMARY, id, &debug_dir
+        "{}/id:{}, debug_dir: {:?}, kernel_dir: {:?}",
+        CIRCUIT_SUMMARY,
+        id,
+        &options.debug_dir() & kernel_dir
     );
 
     // step2: run and verify circuit
@@ -152,11 +161,12 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
         proof_params,
         proof_pk,
         &hd_info,
+        options,
         &config,
         rebuild,
         record_log,
         trace_reference_run,
-        debug_dir,
+        kernel_dir,
     );
     end_timer!(run_and_verify_circuit_start);
 
@@ -277,11 +287,12 @@ pub fn run_circuit<
     proof_params: ParamsKZG<Bn256>,
     proof_pk: ProvingKey<G1Affine>,
     hd_info: &driver::HardwareInfo,
+    options: &driver::DebugOptions,
     config: &driver::Config,
     rebuild: bool,
     record_log: bool,
     trace_reference_run: bool,
-    debug_dir: PathBuf,
+    kernel_dir: PathBuf,
 ) -> (std::time::Duration, Option<Statistics>) {
     // get witness for benchmark
     let witness_msg = format!(
@@ -367,11 +378,6 @@ pub fn run_circuit<
     type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
     type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
 
-    let options = driver::DebugOptions::all(debug_dir.clone())
-        .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
-        .with_log(true);
-    options.prepare_dir();
-
     let disk_constant_allocator = hd_info.disk_allocator(16 * 2usize.pow(30));
     let mut constant_pool = driver::ConstantPool::with_disk(allocator, disk_constant_allocator);
 
@@ -437,7 +443,7 @@ pub fn run_circuit<
                         .unwrap()
                         .apply_passes()
                         .unwrap()
-                        .to_artifect("target/kernels".into())
+                        .to_artifect(kernel_dir)
                         .unwrap();
 
                     artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
@@ -495,7 +501,8 @@ pub fn run_circuit<
     end_timer!(dispatcher_start);
 
     if record_log {
-        let mut waterfall_file = File::create(debug_dir.join("debug-statistics.html")).unwrap();
+        let mut waterfall_file =
+            File::create(options.debug_dir().join("debug-statistics.html")).unwrap();
         log.waterfall().build(&mut waterfall_file).unwrap();
     }
 
