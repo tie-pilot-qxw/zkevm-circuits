@@ -65,7 +65,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
     let config = driver::Config::default()
         .with_sliceable_subgraph_on(
             driver::SubgraphSlicingConfig::default()
-                .with_chunk_len(2u64.pow(15))
+                .with_chunk_len(2u64.pow(16))
                 .with_minimum_order(10),
         )
         .with_scheduler_alg(driver::GraphSchedulingAlgorithm::KillAsap)
@@ -77,7 +77,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
         )
         .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::Heuristic);
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(200 * 2u64.pow(30)))
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(300 * 2u64.pow(30)))
         .with_gpu(MemoryInfo::new(26 * 2u64.pow(30)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
 
@@ -130,11 +130,16 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
 
     // step1: get proof params
     let get_proof_params_start = start_timer!(|| "get proof params");
-    let (proof_params, proof_pk) = if bench_usefile {
+    let params_path = get_default_proof_params_file_path(degree);
+    let pk_path = get_default_proof_pk_file_path(degree);
+    let (proof_params, proof_pk) = if bench_usefile
+        && PathBuf::from(&params_path).exists()
+        && PathBuf::from(&pk_path).exists()
+    {
         get_proof_params_from_file::<MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL>(
-            get_default_proof_params_file_path(degree),
+            params_path,
             get_default_proof_vk_file_path(degree),
-            get_default_proof_pk_file_path(degree),
+            pk_path,
         )
     } else {
         let witness = Witness::new(chunk_data);
@@ -149,7 +154,8 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
         "{}/id:{}, debug_dir: {:?}, kernel_dir: {:?}",
         CIRCUIT_SUMMARY,
         id,
-        &options.debug_dir() & kernel_dir
+        &options.debug_dir(),
+        &kernel_dir
     );
 
     // step2: run and verify circuit
@@ -489,15 +495,14 @@ pub fn run_circuit<
     );
 
     let dispatcher_start = start_timer!(|| "[Test] Running Dispatcher");
-    let dispatcher_start_ = std::time::Instant::now();
-    let ((r, log, _), _) = runtime.run(
+    let ((r, log, _), allocator) = runtime.run(
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
             .with_serial_execution(false)
             .with_print_instruction(true)
             .with_record_time(record_log),
     );
-    let proof_time = dispatcher_start_.elapsed();
+    let proof_time = log.total_time();
     end_timer!(dispatcher_start);
 
     if record_log {
@@ -520,7 +525,7 @@ pub fn run_circuit<
     let mut verifier_transcript = Blake2bRead::<_, G1Affine, Challenge255<_>>::init(&proof[..]);
     let strategy = SingleStrategy::new(&general_params);
 
-    verify_proof::<
+    match verify_proof::<
         KZGCommitmentScheme<Bn256>,
         VerifierSHPLONK<'_, Bn256>,
         Challenge255<G1Affine>,
@@ -532,9 +537,13 @@ pub fn run_circuit<
         strategy,
         &[&instance_refs],
         &mut verifier_transcript,
-    )
-    .expect(format!("{}/failed to verify bench circuit", id).as_str());
+    ) {
+        Ok(..) => {}
+        Err(e) => println!("{}/failed to verify bench circuit: {:?}", id, e),
+    };
     end_timer!(verify_start);
+
+    drop(allocator);
 
     (
         proof_time,

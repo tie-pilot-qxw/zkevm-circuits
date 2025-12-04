@@ -46,14 +46,18 @@ mod ablation_study {
         Base,
         Belady,
         HeuristicGraphScheduling,
-        PageAllocator,
         SliceableSubgraph,
     }
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct ExperimentResult {
         proof_time: std::time::Duration,
         statistics: Vec<(String, f64)>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct ProgressDataSerializeable {
+        results: Vec<(u32, AblationStage, ExperimentResult)>,
     }
 
     #[derive(Serialize, Deserialize)]
@@ -68,19 +72,35 @@ mod ablation_study {
             }
         }
 
+        fn export(&self) -> ProgressDataSerializeable {
+            ProgressDataSerializeable {
+                results: self
+                    .results
+                    .iter()
+                    .map(|((k, s), e)| (k.clone(), s.clone(), e.clone()))
+                    .collect(),
+            }
+        }
+
+        fn import(s: ProgressDataSerializeable) -> Self {
+            Self {
+                results: s.results.into_iter().map(|(k, s, e)| ((k, s), e)).collect(),
+            }
+        }
+
         fn load_or_create(path: &Path) -> std::io::Result<Self> {
             if path.exists() {
                 let content = fs::read_to_string(path)?;
-                let progress_data: ProgressData = serde_json::from_str(&content)
+                let progress_data: ProgressDataSerializeable = serde_json::from_str(&content)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-                Ok(progress_data)
+                Ok(Self::import(progress_data))
             } else {
                 Ok(ProgressData::new())
             }
         }
 
         fn save(&self, path: &Path) -> std::io::Result<()> {
-            let content = serde_json::to_string_pretty(self)
+            let content = serde_json::to_string_pretty(&self.export())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
             fs::write(path, content)
         }
@@ -133,11 +153,11 @@ mod ablation_study {
                 panic!("minimal degree is 19 in order to hold all constraints");
             }
 
-            let cpu_capacity = (200 * 2u32.pow(degree - 19)).min(400);
+            let cpu_capacity = (200 * 2u32.pow(degree - 19)).min(300);
 
             let hardware_info =
                 driver::HardwareInfo::new(MemoryInfo::new(cpu_capacity as u64 * 2u64.pow(30)))
-                    .with_gpu(MemoryInfo::new(26 * 2u64.pow(30)))
+                    .with_gpu(MemoryInfo::new(28 * 2u64.pow(30)))
                     .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
 
             let mut config = driver::Config::default()
@@ -162,15 +182,10 @@ mod ablation_study {
             updater.update_if(HeuristicGraphScheduling, |c| {
                 c.with_scheduler_alg(driver::GraphSchedulingAlgorithm::KillAsap)
             });
-            updater.update_if(PageAllocator, |c| {
-                c.map_memory_planning(|c| {
-                    c.with_gpu_allocator(driver::GpuAllocatorChoice::Page(2u64.pow(24)))
-                })
-            });
             updater.update_if(SliceableSubgraph, |c| {
                 c.with_sliceable_subgraph_on(
                     driver::SubgraphSlicingConfig::default()
-                        .with_chunk_len(2u64.pow(16))
+                        .with_chunk_len(2u64.pow(if degree == 19 { 16 } else { 18 }))
                         .with_minimum_order(10),
                 )
             });
@@ -188,7 +203,7 @@ mod ablation_study {
             debug_dir: PathBuf,
             kernel_dir: PathBuf,
         ) -> (std::time::Duration, Statistics) {
-            let options = driver::DebugOptions::none(debug_dir)
+            let options = driver::DebugOptions::minimal(debug_dir)
                 .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
                 .with_log(true);
             options.prepare_dir();
@@ -222,13 +237,12 @@ mod ablation_study {
         let chunk_data = &chunk_data_test(trace, &machine_code, &[], false, Default::default());
 
         // Define degrees and stages to test
-        let degrees = [19, 20, 21, 22, 23];
+        let degrees = [19, 21];
         let stages = [
-            AblationStage::Base,
-            AblationStage::Belady,
-            AblationStage::HeuristicGraphScheduling,
-            AblationStage::PageAllocator,
+            // AblationStage::Base,
+            // AblationStage::Belady,
             AblationStage::SliceableSubgraph,
+            AblationStage::HeuristicGraphScheduling,
         ];
 
         // Path for progress file
@@ -275,5 +289,38 @@ mod ablation_study {
         }
 
         println!("Ablation study completed!");
+    }
+
+    fn progress_data() -> ProgressData {
+        ProgressData {
+            results: [(
+                (19, AblationStage::Base),
+                ExperimentResult {
+                    proof_time: std::time::Duration::from_secs(2),
+                    statistics: vec![("nothing".to_string(), 2.0)],
+                },
+            )]
+            .into_iter()
+            .collect(),
+        }
+    }
+
+    #[test]
+    fn test_progress_data_save() {
+        let pd = progress_data();
+
+        pd.save(&PathBuf::from("./test_progress_data_save.json"))
+            .unwrap();
+    }
+
+    #[test]
+    fn test_save_load_progress_data() {
+        let pd = progress_data();
+
+        let path = PathBuf::from("./test_progress_data_save.json");
+        pd.save(&path).unwrap();
+
+        let load = ProgressData::load_or_create(&path).unwrap();
+        assert_eq!(load.results.len(), 1);
     }
 }
