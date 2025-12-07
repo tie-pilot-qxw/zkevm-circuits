@@ -21,7 +21,7 @@ fn bench_super_circuit() {
 
     let chunk_data = &chunk_data_test(trace, &machine_code, &[], false, Default::default());
 
-    let degree = 19;
+    let degree = 21;
 
     // run benchmark
     let (proof_time, statistics) =
@@ -153,7 +153,7 @@ mod ablation_study {
                 panic!("minimal degree is 19 in order to hold all constraints");
             }
 
-            let cpu_capacity = (200 * 2u32.pow(degree - 19)).min(300);
+            let cpu_capacity = (200 * 2u32.pow(degree - 19)).min(400);
 
             let hardware_info =
                 driver::HardwareInfo::new(MemoryInfo::new(cpu_capacity as u64 * 2u64.pow(30)))
@@ -185,7 +185,7 @@ mod ablation_study {
             updater.update_if(SliceableSubgraph, |c| {
                 c.with_sliceable_subgraph_on(
                     driver::SubgraphSlicingConfig::default()
-                        .with_chunk_len(2u64.pow(if degree == 19 { 16 } else { 18 }))
+                        .with_chunk_len(2u64.pow((degree - 3).max(18)))
                         .with_minimum_order(10),
                 )
             });
@@ -229,27 +229,19 @@ mod ablation_study {
         }
     }
 
-    #[test]
-    fn run_ablation_study() {
+    fn run_degrees_stages(
+        degrees: Vec<u32>,
+        stages: Vec<AblationStage>,
+        directory: &str,
+        progress_file_path: PathBuf,
+    ) {
         let machine_code = trace_parser::assemble_file("test_data/1.txt");
         let trace = trace_parser::trace_program(&machine_code, &[]);
 
         let chunk_data = &chunk_data_test(trace, &machine_code, &[], false, Default::default());
 
-        // Define degrees and stages to test
-        let degrees = [19, 21];
-        let stages = [
-            // AblationStage::Base,
-            // AblationStage::Belady,
-            AblationStage::SliceableSubgraph,
-            AblationStage::HeuristicGraphScheduling,
-        ];
-
-        // Path for progress file
-        let progress_file_path = Path::new("ablation_study_progress.json");
-
         // Load existing progress or create new one
-        let mut progress_data = match ProgressData::load_or_create(progress_file_path) {
+        let mut progress_data = match ProgressData::load_or_create(&progress_file_path) {
             Ok(data) => data,
             Err(e) => {
                 eprintln!("Failed to load progress data: {:?}, starting fresh", e);
@@ -267,7 +259,7 @@ mod ablation_study {
             let name = format!("Degree{}_{:?}", degree, stage);
             println!("Running experiment: {}", name);
 
-            let parent_dir = PathBuf::from(format!("ablation/{}", name));
+            let parent_dir = PathBuf::from(format!("{}/{}", directory, name));
             let params = Params::of(degree, stage);
             let (proof_time, statistics) =
                 params.run(chunk_data, parent_dir.clone(), parent_dir.join("kernels"));
@@ -283,12 +275,43 @@ mod ablation_study {
             progress_data.results.insert((degree, stage), result);
 
             // Save progress after each experiment
-            if let Err(e) = progress_data.save(progress_file_path) {
+            if let Err(e) = progress_data.save(&progress_file_path) {
                 eprintln!("Failed to save progress: {:?}", e);
             }
         }
 
         println!("Ablation study completed!");
+    }
+
+    #[test]
+    fn run_scale_test() {
+        let degrees = vec![19, 20, 21, 22, 23];
+        let stages = vec![AblationStage::SliceableSubgraph];
+        run_degrees_stages(
+            degrees,
+            stages,
+            "scale_test",
+            "scale_test_progress.json".into(),
+        );
+    }
+
+    #[test]
+    fn run_ablation_study() {
+        // Define degrees and stages to test
+        let degrees = vec![21, 19];
+        let stages = vec![
+            // AblationStage::Base,
+            // AblationStage::Belady,
+            AblationStage::SliceableSubgraph,
+            AblationStage::HeuristicGraphScheduling,
+        ];
+
+        run_degrees_stages(
+            degrees,
+            stages,
+            "ablation",
+            "ablation_study_progress.json".into(),
+        );
     }
 
     fn progress_data() -> ProgressData {

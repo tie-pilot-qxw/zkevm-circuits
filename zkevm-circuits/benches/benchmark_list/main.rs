@@ -65,25 +65,26 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
     let config = driver::Config::default()
         .with_sliceable_subgraph_on(
             driver::SubgraphSlicingConfig::default()
-                .with_chunk_len(2u64.pow(16))
+                .with_chunk_len(2u64.pow((degree - 3).max(17)))
                 .with_minimum_order(10),
         )
         .with_scheduler_alg(driver::GraphSchedulingAlgorithm::KillAsap)
         .with_memory_planning(
             driver::MemoryPlanningConfig::default()
                 .with_smithereen_space(2u64.pow(28))
-                .with_gpu_allocator(driver::GpuAllocatorChoice::Slab)
+                .with_gpu_allocator(driver::GpuAllocatorChoice::Page(128 * 2u64.pow(20)))
                 .with_criterion(driver::CriterionChoice::Belady),
         )
         .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::Heuristic);
 
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(300 * 2u64.pow(30)))
-        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30)))
+    let cpu_capacity = (200 * 2u64.pow(degree - 19)).min(400);
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_capacity * 2u64.pow(30)))
+        .with_gpu(MemoryInfo::new(28 * 2u64.pow(30)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
 
     let record_log: bool = env::var("RECORD_LOG").is_ok_and(|x| x == "1");
 
-    let options = driver::DebugOptions::all("target/debug/transit".into())
+    let options = driver::DebugOptions::minimal("target/debug/transit".into())
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
         .with_log(true);
     options.prepare_dir();
@@ -122,6 +123,7 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
         .unwrap_or_else(|_| DEFAULT_BENCH_USEFILE);
     let rebuild: bool = env::var("REBUILD").is_ok_and(|x| x == "1");
     let trace_reference_run: bool = env::var("ASSERT").is_ok_and(|x| x == "1");
+    let dump: bool = env::var("dump").is_ok_and(|x| x == "1");
 
     println!(
         "{}/id:{}, max_num_row:{}, degree:{}, round:{}, use params file:{}, rebuild: {}, record runtime log: {}, trace reference run: {}",
@@ -173,6 +175,7 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
         record_log,
         trace_reference_run,
         kernel_dir,
+        dump,
     );
     end_timer!(run_and_verify_circuit_start);
 
@@ -299,6 +302,7 @@ pub fn run_circuit<
     record_log: bool,
     trace_reference_run: bool,
     kernel_dir: PathBuf,
+    dump: bool,
 ) -> (std::time::Duration, Option<Statistics>) {
     // get witness for benchmark
     let witness_msg = format!(
@@ -440,7 +444,9 @@ pub fn run_circuit<
                                 .unwrap()
                                 .fuse(0..1)
                                 .unwrap();
-                            pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
+                            if dump {
+                                pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
+                            }
                             pt2
                         };
 
@@ -452,7 +458,9 @@ pub fn run_circuit<
                         .to_artifect(kernel_dir)
                         .unwrap();
 
-                    artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
+                    if dump {
+                        artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
+                    }
                     artifect.finish(&mut constant_pool)
                 } else {
                     println!("[Test] Loading dumped artifect");
