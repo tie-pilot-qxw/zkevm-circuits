@@ -21,7 +21,12 @@ fn bench_super_circuit() {
 
     let chunk_data = &chunk_data_test(trace, &machine_code, &[], false, Default::default());
 
-    let degree = 21;
+    #[cfg(feature = "fast_test")]
+    let degree = 11;
+    #[cfg(not(feature = "fast_test"))]
+    let degree = std::env::var("K")
+        .map(|x| x.parse().unwrap_or_else(|_| panic!("invalid K")))
+        .unwrap_or(19);
 
     // run benchmark
     let (proof_time, statistics) =
@@ -180,7 +185,8 @@ mod ablation_study {
                 c.map_memory_planning(|c| c.with_criterion(driver::CriterionChoice::Belady))
             });
             updater.update_if(HeuristicGraphScheduling, |c| {
-                c.with_scheduler_alg(driver::GraphSchedulingAlgorithm::KillAsap)
+                // c.with_scheduler_alg(driver::GraphSchedulingAlgorithm::SethiUllman)
+                c
             });
             updater.update_if(SliceableSubgraph, |c| {
                 c.with_sliceable_subgraph_on(
@@ -217,6 +223,8 @@ mod ablation_study {
                 &options,
                 &self.config,
                 true,
+                true,
+                false,
                 kernel_dir,
             );
 
@@ -298,12 +306,12 @@ mod ablation_study {
     #[test]
     fn run_ablation_study() {
         // Define degrees and stages to test
-        let degrees = vec![21, 19];
+        let degrees = vec![19, 21];
         let stages = vec![
-            // AblationStage::Base,
-            // AblationStage::Belady,
-            AblationStage::SliceableSubgraph,
+            AblationStage::Base,
+            AblationStage::Belady,
             AblationStage::HeuristicGraphScheduling,
+            // AblationStage::SliceableSubgraph,
         ];
 
         run_degrees_stages(

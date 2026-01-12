@@ -63,31 +63,42 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
     degree: u32,
 ) -> (std::time::Duration, Option<Statistics>) {
     let config = driver::Config::default()
-        .with_sliceable_subgraph_on(
-            driver::SubgraphSlicingConfig::default()
-                .with_chunk_len(2u64.pow((degree - 3).max(17)))
-                .with_minimum_order(10),
+        .with_sliceable_subgraph(
+            // Some(
+            //     driver::SubgraphSlicingConfig::default()
+            //         .with_chunk_len(2u64.pow((degree - 2).min(18)))
+            //         .with_minimum_order(10),
+            // ),
+            None,
         )
-        .with_scheduler_alg(driver::GraphSchedulingAlgorithm::KillAsap)
+        // .with_scheduler_alg(driver::GraphSchedulingAlgorithm::SethiUllman)
         .with_memory_planning(
             driver::MemoryPlanningConfig::default()
-                .with_smithereen_space(2u64.pow(28))
-                .with_gpu_allocator(driver::GpuAllocatorChoice::Page(128 * 2u64.pow(20)))
+                .with_smithereen_space(2u64.pow(26))
+                // .with_gpu_allocator(driver::GpuAllocatorChoice::Page(2u64.pow(24)))
+                .with_gpu_allocator(driver::GpuAllocatorChoice::Slab)
                 .with_criterion(driver::CriterionChoice::Belady),
         )
+        // .with_constants_on_disk(false)
         .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::Heuristic);
 
-    let cpu_capacity = (200 * 2u64.pow(degree - 19)).min(400);
+    let cpu_capacity = if degree < 19 {
+        20
+    } else {
+        (200 * 2u64.pow(degree - 19)).min(250)
+    };
     let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_capacity * 2u64.pow(30)))
         .with_gpu(MemoryInfo::new(28 * 2u64.pow(30)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
 
-    let record_log: bool = env::var("RECORD_LOG").is_ok_and(|x| x == "1");
-
-    let options = driver::DebugOptions::minimal("target/debug/transit".into())
+    let options = driver::DebugOptions::none("target/debug/transit".into())
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
         .with_log(true);
     options.prepare_dir();
+
+    let rebuild: bool = env::var("REBUILD").is_ok_and(|x| x == "1");
+    let compile_only: bool = env::var("COMPILE_ONLY").is_ok_and(|x| x == "1");
+    let record_log: bool = env::var("RECORD_LOG").is_ok_and(|x| x == "1");
 
     run_benchmark_with_config::<MAX_NUM_ROW>(
         id,
@@ -96,7 +107,9 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
         &hd_info,
         &options,
         &config,
+        rebuild,
         record_log,
+        compile_only,
         PathBuf::from("target/kernels"),
     )
 }
@@ -108,7 +121,9 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
     hd_info: &driver::HardwareInfo,
     options: &driver::DebugOptions,
     config: &driver::Config,
+    rebuild: bool,
     record_log: bool,
+    compile_only: bool,
     kernel_dir: PathBuf,
 ) -> (std::time::Duration, Option<Statistics>) {
     // get round from environment variables
@@ -121,9 +136,9 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
     let bench_usefile: bool = usefile_val_str
         .parse()
         .unwrap_or_else(|_| DEFAULT_BENCH_USEFILE);
-    let rebuild: bool = env::var("REBUILD").is_ok_and(|x| x == "1");
     let trace_reference_run: bool = env::var("ASSERT").is_ok_and(|x| x == "1");
-    let dump: bool = env::var("dump").is_ok_and(|x| x == "1");
+    let dump: bool = env::var("DUMP").is_ok_and(|x| x == "1");
+    let print_inst: bool = env::var("PRINT_INST").is_ok_and(|x| x == "1");
 
     println!(
         "{}/id:{}, max_num_row:{}, degree:{}, round:{}, use params file:{}, rebuild: {}, record runtime log: {}, trace reference run: {}",
@@ -151,6 +166,10 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
     };
     end_timer!(get_proof_params_start);
 
+    println!(
+        "{}/id:{}, hardware info: {:#?}",
+        CIRCUIT_SUMMARY, id, hd_info
+    );
     println!("{}/id:{}, config: {:#?}", CIRCUIT_SUMMARY, id, config);
     println!(
         "{}/id:{}, debug_dir: {:?}, kernel_dir: {:?}",
@@ -176,6 +195,8 @@ pub fn run_benchmark_with_config<const MAX_NUM_ROW: usize>(
         trace_reference_run,
         kernel_dir,
         dump,
+        compile_only,
+        print_inst,
     );
     end_timer!(run_and_verify_circuit_start);
 
@@ -303,6 +324,8 @@ pub fn run_circuit<
     trace_reference_run: bool,
     kernel_dir: PathBuf,
     dump: bool,
+    compile_only: bool,
+    print_inst: bool,
 ) -> (std::time::Duration, Option<Statistics>) {
     // get witness for benchmark
     let witness_msg = format!(
@@ -478,6 +501,12 @@ pub fn run_circuit<
         handler.join().unwrap()
     });
 
+    constant_pool.cpu.shrink();
+
+    if compile_only {
+        return (std::time::Duration::ZERO, None);
+    }
+
     use halo2_proofs::zkpoly_runtime::transcript::TranscriptWriterBuffer;
     let instances = instance_refs
         .iter()
@@ -507,16 +536,22 @@ pub fn run_circuit<
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
             .with_serial_execution(false)
-            .with_print_instruction(true)
+            .with_print_instruction(print_inst)
             .with_record_time(record_log),
     );
-    let proof_time = log.total_time();
+    let proof_time = std::time::Duration::ZERO;
     end_timer!(dispatcher_start);
 
     if record_log {
         let mut waterfall_file =
             File::create(options.debug_dir().join("debug-statistics.html")).unwrap();
         log.waterfall().build(&mut waterfall_file).unwrap();
+
+        serde_json::to_writer(
+            std::fs::File::create("debug-statistics.json").expect("open log file"),
+            &log,
+        )
+        .unwrap();
     }
 
     let proof = r.unwrap().unwrap_transcript_move().take().finalize();

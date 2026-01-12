@@ -25,6 +25,7 @@ use crate::table::{
 };
 use crate::util::{Challenges, SubCircuit, SubCircuitConfig};
 use crate::witness::Witness;
+use ark_std::{end_timer, start_timer};
 use eth_types::Field;
 use halo2_proofs::circuit::{Layouter, SimpleFloorPlanner, Value};
 use halo2_proofs::plonk::{Circuit, ConstraintSystem, Error};
@@ -394,8 +395,10 @@ impl<
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
+        let begin = start_timer!(|| "SuperCircuit Synthesize");
         let challenges = config.challenges.values(&mut layouter);
         self.synthesize_sub(&config, &mut layouter, &challenges)?;
+        end_timer!(begin);
         Ok(())
     }
 }
