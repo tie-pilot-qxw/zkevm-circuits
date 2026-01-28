@@ -62,34 +62,39 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
     chunk_data: &ChunkData,
     degree: u32,
 ) -> (std::time::Duration, Option<Statistics>) {
-    let config = driver::Config::default()
-        .with_sliceable_subgraph(
-            // Some(
-            //     driver::SubgraphSlicingConfig::default()
-            //         .with_chunk_len(2u64.pow((degree - 2).min(18)))
-            //         .with_minimum_order(10),
-            // ),
-            None,
-        )
-        // .with_scheduler_alg(driver::GraphSchedulingAlgorithm::SethiUllman)
-        .with_memory_planning(
-            driver::MemoryPlanningConfig::default()
-                .with_smithereen_space(2u64.pow(26))
-                // .with_gpu_allocator(driver::GpuAllocatorChoice::Page(2u64.pow(24)))
-                .with_gpu_allocator(driver::GpuAllocatorChoice::Slab)
-                .with_criterion(driver::CriterionChoice::Belady),
-        )
-        // .with_constants_on_disk(false)
-        .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::Heuristic);
+    let gpu_capacity: u64 = env::var("GPU_CAPACITY")
+        .map(|s| s.parse().unwrap())
+        .unwrap_or(20);
 
     let cpu_capacity = if degree < 19 {
         20
     } else {
-        (200 * 2u64.pow(degree - 19)).min(250)
+        (250 * 2u64.pow(degree - 19)).min(500)
     };
     let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_capacity * 2u64.pow(30)))
-        .with_gpu(MemoryInfo::new(28 * 2u64.pow(30)))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))));
+        .with_gpu(MemoryInfo::new(gpu_capacity * 2u64.pow(30)))
+        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))));
+
+    let config = driver::Config::default()
+        .with_sliceable_subgraph(
+            Some(
+                driver::SubgraphSlicingConfig::default()
+                    .with_chunk_len(2u64.pow((degree - 2).min(18)))
+                    .with_minimum_order(10)
+                    .with_maximum_input_size(Some(hd_info.cpu().memory_limit() / 2)),
+            ),
+            // None,
+        )
+        .with_scheduler_alg(driver::GraphSchedulingAlgorithm::SethiUllman)
+        .with_memory_planning(
+            driver::MemoryPlanningConfig::default()
+                .with_smithereen_space(2u64.pow(26))
+                .with_gpu_allocator(driver::GpuAllocatorChoice::Page(2u64.pow(24)))
+                // .with_gpu_allocator(driver::GpuAllocatorChoice::Slab)
+                .with_criterion(driver::CriterionChoice::Belady),
+        )
+        .with_constants_on_disk(false)
+        .with_arith_graph_scheduler(driver::ArithGraphSchedulerChoice::Heuristic);
 
     let options = driver::DebugOptions::none("target/debug/transit".into())
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
@@ -539,7 +544,7 @@ pub fn run_circuit<
             .with_print_instruction(print_inst)
             .with_record_time(record_log),
     );
-    let proof_time = std::time::Duration::ZERO;
+    let proof_time = log.total_time();
     end_timer!(dispatcher_start);
 
     if record_log {
