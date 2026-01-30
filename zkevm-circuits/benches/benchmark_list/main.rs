@@ -9,7 +9,7 @@ pub static DEGREE: u32 = 21;
 mod call_trace;
 mod super_circuit;
 
-mod erc20;
+// mod erc20;
 mod init_proof_params;
 
 use std::env;
@@ -33,7 +33,7 @@ use halo2_proofs::zkpoly_compiler::driver;
 use halo2_proofs::zkpoly_compiler::driver::artifect::Pools;
 use halo2_proofs::zkpoly_compiler::driver::{DiskMemoryInfo, MemoryInfo};
 use halo2_proofs::zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
-use halo2_proofs::SerdeFormat;
+use halo2_proofs::{zkpoly_runtime, SerdeFormat};
 use rand_chacha::rand_core::OsRng;
 use zkevm_circuits::constant::{MAX_NUM_ROW, NUM_STATE_HI_COL, NUM_STATE_LO_COL};
 use zkevm_circuits::super_circuit::SuperCircuit;
@@ -300,13 +300,12 @@ fn run_circuit<
     type E = halo2_proofs::zkpoly_runtime::transcript::Challenge255<G1Affine>;
     type Tr = halo2_proofs::zkpoly_runtime::transcript::Blake2bWrite<Vec<u8>, G1Affine, E>;
 
-    let options = driver::DebugOptions::minimal(PathBuf::from("target/debug/transit"))
+    let options = driver::DebugOptions::none(PathBuf::from("target/debug/transit"))
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape)
         .with_log(true);
-    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(300 * 2u64.pow(30), 2u64.pow(28)))
-        .with_gpu(MemoryInfo::new(26 * 2u64.pow(30), 2u64.pow(28)))
+    let hd_info = driver::HardwareInfo::new(MemoryInfo::new(500 * 2u64.pow(30), 2u64.pow(28)))
+        .with_gpu(MemoryInfo::new(20 * 2u64.pow(30), 2u64.pow(28)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))))
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data/tmp"))))
         .with_page_size(16 * 2u64.pow(20));
 
     let disk_constant_allocator = hd_info.disk_allocator(16 * 2usize.pow(30));
@@ -367,7 +366,7 @@ fn run_circuit<
                             .unwrap()
                             .fuse(&options, &hd_info, 0..1, &pjh)
                             .unwrap();
-                        pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
+                        // pt2.dump(&processed_type2_dir, &mut constant_pool).unwrap();
                         pt2
                     };
 
@@ -379,7 +378,7 @@ fn run_circuit<
                         .to_artifect(&options, &hd_info, "target/kernels".into())
                         .unwrap();
 
-                    artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
+                    // artifect.dump(&artifect_dir, &mut constant_pool).unwrap();
                     artifect.finish(&mut constant_pool)
                 } else {
                     fresh_type2
@@ -424,17 +423,20 @@ fn run_circuit<
     let ((r, log, _), _) = runtime.run(
         &mut inputs,
         halo2_proofs::zkpoly_runtime::runtime::RuntimeDebug::none()
-            .with_serial_execution(true)
-            .with_print_instruction(true)
+            .with_serial_execution(false)
+            .with_print_instruction(false)
             .with_record_time(true),
     );
     end_timer!(dispatcher_start);
 
-    let mut log_file = File::create("debug-statistics.json").unwrap();
-    serde_json::to_writer_pretty(&mut log_file, &log).unwrap();
+    // let mut log_file = File::create("debug-statistics.json").unwrap();
+    // serde_json::to_writer_pretty(&mut log_file, &log).unwrap();
 
-    let mut waterfall_file = File::create("debug-statistics.html").unwrap();
-    log.waterfall().build(&mut waterfall_file).unwrap();
+    // let mut waterfall_file = File::create("debug-statistics.html").unwrap();
+    // log.waterfall().build(&mut waterfall_file).unwrap();
+
+    println!("Runtime Statistics:");
+    zkpoly_runtime::debug::statistics::print_categories(&log);
 
     let proof = r.unwrap().unwrap_transcript_move().take().finalize();
 
