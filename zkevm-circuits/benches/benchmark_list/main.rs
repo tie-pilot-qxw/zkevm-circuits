@@ -74,6 +74,8 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
     let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_capacity * 2u64.pow(30)))
         .with_gpu(MemoryInfo::new(gpu_capacity * 2u64.pow(30)))
         .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/tmp"))));
+    let no_rotation_fusion = env::var("SLICEABLE_SUBGRAPH_NO_ROTATION")
+        .is_ok_and(|value| value == "1");
 
     let config = driver::Config::default()
         .with_sliceable_subgraph(
@@ -81,6 +83,7 @@ pub fn run_benchmark<const MAX_NUM_ROW: usize>(
                 driver::SubgraphSlicingConfig::default()
                     .with_chunk_len(2u64.pow((degree - 2).min(18)))
                     .with_minimum_order(10)
+                    .with_rotation_fusion(!no_rotation_fusion)
                     .with_maximum_input_size(Some(hd_info.cpu().memory_limit() / 2)),
             ),
             // None,
