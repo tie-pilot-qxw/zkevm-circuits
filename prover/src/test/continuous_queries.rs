@@ -171,8 +171,11 @@ mod test {
     type BatchWorkers = worker_pool::WorkerPool<Vec<ChunkProof>, BatchProof>;
 
     mod adapter {
+        use std::sync::Mutex;
+
         use super::*;
         pub struct Adapter {
+            wait: Arc<Mutex<usize>>,
             handle: std::thread::JoinHandle<()>,
         }
 
@@ -184,6 +187,9 @@ mod test {
                 let chunk_receiver = chunk_workers.receiver.clone();
                 let batch_publisher = batch_workers.publisher.clone();
 
+                let wait = Arc::new(Mutex::new(1));
+                let wait_clone = wait.clone();
+
                 let handle = std::thread::spawn(move || {
                     let mut buffer = Vec::new();
                     let mut counter = 0;
@@ -193,14 +199,16 @@ mod test {
                             Ok(chunk_proof) => {
                                 buffer.push(chunk_proof);
 
-                                if buffer.len() == 1 {
-                                    batch_publisher
-                                        .send(worker_pool::Message {
-                                            id: counter,
-                                            data: std::mem::take(&mut buffer),
-                                        })
-                                        .expect("send batch of ChunkProof failure");
-                                    counter += 1;
+                                if buffer.len() == *wait_clone.lock().unwrap() {
+                                    for chunk in std::mem::take(&mut buffer) {
+                                        batch_publisher
+                                            .send(worker_pool::Message {
+                                                id: counter,
+                                                data: vec![chunk],
+                                            })
+                                            .expect("send batch of ChunkProof failure");
+                                        counter += 1;
+                                    }
                                 }
                             }
                             Err(err) => {
@@ -210,11 +218,15 @@ mod test {
                     }
                 });
 
-                Self { handle }
+                Self { handle, wait }
             }
 
             pub fn shutdown(self) {
                 self.handle.join().expect("join handle error");
+            }
+
+            pub fn set_wait(&self, n: usize) {
+                *self.wait.lock().unwrap() = n;
             }
         }
     }
@@ -239,6 +251,8 @@ mod test {
         end_timer!(begin_warmup);
 
         let mut rng = rand_core::OsRng;
+
+        adapter.set_wait(rounds);
 
         let begin_rounds = start_timer!(|| format!("Generate proof for {} rounds", rounds));
         for i in 0..rounds {
@@ -265,11 +279,31 @@ mod test {
 
     #[test]
     fn test_continuous_queries() {
+        let n_gpu = std::env::var("CONTINUOUS_QUERIES_GPU_COUNT")
+            .ok()
+            .map(|value| {
+                value
+                    .parse()
+                    .expect("CONTINUOUS_QUERIES_GPU_COUNT must be an integer")
+            })
+            .unwrap_or(4);
+        assert!(n_gpu > 0, "CONTINUOUS_QUERIES_GPU_COUNT must be positive");
+
+        let cpu_mem_gib = std::env::var("CONTINUOUS_QUERIES_CPU_MEMORY_GIB")
+            .ok()
+            .map(|value| {
+                value
+                    .parse()
+                    .expect("CONTINUOUS_QUERIES_CPU_MEMORY_GIB must be an integer")
+            })
+            .unwrap_or(200 * n_gpu as u64);
+        println!("continuous query configuration: {n_gpu} GPU(s), {cpu_mem_gib} GiB CPU memory");
+
         let (jit, scheduler_handle) =
-            super::super::create_all_file::make_jit(480 * 2u64.pow(30), 4);
+            super::super::create_all_file::make_jit(cpu_mem_gib * 2u64.pow(30), n_gpu);
         let chunk_prover = ChunkProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.clone()));
         let batch_prover = BatchProver::load(PARAMS_DIR, ASSETS_DIR, Some(jit.alternative_rt()));
-        start_queries(chunk_prover, batch_prover, 4);
+        start_queries(chunk_prover, batch_prover, n_gpu);
         scheduler_handle.shutdown();
     }
 

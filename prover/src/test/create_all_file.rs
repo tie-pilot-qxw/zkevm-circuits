@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::env;
 use std::fs;
 use std::fs::{rename, File};
 use std::io::{BufReader, Write};
@@ -68,16 +69,38 @@ pub fn make_jit<C: Circuit<Fr>>(
     n_gpu: usize,
 ) -> (snark_verifier_sdk::halo2::Jit<C>, jit::SchedulerHandle) {
     use zkpoly_compiler::driver;
-    let options = driver::DebugOptions::all(PathBuf::from("target/debug/transit"))
+
+    assert!(n_gpu > 0, "n_gpu must be positive");
+    assert_eq!(cpu_mem % n_gpu as u64, 0, "CPU memory must divide evenly");
+    let artifact_cpu_memory = cpu_mem / n_gpu as u64;
+    println!(
+        "FIFO JIT configuration: {n_gpu} GPUs, {} GiB DRAM per artifact",
+        artifact_cpu_memory / 2u64.pow(30)
+    );
+
+    let options = driver::DebugOptions::none(PathBuf::from("target/debug/transit"))
         .with_log(true)
         .with_type2_visualizer(driver::Type2DebugVisualizer::Cytoscape);
+
+    // A100-40GB leaves a few GiB for CUDA/runtime allocations.  This can be
+    // overridden when running on a machine with a different usable capacity.
+    let gpu_mem_gib = env::var("ZKPOLY_GPU_MEMORY_GIB")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .expect("ZKPOLY_GPU_MEMORY_GIB must be an integer")
+        })
+        .unwrap_or(36);
 
     let hd_info = driver::HardwareInfo::new(MemoryInfo::new(cpu_mem));
     let hd_info = (0..n_gpu)
         .fold(hd_info, |hd_info, _| {
-            hd_info.with_gpu(MemoryInfo::new(36 * 2u64.pow(30)))
+            hd_info.with_gpu(MemoryInfo::new(gpu_mem_gib * 2u64.pow(30)))
         })
-        .with_disk(DiskMemoryInfo::new(Some(PathBuf::from("/data1"))));
+        .with_disk(
+            driver::DiskMemoryInfo::new(Some(PathBuf::from("/workspace/tmp"))).compat_mode(),
+        );
     let constant_pool = driver::ConstantPool::with_disk(
         CpuMemoryPool::new(32, std::mem::size_of::<u32>()),
         hd_info.disk_allocator(2usize.pow(33)),
@@ -89,19 +112,26 @@ pub fn make_jit<C: Circuit<Fr>>(
         JitConfig::new(artifect_dir.into())
             .with_debug_options(options)
             .with_force_rebuild(true)
-            .with_artifect_versions_cpu_memory_divisions(vec![n_gpu.ilog2()])
+            .with_artifect_versions_cpu_memory_divisions(vec![n_gpu as u32])
             .with_compiler_config(
                 driver::Config::default()
                     .with_sliceable_subgraph_on(
                         driver::SubgraphSlicingConfig::default()
-                            .with_chunk_len(2u64.pow(16))
-                            .with_minimum_order(10),
+                            .with_chunk_len(2u64.pow(19 - 2))
+                            .with_minimum_order(10)
+                            .with_maximum_input_size(Some(hd_info.cpu().memory_limit() / 2)),
                     )
                     .with_memory_planning(
-                        driver::MemoryPlanningConfig::default().with_smithereen_space(2u64.pow(28)),
-                    ),
+                        driver::MemoryPlanningConfig::default()
+                            .with_smithereen_space(2u64.pow(26))
+                            .with_gpu_allocator(driver::GpuAllocatorChoice::Page(2u64.pow(24))),
+                    )
+                    .with_constants_on_disk(false),
             ),
-        SchedulerConfig::default().with_runtime_debug(RuntimeDebug::none()),
+        SchedulerConfig::default()
+            .with_num_executors(n_gpu)
+            .with_scheduling_policy(jit::SchedulingPolicy::Fifo)
+            .with_runtime_debug(RuntimeDebug::none().with_record_time(true)),
         hd_info.disk_allocator(2usize.pow(33)),
         constant_pool,
         hd_info.clone(),
